@@ -9,24 +9,64 @@ router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 @router.get("", response_model=List[ProfileResponse])
 def list_profiles(db: Session = Depends(get_db)):
+    """
+    Lista todos los perfiles activos del sistema.
+    
+    Returns:
+        Lista de perfiles activos
+    """
     profiles = db.query(Profile).filter(Profile.active == True).all()
     return profiles
 
 @router.post("", response_model=ProfileResponse, status_code=201)
 def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
+    """
+    Crea un nuevo perfil de negocio.
+    
+    Args:
+        - profile: Datos del perfil a crear
+        
+    Returns:
+        Perfil creado
+        
+    Raises:
+        - 400: Si el slug ya existe (debe ser único)
+    """
     existing = db.query(Profile).filter(Profile.slug == profile.slug).first()
     if existing:
-        raise HTTPException(status_code=400, detail="El slug ya existe")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ya existe un perfil con el slug '{profile.slug}'"
+        )
     
-    db_profile = Profile(**profile.model_dump())
-    db.add(db_profile)
-    db.commit()
-    db.refresh(db_profile)
-    return db_profile
+    try:
+        db_profile = Profile(**profile.model_dump())
+        db.add(db_profile)
+        db.commit()
+        db.refresh(db_profile)
+        return db_profile
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear perfil: {str(e)}")
 
 @router.get("/{profile_id}", response_model=ProfileResponse)
 def get_profile(profile_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene un perfil por su ID.
+    
+    Args:
+        - profile_id: ID del perfil
+        
+    Returns:
+        Perfil solicitado
+        
+    Raises:
+        - 404: Si el perfil no existe
+    """
     profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not profile:
-        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"El perfil con ID {profile_id} no fue encontrado"
+        )
     return profile

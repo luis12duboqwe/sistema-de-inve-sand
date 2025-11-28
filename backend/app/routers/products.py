@@ -10,10 +10,25 @@ router = APIRouter(prefix="/api/products", tags=["products"])
 
 @router.get("", response_model=List[ProductResponse])
 def list_products(
-    profile_slug: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
+    search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
     db: Session = Depends(get_db)
 ):
+    """
+    Lista todos los productos activos con stock disponible.
+    
+    Siempre incluye el campo `stock_disponible` calculado desde la tabla stock.
+    
+    Args:
+        - profile_slug: Filtro opcional por perfil
+        - search: Término de búsqueda opcional (busca en nombre, marca y modelo)
+    
+    Returns:
+        Lista de productos con stock disponible
+        
+    Raises:
+        - 404: Si el profile_slug especificado no existe
+    """
     query = db.query(Product).join(Stock).filter(
         Product.activo == True,
         Stock.cantidad_disponible > 0
@@ -22,7 +37,10 @@ def list_products(
     if profile_slug:
         profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
         if not profile:
-            raise HTTPException(status_code=404, detail="Perfil no encontrado")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"El perfil con slug '{profile_slug}' no fue encontrado"
+            )
         query = query.filter(Product.profile_id == profile.id)
     
     if search:
@@ -57,49 +75,89 @@ def list_products(
 
 @router.post("", response_model=ProductResponse, status_code=201)
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+    """
+    Crea un nuevo producto con stock inicial.
+    
+    Args:
+        - product: Datos del producto a crear
+        
+    Returns:
+        Producto creado con stock_disponible
+        
+    Raises:
+        - 404: Si el profile_id no existe
+        - 400: Si el SKU ya existe en la base de datos
+    """
     profile = db.query(Profile).filter(Profile.id == product.profile_id).first()
     if not profile:
-        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"El perfil con ID {product.profile_id} no fue encontrado"
+        )
     
     existing = db.query(Product).filter(Product.sku == product.sku).first()
     if existing:
-        raise HTTPException(status_code=400, detail="El SKU ya existe")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ya existe un producto con el SKU '{product.sku}'"
+        )
     
     if product.categoria == "celular" and product.garantia_meses == 0:
         product.garantia_meses = 2
     
-    product_data = product.model_dump()
-    cantidad_inicial = product_data.pop("cantidad_inicial", 0)
-    
-    db_product = Product(**product_data)
-    db.add(db_product)
-    db.flush()
-    
-    db_stock = Stock(product_id=db_product.id, cantidad_disponible=cantidad_inicial)
-    db.add(db_stock)
-    
-    db.commit()
-    db.refresh(db_product)
-    
-    return ProductResponse(
-        id=db_product.id,
-        nombre=db_product.nombre,
-        categoria=db_product.categoria,
-        marca=db_product.marca,
-        modelo=db_product.modelo,
-        capacidad=db_product.capacidad,
-        condicion=db_product.condicion,
-        precio=db_product.precio,
-        moneda=db_product.moneda,
-        garantia_meses=db_product.garantia_meses,
-        stock_disponible=db_stock.cantidad_disponible
-    )
+    try:
+        product_data = product.model_dump()
+        cantidad_inicial = product_data.pop("cantidad_inicial", 0)
+        
+        db_product = Product(**product_data)
+        db.add(db_product)
+        db.flush()
+        
+        db_stock = Stock(product_id=db_product.id, cantidad_disponible=cantidad_inicial)
+        db.add(db_stock)
+        
+        db.commit()
+        db.refresh(db_product)
+        
+        return ProductResponse(
+            id=db_product.id,
+            nombre=db_product.nombre,
+            categoria=db_product.categoria,
+            marca=db_product.marca,
+            modelo=db_product.modelo,
+            capacidad=db_product.capacidad,
+            condicion=db_product.condicion,
+            precio=db_product.precio,
+            moneda=db_product.moneda,
+            garantia_meses=db_product.garantia_meses,
+            stock_disponible=db_stock.cantidad_disponible
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
 
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(product_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene un producto por su ID.
+    
+    Incluye el campo stock_disponible calculado desde la tabla stock.
+    
+    Args:
+        - product_id: ID del producto
+        
+    Returns:
+        Producto con stock_disponible
+        
+    Raises:
+        - 404: Si el producto no existe
+    """
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"El producto con ID {product_id} no fue encontrado"
+        )
     
     return ProductResponse(
         id=product.id,

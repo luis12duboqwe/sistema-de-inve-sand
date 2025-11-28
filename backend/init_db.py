@@ -1,57 +1,45 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db, get_db
-from app.routers import profiles, products, orders
-from app.models import Profile, Product, Stock
-from sqlalchemy.orm import Session
+"""
+Script de inicialización de la base de datos.
 
-app = FastAPI(
-    title="Sistema de Inventario API",
-    description="API REST para gestión de inventario de celulares y accesorios",
-    version="1.0.0"
-)
+Este script crea las tablas necesarias y opcionalmente puebla la base de datos
+con datos de ejemplo para testing.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+Uso:
+    python init_db.py              # Solo crea las tablas
+    python init_db.py --with-data  # Crea las tablas y datos de ejemplo
+"""
 
-app.include_router(profiles.router)
-app.include_router(products.router)
-app.include_router(orders.router)
+import sys
+import argparse
+from app.database import engine, SessionLocal
+from app.models import Base, Profile, Product, Stock
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
 
-@app.get("/")
-def read_root():
-    return {
-        "message": "Sistema de Inventario API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
+def init_database():
+    """Crea todas las tablas en la base de datos."""
+    print("Creando tablas en la base de datos...")
+    Base.metadata.create_all(bind=engine)
+    print("✓ Tablas creadas exitosamente")
 
-@app.post("/api/init-data", tags=["Inicialización"])
-def initialize_sample_data(db: Session = Depends(get_db)):
+
+def insert_sample_data():
     """
-    Inicializa datos de ejemplo en la base de datos.
+    Inserta datos de ejemplo en la base de datos.
     
-    Crea un perfil "Softmobile" con productos de ejemplo si no existen.
-    Es idempotente: si ya existen datos, no los duplica.
-    
-    Returns:
-        - message: Mensaje de confirmación
-        - profile: Información del perfil creado
-        - products_created: Número de productos inicializados
+    Crea:
+    - 1 perfil: Softmobile
+    - 4 productos: 2 celulares y 2 accesorios
+    - Stock inicial para cada producto
     """
+    db = SessionLocal()
+    
     try:
         existing_profile = db.query(Profile).filter(Profile.slug == "softmobile").first()
         if existing_profile:
-            return {"message": "Los datos de ejemplo ya existen"}
+            print("⚠ Los datos de ejemplo ya existen. Saltando inserción...")
+            return
+        
+        print("\nInsertando datos de ejemplo...")
         
         profile = Profile(
             name="Softmobile",
@@ -60,6 +48,7 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         )
         db.add(profile)
         db.flush()
+        print(f"✓ Perfil creado: {profile.name} (slug: {profile.slug})")
         
         products_data = [
             {
@@ -112,6 +101,7 @@ def initialize_sample_data(db: Session = Depends(get_db)):
             }
         ]
         
+        print("\nCreando productos:")
         for product_data in products_data:
             stock_qty = product_data.pop("stock")
             
@@ -129,27 +119,53 @@ def initialize_sample_data(db: Session = Depends(get_db)):
                 cantidad_disponible=stock_qty
             )
             db.add(stock)
+            
+            print(f"  ✓ {product.nombre} - Stock: {stock_qty} unidades")
         
         db.commit()
+        print(f"\n✓ {len(products_data)} productos creados exitosamente")
+        print("\n" + "="*60)
+        print("Base de datos inicializada con éxito!")
+        print("="*60)
+        print("\nPuedes probar la API en: http://localhost:8000/docs")
+        print(f"Perfil de prueba: {profile.slug}")
+        print("="*60)
         
-        return {
-            "message": "Datos de ejemplo inicializados correctamente",
-            "profile": {
-                "name": profile.name,
-                "slug": profile.slug
-            },
-            "products_created": len(products_data)
-        }
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al inicializar datos: {str(e)}")
+        print(f"\n✗ Error al insertar datos: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        db.close()
 
-@app.get("/api/health", tags=["Health"])
-def health_check():
-    """
-    Verifica el estado de salud de la API.
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Inicializa la base de datos del sistema de inventario"
+    )
+    parser.add_argument(
+        "--with-data",
+        action="store_true",
+        help="Inserta datos de ejemplo además de crear las tablas"
+    )
     
-    Returns:
-        - status: Estado del servicio (healthy)
-    """
-    return {"status": "healthy"}
+    args = parser.parse_args()
+    
+    print("="*60)
+    print("INICIALIZACIÓN DE BASE DE DATOS")
+    print("="*60)
+    
+    init_database()
+    
+    if args.with_data:
+        insert_sample_data()
+    else:
+        print("\nPara insertar datos de ejemplo, ejecuta:")
+        print("  python init_db.py --with-data")
+        print("\nO usa el endpoint POST /api/init-data")
+    
+    print()
+
+
+if __name__ == "__main__":
+    main()
