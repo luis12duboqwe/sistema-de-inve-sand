@@ -31,7 +31,7 @@ import {
   initialOrderItems
 } from '@/lib/initialData'
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
-import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear, Download, Database, CloudArrowUp, Keyboard } from '@phosphor-icons/react'
+import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear, Download, Database, CloudArrowUp, Keyboard, SortAscending } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
@@ -61,6 +61,7 @@ function App() {
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [useApi, setUseApi] = useState<boolean>(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<string>('none')
 
   useEffect(() => {
     const checkApiStatus = async () => {
@@ -116,7 +117,7 @@ function App() {
     if (!isLoading) {
       loadProducts()
     }
-  }, [selectedProfile, searchTerm, selectedCategory, showInactive, minPrice, maxPrice, selectedWarranty, isLoading])
+  }, [selectedProfile, searchTerm, selectedCategory, showInactive, minPrice, maxPrice, selectedWarranty, sortBy, isLoading])
 
   useEffect(() => {
     if (!isLoading && activeTab === 'orders') {
@@ -177,6 +178,23 @@ function App() {
         if (!isNaN(warranty)) {
           productsList = productsList.filter(p => p.garantia_meses === warranty)
         }
+      }
+
+      if (sortBy !== 'none') {
+        productsList = [...productsList].sort((a, b) => {
+          switch (sortBy) {
+            case 'price-asc':
+              return a.precio - b.precio
+            case 'price-desc':
+              return b.precio - a.precio
+            case 'name-asc':
+              return a.nombre.localeCompare(b.nombre)
+            case 'name-desc':
+              return b.nombre.localeCompare(a.nombre)
+            default:
+              return 0
+          }
+        })
       }
 
       setProducts(productsList)
@@ -535,6 +553,29 @@ function App() {
                     <SelectItem value="3">3 meses</SelectItem>
                     <SelectItem value="6">6 meses</SelectItem>
                     <SelectItem value="12">12 meses</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-full md:w-52">
+                    <SelectValue>
+                      <div className="flex items-center gap-2">
+                        <SortAscending size={16} />
+                        <span>
+                          {sortBy === 'none' && 'Ordenar por'}
+                          {sortBy === 'price-asc' && 'Precio: Menor a Mayor'}
+                          {sortBy === 'price-desc' && 'Precio: Mayor a Menor'}
+                          {sortBy === 'name-asc' && 'Nombre: A - Z'}
+                          {sortBy === 'name-desc' && 'Nombre: Z - A'}
+                        </span>
+                      </div>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin ordenar</SelectItem>
+                    <SelectItem value="price-asc">Precio: Menor a Mayor</SelectItem>
+                    <SelectItem value="price-desc">Precio: Mayor a Menor</SelectItem>
+                    <SelectItem value="name-asc">Nombre: A - Z</SelectItem>
+                    <SelectItem value="name-desc">Nombre: Z - A</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
