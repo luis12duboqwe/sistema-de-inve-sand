@@ -30,103 +30,103 @@ export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit 
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<Order['canal']>('whatsapp')
-  const [metodoPago, setMetodoPago] = useState<Order['metodo_pago']>('efectivo')
   const [items, setItems] = useState<Array<{
-    id?: number
     product_id: number
-    cantidad: number
   }>>([])
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
     if (order) {
-      setCustomerName(order.customer_name)
-      setCustomerPhone(order.customer_phone)
-      setCanal(order.canal)
+      set
       setMetodoPago(order.metodo_pago)
-      setItems(order.items.map(item => ({
-        id: item.id,
-        product_id: item.product_id,
-        cantidad: item.cantidad
-      })))
-    }
-  }, [order])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+        cantidad: i
+    }
+
     e.preventDefault()
-    
-    if (!customerName.trim() || !customerPhone.trim()) {
-      return
+    if (!customerName.trim(
     }
-
     if (items.length === 0) {
-      return
     }
-
     setIsSubmitting(true)
-    try {
-      await onSubmit(order.id, {
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
-        canal,
-        metodo_pago: metodoPago,
-        items
+      await onSubmit(order.id, 
+        cu
+     
       })
-      onOpenChange(false)
-    } catch (error) {
-      console.error('Error updating order:', error)
+
     } finally {
-      setIsSubmitting(false)
     }
-  }
 
-  const addItem = () => {
     const availableProduct = products.find(p => 
-      !items.some(item => item.product_id === p.id) && p.stock_disponible > 0
     )
-    
-    if (availableProduct) {
-      setItems([...items, { product_id: availableProduct.id, cantidad: 1 }])
-    }
-  }
+    i
 
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index))
-  }
 
-  const updateItemProduct = (index: number, productId: number) => {
-    const newItems = [...items]
-    newItems[index] = { ...newItems[index], product_id: productId, cantidad: 1 }
+    setItems
+
+
     setItems(newItems)
-  }
 
-  const updateItemQuantity = (index: number, cantidad: number) => {
     const newItems = [...items]
-    newItems[index] = { ...newItems[index], cantidad }
     setItems(newItems)
-  }
 
-  const calculateTotal = () => {
-    return items.reduce((sum, item) => {
-      const product = products.find(p => p.id === item.product_id)
-      return sum + (product?.precio || 0) * item.cantidad
-    }, 0)
+    return ite
+      return sum + (product?.pre
   }
-
-  const getAvailableProducts = (currentProductId?: number) => {
-    return products.filter(p => {
-      if (p.id === currentProductId) return true
-      const isAlreadySelected = items.some(item => item.product_id === p.id)
-      return !isAlreadySelected && p.stock_disponible > 0
-    })
+  const 
+      if (p.id === curren
+      return !isAlrea
   }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar Orden #{order.id}</DialogTitle>
-        </DialogHeader>
+      <DialogContent classNa
+     
+
+
+              <Label html
+                id="edit-customer-name"
+                onChange={(e) => setCustomerName(e.target.value)}
+     
+    
+            <div className=
+              <Input
+     
+   
+
+
+              <Label htmlFor="edit-canal">Canal</
+   
+
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem
+                  <SelectItem v
+              </Select>
+
+   
+
+                </SelectTrigger>
+                  <SelectItem v
+                  <SelectItem value="tarjeta">Tarjeta<
+                </Sele
+   
+
+            <div className="flex
+              <Button
+                variant="outline"
+                onClick={addItem}
+         
+   
+
+            {items.length === 0 ? (
+                <p className="tex
+                </p>
+            ) : (
+                {items.map((item, index) => {
+      
+   
+
+          
+                      <div className="flex-1 space-y
+                          <Label className="text-xs">Producto</Label>
+                      
+                          >
+                       
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -233,7 +233,7 @@ export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit 
                               ))}
                             </SelectContent>
                           </Select>
-                        </div>
+
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-2">
@@ -259,48 +259,48 @@ export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit 
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeItem(index)}
-                        className="mt-6"
-                      >
-                        <Trash size={18} />
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
 
-          <div className="flex items-center justify-between pt-4 border-t">
-            <div>
-              <p className="text-sm text-muted-foreground">Total de la Orden</p>
-              <p className="text-2xl font-bold text-primary">
-                HNL {calculateTotal().toLocaleString()}
-              </p>
-            </div>
-          </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting || items.length === 0}>
-              {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
