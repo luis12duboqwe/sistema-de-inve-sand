@@ -1,80 +1,81 @@
 import { useState, useEffect } from 'react'
-  Dialog
-  DialogH
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogFooter
-import { Button
-import { Label
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
   Select,
+  SelectContent,
   SelectItem,
+  SelectTrigger,
   SelectValue
-import { Plus, Trash } from '@phosphor-icons/
-import { toast } from 'sonner'
-interfac
-  onOpenC
-  products: Prod
-    customer_
-    canal: Order
-    items: {
-      cantidad: number
+} from '@/components/ui/select'
 import { Plus, Trash } from '@phosphor-icons/react'
-interface OrderItemForm {
-  cantidad: number
+import { toast } from 'sonner'
+import type { OrderWithItems, ProductWithStock } from '@/lib/types'
+import { validatePhoneNumber } from '@/lib/phoneValidator'
 
+interface EditOrderDialogProps {
+  open: boolean
+  order: OrderWithItems
+  products: ProductWithStock[]
+  onOpenChange: (open: boolean) => void
+  onSubmit: (orderId: number, updates: {
+    customer_name: string
+    customer_phone: string
+    canal: OrderWithItems['canal']
+    metodo_pago: OrderWithItems['metodo_pago']
+    items: {
+      product_id: number
+      cantidad: number
+    }[]
+  }) => Promise<void>
+}
+
+interface OrderItemForm {
+  product_id: number
+  cantidad: number
+}
+
+export function EditOrderDialog({
   open,
   order,
+  products,
+  onOpenChange,
   onSubmit
-  const [customerName, 
-  const [canal, setCanal] = us
-  const [items, setItems] = useState<Ord
-      product_id: item.pr
-    }))
-  const [isSubmitting, se
-  useEffect(() => {
-    items: {
-      setCanal(order.can
-      setItems(
-    }[]
-        }))
- 
-
-    setItems([...items, {
-  const removeItem =
-  }
- 
-
-  }
-  const
-    newItems[in
-  }
-  const get
-      if (
-      const availableStock
-    })
-
-    return items.reduce((total, item) => {
-      if (!product) return total
+}: EditOrderDialogProps) {
+  const [customerName, setCustomerName] = useState(order.customer_name)
+  const [customerPhone, setCustomerPhone] = useState(order.customer_phone)
+  const [canal, setCanal] = useState<OrderWithItems['canal']>(order.canal)
+  const [metodoPago, setMetodoPago] = useState<OrderWithItems['metodo_pago']>(order.metodo_pago)
   const [items, setItems] = useState<OrderItemForm[]>(
     order.items.map(item => ({
       product_id: item.product_id,
       cantidad: item.cantidad
     }))
   )
-      toast.error('Por favor ingresa el nombre del client
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-    if (!customerPh
-      return
-
-    if (validItems.length === 0) {
-      return
-
+  useEffect(() => {
+    if (open) {
+      setCustomerName(order.customer_name)
+      setCustomerPhone(order.customer_phone)
+      setCanal(order.canal)
+      setMetodoPago(order.metodo_pago)
       setItems(
         order.items.map(item => ({
           product_id: item.product_id,
           cantidad: item.cantidad
         }))
       )
-    s
-      await o
+    }
+  }, [open, order])
 
   const addItem = () => {
     setItems([...items, { product_id: 0, cantidad: 1 }])
@@ -113,213 +114,195 @@ interface OrderItemForm {
     }, 0)
   }
 
-                onChange={(e) => setCustomerPhone(e.ta
-              />
+  const handleSubmit = async () => {
+    if (!customerName.trim()) {
+      toast.error('Por favor ingresa el nombre del cliente')
+      return
+    }
 
-          <div className="grid 
-              <Label htmlFor="edit-canal">Canal</Label>
-            
-     
+    const phoneValidation = validatePhoneNumber(customerPhone)
+    if (!phoneValidation.valid) {
+      toast.error(phoneValidation.error || 'El teléfono del cliente es inválido')
+      return
+    }
 
-                  <SelectItem va
-              </Select>
+    const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
+    if (validItems.length === 0) {
+      toast.error('Por favor agrega al menos un producto a la orden')
+      return
+    }
 
-     
+    for (const item of validItems) {
+      const product = products.find(p => p.id === item.product_id)
+      if (!product) continue
+      
+      const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+      const originalQuantity = originalItem?.cantidad || 0
+      const maxAvailable = product.stock_disponible + originalQuantity
 
-              >
-                  <SelectValue />
-                <SelectContent>
-            
-     
+      if (item.cantidad > maxAvailable) {
+        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${maxAvailable}`)
+        return
+      }
+    }
 
-          </div>
-          <div className="space-y-2">
-                <Plus size={16} className="mr-1" />
-              </Button>
-      const maxAvailable = (product?.stock_disponible || 0) + originalQuantity
-
-                <Button type="button" var
-        toast.error(`Stock insuficiente para ${product?.nombre}. Disponible: ${maxAvailable}`)
-              
-       
-     
-
-
-         
-                        <Label c
-                          value={ite
-                        >
-              
-                          <Selec
-                         
-        
+    setIsSubmitting(true)
+    try {
+      await onSubmit(order.id, {
+        customer_name: customerName,
+        customer_phone: phoneValidation.phone,
+        canal,
+        metodo_pago: metodoPago,
+        items: validItems
+      })
       onOpenChange(false)
-                     
-
-                        <Label className="text-sm
+    } catch (error) {
+      console.error('Error updating order:', error)
     } finally {
-                          mi
-     
-   
+      setIsSubmitting(false)
+    }
+  }
 
-          
-        </DialogFooter>
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        <DialogHeader>
+          <DialogTitle>Editar Orden #{order.id}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-customer-name">Nombre del Cliente</Label>
+              <Input
+                id="edit-customer-name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Juan Pérez"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-customer-phone">Teléfono</Label>
+              <Input
+                id="edit-customer-phone"
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                placeholder="+504 9999-9999"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-canal">Canal</Label>
+              <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
+                <SelectTrigger id="edit-canal">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  <SelectItem value="facebook">Facebook</SelectItem>
+                  <SelectItem value="instagram">Instagram</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-metodo-pago">Método de Pago</Label>
+              <Select
+                value={metodoPago}
+                onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
+              >
+                <SelectTrigger id="edit-metodo-pago">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="efectivo">Efectivo</SelectItem>
+                  <SelectItem value="transferencia">Transferencia</SelectItem>
+                  <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                  <SelectItem value="financiamiento">Financiamiento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Productos</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                <Plus size={16} className="mr-1" />
+                Agregar Producto
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {items.map((item, index) => {
+                const availableForThisItem = getAvailableProducts(item.product_id)
+                return (
+                  <div key={index} className="flex items-end gap-2">
+                    <div className="flex-1 space-y-2">
+                      <Label className="text-sm">Producto</Label>
+                      <Select
+                        value={item.product_id.toString()}
+                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar producto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableForThisItem.map(product => {
+                            const originalItem = order.items.find(oi => oi.product_id === product.id)
+                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
+                            return (
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                                {availableStock})
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="w-24 space-y-2">
+                      <Label className="text-sm">Cantidad</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={item.cantidad}
+                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
+                        placeholder="Cant."
+                      />
+                    </div>
+
+                    {items.length > 1 && (
+                      <Button
+                        type="button"
                         variant="outline"
-
-
+                        size="icon"
+                        onClick={() => removeItem(index)}
                         className="mb-2"
-
+                      >
                         <Trash size={18} />
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+          <div className="pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-semibold">Total:</span>
+              <span className="text-2xl font-bold text-primary">
+                HNL {calculateTotal().toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -329,7 +312,7 @@ interface OrderItemForm {
             {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
           </Button>
         </DialogFooter>
-
-
-
-
+      </DialogContent>
+    </Dialog>
+  )
+}
