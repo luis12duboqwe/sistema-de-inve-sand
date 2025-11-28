@@ -247,9 +247,9 @@ export default function App() {
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       return (
-        (p.nombre && typeof p.nombre === 'string' && p.nombre.toLowerCase().includes(term)) ||
-        (p.marca && typeof p.marca === 'string' && p.marca.toLowerCase().includes(term)) ||
-        (p.modelo && typeof p.modelo === 'string' && p.modelo.toLowerCase().includes(term))
+        (p.nombre && String(p.nombre).toLowerCase().includes(term)) ||
+        (p.marca && String(p.marca).toLowerCase().includes(term)) ||
+        (p.modelo && String(p.modelo).toLowerCase().includes(term))
       )
     }
     
@@ -267,7 +267,7 @@ export default function App() {
     if (customerSearchTerm) {
       const term = customerSearchTerm.toLowerCase()
       return (
-        (o.customer_name && typeof o.customer_name === 'string' && o.customer_name.toLowerCase().includes(term)) ||
+        (o.customer_name && String(o.customer_name).toLowerCase().includes(term)) ||
         (o.customer_phone && String(o.customer_phone).includes(term))
       )
     }
