@@ -12,6 +12,8 @@ import {
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
+import { NewProductDialog } from '@/components/NewProductDialog'
+import { EditProductDialog } from '@/components/EditProductDialog'
 import { inventoryService } from '@/lib/inventoryService'
 import {
   initialProfiles,
@@ -20,7 +22,7 @@ import {
   initialOrders,
   initialOrderItems
 } from '@/lib/initialData'
-import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order } from '@/lib/types'
+import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
 import { MagnifyingGlass, Package, ShoppingCart, Plus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 
@@ -33,6 +35,9 @@ function App() {
   const [selectedProfile, setSelectedProfile] = useState<string>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false)
+  const [isNewProductOpen, setIsNewProductOpen] = useState(false)
+  const [isEditProductOpen, setIsEditProductOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -129,6 +134,38 @@ function App() {
     }
   }
 
+  const handleCreateProduct = async (product: Omit<Product, 'id' | 'activo'>, stock: number) => {
+    try {
+      await inventoryService.addProduct({ ...product, activo: true }, stock)
+      toast.success('Producto agregado exitosamente')
+      await loadProducts()
+    } catch (error) {
+      console.error('Error creating product:', error)
+      toast.error(error instanceof Error ? error.message : 'Error al agregar producto')
+      throw error
+    }
+  }
+
+  const handleEditProduct = (product: ProductWithStock) => {
+    setEditingProduct(product)
+    setIsEditProductOpen(true)
+  }
+
+  const handleUpdateProduct = async (productId: number, updates: Partial<Product>, newStock?: number) => {
+    try {
+      await inventoryService.updateProduct(productId, updates)
+      if (newStock !== undefined) {
+        await inventoryService.updateStock(productId, newStock)
+      }
+      toast.success('Producto actualizado exitosamente')
+      await loadProducts()
+    } catch (error) {
+      console.error('Error updating product:', error)
+      toast.error(error instanceof Error ? error.message : 'Error al actualizar producto')
+      throw error
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -209,6 +246,10 @@ function App() {
                   <SelectItem value="accesorio">Accesorios</SelectItem>
                 </SelectContent>
               </Select>
+              <Button onClick={() => setIsNewProductOpen(true)} variant="outline" className="gap-2">
+                <Plus size={20} />
+                Nuevo Producto
+              </Button>
               <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
                 <Plus size={20} />
                 Nueva Orden
@@ -228,7 +269,7 @@ function App() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {products.map(product => (
-                  <ProductCard key={product.id} product={product} />
+                  <ProductCard key={product.id} product={product} onEdit={handleEditProduct} />
                 ))}
               </div>
             )}
@@ -278,6 +319,20 @@ function App() {
         profiles={profiles}
         products={products}
         onSubmit={handleCreateOrder}
+      />
+
+      <NewProductDialog
+        open={isNewProductOpen}
+        onOpenChange={setIsNewProductOpen}
+        profiles={profiles}
+        onSubmit={handleCreateProduct}
+      />
+
+      <EditProductDialog
+        open={isEditProductOpen}
+        onOpenChange={setIsEditProductOpen}
+        product={editingProduct}
+        onSubmit={handleUpdateProduct}
       />
     </div>
   )

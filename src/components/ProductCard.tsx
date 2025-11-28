@@ -1,13 +1,15 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Phone, Plugs } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Phone, Plugs, PencilSimple } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 
 interface ProductCardProps {
   product: ProductWithStock
+  onEdit?: (product: ProductWithStock) => void
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, onEdit }: ProductCardProps) {
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
     if (stock < 5) return 'bg-destructive text-destructive-foreground'
@@ -29,22 +31,34 @@ export function ProductCard({ product }: ProductCardProps) {
     <Card className="p-6 hover:shadow-lg transition-shadow">
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1">
             {product.categoria === 'celular' ? (
               <Phone size={24} className="text-primary" weight="duotone" />
             ) : (
               <Plugs size={24} className="text-accent" weight="duotone" />
             )}
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-lg text-card-foreground">
                 {product.nombre}
               </h3>
               <p className="text-sm text-muted-foreground">{product.sku}</p>
             </div>
           </div>
-          <Badge className={getStockBadgeColor(product.stock_disponible)}>
-            {product.stock_disponible} en stock
-          </Badge>
+          <div className="flex items-start gap-2">
+            <Badge className={getStockBadgeColor(product.stock_disponible)}>
+              {product.stock_disponible} en stock
+            </Badge>
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEdit(product)}
+                className="h-8 w-8"
+              >
+                <PencilSimple size={18} />
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-sm">

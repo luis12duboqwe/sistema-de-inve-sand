@@ -302,6 +302,23 @@ export class InventoryService {
     stockEntry.cantidad_disponible = cantidad
     await this.setStock(stock)
   }
+
+  async updateProduct(productId: number, updates: Partial<Product>): Promise<Product> {
+    const products = await this.getProducts()
+    const productIndex = products.findIndex(p => p.id === productId)
+
+    if (productIndex === -1) {
+      throw new Error(`Product with id ${productId} not found`)
+    }
+
+    products[productIndex] = {
+      ...products[productIndex],
+      ...updates
+    }
+
+    await this.setProducts(products)
+    return products[productIndex]
+  }
 }
 
 export const inventoryService = new InventoryService()
