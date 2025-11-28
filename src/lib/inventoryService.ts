@@ -97,10 +97,10 @@ export class InventoryService {
       const searchLower = search.toLowerCase()
       filtered = filtered.filter(
         p =>
-          p.nombre?.toLowerCase().includes(searchLower) ||
-          p.marca?.toLowerCase().includes(searchLower) ||
-          p.modelo?.toLowerCase().includes(searchLower) ||
-          p.sku?.toLowerCase().includes(searchLower)
+          String(p.nombre || '').toLowerCase().includes(searchLower) ||
+          String(p.marca || '').toLowerCase().includes(searchLower) ||
+          String(p.modelo || '').toLowerCase().includes(searchLower) ||
+          String(p.sku || '').toLowerCase().includes(searchLower)
       )
     }
 
@@ -225,6 +225,8 @@ export class InventoryService {
 
       return {
         ...order,
+        customer_name: String(order.customer_name || ''),
+        customer_phone: String(order.customer_phone || ''),
         items
       }
     })

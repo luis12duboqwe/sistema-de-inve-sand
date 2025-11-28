@@ -151,6 +151,8 @@ class ApiClient {
     
     return apiOrders.map(order => ({
       ...order,
+      customer_name: String(order.customer_name || ''),
+      customer_phone: String(order.customer_phone || ''),
       items: order.items.map(item => ({
         id: item.id,
         order_id: order.id,
