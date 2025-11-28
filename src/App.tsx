@@ -244,7 +244,7 @@ export default function App() {
     
     if (categoryFilter !== 'all' && p.categoria !== categoryFilter) return false
     
-    if (searchTerm) {
+    if (searchTerm && searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
       return (
         (p.nombre && String(p.nombre).toLowerCase().includes(term)) ||
@@ -264,7 +264,7 @@ export default function App() {
     
     if (orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
     
-    if (customerSearchTerm) {
+    if (customerSearchTerm && customerSearchTerm.trim()) {
       const term = customerSearchTerm.toLowerCase()
       return (
         (o.customer_name && String(o.customer_name).toLowerCase().includes(term)) ||
