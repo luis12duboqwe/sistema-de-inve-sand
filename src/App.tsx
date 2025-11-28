@@ -390,7 +390,6 @@ export default function App() {
                   size="icon"
                   onClick={() => {
                     setBulkActionMode(!bulkActionMode)
-                    setSelectedProducts(new Set())
                   }}
                   title="Modo selección múltiple"
                 >
@@ -413,13 +412,13 @@ export default function App() {
                   <Upload size={18} />
                 </Button>
                 <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
+                <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
                   <Plus size={18} className="mr-2" />
                   Nuevo Producto
                 </Button>
               </div>
             </div>
 
-            {bulkActionMode && selectedProducts.size > 0 && (
               <div className="flex items-center gap-3 p-4 bg-accent rounded-lg">
                 <span className="text-sm font-medium">
                   {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
@@ -446,17 +445,17 @@ export default function App() {
             )}
 
             <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 id="show-inactive"
-                checked={showInactive}
+                checked={showInactive}checked)}
                 onChange={(e) => setShowInactive(e.target.checked)}
                 className="rounded"
-              />
+              />muted-foreground cursor-pointer">
               <label htmlFor="show-inactive" className="text-sm text-muted-foreground cursor-pointer">
                 Mostrar productos inactivos
               </label>
-              
               {bulkActionMode && filteredProducts.length > 0 && (
                 <>
                   <span className="mx-2 text-muted-foreground">|</span>
@@ -469,13 +468,6 @@ export default function App() {
                 </>
               )}
             </div>
-
-            {filteredProducts.length === 0 ? (
-              <div className="text-center py-12">
-                <Package size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
-                <h3 className="text-lg font-semibold text-card-foreground mb-2">
-                  No hay productos
-                </h3>
                 <p className="text-muted-foreground mb-4">
                   Comienza agregando tu primer producto al inventario
                 </p>
