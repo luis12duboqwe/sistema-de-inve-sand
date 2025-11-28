@@ -416,6 +416,117 @@ export class InventoryService {
     }
   }
 
+  async updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems> {
+    try {
+      const [orders, orderItems, products, stock] = await Promise.all([
+        this.loadOrders(),
+        this.getOrderItems(),
+        this.loadProducts(),
+        this.getStock()
+      ])
+
+      const orderIndex = orders.findIndex(o => o.id === orderId)
+      if (orderIndex === -1) {
+        throw new Error(`Order with id ${orderId} not found`)
+      }
+
+      const currentOrder = orders[orderIndex]
+      const currentItems = orderItems.filter(oi => oi.order_id === orderId)
+
+      if (updates.items) {
+        for (const item of currentItems) {
+          const stockEntry = stock.find(s => s.product_id === item.product_id)
+          if (stockEntry) {
+            stockEntry.cantidad_disponible += item.cantidad
+          }
+        }
+
+        for (const item of updates.items) {
+          const product = products.find(p => p.id === item.product_id && p.activo)
+          if (!product) {
+            throw new Error(`Product with id ${item.product_id} not found or inactive`)
+          }
+
+          const stockEntry = stock.find(s => s.product_id === item.product_id)
+          if (!stockEntry || stockEntry.cantidad_disponible < item.cantidad) {
+            throw new Error(
+              `Insufficient stock for product "${product.nombre}". Available: ${stockEntry?.cantidad_disponible || 0}, Requested: ${item.cantidad}`
+            )
+          }
+        }
+
+        const updatedOrderItems = orderItems.filter(oi => oi.order_id !== orderId)
+        const newOrderItems: OrderItem[] = []
+        let nextItemId = Math.max(0, ...orderItems.map(i => i.id)) + 1
+
+        let total = 0
+        for (const item of updates.items) {
+          const product = products.find(p => p.id === item.product_id)!
+          total += product.precio * item.cantidad
+
+          const stockEntry = stock.find(s => s.product_id === item.product_id)!
+          stockEntry.cantidad_disponible -= item.cantidad
+
+          const newOrderItem: OrderItem = {
+            id: item.id || nextItemId++,
+            order_id: orderId,
+            product_id: item.product_id,
+            cantidad: item.cantidad,
+            precio_unitario: product.precio,
+            es_regalo_promocion: false
+          }
+          newOrderItems.push(newOrderItem)
+        }
+
+        await this.setOrderItems([...updatedOrderItems, ...newOrderItems])
+        await this.setStock(stock)
+
+        orders[orderIndex].total = total
+      }
+
+      const phoneAsString = updates.customer_phone ? String(updates.customer_phone).trim() : currentOrder.customer_phone
+      if (updates.customer_phone && !phoneAsString) {
+        throw new Error('Customer phone number is required')
+      }
+
+      orders[orderIndex] = {
+        ...currentOrder,
+        customer_name: updates.customer_name ?? currentOrder.customer_name,
+        customer_phone: phoneAsString,
+        canal: updates.canal ?? currentOrder.canal,
+        metodo_pago: updates.metodo_pago ?? currentOrder.metodo_pago
+      }
+
+      await this.setOrders(orders)
+
+      const orderWithItems = await this.fetchOrders()
+      const found = orderWithItems.find(o => o.id === orderId)
+      if (!found) {
+        throw new Error(`Order with id ${orderId} not found after update`)
+      }
+      return found
+    } catch (error) {
+      console.error('Error updating order:', error)
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error(`Failed to update order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async addProduct(product: Omit<Product, 'id'>, initialStock: number): Promise<ProductWithStock> {
     try {
       const [products, stock] = await Promise.all([

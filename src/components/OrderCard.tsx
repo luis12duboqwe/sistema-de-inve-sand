@@ -10,13 +10,15 @@ import {
 } from '@/components/ui/select'
 import type { OrderWithItems, Order } from '@/lib/types'
 import { format } from 'date-fns'
+import { PencilSimple } from '@phosphor-icons/react'
 
 interface OrderCardProps {
   order: OrderWithItems
   onStatusChange?: (orderId: number, newStatus: Order['estado']) => void
+  onEdit?: (order: OrderWithItems) => void
 }
 
-export function OrderCard({ order, onStatusChange }: OrderCardProps) {
+export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
   const getStatusBadgeColor = (estado: Order['estado']) => {
     const colors: Record<Order['estado'], string> = {
       pendiente: 'bg-yellow-500 text-white',
@@ -66,9 +68,21 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
               {format(new Date(order.created_at), 'dd/MM/yyyy HH:mm')}
             </p>
           </div>
-          <Badge className={getStatusBadgeColor(order.estado)}>
-            {getStatusText(order.estado)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {onEdit && order.estado !== 'completada' && order.estado !== 'cancelada' && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEdit(order)}
+                title="Editar orden"
+              >
+                <PencilSimple size={18} />
+              </Button>
+            )}
+            <Badge className={getStatusBadgeColor(order.estado)}>
+              {getStatusText(order.estado)}
+            </Badge>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">

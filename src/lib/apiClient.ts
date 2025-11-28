@@ -314,6 +314,63 @@ class ApiClient {
     }
   }
 
+  async updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems> {
+    try {
+      const sanitizedUpdates = {
+        ...updates,
+        customer_phone: updates.customer_phone ? String(updates.customer_phone).trim() : undefined
+      }
+
+      const apiOrder = await this.request<ApiOrderResponse>(`/orders/${orderId}`, {
+        method: 'PUT',
+        body: JSON.stringify(sanitizedUpdates),
+      })
+
+      return {
+        ...apiOrder,
+        items: apiOrder.items.map(item => ({
+          id: item.id,
+          order_id: apiOrder.id,
+          product_id: item.product_id,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario,
+          es_regalo_promocion: item.es_regalo_promocion,
+          product: {
+            id: item.product.id,
+            profile_id: item.product.profile_id,
+            sku: item.product.sku,
+            nombre: item.product.nombre,
+            categoria: item.product.categoria,
+            marca: item.product.marca,
+            modelo: item.product.modelo,
+            capacidad: item.product.capacidad,
+            condicion: item.product.condicion,
+            precio: item.product.precio,
+            moneda: item.product.moneda,
+            garantia_meses: item.product.garantia_meses,
+            activo: item.product.activo,
+          }
+        }))
+      }
+    } catch (error) {
+      console.error('Error updating order via API:', error)
+      throw new Error(`Failed to update order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async initializeData(): Promise<void> {
     try {
       await this.request('/init-data', {

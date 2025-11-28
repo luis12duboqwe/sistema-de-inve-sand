@@ -51,6 +51,21 @@ export interface IInventoryService {
     orderId: number,
     estado: Order['estado']
   ): Promise<OrderWithItems>
+
+  updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems>
   
   addProduct(
     product: Omit<Product, 'id'>,
@@ -127,6 +142,23 @@ class LocalServiceWrapper implements IInventoryService {
     estado: Order['estado']
   ): Promise<OrderWithItems> {
     return this.service.updateOrderStatus(orderId, estado)
+  }
+
+  async updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems> {
+    return this.service.updateOrder(orderId, updates)
   }
 
   async addProduct(
@@ -287,6 +319,29 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
+  async updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems> {
+    try {
+      const service = await this.getService()
+      return service.updateOrder(orderId, updates)
+    } catch (error) {
+      console.error('Error updating order (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async addProduct(
     product: Omit<Product, 'id'>,
     initialStock: number
@@ -400,6 +455,23 @@ class ApiInventoryService implements IInventoryService {
       throw new Error(`Order with id ${orderId} not found after update`)
     }
     return orderWithItems
+  }
+
+  async updateOrder(
+    orderId: number,
+    updates: {
+      customer_name?: string
+      customer_phone?: string
+      canal?: Order['canal']
+      metodo_pago?: Order['metodo_pago']
+      items?: Array<{
+        id?: number
+        product_id: number
+        cantidad: number
+      }>
+    }
+  ): Promise<OrderWithItems> {
+    return apiClient.updateOrder(orderId, updates)
   }
 
   async addProduct(

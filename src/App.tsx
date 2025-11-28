@@ -16,6 +16,7 @@ import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProfileDialog } from '@/components/NewProfileDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
 import { EditProfileDialog } from '@/components/EditProfileDialog'
+import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { ImportProductsDialog } from '@/components/ImportProductsDialog'
@@ -43,6 +44,7 @@ export default function App() {
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+  const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
   const [useAPI, setUseAPI] = useKV<boolean>('inventory-use-api', false)
   const [apiUrl, setApiUrl] = useKV<string>('inventory-api-url', 'http://localhost:8000')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
@@ -682,6 +684,7 @@ export default function App() {
                         setOrders(current => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
                       }}
+                      onEdit={setEditingOrder}
                     />
                   </div>
                 ))}
@@ -800,6 +803,25 @@ export default function App() {
             setProfiles(current => (current ?? []).map(p => p.id === savedProfile.id ? savedProfile : p))
             toast.success('Perfil actualizado exitosamente')
             setEditingProfile(null)
+          }}
+        />
+      )}
+
+      {editingOrder && (
+        <EditOrderDialog
+          open={true}
+          order={editingOrder}
+          products={(products ?? []).filter(p => p.activo)}
+          onOpenChange={(open) => !open && setEditingOrder(null)}
+          onSubmit={async (orderId, updates) => {
+            const savedOrder = await service.updateOrder(orderId, updates)
+            setOrders(current => (current ?? []).map(o => o.id === savedOrder.id ? savedOrder : o))
+            
+            const updatedProducts = await service.getProducts()
+            setProducts(updatedProducts)
+            
+            toast.success('Orden actualizada exitosamente')
+            setEditingOrder(null)
           }}
         />
       )}
