@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Upload, Download, CheckCircle, WarningCircle, FileArrowDown } from '@phosphor-icons/react'
-import { importProductsFromCSV, downloadCSVTemplate } from '@/lib/importUtils'
+import { parseProductsCSV, downloadCSVTemplate } from '@/lib/importUtils'
 import type { Profile, ProductWithStock } from '@/lib/types'
 
 interface ImportProductsDialogProps {
@@ -39,7 +39,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
     if (!file || !selectedProfileId) return
 
     const text = await file.text()
-    const result = importProductsFromCSV(text, selectedProfileId)
+    const result = parseProductsCSV(text, selectedProfileId)
     setPreviewResult(result)
   }
 
