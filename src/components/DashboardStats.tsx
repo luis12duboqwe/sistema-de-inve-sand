@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card'
 import type { ProductWithStock, OrderWithItems } from '@/lib/types'
-import { Package, ShoppingCart, TrendUp, WarningCircle } from '@phosphor-icons/react'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle } from '@phosphor-icons/react'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -47,7 +47,7 @@ export function DashboardStats({ products, orders }: DashboardStatsProps) {
       title: 'Valor del Inventario',
       value: `L ${inventoryValue.toFixed(2)}`,
       subtitle: 'Total en stock',
-      icon: TrendUp,
+      icon: ChartLineUp,
       color: 'text-green-600',
       bgColor: 'bg-green-600/10',
     },
