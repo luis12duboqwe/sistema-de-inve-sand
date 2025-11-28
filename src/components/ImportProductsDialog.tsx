@@ -23,7 +23,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
     success: boolean
     message: string
     importedCount: number
-    errors: { row: number; message: string }[]
+    errors: { row: number; error: string }[]
     products: Partial<ProductWithStock>[]
   } | null>(null)
 
@@ -178,7 +178,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
                   <ul className="space-y-1 text-sm">
                     {previewResult.errors.map((error, index) => (
                       <li key={index} className="text-destructive">
-                        Fila {error.row}: {error.message}
+                        Fila {error.row}: {error.error}
                       </li>
                     ))}
                   </ul>

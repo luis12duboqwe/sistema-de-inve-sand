@@ -4,12 +4,11 @@ export interface CSVImportResult {
   success: boolean
   message: string
   importedCount: number
-  errors: { row: number; message: string }[]
+  errors: { row: number; error: string }[]
   products: Partial<ProductWithStock>[]
 }
 
 export interface CSVValidationError {
-  row: number
   field: string
   message: string
 }
@@ -63,57 +62,55 @@ export function validateProductRow(
     errors.push('Nombre es requerido')
   }
   
-  if (!row.Categoría || !['celular', 'accesorio'].includes(row.Categoría.toLowerCase())) {
-    errors.push('Categoría debe ser "celular" o "accesorio"')
-  }
-  
-  if (!row.Marca || row.Marca.trim() === '') {
-    errors.push('Marca es requerida')
-  }
-  
-  if (!row.Condición || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(row.Condición.toLowerCase())) {
-    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado A"')
-  }
-  
   const precio = parseFloat(row.Precio)
-  if (isNaN(precio) || precio < 0) {
-    errors.push('Precio debe ser un número válido mayor o igual a 0')
+  if (isNaN(precio) || precio <= 0) {
+    errors.push('Precio debe ser un número mayor a 0')
   }
   
   const stock = parseInt(row.Stock)
   if (isNaN(stock) || stock < 0) {
-    errors.push('Stock debe ser un número entero mayor o igual a 0')
+    errors.push('Stock debe ser un número mayor o igual a 0')
   }
   
-  const garantia = parseInt(row['Garantía (meses)'] || row.Garantía || '0')
+  const garantia = parseInt(row['Garantía (meses)'])
   if (isNaN(garantia) || garantia < 0) {
-    errors.push('Garantía debe ser un número entero mayor o igual a 0')
+    errors.push('Garantía debe ser un número mayor o igual a 0')
   }
   
-  if (errors.length > 0) {
-    return { valid: false, errors }
+  const categoria = row['Categoría']?.toLowerCase()
+  if (!categoria || !['celular', 'accesorio'].includes(categoria)) {
+    errors.push('Categoría debe ser "celular" o "accesorio"')
   }
   
   const condicionMap: Record<string, 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'> = {
     'nuevo': 'nuevo',
     'usado': 'usado',
     'reacondicionado': 'reacondicionado',
-    'grado a': 'grado A'
+    'grado a': 'grado A',
+    'grado A': 'grado A'
+  }
+  
+  const condicion = condicionMap[row['Condición']?.toLowerCase()]
+  if (!condicion) {
+    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado A"')
+  }
+  
+  if (errors.length > 0) {
+    return { valid: false, errors }
   }
   
   const product: Partial<ProductWithStock> = {
     profile_id: profileId,
-    sku: row.SKU.trim(),
     nombre: row.Nombre.trim(),
-    categoria: row.Categoría.toLowerCase() as 'celular' | 'accesorio',
     marca: row.Marca.trim(),
-    modelo: (row.Modelo || '').trim(),
-    capacidad: (row.Capacidad || '').trim(),
-    condicion: condicionMap[row.Condición.toLowerCase()],
+    modelo: row.Modelo.trim(),
+    categoria: categoria as 'celular' | 'accesorio',
+    capacidad: row.Capacidad.trim(),
+    sku: row.SKU.trim(),
+    condicion: condicion,
     precio: precio,
-    moneda: (row.Moneda || 'HNL').trim(),
+    moneda: (row.Moneda || 'HNL') as 'HNL' | 'USD',
     garantia_meses: garantia,
-    activo: true,
     stock_disponible: stock
   }
   
@@ -130,17 +127,17 @@ export function importProductsFromCSV(
     if (rows.length === 0) {
       return {
         success: false,
-        message: 'El archivo CSV está vacío',
+        message: 'El archivo está vacío',
         importedCount: 0,
         errors: [],
         products: []
       }
     }
     
-    const headers = rows[0].map(h => h.trim())
-    const requiredHeaders = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Condición', 'Precio', 'Stock']
-    const missingHeaders = requiredHeaders.filter(h => !headers.includes(h))
+    const headers = rows[0]
+    const requiredHeaders = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
     
+    const missingHeaders = requiredHeaders.filter(h => !headers.includes(h))
     if (missingHeaders.length > 0) {
       return {
         success: false,
@@ -152,28 +149,29 @@ export function importProductsFromCSV(
     }
     
     const products: Partial<ProductWithStock>[] = []
-    const errors: { row: number; message: string }[] = []
+    const errors: { row: number; error: string }[] = []
     
     for (let i = 1; i < rows.length; i++) {
-      const rowData = rows[i]
-      
-      if (rowData.every(cell => cell.trim() === '')) {
+      const row = rows[i]
+      if (row.length === 0 || row.every(cell => cell.trim() === '')) {
         continue
       }
       
-      const rowObject: Record<string, string> = {}
+      const rowData: Record<string, string> = {}
       headers.forEach((header, index) => {
-        rowObject[header] = rowData[index] || ''
+        rowData[header] = row[index] || ''
       })
       
-      const validation = validateProductRow(rowObject, i + 1, profileId)
+      const validation = validateProductRow(rowData, i + 1, profileId)
       
       if (validation.valid && validation.product) {
         products.push(validation.product)
       } else {
-        errors.push({
-          row: i + 1,
-          message: validation.errors.join(', ')
+        validation.errors.forEach(error => {
+          errors.push({
+            row: i + 1,
+            error: error
+          })
         })
       }
     }
@@ -181,7 +179,7 @@ export function importProductsFromCSV(
     if (products.length === 0) {
       return {
         success: false,
-        message: 'No se pudieron importar productos. Verifica los errores.',
+        message: 'No se encontraron productos válidos para importar',
         importedCount: 0,
         errors,
         products: []
