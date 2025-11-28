@@ -181,28 +181,33 @@ export function parseCSVFile(csvText: string, profileId: number): CSVImportResul
 }
 
 export function generateCSVTemplate(): void {
-  const headers = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
-  
-  const exampleRows = [
-    ['IP13-128-BLK', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
-    ['CASE-IP13-SIL', 'Funda iPhone 13', 'accesorio', 'Generic', 'Silicona', '', 'nuevo', '150', 'HNL', '0', '20']
-  ]
-  
-  const csvRows = [headers, ...exampleRows]
-  const csvContent = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
-  
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  
-  const link = document.createElement('a')
-  link.setAttribute('href', url)
-  link.setAttribute('download', 'plantilla_productos.csv')
-  link.style.visibility = 'hidden'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  
-  URL.revokeObjectURL(url)
+  try {
+    const headers = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
+    
+    const exampleRows = [
+      ['IP13-128-BLK', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
+      ['CASE-IP13-SIL', 'Funda iPhone 13', 'accesorio', 'Generic', 'Silicona', '', 'nuevo', '150', 'HNL', '0', '20']
+    ]
+    
+    const csvRows = [headers, ...exampleRows]
+    const csvContent = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'plantilla_productos.csv')
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Error generating CSV template:', error)
+    throw new Error(`Failed to generate CSV template: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
 }
 
 export const parseProductsCSV = parseCSVFile

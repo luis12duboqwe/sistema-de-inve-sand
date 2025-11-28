@@ -158,8 +158,13 @@ class LocalServiceWrapper implements IInventoryService {
 
 class UnifiedInventoryService implements IInventoryService {
   private async getService(): Promise<IInventoryService> {
-    const useApi = await getUseApiSetting()
-    return useApi ? new ApiInventoryService() : new LocalServiceWrapper()
+    try {
+      const useApi = await getUseApiSetting()
+      return useApi ? new ApiInventoryService() : new LocalServiceWrapper()
+    } catch (error) {
+      console.error('Error determining service type:', error)
+      return new LocalServiceWrapper()
+    }
   }
 
   async initializeData(
@@ -169,8 +174,13 @@ class UnifiedInventoryService implements IInventoryService {
     orders: Order[] = [],
     orderItems: OrderItem[] = []
   ): Promise<void> {
-    const service = await this.getService()
-    return service.initializeData(profiles, products, stock, orders, orderItems)
+    try {
+      const service = await this.getService()
+      return service.initializeData(profiles, products, stock, orders, orderItems)
+    } catch (error) {
+      console.error('Error initializing data (unified):', error)
+      throw new Error(`Failed to initialize data: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async fetchProducts(
@@ -178,84 +188,159 @@ class UnifiedInventoryService implements IInventoryService {
     search?: string,
     includeInactive = false
   ): Promise<ProductWithStock[]> {
-    const service = await this.getService()
-    return service.fetchProducts(profileSlug, search, includeInactive)
+    try {
+      const service = await this.getService()
+      return service.fetchProducts(profileSlug, search, includeInactive)
+    } catch (error) {
+      console.error('Error fetching products (unified):', error)
+      throw new Error(`Failed to fetch products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async getProducts(): Promise<ProductWithStock[]> {
-    return this.fetchProducts(undefined, undefined, true)
+    try {
+      return this.fetchProducts(undefined, undefined, true)
+    } catch (error) {
+      console.error('Error getting products (unified):', error)
+      throw new Error(`Failed to get products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
-    const service = await this.getService()
-    return service.createOrder(request)
+    try {
+      const service = await this.getService()
+      return service.createOrder(request)
+    } catch (error) {
+      console.error('Error creating order (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to create order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async fetchOrders(profileSlug?: string): Promise<OrderWithItems[]> {
-    const service = await this.getService()
-    return service.fetchOrders(profileSlug)
+    try {
+      const service = await this.getService()
+      return service.fetchOrders(profileSlug)
+    } catch (error) {
+      console.error('Error fetching orders (unified):', error)
+      throw new Error(`Failed to fetch orders: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async getOrders(): Promise<OrderWithItems[]> {
-    return this.fetchOrders()
+    try {
+      return this.fetchOrders()
+    } catch (error) {
+      console.error('Error getting orders (unified):', error)
+      throw new Error(`Failed to get orders: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async createProfile(profile: Omit<Profile, 'id'>): Promise<Profile> {
-    const service = await this.getService()
-    return service.createProfile(profile)
+    try {
+      const service = await this.getService()
+      return service.createProfile(profile)
+    } catch (error) {
+      console.error('Error creating profile (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to create profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async listProfiles(): Promise<Profile[]> {
-    const service = await this.getService()
-    return service.listProfiles()
+    try {
+      const service = await this.getService()
+      return service.listProfiles()
+    } catch (error) {
+      console.error('Error listing profiles (unified):', error)
+      throw new Error(`Failed to list profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async getProfiles(): Promise<Profile[]> {
-    return this.listProfiles()
+    try {
+      return this.listProfiles()
+    } catch (error) {
+      console.error('Error getting profiles (unified):', error)
+      throw new Error(`Failed to get profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async updateProfile(profileId: number, updates: Partial<Profile>): Promise<Profile> {
-    const service = await this.getService()
-    return service.updateProfile(profileId, updates)
+    try {
+      const service = await this.getService()
+      return service.updateProfile(profileId, updates)
+    } catch (error) {
+      console.error('Error updating profile (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']
   ): Promise<OrderWithItems> {
-    const service = await this.getService()
-    return service.updateOrderStatus(orderId, estado)
+    try {
+      const service = await this.getService()
+      return service.updateOrderStatus(orderId, estado)
+    } catch (error) {
+      console.error('Error updating order status (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async addProduct(
     product: Omit<Product, 'id'>,
     initialStock: number
   ): Promise<ProductWithStock> {
-    const service = await this.getService()
-    return service.addProduct(product, initialStock) as Promise<ProductWithStock>
+    try {
+      const service = await this.getService()
+      return service.addProduct(product, initialStock) as Promise<ProductWithStock>
+    } catch (error) {
+      console.error('Error adding product (unified):', error)
+      throw new Error(`Failed to add product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
-    const { stock_disponible, ...productData } = product
-    return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
+    try {
+      const { stock_disponible, ...productData } = product
+      return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
+    } catch (error) {
+      console.error('Error creating product (unified):', error)
+      throw new Error(`Failed to create product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async updateStock(productId: number, cantidad: number): Promise<void> {
-    const service = await this.getService()
-    return service.updateStock(productId, cantidad)
+    try {
+      const service = await this.getService()
+      return service.updateStock(productId, cantidad)
+    } catch (error) {
+      console.error('Error updating stock (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async updateProduct(
     productId: number,
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
-    const service = await this.getService()
-    return service.updateProduct(productId, updates)
+    try {
+      const service = await this.getService()
+      return service.updateProduct(productId, updates)
+    } catch (error) {
+      console.error('Error updating product (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
-    const service = await this.getService()
-    return service.bulkCreateProducts(productsData)
+    try {
+      const service = await this.getService()
+      return service.bulkCreateProducts(productsData)
+    } catch (error) {
+      console.error('Error bulk creating products (unified):', error)
+      throw new Error(`Failed to bulk create products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 }
 

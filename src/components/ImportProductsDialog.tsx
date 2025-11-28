@@ -28,19 +28,34 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
   } | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile) {
-      setFile(selectedFile)
-      setPreviewResult(null)
+    try {
+      const selectedFile = e.target.files?.[0]
+      if (selectedFile) {
+        setFile(selectedFile)
+        setPreviewResult(null)
+      }
+    } catch (error) {
+      console.error('Error handling file change:', error)
     }
   }
 
   const handlePreview = async () => {
-    if (!file || !selectedProfileId) return
+    try {
+      if (!file || !selectedProfileId) return
 
-    const text = await file.text()
-    const result = parseProductsCSV(text, selectedProfileId)
-    setPreviewResult(result)
+      const text = await file.text()
+      const result = parseProductsCSV(text, selectedProfileId)
+      setPreviewResult(result)
+    } catch (error) {
+      console.error('Error previewing CSV:', error)
+      setPreviewResult({
+        success: false,
+        message: `Error al leer el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        importedCount: 0,
+        errors: [],
+        products: []
+      })
+    }
   }
 
   const handleImport = async () => {
@@ -55,17 +70,26 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
       setSelectedProfileId(null)
     } catch (error) {
       console.error('Error importing products:', error)
+      setPreviewResult({
+        ...previewResult,
+        success: false,
+        message: `Error al importar: ${error instanceof Error ? error.message : 'Error desconocido'}`
+      })
     } finally {
       setImporting(false)
     }
   }
 
   const handleClose = () => {
-    if (!importing) {
-      onOpenChange(false)
-      setFile(null)
-      setPreviewResult(null)
-      setSelectedProfileId(null)
+    try {
+      if (!importing) {
+        onOpenChange(false)
+        setFile(null)
+        setPreviewResult(null)
+        setSelectedProfileId(null)
+      }
+    } catch (error) {
+      console.error('Error closing dialog:', error)
     }
   }
 
