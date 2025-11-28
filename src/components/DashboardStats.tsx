@@ -1,7 +1,6 @@
 import { Card } from '@/components/ui/card'
 import type { ProductWithStock, OrderWithItems } from '@/lib/types'
-
-  products: ProductWithStock[]
+import { Package, ShoppingCart, TrendUp, WarningCircle } from '@phosphor-icons/react'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -40,27 +39,47 @@ export function DashboardStats({ products, orders }: DashboardStatsProps) {
       title: 'Órdenes Totales',
       value: totalOrders,
       subtitle: `${pendingOrders} pendientes`,
-      value: `L ${invento
-      icon: TrendUp,
-      bgColor: 'bg-green-600/10'
+      icon: ShoppingCart,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-600/10',
+    },
     {
-     
+      title: 'Valor del Inventario',
+      value: `L ${inventoryValue.toFixed(2)}`,
+      subtitle: 'Total en stock',
+      icon: TrendingUp,
+      color: 'text-green-600',
+      bgColor: 'bg-green-600/10',
+    },
+    {
+      title: 'Stock Bajo',
+      value: lowStockProducts,
+      subtitle: `${outOfStockProducts} agotados`,
       icon: WarningCircle,
+      color: 'text-yellow-600',
       bgColor: 'bg-yellow-600/10',
+    },
   ]
+
   return (
-      {stats.map((stat, index)
-          key={stat.title}
-      
-     
-            <div className="flex i
-                <p className="text-sm text-muted-fo
-                <p className="text-xs text-muted-f
-              <div classNa
-              </div>
-          </Card>
-      
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {stats.map((stat, index) => (
+        <Card key={stat.title} className="p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground mb-1">{stat.title}</p>
+              <p className="text-2xl font-semibold mb-1">{stat.value}</p>
+              <p className="text-xs text-muted-foreground">{stat.subtitle}</p>
+            </div>
+            <div className={`p-3 rounded-lg ${stat.bgColor}`}>
+              <stat.icon size={24} className={stat.color} />
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
   )
+}
 
 
 
