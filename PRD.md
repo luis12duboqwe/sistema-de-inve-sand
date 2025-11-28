@@ -12,6 +12,13 @@ A comprehensive inventory management system for mobile phones and accessories de
 
 ## Essential Features
 
+### Dashboard Statistics
+- **Functionality**: Display key metrics for active products, orders, inventory value, and low/out-of-stock alerts
+- **Purpose**: Provides at-a-glance overview of business health and critical inventory issues
+- **Trigger**: Automatically displayed on products tab
+- **Progression**: View dashboard → See real-time statistics → Identify issues quickly
+- **Success criteria**: Stats update in real-time, accurate calculations, clear visual hierarchy
+
 ### Backend Connectivity
 - **Functionality**: Toggle between local browser storage and FastAPI backend API with configurable endpoint
 - **Purpose**: Allows users to start with local storage and migrate to production backend when ready
@@ -48,23 +55,39 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Success criteria**: Stock displays accurately, validation prevents negative stock, updates persist across sessions
 
 ### Order History & Status
-- **Functionality**: View all orders with status tracking (pending, ready to deliver, completed, cancelled)
+- **Functionality**: View all orders with status tracking (pending, ready to deliver, completed, cancelled) and filtering by status
 - **Purpose**: Monitor sales pipeline and order fulfillment progress
-- **Trigger**: User navigates to orders view
+- **Trigger**: User navigates to orders view or changes status filter
 - **Progression**: View orders → Filter by status/profile → See order details → Update order status → History updates
 - **Success criteria**: Orders display with correct totals, status updates save, filtering works correctly
+
+### Data Export
+- **Functionality**: Export products and orders to CSV format for external analysis
+- **Purpose**: Enable reporting, accounting, and data analysis in external tools
+- **Trigger**: User clicks export button in products or orders tab
+- **Progression**: Click export → Data formatted to CSV → File downloaded with timestamp → Success notification
+- **Success criteria**: CSV includes all visible filtered data, proper formatting, unique filenames with dates
+
+### Keyboard Shortcuts
+- **Functionality**: Quick navigation and actions using keyboard combinations
+- **Purpose**: Increase efficiency for power users managing inventory frequently
+- **Trigger**: User presses keyboard shortcut or clicks keyboard icon in header
+- **Progression**: Press shortcut → Action executed immediately → Visual feedback provided
+- **Success criteria**: All shortcuts work reliably, help dialog accessible, shortcuts documented
 
 ## Edge Case Handling
 - **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
 - **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
-- **Backend Switch During Session**: User warned to reload page after changing backend mode to prevent data inconsistencies
+- **Backend Switch During Session**: User warned to reload page after changing backend mode to prevent data inconsistencies, visual indicator shows current backend mode in header
 - **No Stock Available**: Products with zero stock appear grayed out with "Out of Stock" badge, cannot be added to orders
 - **Insufficient Stock**: Order creation shows specific error message naming the product and available quantity
-- **Empty States**: New profiles show helpful message with "Add Product" button, empty order list prompts to create first order
+- **Empty States**: New profiles show helpful message with "Add Product" button, empty order list prompts to create first order, dashboard shows zeros gracefully
 - **Invalid Profile**: Attempting to create order without profile shows validation error before form submission
 - **Concurrent Orders**: Stock checks happen at order creation time to prevent race conditions from multiple users
 - **Decimal Quantities**: System only accepts whole number quantities for products
 - **Missing Data**: Required fields validated with clear error messages before submission
+- **Export Empty Data**: Export button disabled when no data available, shows helpful message if attempted
+- **Keyboard Shortcut Conflicts**: Shortcuts designed to not conflict with browser defaults, help accessible via Shift+?
 
 ## Design Direction
 The design should feel professional and efficient like business software, with a clean dashboard aesthetic that prioritizes data clarity and quick task completion - minimal interface with information density balanced by generous spacing around key actions.

@@ -14,11 +14,13 @@ import {
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 import { ProfileCard } from '@/components/ProfileCard'
+import { DashboardStats } from '@/components/DashboardStats'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
 import { NewProfileDialog } from '@/components/NewProfileDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
+import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { inventoryServiceInstance as inventoryService } from '@/lib/inventoryServiceFactory'
 import {
   initialProfiles,
@@ -28,9 +30,11 @@ import {
   initialOrderItems
 } from '@/lib/initialData'
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
-import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear } from '@phosphor-icons/react'
+import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear, Download, Database, CloudArrowUp, Keyboard } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
+import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 function App() {
   const [activeTab, setActiveTab] = useState('products')
@@ -48,6 +52,55 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [useApi, setUseApi] = useState<boolean>(false)
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
+
+  useEffect(() => {
+    const checkApiStatus = async () => {
+      const apiEnabled = await window.spark.kv.get<boolean>('settings_use_api')
+      setUseApi(apiEnabled ?? false)
+    }
+    checkApiStatus()
+  }, [isSettingsOpen])
+
+  useKeyboardShortcuts([
+    {
+      key: 'n',
+      ctrlKey: true,
+      callback: () => {
+        if (activeTab === 'products') {
+          setIsNewProductOpen(true)
+        } else if (activeTab === 'orders') {
+          setIsNewOrderOpen(true)
+        } else if (activeTab === 'profiles') {
+          setIsNewProfileOpen(true)
+        }
+      },
+      description: 'Crear nuevo elemento en la pestaña actual',
+    },
+    {
+      key: 'k',
+      ctrlKey: true,
+      callback: () => {
+        const searchInput = document.querySelector('input[placeholder*="Buscar"]') as HTMLInputElement
+        searchInput?.focus()
+      },
+      description: 'Enfocar búsqueda',
+    },
+    {
+      key: ',',
+      ctrlKey: true,
+      callback: () => setIsSettingsOpen(true),
+      description: 'Abrir configuración',
+    },
+    {
+      key: '?',
+      shiftKey: true,
+      callback: () => setIsShortcutsOpen(true),
+      description: 'Mostrar atajos de teclado',
+    },
+  ])
 
   useEffect(() => {
     initializeData()
@@ -209,13 +262,48 @@ function App() {
     }
   }
 
+  const handleExportProducts = () => {
+    try {
+      const profileName = selectedProfile === 'all' 
+        ? 'todos' 
+        : profiles.find(p => p.slug === selectedProfile)?.name || 'desconocido'
+      exportProductsToCSV(products, profileName)
+      toast.success('Productos exportados exitosamente')
+    } catch (error) {
+      toast.error('Error al exportar productos')
+    }
+  }
+
+  const handleExportOrders = () => {
+    try {
+      const profileName = selectedProfile === 'all' 
+        ? 'todas' 
+        : profiles.find(p => p.slug === selectedProfile)?.name || 'desconocido'
+      exportOrdersToCSV(orders, profileName)
+      toast.success('Órdenes exportadas exitosamente')
+    } catch (error) {
+      toast.error('Error al exportar órdenes')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Package size={48} className="mx-auto mb-4 text-primary animate-pulse" />
-          <p className="text-muted-foreground">Cargando sistema...</p>
-        </div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+          className="text-center"
+        >
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+          >
+            <Package size={48} className="mx-auto mb-4 text-primary" />
+          </motion.div>
+          <p className="text-lg font-medium text-foreground">Cargando sistema...</p>
+          <p className="text-sm text-muted-foreground mt-2">Inicializando inventario</p>
+        </motion.div>
       </div>
     )
   }
@@ -234,11 +322,32 @@ function App() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {useApi ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent/10 border border-accent/20">
+                  <CloudArrowUp size={16} className="text-accent" />
+                  <span className="text-xs font-medium text-accent">API</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted border border-border">
+                  <Database size={16} className="text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">Local</span>
+                </div>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsShortcutsOpen(true)}
+                className="text-muted-foreground hover:text-foreground"
+                title="Atajos de teclado (Shift + ?)"
+              >
+                <Keyboard size={20} />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsSettingsOpen(true)}
                 className="text-muted-foreground hover:text-foreground"
+                title="Configuración (Ctrl + ,)"
               >
                 <Gear size={20} />
               </Button>
@@ -278,6 +387,8 @@ function App() {
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
+            <DashboardStats products={products} orders={orders} />
+            
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
                 <MagnifyingGlass
@@ -311,6 +422,15 @@ function App() {
                   Mostrar inactivos
                 </Label>
               </div>
+              <Button 
+                onClick={handleExportProducts} 
+                variant="outline" 
+                className="gap-2"
+                disabled={products.length === 0}
+              >
+                <Download size={20} />
+                Exportar
+              </Button>
               <Button onClick={() => setIsNewProductOpen(true)} variant="outline" className="gap-2">
                 <Plus size={20} />
                 Nuevo Producto
@@ -367,17 +487,42 @@ function App() {
           </TabsContent>
 
           <TabsContent value="orders" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">
-                Órdenes ({orders.length})
-              </h2>
-              <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
-                <Plus size={20} />
-                Nueva Orden
-              </Button>
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-semibold">
+                  Órdenes ({orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).length})
+                </h2>
+                <Select value={orderStatusFilter} onValueChange={setOrderStatusFilter}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los estados</SelectItem>
+                    <SelectItem value="pendiente">Pendiente</SelectItem>
+                    <SelectItem value="por_entregar">Por Entregar</SelectItem>
+                    <SelectItem value="completada">Completada</SelectItem>
+                    <SelectItem value="cancelada">Cancelada</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={handleExportOrders} 
+                  variant="outline" 
+                  className="gap-2"
+                  disabled={orders.length === 0}
+                >
+                  <Download size={20} />
+                  Exportar
+                </Button>
+                <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
+                  <Plus size={20} />
+                  Nueva Orden
+                </Button>
+              </div>
             </div>
 
-            {orders.length === 0 ? (
+            {orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).length === 0 ? (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -400,7 +545,7 @@ function App() {
                 transition={{ duration: 0.3 }}
                 className="grid grid-cols-1 lg:grid-cols-2 gap-6"
               >
-                {orders.map((order, index) => (
+                {orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).map((order, index) => (
                   <motion.div
                     key={order.id}
                     initial={{ opacity: 0, y: 20 }}
@@ -505,6 +650,11 @@ function App() {
       <SettingsDialog
         open={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
+      />
+
+      <KeyboardShortcutsDialog
+        open={isShortcutsOpen}
+        onOpenChange={setIsShortcutsOpen}
       />
     </div>
   )
