@@ -1,6 +1,6 @@
 # Planning Guide
 
-A comprehensive inventory management system for mobile phones and accessories designed for sales chatbot integration, featuring real-time stock tracking, order processing, and multi-profile support.
+A comprehensive inventory management system for mobile phones and accessories designed for sales chatbot integration, featuring real-time stock tracking, order processing, multi-profile support, and flexible backend connectivity (local storage or FastAPI backend).
 
 **Experience Qualities**: 
 1. **Efficient** - Streamlined workflows that allow quick product lookup and order creation with minimal clicks
@@ -8,9 +8,16 @@ A comprehensive inventory management system for mobile phones and accessories de
 3. **Professional** - Clean, business-focused interface that inspires confidence in the data presented
 
 **Complexity Level**: Light Application (multiple features with basic state)
-  - The app manages products, inventory, orders, and profiles with persistent state, but doesn't require user authentication or complex workflows beyond CRUD operations.
+  - The app manages products, inventory, orders, and profiles with persistent state, supports both local and API backends, but doesn't require user authentication or complex workflows beyond CRUD operations.
 
 ## Essential Features
+
+### Backend Connectivity
+- **Functionality**: Toggle between local browser storage and FastAPI backend API with configurable endpoint
+- **Purpose**: Allows users to start with local storage and migrate to production backend when ready
+- **Trigger**: User clicks settings icon in header
+- **Progression**: Open settings → Toggle API mode → Configure API URL → Test connection → Save → Reload page to apply changes
+- **Success criteria**: Connection test validates endpoint, smooth transition between backends, data persists correctly in selected backend
 
 ### Product Catalog Management
 - **Functionality**: Display searchable list of products with detailed specifications (brand, model, capacity, condition, price, warranty)
@@ -48,6 +55,9 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Success criteria**: Orders display with correct totals, status updates save, filtering works correctly
 
 ## Edge Case Handling
+- **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
+- **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
+- **Backend Switch During Session**: User warned to reload page after changing backend mode to prevent data inconsistencies
 - **No Stock Available**: Products with zero stock appear grayed out with "Out of Stock" badge, cannot be added to orders
 - **Insufficient Stock**: Order creation shows specific error message naming the product and available quantity
 - **Empty States**: New profiles show helpful message with "Add Product" button, empty order list prompts to create first order
@@ -120,6 +130,10 @@ Animations should be subtle and functional, reinforcing state changes and guidin
   - Package (products), 
   - ShoppingCart (orders), 
   - Storefront (profiles),
+  - Gear (settings),
+  - CloudArrowUp (API connected),
+  - CloudSlash (API disconnected),
+  - Database (local storage),
   - Plus (add actions), 
   - Check (confirmations), 
   - Warning (stock alerts),

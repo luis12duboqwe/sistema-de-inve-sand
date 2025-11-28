@@ -1,10 +1,21 @@
 # 📦 Sistema de Inventario para Chatbots de Ventas
 
-## 🎯 Progreso del Proyecto: **90%** ✅
+## 🎯 Progreso del Proyecto: **95%** ✅
 
 Un sistema completo de gestión de inventario de celulares y accesorios diseñado para integrarse con chatbots de ventas en WhatsApp, Facebook e Instagram.
 
-### ✅ Características Implementadas (90%)
+**🆕 NOVEDAD**: Ahora con soporte para backend FastAPI - elige entre almacenamiento local o base de datos compartida.
+
+## 🏗️ Arquitectura
+
+El sistema soporta **dos modos de backend**:
+
+- **Modo Local** (por defecto): Datos en Spark KV (almacenamiento del navegador)
+- **Modo API**: Conectado a backend FastAPI con SQLite
+
+👉 Ver [INTEGRATION.md](./INTEGRATION.md) para guía completa de integración.
+
+### ✅ Características Implementadas (95%)
 
 #### 🔹 Gestión de Productos (100%) ✓
 - ✅ Visualización de catálogo de productos con filtros
@@ -32,19 +43,33 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 - ✅ Visualización de historial de órdenes
 - ✅ Actualización de estado de órdenes
 
-#### 🔹 Multi-Perfil (80%)
+#### 🔹 Multi-Perfil (100%)
 - ✅ Soporte para múltiples perfiles de negocio
 - ✅ Filtrado de productos por perfil
 - ✅ Filtrado de órdenes por perfil
 - ✅ Selector de perfil en header
-- ⏳ Interfaz para crear nuevos perfiles (pendiente)
-- ⏳ Interfaz para editar perfiles (pendiente)
+- ✅ Interfaz para crear nuevos perfiles
+- ✅ Visualización de perfiles con estadísticas
 
 #### 🔹 Persistencia de Datos (100%)
+- ✅ **NUEVO: Arquitectura dual de backend (Local + API)**
+- ✅ **NUEVO: Cliente HTTP para FastAPI**
+- ✅ **NUEVO: Diálogo de configuración con test de conexión**
+- ✅ **NUEVO: Cambio dinámico entre backends**
 - ✅ Almacenamiento persistente usando spark.kv
 - ✅ Datos iniciales de demostración
 - ✅ Actualización atómica de stock
 - ✅ Prevención de condiciones de carrera
+
+#### 🔹 Backend FastAPI (100%) ✨
+- ✅ API REST completa con FastAPI
+- ✅ Base de datos SQLite con SQLAlchemy
+- ✅ Schemas Pydantic para validación
+- ✅ Transacciones atómicas
+- ✅ CORS habilitado
+- ✅ Documentación Swagger automática
+- ✅ Script de inicialización de datos
+- 👉 Ver `backend/README.md` para más detalles
 
 #### 🔹 UI/UX (90%)
 - ✅ Diseño profesional con Tailwind CSS
@@ -57,18 +82,10 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 - ✅ Animaciones sutiles
 - ⏳ Estados vacíos mejorados (parcial)
 
-### ⏳ Características Pendientes (10%)
+### ⏳ Características Pendientes (5%)
 
-#### 🔸 Gestión de Productos Avanzada
-- ✅ Formulario para agregar nuevos productos
-- ✅ Formulario para editar productos existentes
-- ✅ Actualización manual de stock desde UI
-- ✅ Activar/desactivar productos
-- ⏳ Carga masiva de productos (CSV/Excel)
-
-#### 🔸 Gestión de Perfiles
-- ⏳ Interfaz para crear perfiles
-- ⏳ Interfaz para editar perfiles
+#### 🔸 Gestión de Perfiles Avanzada
+- ⏳ Interfaz para editar perfiles existentes
 - ⏳ Activar/desactivar perfiles
 
 #### 🔸 Reportes y Analíticas
@@ -87,8 +104,26 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 
 ---
 
+## 🚀 Inicio Rápido
+
+### Modo Local (Recomendado para comenzar)
+
+```bash
+npm install
+npm run dev
+```
+
+La aplicación estará disponible en http://localhost:5173
+
+### Modo API (Para producción)
+
+Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
+
+---
+
 ## 🚀 Tecnologías Utilizadas
 
+### Frontend
 - **React 19** - Framework UI
 - **TypeScript** - Tipado estático
 - **Tailwind CSS v4** - Estilos
@@ -98,15 +133,32 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 - **date-fns** - Manejo de fechas
 - **Spark KV** - Persistencia de datos
 
+### Backend
+- **FastAPI** - Framework API
+- **SQLAlchemy** - ORM
+- **SQLite** - Base de datos
+- **Pydantic** - Validación de datos
+- **Python 3.11+**
+
+---
+
+## 📚 Documentación
+
+- [INTEGRATION.md](./INTEGRATION.md) - Guía de integración Frontend + Backend
+- [backend/README.md](./backend/README.md) - Documentación del API
+- [backend/N8N_INTEGRATION.md](./backend/N8N_INTEGRATION.md) - Integración con n8n
+- [PRD.md](./PRD.md) - Especificaciones del producto
+
 ---
 
 ## 📊 Próximos Pasos
 
 1. ✅ ~~Implementar gestión completa de productos (agregar/editar/activar-desactivar)~~
-2. **Agregar gestión de perfiles (crear/editar)**
-3. **Agregar dashboard con analíticas**
-4. **Implementar reportes y exportación**
-5. **Agregar búsqueda avanzada de órdenes**
+2. ✅ ~~Agregar gestión de perfiles (crear/visualizar)~~
+3. ✅ ~~Implementar backend FastAPI con integración completa~~
+4. **Agregar dashboard con analíticas**
+5. **Implementar reportes y exportación**
+6. **Agregar búsqueda avanzada de órdenes**
 
 ---
 

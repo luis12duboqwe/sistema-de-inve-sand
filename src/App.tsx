@@ -18,7 +18,8 @@ import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
 import { NewProfileDialog } from '@/components/NewProfileDialog'
-import { inventoryService } from '@/lib/inventoryService'
+import { SettingsDialog } from '@/components/SettingsDialog'
+import { inventoryServiceInstance as inventoryService } from '@/lib/inventoryServiceFactory'
 import {
   initialProfiles,
   initialProducts,
@@ -27,7 +28,7 @@ import {
   initialOrderItems
 } from '@/lib/initialData'
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
-import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront } from '@phosphor-icons/react'
+import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 
 function App() {
@@ -43,6 +44,7 @@ function App() {
   const [isNewProductOpen, setIsNewProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
   const [isNewProfileOpen, setIsNewProfileOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -231,6 +233,14 @@ function App() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsSettingsOpen(true)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Gear size={20} />
+              </Button>
               <Select value={selectedProfile} onValueChange={setSelectedProfile}>
                 <SelectTrigger className="w-48">
                   <SelectValue />
@@ -438,6 +448,11 @@ function App() {
         open={isNewProfileOpen}
         onOpenChange={setIsNewProfileOpen}
         onSubmit={handleCreateProfile}
+      />
+
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
       />
     </div>
   )
