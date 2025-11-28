@@ -59,6 +59,7 @@ function App() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [orderCategoryFilter, setOrderCategoryFilter] = useState<string>('all')
   const [useApi, setUseApi] = useState<boolean>(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [sortBy, setSortBy] = useState<string>('none')
@@ -352,6 +353,23 @@ function App() {
     }
   }
 
+  const getFilteredOrders = () => {
+    return orders.filter(order => {
+      if (orderStatusFilter !== 'all' && order.estado !== orderStatusFilter) {
+        return false
+      }
+
+      if (orderCategoryFilter !== 'all') {
+        const hasCategory = order.items.some(item => item.product.categoria === orderCategoryFilter)
+        if (!hasCategory) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -630,7 +648,7 @@ function App() {
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-xl font-semibold">
-                  Órdenes ({orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).length})
+                  Órdenes ({getFilteredOrders().length})
                 </h2>
                 <Select value={orderStatusFilter} onValueChange={setOrderStatusFilter}>
                   <SelectTrigger className="w-48">
@@ -642,6 +660,16 @@ function App() {
                     <SelectItem value="por_entregar">Por Entregar</SelectItem>
                     <SelectItem value="completada">Completada</SelectItem>
                     <SelectItem value="cancelada">Cancelada</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={orderCategoryFilter} onValueChange={setOrderCategoryFilter}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las categorías</SelectItem>
+                    <SelectItem value="celular">Celulares</SelectItem>
+                    <SelectItem value="accesorio">Accesorios</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -662,7 +690,7 @@ function App() {
               </div>
             </div>
 
-            {orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).length === 0 ? (
+            {getFilteredOrders().length === 0 ? (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -685,7 +713,7 @@ function App() {
                 transition={{ duration: 0.3 }}
                 className="grid grid-cols-1 lg:grid-cols-2 gap-6"
               >
-                {orders.filter(o => orderStatusFilter === 'all' || o.estado === orderStatusFilter).map((order, index) => (
+                {getFilteredOrders().map((order, index) => (
                   <motion.div
                     key={order.id}
                     initial={{ opacity: 0, y: 20 }}
