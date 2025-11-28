@@ -181,29 +181,25 @@ export function parseCSVFile(csvText: string, profileId: number): CSVImportResul
 }
 
 export function generateCSVTemplate(): void {
-    con
-    const exampleRows = [
-    
-    const exampleRows = [
-      ['IP13-128-BLK', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
-      ['CASE-IP13-SIL', 'Funda iPhone 13', 'accesorio', 'Generic', 'Silicona', '', 'nuevo', '150', 'HNL', '0', '20']
-    ]
-    
-    
-    link.setAttribute('href', url)
-    
-    link.click()
-    
-  } 
-    throw new Error(`Failed to generate CSV 
+  const headers = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
+  
+  const exampleRows = [
+    ['IP13-128-BLK', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
+    ['CASE-IP13-SIL', 'Funda iPhone 13', 'accesorio', 'Generic', 'Silicona', '', 'nuevo', '150', 'HNL', '0', '20']
+  ]
+  
+  const csvContent = [headers, ...exampleRows]
+    .map(row => row.map(cell => `"${cell}"`).join(','))
+    .join('\n')
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', 'plantilla_productos.csv')
+  link.click()
+  URL.revokeObjectURL(url)
 }
-export const parseProductsCSV = parseCSVFile
-
-
-
-
-
-
 
 
 
