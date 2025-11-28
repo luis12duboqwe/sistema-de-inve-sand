@@ -1,11 +1,17 @@
 import type { ProductWithStock } from './types'
 
+interface CSVImportResult {
+  success: boolean
   message: string
-  errors: { row: n
+  importedCount: number
+  errors: { row: number; error: string }[]
+  products: Partial<ProductWithStock>[]
 }
-function parseCSV(csvTe
-  const rows: string[][] = []
-  for (const line of lines) {
+
+interface ValidationResult {
+  valid: boolean
+  product?: Partial<ProductWithStock>
+  error?: string
 }
 
 function parseCSV(csvText: string): string[][] {
@@ -27,67 +33,56 @@ function parseCSV(csvText: string): string[][] {
           current += '"'
           i++
         } else {
-    }
+          inQuotes = !inQuotes
         }
-  }
-  return rows
-
+      } else if (char === ',' && !inQuotes) {
+        row.push(current)
+        current = ''
       } else {
-  product?: Partial<Pro
+        current += char
       }
-  row
-    
-  const errors: string[] = [
-  if (!row.SKU || 
-  }
-  
-  }
-}
-
-  
-  if (!categoria
-  error?: string
-  const condicionMap: Record<string, 
-}
-
-  
-  if (!condicion) {
-  }
-  const precio = pa
-    errors.push('Prec
-  
-  
-  }
-  if (errors.length > 0) {
-   
-  
-  
-    sku: row.SKU.trim(),
-   
-  
-    condicion: condicion,
-    moneda: (row.Moneda?.trim() || 'HNL') as 'HNL'
-    stock_disponible: stock,
-  }
-  
-    valid: true,
-  }
-
-  c
-):
-    const rows = parseCSV(csvText)
-    'nuevo': 'nuevo',
-        success: fals
-        importedCount: 0,
-        products: []
-  }
-  
-    const missingHeaders = requiredHeaders.filter(h => !headers.i
-    if (missingHead
-        success: false,
-   
-  
     }
+    
+    row.push(current)
+    rows.push(row)
+  }
+  
+  return rows
+}
+
+function validateProductRow(
+  row: Record<string, string>,
+  rowNumber: number,
+  profileId: number
+): ValidationResult {
+  const errors: string[] = []
+  
+  if (!row.SKU || !row.SKU.trim()) {
+    errors.push('SKU es requerido')
+  }
+  
+  if (!row.Nombre || !row.Nombre.trim()) {
+    errors.push('Nombre es requerido')
+  }
+  
+  const categoria = row.Categoría?.toLowerCase().trim()
+  if (!categoria || (categoria !== 'celular' && categoria !== 'accesorio')) {
+    errors.push('Categoría debe ser "celular" o "accesorio"')
+  }
+  
+  const condicionMap: Record<string, 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'> = {
+    'nuevo': 'nuevo',
+    'usado': 'usado',
+    'reacondicionado': 'reacondicionado',
+    'grado a': 'grado A'
+  }
+  
+  const condicion = condicionMap[row.Condición?.toLowerCase().trim() || 'nuevo']
+  if (!condicion) {
+    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado A"')
+  }
+  
+  const precio = parseFloat(row.Precio || '0')
   if (isNaN(precio) || precio <= 0) {
     errors.push('Precio debe ser un número válido mayor a 0')
   }
@@ -97,11 +92,16 @@ function parseCSV(csvText: string): string[][] {
     errors.push('Stock debe ser un número válido')
   }
   
+  const garantiaMeses = parseInt(row['Garantía (meses)'] || '0')
+  if (isNaN(garantiaMeses) || garantiaMeses < 0) {
+    errors.push('Garantía debe ser un número válido')
+  }
+  
   if (errors.length > 0) {
-        })
+    return {
       valid: false,
       error: errors.join(', ')
-     
+    }
   }
   
   const product: Partial<ProductWithStock> = {
@@ -124,7 +124,7 @@ function parseCSV(csvText: string): string[][] {
     valid: true,
     product
   }
-e
+}
 
 export function parseCSVFile(
   csvText: string,
@@ -181,58 +181,64 @@ export function parseCSVFile(
       }
     }
     
-
-
+    if (products.length === 0) {
+      return {
         success: false,
-
-
-
-
-
+        message: 'No se pudieron importar productos válidos',
+        importedCount: 0,
+        errors: importErrors,
+        products: []
+      }
     }
 
     return {
-
-
-
-
-
+      success: true,
+      message: `${products.length} productos importados correctamente`,
+      importedCount: products.length,
+      errors: importErrors,
+      products
     }
-
+  } catch (error) {
     return {
-
-
-
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al procesar el archivo CSV',
+      importedCount: 0,
       errors: [],
-
+      products: []
     }
-
+  }
 }
 
+export const importProductsFromCSV = parseCSVFile
 
-
+export function generateCSVTemplate(): string {
+  const headers = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
   const exampleRows = [
-
-
-
+    ['IPHONE13-128-BLK', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
+    ['CASE-IPHONE13', 'Funda iPhone 13', 'accesorio', 'Generic', 'Silicona', '', 'nuevo', '150', 'HNL', '3', '20']
   ]
 
+  const csvRows = [headers.join(',')]
+  for (const row of exampleRows) {
+    csvRows.push(row.map(cell => `"${cell}"`).join(','))
+  }
 
-
+  return csvRows.join('\n')
 }
 
-
-
-
+export function downloadCSVTemplate() {
+  const csvContent = generateCSVTemplate()
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   
-
-
-
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', 'plantilla_productos.csv')
+  link.style.visibility = 'hidden'
   
-
+  document.body.appendChild(link)
   link.click()
-
+  document.body.removeChild(link)
   
   URL.revokeObjectURL(url)
 }
