@@ -130,6 +130,11 @@ export class InventoryService {
       throw new Error(`Profile with slug "${request.profile_slug}" not found`)
     }
 
+    const phoneAsString = String(request.customer_phone || '').trim()
+    if (!phoneAsString) {
+      throw new Error('Customer phone number is required')
+    }
+
     for (const item of request.items) {
       const product = products.find(p => p.id === item.product_id && p.activo)
       if (!product) {
@@ -170,7 +175,7 @@ export class InventoryService {
       id: newOrderId,
       profile_id: profile.id,
       customer_name: request.customer_name,
-      customer_phone: request.customer_phone,
+      customer_phone: phoneAsString,
       canal: request.canal,
       metodo_pago: request.metodo_pago,
       total,

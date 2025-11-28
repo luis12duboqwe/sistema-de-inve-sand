@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
@@ -73,6 +73,13 @@ class OrderCreate(BaseModel):
     customer_phone: str
     metodo_pago: str = Field(..., pattern="^(efectivo|transferencia|tarjeta|financiamiento)$")
     items: List[OrderItemCreate]
+    
+    @field_validator('customer_phone')
+    @classmethod
+    def validate_phone_is_string(cls, v):
+        if v is None:
+            raise ValueError('customer_phone cannot be None')
+        return str(v).strip()
 
 class OrderResponse(BaseModel):
     id: int

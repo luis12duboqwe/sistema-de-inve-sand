@@ -178,9 +178,14 @@ class ApiClient {
   }
 
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
+    const sanitizedRequest = {
+      ...request,
+      customer_phone: String(request.customer_phone || '').trim()
+    }
+    
     const apiOrder = await this.request<ApiOrderResponse>('/orders', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(sanitizedRequest),
     })
 
     return {

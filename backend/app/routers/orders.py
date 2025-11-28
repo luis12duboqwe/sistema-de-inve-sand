@@ -57,6 +57,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         - 404: Si el profile_slug no existe o algún product_id no se encuentra
         - 400: Si no hay stock suficiente para algún producto (indica cuál)
         - 400: Si la orden no contiene items
+        - 400: Si el número de teléfono está vacío
     """
     try:
         profile = db.query(Profile).filter(Profile.slug == order.profile_slug).first()
@@ -70,6 +71,13 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             raise HTTPException(
                 status_code=400, 
                 detail="La orden debe contener al menos un producto"
+            )
+        
+        customer_phone_str = str(order.customer_phone).strip()
+        if not customer_phone_str:
+            raise HTTPException(
+                status_code=400,
+                detail="El número de teléfono del cliente es requerido"
             )
         
         total = Decimal("0.00")
@@ -117,7 +125,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         db_order = Order(
             profile_id=profile.id,
             customer_name=order.customer_name,
-            customer_phone=order.customer_phone,
+            customer_phone=customer_phone_str,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
             total=total,

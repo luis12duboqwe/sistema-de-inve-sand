@@ -19,6 +19,7 @@ import {
 import { Plus, Trash } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, CreateOrderRequest } from '@/lib/types'
 import { toast } from 'sonner'
+import { validatePhoneNumber } from '@/lib/phoneValidator'
 
 interface NewOrderDialogProps {
   open: boolean
@@ -85,8 +86,9 @@ export function NewOrderDialog({
       return
     }
     
-    if (!customerPhone.trim()) {
-      toast.error('Por favor ingresa el teléfono del cliente')
+    const phoneValidation = validatePhoneNumber(customerPhone)
+    if (!phoneValidation.valid) {
+      toast.error(phoneValidation.error || 'El teléfono del cliente es inválido')
       return
     }
 
@@ -110,7 +112,7 @@ export function NewOrderDialog({
         profile_slug: profileSlug,
         canal,
         customer_name: customerName,
-        customer_phone: customerPhone,
+        customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
         items: validItems
       })
@@ -168,8 +170,9 @@ export function NewOrderDialog({
               <Label htmlFor="customer-phone">Teléfono</Label>
               <Input
                 id="customer-phone"
+                type="tel"
                 value={customerPhone}
-                onChange={e => setCustomerPhone(e.target.value)}
+                onChange={e => setCustomerPhone(String(e.target.value))}
                 placeholder="+504 9999-9999"
               />
             </div>
