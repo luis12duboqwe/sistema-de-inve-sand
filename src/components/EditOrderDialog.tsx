@@ -164,138 +164,138 @@ export function EditOrderDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogTitle>Editar Orden #{order.id}</DialogTitle>
-        </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-customer-name">Nombre del Cliente</Label>
-              <Input
-                id="edit-customer-name"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Juan Pérez"
-              />
-            </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-customer-phone">Teléfono</Label>
               <Input
+            <div className="space-y-2">
+                value={customerName}
+              <Inputalue)}
+                placeholder="Juan Pérez"
+                value={customerName}
+            </div>
+
+              />y-2">
+              <Label htmlFor="edit-customer-phone">Teléfono</Label>
+
                 id="edit-customer-phone"
+                value={customerPhone}
+              <Inputalue)}
+                placeholder="+504 9999-9999"
                 type="tel"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="+504 9999-9999"
-              />
-            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+              />d-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="edit-canal">Canal</Label>
-              <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
+{(v) => setCanal(v as typeof canal)}>
                 <SelectTrigger id="edit-canal">
-                  <SelectValue />
-                </SelectTrigger>
+            <div className="space-y-2">
+              <Label htmlFor="edit-canal">Canal</Label>
                 <SelectContent>
                   <SelectItem value="whatsapp">WhatsApp</SelectItem>
                   <SelectItem value="facebook">Facebook</SelectItem>
                   <SelectItem value="instagram">Instagram</SelectItem>
-                </SelectContent>
+                <SelectContent>
               </Select>
-            </div>
+                  <SelectItem value="facebook">Facebook</SelectItem>
 
             <div className="space-y-2">
               <Label htmlFor="edit-metodo-pago">Método de Pago</Label>
               <Select
-                value={metodoPago}
+
                 onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
-              >
                 <SelectTrigger id="edit-metodo-pago">
-                  <SelectValue />
-                </SelectTrigger>
+              <Select
+                value={metodoPago}
                 <SelectContent>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
+              >
                   <SelectItem value="transferencia">Transferencia</SelectItem>
                   <SelectItem value="tarjeta">Tarjeta</SelectItem>
                   <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                </SelectContent>
-              </Select>
+                <SelectContent>
+                  <SelectItem value="efectivo">Efectivo</SelectItem>
             </div>
-          </div>
+                  <SelectItem value="tarjeta">Tarjeta</SelectItem>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Productos</Label>
               <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                <Plus size={16} className="mr-1" />
-                Agregar Producto
-              </Button>
-            </div>
 
+                Agregar Producto
+            </div>
+              <Label>Productos</Label>
             <div className="space-y-2">
               {items.map((item, index) => {
                 const availableForThisItem = getAvailableProducts(item.product_id)
                 return (
                   <div key={index} className="flex items-end gap-2">
-                    <div className="flex-1 space-y-2">
+
                       <Label className="text-sm">Producto</Label>
+              {items.map((item, index) => {
+                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
+                return (
+                        <SelectTrigger>
+                    <div className="flex-1 space-y-2">
+                        </SelectTrigger>
                       <Select
                         value={item.product_id.toString()}
-                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
-                      >
+                            const originalItem = order.items.find(oi => oi.product_id === product.id)
+                      >ck_disponible + (originalItem?.cantidad || 0)
                         <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar producto" />
-                        </SelectTrigger>
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
                         <SelectContent>
                           {availableForThisItem.map(product => {
                             const originalItem = order.items.find(oi => oi.product_id === product.id)
-                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
+                          })}
                             return (
                               <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
-                                {availableStock})
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
                     </div>
 
                     <div className="w-24 space-y-2">
                       <Label className="text-sm">Cantidad</Label>
-                      <Input
+                          })}
                         type="number"
                         min="1"
                         value={item.cantidad}
-                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
-                        placeholder="Cant."
-                      />
-                    </div>
 
+                        placeholder="Cant."
+                    </div>
+                      <Input
                     {items.length > 1 && (
+                        min="1"
+                        value={item.cantidad}
+                        variant="outline"
+                        size="icon"
+                      />index)}
+                      >
+>
+                      </Button>
                       <Button
                         type="button"
                         variant="outline"
-                        size="icon"
-                        onClick={() => removeItem(index)}
-                      >
+              })}
+            </div>
+
                         <Trash size={16} />
                       </Button>
-                    )}
-                  </div>
+              <span className="text-lg font-semibold">Total:</span>
+              <span className="text-2xl font-bold text-primary">
                 )
               })}
             </div>
           </div>
 
-          <div className="pt-4 border-t">
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold">Total:</span>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
               <span className="text-2xl font-bold text-primary">
                 HNL {calculateTotal().toLocaleString()}
               </span>
@@ -306,6 +306,16 @@ export function EditOrderDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
