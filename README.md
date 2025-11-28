@@ -1,12 +1,12 @@
 # 📦 Sistema de Inventario para Chatbots de Ventas
 
-## 🎯 Progreso del Proyecto: **85%** ✅
+## 🎯 Progreso del Proyecto: **90%** ✅
 
 Un sistema completo de gestión de inventario de celulares y accesorios diseñado para integrarse con chatbots de ventas en WhatsApp, Facebook e Instagram.
 
-### ✅ Características Implementadas (85%)
+### ✅ Características Implementadas (90%)
 
-#### 🔹 Gestión de Productos (95%)
+#### 🔹 Gestión de Productos (100%) ✓
 - ✅ Visualización de catálogo de productos con filtros
 - ✅ Búsqueda por nombre, marca y modelo
 - ✅ Filtrado por categoría (celular/accesorio)
@@ -14,10 +14,12 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 - ✅ Indicadores de stock en tiempo real
 - ✅ Tarjetas de producto con detalles completos
 - ✅ Badges de estado de stock (disponible/bajo/agotado)
-- ✅ **NUEVO: Formulario para agregar nuevos productos**
-- ✅ **NUEVO: Formulario para editar productos existentes**
-- ✅ **NUEVO: Actualización de stock desde UI de edición**
-- ⏳ Desactivar/activar productos desde UI
+- ✅ Formulario para agregar nuevos productos
+- ✅ Formulario para editar productos existentes
+- ✅ Actualización de stock desde UI de edición
+- ✅ **NUEVO: Activar/desactivar productos desde UI**
+- ✅ **NUEVO: Filtro para mostrar/ocultar productos inactivos**
+- ✅ **NUEVO: Indicador visual para productos inactivos**
 
 #### 🔹 Gestión de Órdenes (100%)
 - ✅ Creación de órdenes con múltiples productos
@@ -55,13 +57,13 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 - ✅ Animaciones sutiles
 - ⏳ Estados vacíos mejorados (parcial)
 
-### ⏳ Características Pendientes (15%)
+### ⏳ Características Pendientes (10%)
 
 #### 🔸 Gestión de Productos Avanzada
 - ✅ Formulario para agregar nuevos productos
 - ✅ Formulario para editar productos existentes
 - ✅ Actualización manual de stock desde UI
-- ⏳ Desactivar/activar productos
+- ✅ Activar/desactivar productos
 - ⏳ Carga masiva de productos (CSV/Excel)
 
 #### 🔸 Gestión de Perfiles
@@ -100,10 +102,10 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 
 ## 📊 Próximos Pasos
 
-1. **Implementar gestión completa de productos** (agregar/editar)
-2. **Agregar dashboard con analíticas**
-3. **Implementar reportes y exportación**
-4. **Mejorar gestión de perfiles**
+1. ✅ ~~Implementar gestión completa de productos (agregar/editar/activar-desactivar)~~
+2. **Agregar gestión de perfiles (crear/editar)**
+3. **Agregar dashboard con analíticas**
+4. **Implementar reportes y exportación**
 5. **Agregar búsqueda avanzada de órdenes**
 
 ---

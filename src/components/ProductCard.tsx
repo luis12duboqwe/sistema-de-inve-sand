@@ -1,15 +1,16 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 
 interface ProductCardProps {
   product: ProductWithStock
   onEdit?: (product: ProductWithStock) => void
+  onToggleActive?: (product: ProductWithStock) => void
 }
 
-export function ProductCard({ product, onEdit }: ProductCardProps) {
+export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProps) {
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
     if (stock < 5) return 'bg-destructive text-destructive-foreground'
@@ -28,7 +29,7 @@ export function ProductCard({ product, onEdit }: ProductCardProps) {
   }
 
   return (
-    <Card className="p-6 hover:shadow-lg transition-shadow">
+    <Card className={`p-6 hover:shadow-lg transition-shadow ${!product.activo ? 'opacity-60 border-dashed' : ''}`}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 flex-1">
@@ -38,9 +39,16 @@ export function ProductCard({ product, onEdit }: ProductCardProps) {
               <Plugs size={24} className="text-accent" weight="duotone" />
             )}
             <div className="flex-1">
-              <h3 className="font-semibold text-lg text-card-foreground">
-                {product.nombre}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-lg text-card-foreground">
+                  {product.nombre}
+                </h3>
+                {!product.activo && (
+                  <Badge variant="outline" className="text-xs bg-muted">
+                    Inactivo
+                  </Badge>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">{product.sku}</p>
             </div>
           </div>
@@ -56,6 +64,16 @@ export function ProductCard({ product, onEdit }: ProductCardProps) {
                 className="h-8 w-8"
               >
                 <PencilSimple size={18} />
+              </Button>
+            )}
+            {onToggleActive && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onToggleActive(product)}
+                className="h-8 w-8"
+              >
+                <Power size={18} className={product.activo ? 'text-accent' : 'text-muted-foreground'} />
               </Button>
             )}
           </div>

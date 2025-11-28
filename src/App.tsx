@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -34,6 +36,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProfile, setSelectedProfile] = useState<string>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [showInactive, setShowInactive] = useState(false)
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false)
   const [isNewProductOpen, setIsNewProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
@@ -48,7 +51,7 @@ function App() {
     if (!isLoading) {
       loadProducts()
     }
-  }, [selectedProfile, searchTerm, selectedCategory, isLoading])
+  }, [selectedProfile, searchTerm, selectedCategory, showInactive, isLoading])
 
   useEffect(() => {
     if (!isLoading && activeTab === 'orders') {
@@ -84,7 +87,7 @@ function App() {
     try {
       const profileSlug = selectedProfile === 'all' ? undefined : selectedProfile
       const search = searchTerm.trim() || undefined
-      let productsList = await inventoryService.fetchProducts(profileSlug, search)
+      let productsList = await inventoryService.fetchProducts(profileSlug, search, showInactive)
 
       if (selectedCategory !== 'all') {
         productsList = productsList.filter(p => p.categoria === selectedCategory)
@@ -163,6 +166,18 @@ function App() {
       console.error('Error updating product:', error)
       toast.error(error instanceof Error ? error.message : 'Error al actualizar producto')
       throw error
+    }
+  }
+
+  const handleToggleProductActive = async (product: ProductWithStock) => {
+    try {
+      const newActiveState = !product.activo
+      await inventoryService.updateProduct(product.id, { activo: newActiveState })
+      toast.success(newActiveState ? 'Producto activado' : 'Producto desactivado')
+      await loadProducts()
+    } catch (error) {
+      console.error('Error toggling product status:', error)
+      toast.error('Error al cambiar estado del producto')
     }
   }
 
@@ -246,6 +261,16 @@ function App() {
                   <SelectItem value="accesorio">Accesorios</SelectItem>
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-2 px-3 border rounded-md">
+                <Switch
+                  id="show-inactive"
+                  checked={showInactive}
+                  onCheckedChange={setShowInactive}
+                />
+                <Label htmlFor="show-inactive" className="cursor-pointer text-sm">
+                  Mostrar inactivos
+                </Label>
+              </div>
               <Button onClick={() => setIsNewProductOpen(true)} variant="outline" className="gap-2">
                 <Plus size={20} />
                 Nuevo Producto
@@ -269,7 +294,12 @@ function App() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {products.map(product => (
-                  <ProductCard key={product.id} product={product} onEdit={handleEditProduct} />
+                  <ProductCard 
+                    key={product.id} 
+                    product={product} 
+                    onEdit={handleEditProduct}
+                    onToggleActive={handleToggleProductActive}
+                  />
                 ))}
               </div>
             )}

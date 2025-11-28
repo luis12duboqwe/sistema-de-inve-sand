@@ -77,14 +77,14 @@ export class InventoryService {
     await this.setOrderItems(orderItems)
   }
 
-  async fetchProducts(profileSlug?: string, search?: string): Promise<ProductWithStock[]> {
+  async fetchProducts(profileSlug?: string, search?: string, includeInactive = false): Promise<ProductWithStock[]> {
     const [products, stock, profiles] = await Promise.all([
       this.getProducts(),
       this.getStock(),
       this.getProfiles()
     ])
 
-    let filtered = products.filter(p => p.activo)
+    let filtered = includeInactive ? products : products.filter(p => p.activo)
 
     if (profileSlug) {
       const profile = profiles.find(pr => pr.slug === profileSlug)
@@ -111,7 +111,6 @@ export class InventoryService {
           stock_disponible: stockEntry?.cantidad_disponible || 0
         }
       })
-      .filter(p => p.stock_disponible > 0)
 
     return productsWithStock
   }
