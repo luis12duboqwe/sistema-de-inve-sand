@@ -6,13 +6,13 @@ export interface CSVValidationResult {
   product?: Partial<ProductWithStock>
 }
 
+export interface ImportResult {
+  success: boolean
   message: string
-  products: Partia
+  products: Partial<ProductWithStock>[]
+  errors: { row: number; error: string }[]
+  importedCount: number
 }
-function parseCSVLine(l
-  let current = ''
-
- 
 
 function parseCSVLine(line: string): string[] {
   const row: string[] = []
@@ -30,11 +30,11 @@ function parseCSVLine(line: string): string[] {
         insideQuotes = !insideQuotes
       }
     } else if (char === ',' && !insideQuotes) {
-
-  row: Record<stri
-  profileId?
-  const errors: strin
-  if 
+      row.push(current.trim())
+      current = ''
+    } else {
+      current += char
+    }
   }
   
   row.push(current.trim())
@@ -57,8 +57,8 @@ function validateProductRow(
   }
   
   const condicion = row.Condición?.toLowerCase()
-  if (!condicion || !['nuevo', 'usado', 'reacondicionado'].includes(condicion)) {
-    errors.push('Condición debe ser "nuevo", "usado" o "reacondicionado"')
+  if (!condicion || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(condicion)) {
+    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado a"')
   }
   
   const precio = parseFloat(row.Precio || '0')
@@ -66,7 +66,7 @@ function validateProductRow(
     errors.push('Precio debe ser un número válido mayor o igual a 0')
   }
   
-  const garantia = parseInt(row.Garantía || '0')
+  const garantia = parseInt(row['Garantía (meses)'] || row.Garantía || '0')
   if (isNaN(garantia) || garantia < 0) {
     errors.push('Garantía debe ser un número válido de meses')
   }
@@ -87,86 +87,95 @@ function validateProductRow(
     valid: true,
     errors: [],
     product: {
-      codigo: row.Código?.trim() || '',
+      sku: row.SKU?.trim() || row.Código?.trim() || '',
       nombre: row.Nombre.trim(),
       categoria: row.Categoría.toLowerCase() as 'celular' | 'accesorio',
       marca: row.Marca?.trim() || '',
+      modelo: row.Modelo?.trim() || '',
+      capacidad: row.Capacidad?.trim() || '',
+      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
+      precio: precio,
+      moneda: row.Moneda?.trim() || 'HNL',
+      garantia_meses: garantia,
+      stock_disponible: stock,
+      activo: true,
+      profile_id: profileId ? parseInt(profileId) : 0
+    }
+  }
+}
+
+export function parseProductsCSV(
+  csvContent: string,
+  profileId?: number
+): ImportResult {
+  const lines = csvContent.split('\n').filter(line => line.trim())
   
+  if (lines.length < 2) {
     return {
+      success: false,
       message: 'El archivo CSV está vacío o no tiene datos',
       products: [],
+      errors: [],
+      importedCount: 0
     }
+  }
   
-  const importErrors: { row: n
-  const headerLine = lines[0
+  const importErrors: { row: number; error: string }[] = []
+  const products: Partial<ProductWithStock>[] = []
   
+  const headerLine = lines[0]
+  const headers = parseCSVLine(headerLine).map(h => h.replace(/^"|"$/g, ''))
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) continue
+    
+    const values = parseCSVLine(line).map(v => v.replace(/^"|"$/g, ''))
+    const row: Record<string, string> = {}
+    
+    headers.forEach((header, index) => {
+      row[header] = values[index] || ''
+    })
+    
+    const validation = validateProductRow(row, i + 1, profileId?.toString())
+    
+    if (validation.valid && validation.product) {
+      products.push(validation.product)
+    } else {
+      importErrors.push({
+        row: i + 1,
+        error: validation.errors.join(', ')
+      })
     }
-   
+  }
+  
+  return {
+    success: products.length > 0,
+    message: products.length > 0
+      ? `${products.length} productos importados exitosamente`
+      : 'No se pudo importar ningún producto',
+    products,
+    errors: importErrors,
+    importedCount: products.length
+  }
 }
 
-    
-      products.push(validation.product)
-  
-          row: i + 1,
-        })
-    }
-  
-    success: products.l
-      ? `${products
-    importedCoun
-    e
-}
-ex
-    'Código,Nombre,Categoría,Marca,Modelo,Capacida
+export function downloadCSVTemplate() {
+  const csvContent = [
+    'SKU,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Moneda,Garantía (meses),Stock',
+    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,HNL,12,5'
   ].join('\n')
   
-  const link = document.creat
-  link.download = 'plantilla_productos.csv
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,HNL,12,5'
-
-
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
-
+  
+  link.href = url
   link.download = 'plantilla_productos.csv'
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
   link.click()
-
+  document.body.removeChild(link)
+  
+  URL.revokeObjectURL(url)
 }
