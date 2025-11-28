@@ -60,6 +60,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [orderCategoryFilter, setOrderCategoryFilter] = useState<string>('all')
+  const [orderSearchTerm, setOrderSearchTerm] = useState<string>('')
   const [useApi, setUseApi] = useState<boolean>(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [sortBy, setSortBy] = useState<string>('none')
@@ -366,6 +367,15 @@ function App() {
         }
       }
 
+      if (orderSearchTerm.trim()) {
+        const searchLower = orderSearchTerm.toLowerCase().trim()
+        const matchesCustomerName = order.customer_name.toLowerCase().includes(searchLower)
+        const matchesCustomerPhone = order.customer_phone.toLowerCase().includes(searchLower)
+        if (!matchesCustomerName && !matchesCustomerPhone) {
+          return false
+        }
+      }
+
       return true
     })
   }
@@ -645,13 +655,43 @@ function App() {
           </TabsContent>
 
           <TabsContent value="orders" className="space-y-6">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <h2 className="text-xl font-semibold">
                   Órdenes ({getFilteredOrders().length})
                 </h2>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleExportOrders} 
+                    variant="outline" 
+                    className="gap-2"
+                    disabled={orders.length === 0}
+                  >
+                    <Download size={20} />
+                    Exportar
+                  </Button>
+                  <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
+                    <Plus size={20} />
+                    Nueva Orden
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <MagnifyingGlass
+                    size={20}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    placeholder="Buscar por nombre o teléfono del cliente..."
+                    value={orderSearchTerm}
+                    onChange={e => setOrderSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
                 <Select value={orderStatusFilter} onValueChange={setOrderStatusFilter}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-full md:w-48">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -663,7 +703,7 @@ function App() {
                   </SelectContent>
                 </Select>
                 <Select value={orderCategoryFilter} onValueChange={setOrderCategoryFilter}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-full md:w-48">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -672,21 +712,6 @@ function App() {
                     <SelectItem value="accesorio">Accesorios</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="flex gap-2">
-                <Button 
-                  onClick={handleExportOrders} 
-                  variant="outline" 
-                  className="gap-2"
-                  disabled={orders.length === 0}
-                >
-                  <Download size={20} />
-                  Exportar
-                </Button>
-                <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
-                  <Plus size={20} />
-                  Nueva Orden
-                </Button>
               </div>
             </div>
 
