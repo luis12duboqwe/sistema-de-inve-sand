@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Plus, Trash } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, CreateOrderRequest } from '@/lib/types'
+import { toast } from 'sonner'
 
 interface NewOrderDialogProps {
   open: boolean
@@ -74,13 +75,33 @@ export function NewOrderDialog({
   }
 
   const handleSubmit = async () => {
-    if (!profileSlug || !customerName || !customerPhone) {
+    if (!profileSlug) {
+      toast.error('Por favor selecciona un perfil')
+      return
+    }
+    
+    if (!customerName.trim()) {
+      toast.error('Por favor ingresa el nombre del cliente')
+      return
+    }
+    
+    if (!customerPhone.trim()) {
+      toast.error('Por favor ingresa el teléfono del cliente')
       return
     }
 
     const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
     if (validItems.length === 0) {
+      toast.error('Por favor agrega al menos un producto a la orden')
       return
+    }
+
+    for (const item of validItems) {
+      const product = products.find(p => p.id === item.product_id)
+      if (product && item.cantidad > product.stock_disponible) {
+        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${product.stock_disponible}`)
+        return
+      }
     }
 
     setIsSubmitting(true)
@@ -101,6 +122,8 @@ export function NewOrderDialog({
       setMetodoPago('efectivo')
       setItems([{ product_id: 0, cantidad: 1 }])
       onOpenChange(false)
+    } catch (error) {
+      console.error('Error creating order:', error)
     } finally {
       setIsSubmitting(false)
     }

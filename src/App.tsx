@@ -30,6 +30,7 @@ import {
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
 import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { motion } from 'framer-motion'
 
 function App() {
   const [activeTab, setActiveTab] = useState('products')
@@ -321,26 +322,47 @@ function App() {
             </div>
 
             {products.length === 0 ? (
-              <div className="text-center py-12">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-12"
+              >
                 <Package size={64} className="mx-auto mb-4 text-muted-foreground" />
                 <h3 className="text-lg font-semibold mb-2">No hay productos disponibles</h3>
-                <p className="text-muted-foreground">
+                <p className="text-muted-foreground mb-4">
                   {searchTerm
                     ? 'Intenta con otros términos de búsqueda'
-                    : 'No hay productos en stock en este momento'}
+                    : 'Agrega tu primer producto para comenzar'}
                 </p>
-              </div>
+                {!searchTerm && (
+                  <Button onClick={() => setIsNewProductOpen(true)} className="gap-2">
+                    <Plus size={20} />
+                    Agregar Primer Producto
+                  </Button>
+                )}
+              </motion.div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {products.map(product => (
-                  <ProductCard 
-                    key={product.id} 
-                    product={product} 
-                    onEdit={handleEditProduct}
-                    onToggleActive={handleToggleProductActive}
-                  />
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              >
+                {products.map((product, index) => (
+                  <motion.div
+                    key={product.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05, duration: 0.2 }}
+                  >
+                    <ProductCard 
+                      product={product} 
+                      onEdit={handleEditProduct}
+                      onToggleActive={handleToggleProductActive}
+                    />
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>
             )}
           </TabsContent>
 
@@ -356,27 +378,42 @@ function App() {
             </div>
 
             {orders.length === 0 ? (
-              <div className="text-center py-12">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-12"
+              >
                 <ShoppingCart size={64} className="mx-auto mb-4 text-muted-foreground" />
                 <h3 className="text-lg font-semibold mb-2">No hay órdenes registradas</h3>
                 <p className="text-muted-foreground mb-4">
-                  Crea tu primera orden para comenzar
+                  Crea tu primera orden para comenzar a gestionar ventas
                 </p>
                 <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
                   <Plus size={20} />
                   Crear Primera Orden
                 </Button>
-              </div>
+              </motion.div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {orders.map(order => (
-                  <OrderCard
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+              >
+                {orders.map((order, index) => (
+                  <motion.div
                     key={order.id}
-                    order={order}
-                    onStatusChange={handleStatusChange}
-                  />
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05, duration: 0.2 }}
+                  >
+                    <OrderCard
+                      order={order}
+                      onStatusChange={handleStatusChange}
+                    />
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>
             )}
           </TabsContent>
 
@@ -392,31 +429,46 @@ function App() {
             </div>
 
             {profiles.length === 0 ? (
-              <div className="text-center py-12">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-12"
+              >
                 <Storefront size={64} className="mx-auto mb-4 text-muted-foreground" />
                 <h3 className="text-lg font-semibold mb-2">No hay perfiles registrados</h3>
                 <p className="text-muted-foreground mb-4">
-                  Crea tu primer perfil de negocio para comenzar
+                  Crea tu primer perfil de negocio para comenzar a gestionar inventario
                 </p>
                 <Button onClick={() => setIsNewProfileOpen(true)} className="gap-2">
                   <Plus size={20} />
                   Crear Primer Perfil
                 </Button>
-              </div>
+              </motion.div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {profiles.map(profile => {
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              >
+                {profiles.map((profile, index) => {
                   const stats = getProfileStats(profile.id)
                   return (
-                    <ProfileCard
+                    <motion.div
                       key={profile.id}
-                      profile={profile}
-                      productCount={stats.productCount}
-                      orderCount={stats.orderCount}
-                    />
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05, duration: 0.2 }}
+                    >
+                      <ProfileCard
+                        profile={profile}
+                        productCount={stats.productCount}
+                        orderCount={stats.orderCount}
+                      />
+                    </motion.div>
                   )
                 })}
-              </div>
+              </motion.div>
             )}
           </TabsContent>
         </Tabs>

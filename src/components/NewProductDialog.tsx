@@ -17,6 +17,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import type { Profile, Product } from '@/lib/types'
+import { toast } from 'sonner'
 
 interface NewProductDialogProps {
   open: boolean
@@ -60,7 +61,33 @@ export function NewProductDialog({
   }
 
   const handleSubmit = async () => {
-    if (!profileId || !sku || !nombre || !marca || !modelo || !precio) {
+    if (!profileId) {
+      toast.error('Por favor selecciona un perfil')
+      return
+    }
+    
+    if (!sku.trim()) {
+      toast.error('Por favor ingresa el SKU del producto')
+      return
+    }
+    
+    if (!nombre.trim()) {
+      toast.error('Por favor ingresa el nombre del producto')
+      return
+    }
+    
+    if (!marca.trim()) {
+      toast.error('Por favor ingresa la marca del producto')
+      return
+    }
+    
+    if (!modelo.trim()) {
+      toast.error('Por favor ingresa el modelo del producto')
+      return
+    }
+    
+    if (!precio || parseFloat(precio) <= 0) {
+      toast.error('Por favor ingresa un precio válido')
       return
     }
 
@@ -85,6 +112,8 @@ export function NewProductDialog({
 
       resetForm()
       onOpenChange(false)
+    } catch (error) {
+      console.error('Error creating product:', error)
     } finally {
       setIsSubmitting(false)
     }
