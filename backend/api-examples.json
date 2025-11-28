@@ -1,0 +1,133 @@
+{
+  "collection": "Inventario API",
+  "requests": [
+    {
+      "name": "Health Check",
+      "method": "GET",
+      "url": "http://localhost:8000/api/health"
+    },
+    {
+      "name": "Initialize Sample Data",
+      "method": "POST",
+      "url": "http://localhost:8000/api/init-data"
+    },
+    {
+      "name": "List All Profiles",
+      "method": "GET",
+      "url": "http://localhost:8000/api/profiles"
+    },
+    {
+      "name": "Create Profile",
+      "method": "POST",
+      "url": "http://localhost:8000/api/profiles",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "name": "Mi Tienda",
+        "slug": "mi-tienda",
+        "active": true
+      }
+    },
+    {
+      "name": "List Products (All)",
+      "method": "GET",
+      "url": "http://localhost:8000/api/products"
+    },
+    {
+      "name": "List Products (By Profile)",
+      "method": "GET",
+      "url": "http://localhost:8000/api/products?profile_slug=softmobile"
+    },
+    {
+      "name": "Search Products",
+      "method": "GET",
+      "url": "http://localhost:8000/api/products?search=samsung"
+    },
+    {
+      "name": "Create Product",
+      "method": "POST",
+      "url": "http://localhost:8000/api/products",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "profile_id": 1,
+        "sku": "TEST-PROD-001",
+        "nombre": "Producto de Prueba",
+        "categoria": "celular",
+        "marca": "Test",
+        "modelo": "Model X",
+        "capacidad": "128GB",
+        "condicion": "nuevo",
+        "precio": 5000.00,
+        "moneda": "HNL",
+        "garantia_meses": 12,
+        "activo": true,
+        "cantidad_inicial": 10
+      }
+    },
+    {
+      "name": "List Orders",
+      "method": "GET",
+      "url": "http://localhost:8000/api/orders"
+    },
+    {
+      "name": "List Orders (By Profile)",
+      "method": "GET",
+      "url": "http://localhost:8000/api/orders?profile_slug=softmobile"
+    },
+    {
+      "name": "Create Order",
+      "method": "POST",
+      "url": "http://localhost:8000/api/orders",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "profile_slug": "softmobile",
+        "canal": "whatsapp",
+        "customer_name": "Juan Pérez",
+        "customer_phone": "+504 1234-5678",
+        "metodo_pago": "efectivo",
+        "items": [
+          {
+            "product_id": 1,
+            "cantidad": 1
+          },
+          {
+            "product_id": 3,
+            "cantidad": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "Create Order with Gift",
+      "method": "POST",
+      "url": "http://localhost:8000/api/orders",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "profile_slug": "softmobile",
+        "canal": "whatsapp",
+        "customer_name": "María González",
+        "customer_phone": "+504 9876-5432",
+        "metodo_pago": "transferencia",
+        "items": [
+          {
+            "product_id": 2,
+            "cantidad": 1,
+            "es_regalo_promocion": false
+          },
+          {
+            "product_id": 3,
+            "cantidad": 1,
+            "es_regalo_promocion": true
+          }
+        ]
+      }
+    }
+  ]
+}

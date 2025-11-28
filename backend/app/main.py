@@ -1,0 +1,134 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.database import init_db, get_db
+from app.routers import profiles, products, orders
+from app.models import Profile, Product, Stock
+from sqlalchemy.orm import Session
+
+app = FastAPI(
+    title="Sistema de Inventario API",
+    description="API REST para gestión de inventario de celulares y accesorios",
+    version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(profiles.router)
+app.include_router(products.router)
+app.include_router(orders.router)
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+@app.get("/")
+def read_root():
+    return {
+        "message": "Sistema de Inventario API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+@app.post("/api/init-data")
+def initialize_sample_data(db: Session = next(get_db())):
+    existing_profile = db.query(Profile).filter(Profile.slug == "softmobile").first()
+    if existing_profile:
+        return {"message": "Los datos de ejemplo ya existen"}
+    
+    profile = Profile(
+        name="Softmobile",
+        slug="softmobile",
+        active=True
+    )
+    db.add(profile)
+    db.flush()
+    
+    products_data = [
+        {
+            "sku": "SM-S24-256-NEGRO-NUEVO",
+            "nombre": "Samsung Galaxy S24 256GB Negro",
+            "categoria": "celular",
+            "marca": "Samsung",
+            "modelo": "Galaxy S24",
+            "capacidad": "256GB",
+            "condicion": "nuevo",
+            "precio": 18500.00,
+            "garantia_meses": 12,
+            "stock": 5
+        },
+        {
+            "sku": "IP-15PRO-512-TITANIO-NUEVO",
+            "nombre": "iPhone 15 Pro 512GB Titanio",
+            "categoria": "celular",
+            "marca": "Apple",
+            "modelo": "iPhone 15 Pro",
+            "capacidad": "512GB",
+            "condicion": "nuevo",
+            "precio": 35000.00,
+            "garantia_meses": 12,
+            "stock": 3
+        },
+        {
+            "sku": "ACC-FUNDA-SILICONA-UNIVERSAL",
+            "nombre": "Funda de Silicona Universal",
+            "categoria": "accesorio",
+            "marca": "Genérico",
+            "modelo": "Universal",
+            "capacidad": None,
+            "condicion": "nuevo",
+            "precio": 150.00,
+            "garantia_meses": 0,
+            "stock": 50
+        },
+        {
+            "sku": "ACC-CARGADOR-RAPIDO-20W",
+            "nombre": "Cargador Rápido 20W USB-C",
+            "categoria": "accesorio",
+            "marca": "Anker",
+            "modelo": "PowerPort 20W",
+            "capacidad": "20W",
+            "condicion": "nuevo",
+            "precio": 350.00,
+            "garantia_meses": 6,
+            "stock": 25
+        }
+    ]
+    
+    for product_data in products_data:
+        stock_qty = product_data.pop("stock")
+        
+        product = Product(
+            profile_id=profile.id,
+            **product_data,
+            moneda="HNL",
+            activo=True
+        )
+        db.add(product)
+        db.flush()
+        
+        stock = Stock(
+            product_id=product.id,
+            cantidad_disponible=stock_qty
+        )
+        db.add(stock)
+    
+    db.commit()
+    
+    return {
+        "message": "Datos de ejemplo inicializados correctamente",
+        "profile": {
+            "name": profile.name,
+            "slug": profile.slug
+        },
+        "products_created": len(products_data)
+    }
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "healthy"}
