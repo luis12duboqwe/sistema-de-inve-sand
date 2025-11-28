@@ -412,14 +412,13 @@ export default function App() {
                   <Upload size={18} />
                 </Button>
                 <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
-                  <Plus size={18} className="mr-2" />
                   Nuevo Producto
                 </Button>
               </div>
             </div>
 
             {bulkActionMode && selectedProducts.size > 0 && (
-              <div className="flex items-center gap-3 p-4 bg-accent rounded-lg">
+            {bulkActionMode && selectedProducts.size > 0 && (
                 <span className="text-sm font-medium">
                   {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
                 </span>
