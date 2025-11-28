@@ -56,10 +56,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }
 
   const handleSave = () => {
+    const urlChanged = localApiUrl !== apiUrl
     setApiUrl(localApiUrl)
     toast.success('Configuración guardada')
     
-    if (useApi !== (localApiUrl !== apiUrl)) {
+    if (urlChanged || useApi) {
       toast.info('Recarga la página para aplicar los cambios')
     }
     
