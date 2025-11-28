@@ -380,17 +380,17 @@ export default function App() {
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
                     <SelectItem value="celular">Celulares</SelectItem>
-                    <SelectItem value="accesorio">Accesorios</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex gap-2 w-full sm:w-auto">
-                <Button
                   variant={bulkActionMode ? "default" : "outline"}
                   size="icon"
                   onClick={() => {
                     setBulkActionMode(!bulkActionMode)
+                    setSelectedProducts(new Set())
+                  }}
+                  title="Modo selección múltiple"
+                >
+                  {bulkActionMode ? <CheckSquare size={18} /> : <Square size={18} />}
+                </Button>
+                <Button
                     setSelectedProducts(new Set())
                   }}
                   title="Modo selección múltiple"
@@ -413,13 +413,6 @@ export default function App() {
                 >
                   <Upload size={18} />
                 </Button>
-                <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
-                  <Plus size={18} className="mr-2" />
-                  Nuevo Producto
-                </Button>
-              </div>
-            </div>
-
             {bulkActionMode && selectedProducts.size > 0 && (
               <div className="flex items-center gap-3 p-4 bg-accent rounded-lg">
                 <span className="text-sm font-medium">
@@ -446,22 +439,29 @@ export default function App() {
               </div>
             )}
 
+                    <Trash size={16} className="mr-2" />
+                    Eliminar
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 id="show-inactive"
-                checked={showInactive}
-                onChange={(e) => setShowInactive(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="show-inactive" className="text-sm text-muted-foreground cursor-pointer">
-                Mostrar productos inactivos
-              </label>
               
               {bulkActionMode && filteredProducts.length > 0 && (
                 <>
                   <span className="mx-2 text-muted-foreground">|</span>
                   <button
+                    onClick={selectAllProducts}
+                    className="text-sm text-primary hover:underline cursor-pointer"
+                  >
+                    {selectedProducts.size === filteredProducts.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                  </button>
+                </>
+              )}
                     onClick={selectAllProducts}
                     className="text-sm text-primary hover:underline cursor-pointer"
                   >
