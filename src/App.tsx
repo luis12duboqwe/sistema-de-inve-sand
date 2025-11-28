@@ -41,10 +41,10 @@ export default function App() {
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
-  const [useAPI, setUseAPI] = useKV('inventory-use-api', false)
-  const [apiUrl, setApiUrl] = useKV('inventory-api-url', 'http://localhost:8000')
+  const [useAPI, setUseAPI] = useKV<boolean>('inventory-use-api', false)
+  const [apiUrl, setApiUrl] = useKV<string>('inventory-api-url', 'http://localhost:8000')
 
-  const service = inventoryServiceFactory(useAPI, apiUrl)
+  const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000')
 
   useEffect(() => {
     const loadData = async () => {
@@ -67,19 +67,39 @@ export default function App() {
     loadData()
   }, [useAPI, apiUrl])
 
-  useKeyboardShortcuts({
-    onNewItem: () => {
-      if (activeTab === 'products') setShowNewProductDialog(true)
-      else if (activeTab === 'orders') setShowNewOrderDialog(true)
-      else if (activeTab === 'profiles') setShowNewProfileDialog(true)
+  useKeyboardShortcuts([
+    {
+      key: 'n',
+      ctrlKey: true,
+      callback: () => {
+        if (activeTab === 'products') setShowNewProductDialog(true)
+        else if (activeTab === 'orders') setShowNewOrderDialog(true)
+        else if (activeTab === 'profiles') setShowNewProfileDialog(true)
+      },
+      description: 'Crear nuevo elemento'
     },
-    onSearch: () => {
-      const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement
-      searchInput?.focus()
+    {
+      key: 'k',
+      ctrlKey: true,
+      callback: () => {
+        const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement
+        searchInput?.focus()
+      },
+      description: 'Enfocar búsqueda'
     },
-    onSettings: () => setShowSettingsDialog(true),
-    onShowKeyboardShortcuts: () => setShowKeyboardDialog(true)
-  })
+    {
+      key: ',',
+      ctrlKey: true,
+      callback: () => setShowSettingsDialog(true),
+      description: 'Abrir configuración'
+    },
+    {
+      key: '?',
+      shiftKey: true,
+      callback: () => setShowKeyboardDialog(true),
+      description: 'Mostrar atajos de teclado'
+    }
+  ])
 
   const handleExportProducts = () => {
     const filtered = filteredProducts
@@ -93,9 +113,9 @@ export default function App() {
     toast.success(`${filtered.length} órdenes exportadas`)
   }
 
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = (products ?? []).filter(p => {
     if (selectedProfile !== 'all') {
-      const profile = profiles.find(pr => pr.slug === selectedProfile)
+      const profile = (profiles ?? []).find(pr => pr.slug === selectedProfile)
       if (!profile || p.profile_id !== profile.id) return false
     }
     
@@ -115,9 +135,9 @@ export default function App() {
     return true
   })
 
-  const filteredOrders = orders.filter(o => {
+  const filteredOrders = (orders ?? []).filter(o => {
     if (selectedProfile !== 'all') {
-      const profile = profiles.find(p => p.slug === selectedProfile)
+      const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
       if (!profile || o.profile_id !== profile.id) return false
     }
     
@@ -134,7 +154,7 @@ export default function App() {
     return true
   })
 
-  const activeProfiles = profiles.filter(p => p.active)
+  const activeProfiles = (profiles ?? []).filter(p => p.active)
 
   return (
     <div className="min-h-screen bg-background">
@@ -197,7 +217,7 @@ export default function App() {
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
-            <DashboardStats products={products} orders={orders} />
+            <DashboardStats products={products ?? []} orders={orders ?? []} />
             
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
@@ -289,7 +309,7 @@ export default function App() {
                     onEdit={setEditingProduct}
                     onToggleActive={async (p) => {
                       const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
-                      setProducts(current => current.map(pr => pr.id === updated.id ? updated : pr))
+                      setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
                       toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
                     }}
                   />
@@ -375,9 +395,9 @@ export default function App() {
                   <OrderCard
                     key={order.id}
                     order={order}
-                    onUpdateStatus={async (orderId, newStatus) => {
+                    onStatusChange={async (orderId, newStatus) => {
                       const updated = await service.updateOrderStatus(orderId, newStatus)
-                      setOrders(current => current.map(o => o.id === updated.id ? updated : o))
+                      setOrders(current => (current ?? []).map(o => o.id === updated.id ? updated : o))
                       toast.success('Estado de orden actualizado')
                     }}
                   />
@@ -394,7 +414,7 @@ export default function App() {
               </Button>
             </div>
 
-            {profiles.length === 0 ? (
+            {(profiles ?? []).length === 0 ? (
               <div className="text-center py-12">
                 <UserCircle size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
                 <h3 className="text-lg font-semibold text-card-foreground mb-2">
@@ -410,12 +430,12 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {profiles.map(profile => (
+                {(profiles ?? []).map(profile => (
                   <ProfileCard
                     key={profile.id}
                     profile={profile}
-                    productCount={products.filter(p => p.profile_id === profile.id && p.activo).length}
-                    orderCount={orders.filter(o => o.profile_id === profile.id).length}
+                    productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
+                    orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
                     onEdit={setEditingProfile}
                   />
                 ))}
@@ -429,9 +449,10 @@ export default function App() {
         open={showNewProductDialog}
         onOpenChange={setShowNewProductDialog}
         profiles={activeProfiles}
-        onSuccess={async (newProduct) => {
-          const created = await service.createProduct(newProduct)
-          setProducts(current => [...current, created])
+        onSubmit={async (newProduct, stock) => {
+          const productWithStock = { ...newProduct, activo: true, stock_disponible: stock }
+          const created = await service.createProduct(productWithStock)
+          setProducts(current => [...(current ?? []), created])
           toast.success('Producto creado exitosamente')
           setShowNewProductDialog(false)
         }}
@@ -441,14 +462,14 @@ export default function App() {
         open={showNewOrderDialog}
         onOpenChange={setShowNewOrderDialog}
         profiles={activeProfiles}
-        products={products.filter(p => p.activo && p.stock_disponible > 0)}
-        onSuccess={async (newOrder) => {
+        products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
+        onSubmit={async (newOrder) => {
           const created = await service.createOrder(newOrder)
-          setOrders(current => [created, ...current])
+          setOrders(current => [created, ...(current ?? [])])
           
           for (const item of newOrder.items) {
             setProducts(current =>
-              current.map(p =>
+              (current ?? []).map(p =>
                 p.id === item.product_id
                   ? { ...p, stock_disponible: p.stock_disponible - item.cantidad }
                   : p
@@ -464,9 +485,9 @@ export default function App() {
       <NewProfileDialog
         open={showNewProfileDialog}
         onOpenChange={setShowNewProfileDialog}
-        onSuccess={async (newProfile) => {
-          const created = await service.createProfile(newProfile)
-          setProfiles(current => [...current, created])
+        onSubmit={async (name, slug) => {
+          const created = await service.createProfile({ name, slug, active: true })
+          setProfiles(current => [...(current ?? []), created])
           toast.success('Perfil creado exitosamente')
           setShowNewProfileDialog(false)
         }}
@@ -474,12 +495,12 @@ export default function App() {
 
       {editingProduct && (
         <EditProductDialog
+          open={true}
           product={editingProduct}
-          profiles={activeProfiles}
           onOpenChange={(open) => !open && setEditingProduct(null)}
-          onSuccess={async (updated) => {
-            const savedProduct = await service.updateProduct(updated.id, updated)
-            setProducts(current => current.map(p => p.id === savedProduct.id ? savedProduct : p))
+          onSubmit={async (productId, updates) => {
+            const savedProduct = await service.updateProduct(productId, updates)
+            setProducts(current => (current ?? []).map(p => p.id === savedProduct.id ? savedProduct : p))
             toast.success('Producto actualizado exitosamente')
             setEditingProduct(null)
           }}
@@ -488,11 +509,12 @@ export default function App() {
 
       {editingProfile && (
         <EditProfileDialog
+          open={true}
           profile={editingProfile}
           onOpenChange={(open) => !open && setEditingProfile(null)}
-          onSuccess={async (updated) => {
-            const savedProfile = await service.updateProfile(updated.id, updated)
-            setProfiles(current => current.map(p => p.id === savedProfile.id ? savedProfile : p))
+          onSubmit={async (profileId, name, active) => {
+            const savedProfile = await service.updateProfile(profileId, { name, active })
+            setProfiles(current => (current ?? []).map(p => p.id === savedProfile.id ? savedProfile : p))
             toast.success('Perfil actualizado exitosamente')
             setEditingProfile(null)
           }}
@@ -502,14 +524,6 @@ export default function App() {
       <SettingsDialog
         open={showSettingsDialog}
         onOpenChange={setShowSettingsDialog}
-        useAPI={useAPI}
-        apiUrl={apiUrl}
-        onSave={(newUseAPI, newApiUrl) => {
-          setUseAPI(newUseAPI)
-          setApiUrl(newApiUrl)
-          setShowSettingsDialog(false)
-          toast.success('Configuración guardada. Recarga la página para aplicar cambios.')
-        }}
       />
 
       <KeyboardShortcutsDialog
