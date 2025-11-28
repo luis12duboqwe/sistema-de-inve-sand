@@ -418,7 +418,7 @@ export default function App() {
             </div>
 
             {bulkActionMode && selectedProducts.size > 0 && (
-            {bulkActionMode && selectedProducts.size > 0 && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 bg-accent rounded-lg">
                 <span className="text-sm font-medium">
                   {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
                 </span>
