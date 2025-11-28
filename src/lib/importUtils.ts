@@ -182,32 +182,23 @@ export function parseCSVFile(csvText: string, profileId: number): CSVImportResul
 
 export function generateCSVTemplate(): void {
   const headers = 'SKU,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Moneda,Garantía (meses),Stock'
-  const exampleRows = [
+    'IPHONE13-128-BLK,i
     'IPHONE13-128-BLK,iPhone 13 128GB Negro,celular,Apple,iPhone 13,128GB,nuevo,15000,HNL,12,5',
     'CASE-IPHONE13,Funda iPhone 13,accesorio,Generic,Funda Silicona,,nuevo,150,HNL,3,20'
   ]
-  const csvContent = [headers, ...exampleRows]
+  const blob = new Blob([csvContent], { type: 
     .join('\n')
   
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
-  link.setAttribute('href', url)
+  URL.revokeObjectURL(url)
   link.setAttribute('download', 'plantilla_productos.csv')
   link.style.visibility = 'hidden'
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+
 }
 
 export const parseProductsCSV = parseCSVFile
-export const downloadCSVTemplate = generateCSVTemplate
-
-
-
-
-
-
-
-
