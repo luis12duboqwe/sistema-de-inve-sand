@@ -6,13 +6,13 @@ export interface CSVValidationResult {
   product?: Partial<ProductWithStock>
 }
 
-export interface CSVImportResult {
-  success: boolean
   message: string
-  importedCount: number
-  products: Partial<ProductWithStock>[]
-  errors: { row: number; error: string }[]
+  products: Partia
 }
+function parseCSVLine(l
+  let current = ''
+
+ 
 
 function parseCSVLine(line: string): string[] {
   const row: string[] = []
@@ -30,11 +30,11 @@ function parseCSVLine(line: string): string[] {
         insideQuotes = !insideQuotes
       }
     } else if (char === ',' && !insideQuotes) {
-      row.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
+
+  row: Record<stri
+  profileId?
+  const errors: strin
+  if 
   }
   
   row.push(current.trim())
@@ -44,7 +44,7 @@ function parseCSVLine(line: string): string[] {
 function validateProductRow(
   row: Record<string, string>,
   rowNumber: number,
-  profileId?: number
+  profileId?: string
 ): CSVValidationResult {
   const errors: string[] = []
   
@@ -87,86 +87,86 @@ function validateProductRow(
     valid: true,
     errors: [],
     product: {
-      sku: row.Código?.trim() || '',
+      codigo: row.Código?.trim() || '',
       nombre: row.Nombre.trim(),
       categoria: row.Categoría.toLowerCase() as 'celular' | 'accesorio',
       marca: row.Marca?.trim() || '',
-      modelo: row.Modelo?.trim() || '',
-      capacidad: row.Capacidad?.trim() || '',
-      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado',
-      precio: precio,
-      moneda: (row.Moneda?.toUpperCase() || 'HNL'),
-      garantia_meses: garantia,
-      stock_disponible: stock,
-      profile_id: profileId,
-      activo: true
-    }
-  }
-}
-
-export function parseProductsCSV(csvContent: string, profileId?: number): CSVImportResult {
-  const lines = csvContent.split('\n').filter(line => line.trim())
   
-  if (lines.length < 2) {
     return {
-      success: false,
       message: 'El archivo CSV está vacío o no tiene datos',
-      importedCount: 0,
       products: [],
-      errors: []
     }
-  }
   
-  const products: Partial<ProductWithStock>[] = []
-  const importErrors: { row: number; error: string }[] = []
+  const importErrors: { row: n
+  const headerLine = lines[0
   
-  const headerLine = lines[0]
-  const headers = parseCSVLine(headerLine)
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i])
-    const rowData: Record<string, string> = {}
-    
-    headers.forEach((header, index) => {
-      rowData[header] = values[index] || ''
-    })
-    
-    const validation = validateProductRow(rowData, i + 1, profileId)
-    
-    if (validation.valid && validation.product) {
-      products.push(validation.product)
-    } else {
-      validation.errors.forEach(error => {
-        importErrors.push({
-          row: i + 1,
-          error
-        })
-      })
     }
-  }
-  
-  return {
-    success: products.length > 0,
-    message: products.length > 0
-      ? `${products.length} productos listos para importar`
-      : 'No se encontraron productos válidos',
-    importedCount: products.length,
-    products,
-    errors: importErrors
-  }
+   
 }
 
-export function downloadCSVTemplate() {
-  const csvContent = [
-    'Código,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Moneda,Garantía,Stock',
-    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,HNL,12,5'
+    
+      products.push(validation.product)
+  
+          row: i + 1,
+        })
+    }
+  
+    success: products.l
+      ? `${products
+    importedCoun
+    e
+}
+ex
+    'Código,Nombre,Categoría,Marca,Modelo,Capacida
   ].join('\n')
   
+  const link = document.creat
+  link.download = 'plantilla_productos.csv
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,HNL,12,5'
+
+
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
-  link.href = url
+
   link.download = 'plantilla_productos.csv'
   link.click()
-  URL.revokeObjectURL(url)
+
 }
