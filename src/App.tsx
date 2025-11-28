@@ -126,9 +126,9 @@ export default function App() {
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       return (
-        p.nombre?.toLowerCase().includes(term) ||
-        p.marca?.toLowerCase().includes(term) ||
-        p.modelo?.toLowerCase().includes(term)
+        (p.nombre && p.nombre.toLowerCase().includes(term)) ||
+        (p.marca && p.marca.toLowerCase().includes(term)) ||
+        (p.modelo && p.modelo.toLowerCase().includes(term))
       )
     }
     
@@ -146,8 +146,8 @@ export default function App() {
     if (customerSearchTerm) {
       const term = customerSearchTerm.toLowerCase()
       return (
-        o.customer_name?.toLowerCase().includes(term) ||
-        o.customer_phone?.toLowerCase().includes(term)
+        (o.customer_name && o.customer_name.toLowerCase().includes(term)) ||
+        (o.customer_phone && o.customer_phone.toLowerCase().includes(term))
       )
     }
     
