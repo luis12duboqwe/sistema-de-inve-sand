@@ -46,6 +46,9 @@ function App() {
   const [selectedProfile, setSelectedProfile] = useState<string>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [showInactive, setShowInactive] = useState(false)
+  const [minPrice, setMinPrice] = useState<string>('')
+  const [maxPrice, setMaxPrice] = useState<string>('')
+  const [selectedWarranty, setSelectedWarranty] = useState<string>('all')
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false)
   const [isNewProductOpen, setIsNewProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
@@ -113,7 +116,7 @@ function App() {
     if (!isLoading) {
       loadProducts()
     }
-  }, [selectedProfile, searchTerm, selectedCategory, showInactive, isLoading])
+  }, [selectedProfile, searchTerm, selectedCategory, showInactive, minPrice, maxPrice, selectedWarranty, isLoading])
 
   useEffect(() => {
     if (!isLoading && activeTab === 'orders') {
@@ -153,6 +156,27 @@ function App() {
 
       if (selectedCategory !== 'all') {
         productsList = productsList.filter(p => p.categoria === selectedCategory)
+      }
+
+      if (minPrice !== '') {
+        const min = parseFloat(minPrice)
+        if (!isNaN(min)) {
+          productsList = productsList.filter(p => p.precio >= min)
+        }
+      }
+
+      if (maxPrice !== '') {
+        const max = parseFloat(maxPrice)
+        if (!isNaN(max)) {
+          productsList = productsList.filter(p => p.precio <= max)
+        }
+      }
+
+      if (selectedWarranty !== 'all') {
+        const warranty = parseInt(selectedWarranty)
+        if (!isNaN(warranty)) {
+          productsList = productsList.filter(p => p.garantia_meses === warranty)
+        }
       }
 
       setProducts(productsList)
@@ -413,56 +437,107 @@ function App() {
           <TabsContent value="products" className="space-y-6">
             <DashboardStats products={products} orders={orders} />
             
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <MagnifyingGlass
-                  size={20}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  placeholder="Buscar por nombre, marca o modelo..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <MagnifyingGlass
+                    size={20}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    placeholder="Buscar por nombre, marca o modelo..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-full md:w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las categorías</SelectItem>
+                    <SelectItem value="celular">Celulares</SelectItem>
+                    <SelectItem value="accesorio">Accesorios</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2 px-3 border rounded-md">
+                  <Switch
+                    id="show-inactive"
+                    checked={showInactive}
+                    onCheckedChange={setShowInactive}
+                  />
+                  <Label htmlFor="show-inactive" className="cursor-pointer text-sm">
+                    Mostrar inactivos
+                  </Label>
+                </div>
+                <Button 
+                  onClick={handleExportProducts} 
+                  variant="outline" 
+                  className="gap-2"
+                  disabled={products.length === 0}
+                >
+                  <Download size={20} />
+                  Exportar
+                </Button>
+                <Button onClick={() => setIsNewProductOpen(true)} variant="outline" className="gap-2">
+                  <Plus size={20} />
+                  Nuevo Producto
+                </Button>
+                <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
+                  <Plus size={20} />
+                  Nueva Orden
+                </Button>
               </div>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las categorías</SelectItem>
-                  <SelectItem value="celular">Celulares</SelectItem>
-                  <SelectItem value="accesorio">Accesorios</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex items-center gap-2 px-3 border rounded-md">
-                <Switch
-                  id="show-inactive"
-                  checked={showInactive}
-                  onCheckedChange={setShowInactive}
-                />
-                <Label htmlFor="show-inactive" className="cursor-pointer text-sm">
-                  Mostrar inactivos
-                </Label>
+
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex gap-2 items-center">
+                  <Label className="text-sm font-medium whitespace-nowrap">Rango de precio:</Label>
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={minPrice}
+                    onChange={e => setMinPrice(e.target.value)}
+                    className="w-28"
+                    min="0"
+                  />
+                  <span className="text-muted-foreground">-</span>
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={maxPrice}
+                    onChange={e => setMaxPrice(e.target.value)}
+                    className="w-28"
+                    min="0"
+                  />
+                  {(minPrice || maxPrice) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setMinPrice('')
+                        setMaxPrice('')
+                      }}
+                      className="h-8 px-2"
+                    >
+                      Limpiar
+                    </Button>
+                  )}
+                </div>
+                <Select value={selectedWarranty} onValueChange={setSelectedWarranty}>
+                  <SelectTrigger className="w-full md:w-52">
+                    <SelectValue placeholder="Garantía" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las garantías</SelectItem>
+                    <SelectItem value="0">Sin garantía</SelectItem>
+                    <SelectItem value="2">2 meses</SelectItem>
+                    <SelectItem value="3">3 meses</SelectItem>
+                    <SelectItem value="6">6 meses</SelectItem>
+                    <SelectItem value="12">12 meses</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Button 
-                onClick={handleExportProducts} 
-                variant="outline" 
-                className="gap-2"
-                disabled={products.length === 0}
-              >
-                <Download size={20} />
-                Exportar
-              </Button>
-              <Button onClick={() => setIsNewProductOpen(true)} variant="outline" className="gap-2">
-                <Plus size={20} />
-                Nuevo Producto
-              </Button>
-              <Button onClick={() => setIsNewOrderOpen(true)} className="gap-2">
-                <Plus size={20} />
-                Nueva Orden
-              </Button>
             </div>
 
             {products.length === 0 ? (
