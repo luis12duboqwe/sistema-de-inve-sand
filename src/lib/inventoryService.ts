@@ -97,9 +97,9 @@ export class InventoryService {
       const searchLower = search.toLowerCase()
       filtered = filtered.filter(
         p =>
-          p.nombre.toLowerCase().includes(searchLower) ||
-          p.marca.toLowerCase().includes(searchLower) ||
-          p.modelo.toLowerCase().includes(searchLower)
+          p.nombre?.toLowerCase().includes(searchLower) ||
+          p.marca?.toLowerCase().includes(searchLower) ||
+          p.modelo?.toLowerCase().includes(searchLower)
       )
     }
 

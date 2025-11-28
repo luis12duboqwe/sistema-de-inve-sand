@@ -99,15 +99,15 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-muted-foreground">Marca:</span>
-            <p className="font-medium">{product.marca}</p>
+            <p className="font-medium">{product.marca || 'N/A'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Modelo:</span>
-            <p className="font-medium">{product.modelo}</p>
+            <p className="font-medium">{product.modelo || 'N/A'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Capacidad:</span>
-            <p className="font-medium">{product.capacidad}</p>
+            <p className="font-medium">{product.capacidad || 'N/A'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Condición:</span>
