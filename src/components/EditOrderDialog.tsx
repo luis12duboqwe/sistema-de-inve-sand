@@ -16,8 +16,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Trash, Plus } from '@phosphor-icons/react'
+import { Plus, Trash } from '@phosphor-icons/react'
 import type { OrderWithItems, ProductWithStock, Order } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -31,15 +30,14 @@ interface EditOrderDialogProps {
     customer_phone: string
     canal: Order['canal']
     metodo_pago: Order['metodo_pago']
-    items: Array<{
+    items: {
       product_id: number
       cantidad: number
-    }>
+    }[]
   }) => Promise<void>
 }
 
 interface OrderItemForm {
-  id?: number
   product_id: number
   cantidad: number
 }
@@ -55,7 +53,12 @@ export function EditOrderDialog({
   const [customerPhone, setCustomerPhone] = useState(order.customer_phone)
   const [canal, setCanal] = useState<Order['canal']>(order.canal)
   const [metodoPago, setMetodoPago] = useState<Order['metodo_pago']>(order.metodo_pago)
-  const [items, setItems] = useState<OrderItemForm[]>([])
+  const [items, setItems] = useState<OrderItemForm[]>(
+    order.items.map(item => ({
+      product_id: item.product_id,
+      cantidad: item.cantidad
+    }))
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -64,75 +67,21 @@ export function EditOrderDialog({
       setCustomerPhone(order.customer_phone)
       setCanal(order.canal)
       setMetodoPago(order.metodo_pago)
-      setItems(order.items.map(item => ({
-        id: item.id,
-        product_id: item.product_id,
-        cantidad: item.cantidad
-      })))
+      setItems(
+        order.items.map(item => ({
+          product_id: item.product_id,
+          cantidad: item.cantidad
+        }))
+      )
     }
   }, [order])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!customerName.trim()) {
-      toast.error('Por favor ingresa el nombre del cliente')
-      return
-    }
-    
-    if (!customerPhone.trim()) {
-      toast.error('Por favor ingresa el teléfono del cliente')
-      return
-    }
-    
-    const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
-    if (validItems.length === 0) {
-      toast.error('Por favor agrega al menos un producto')
-      return
-    }
-
-    for (const item of validItems) {
-      const product = products.find(p => p.id === item.product_id)
-      if (!product) continue
-      
-      const originalItem = order.items.find(oi => oi.product_id === item.product_id)
-      const originalQuantity = originalItem?.cantidad || 0
-      const maxAvailable = product.stock_disponible + originalQuantity
-      
-      if (item.cantidad > maxAvailable) {
-        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${maxAvailable}`)
-        return
-      }
-    }
-
-    setIsSubmitting(true)
-    try {
-      await onSubmit(order.id, {
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        canal,
-        metodo_pago: metodoPago,
-        items: validItems
-      })
-    } catch (error) {
-      console.error('Error updating order:', error)
-      toast.error('Error al actualizar la orden')
-      setIsSubmitting(false)
-    }
-  }
-
   const addItem = () => {
-    const availableProduct = products.find(p => 
-      !items.some(item => item.product_id === p.id)
-    )
-    if (availableProduct) {
-      setItems([...items, { product_id: availableProduct.id, cantidad: 1 }])
-    }
+    setItems([...items, { product_id: 0, cantidad: 1 }])
   }
 
   const removeItem = (index: number) => {
-    const newItems = items.filter((_, i) => i !== index)
-    setItems(newItems)
+    setItems(items.filter((_, i) => i !== index))
   }
 
   const updateItemProduct = (index: number, productId: number) => {
@@ -147,24 +96,75 @@ export function EditOrderDialog({
     setItems(newItems)
   }
 
+  const getAvailableProducts = (currentProductId: number) => {
+    return products.filter(p => {
+      if (p.id === currentProductId) return true
+      const originalItem = order.items.find(oi => oi.product_id === p.id)
+      const availableStock = p.stock_disponible + (originalItem?.cantidad || 0)
+      return availableStock > 0
+    })
+  }
+
   const calculateTotal = () => {
-    return items.reduce((sum, item) => {
+    return items.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
-      return sum + (product?.precio || 0) * item.cantidad
+      if (!product) return total
+      return total + product.precio * item.cantidad
     }, 0)
   }
 
-  const getAvailableProducts = (currentProductId?: number) => {
-    return products.filter(p => {
-      if (p.id === currentProductId) return true
-      const isAlreadySelected = items.some(item => item.product_id === p.id)
-      return !isAlreadySelected
-    })
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!customerName.trim()) {
+      toast.error('Por favor ingresa el nombre del cliente')
+      return
+    }
+
+    if (!customerPhone.trim()) {
+      toast.error('Por favor ingresa el teléfono del cliente')
+      return
+    }
+
+    const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
+    if (validItems.length === 0) {
+      toast.error('Por favor agrega al menos un producto')
+      return
+    }
+
+    for (const item of validItems) {
+      const product = products.find(p => p.id === item.product_id)
+      const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+      const originalQuantity = originalItem?.cantidad || 0
+      const maxAvailable = (product?.stock_disponible || 0) + originalQuantity
+
+      if (item.cantidad > maxAvailable) {
+        toast.error(`Stock insuficiente para ${product?.nombre}. Disponible: ${maxAvailable}`)
+        return
+      }
+    }
+
+    setIsSubmitting(true)
+    try {
+      await onSubmit(order.id, {
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        canal,
+        metodo_pago: metodoPago,
+        items: validItems
+      })
+      onOpenChange(false)
+    } catch (error) {
+      console.error('Error updating order:', error)
+      toast.error('Error al actualizar la orden')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Orden #{order.id}</DialogTitle>
         </DialogHeader>
@@ -297,12 +297,12 @@ export function EditOrderDialog({
 
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="outline"
                         size="icon"
                         onClick={() => removeItem(index)}
-                        className="mt-6"
+                        className="mb-2"
                       >
-                        <Trash size={18} className="text-destructive" />
+                        <Trash size={18} />
                       </Button>
                     </div>
                   )
@@ -319,16 +319,16 @@ export function EditOrderDialog({
               </span>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-            </Button>
-          </DialogFooter>
         </form>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
