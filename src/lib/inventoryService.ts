@@ -250,6 +250,23 @@ export class InventoryService {
     return this.getProfiles()
   }
 
+  async updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile> {
+    const profiles = await this.getProfiles()
+    const profileIndex = profiles.findIndex(p => p.id === profileId)
+
+    if (profileIndex === -1) {
+      throw new Error(`Profile with id ${profileId} not found`)
+    }
+
+    profiles[profileIndex] = {
+      ...profiles[profileIndex],
+      ...updates
+    }
+
+    await this.setProfiles(profiles)
+    return profiles[profileIndex]
+  }
+
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']

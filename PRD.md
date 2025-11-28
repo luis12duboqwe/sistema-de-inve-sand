@@ -68,6 +68,20 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Progression**: Click export → Data formatted to CSV → File downloaded with timestamp → Success notification
 - **Success criteria**: CSV includes all visible filtered data, proper formatting, unique filenames with dates
 
+### Analytics Dashboard (Enhanced)
+- **Functionality**: Visual dashboard with charts showing sales trends, revenue, top products, and order distribution
+- **Purpose**: Provide business insights at a glance to support data-driven decisions
+- **Trigger**: Automatically displayed on products tab
+- **Progression**: View dashboard → See KPI cards → Review charts for trends → Identify opportunities or issues
+- **Success criteria**: Charts render correctly, data updates in real-time, responsive on all devices, clear visual hierarchy
+
+### Profile Management (Enhanced)
+- **Functionality**: Create, edit, activate/deactivate business profiles
+- **Purpose**: Allow full lifecycle management of business entities within the system
+- **Trigger**: User clicks edit button on profile card or creates new profile
+- **Progression**: Click edit → Modify name or toggle active status → Save → Profile list updates → Filter respects active status
+- **Success criteria**: Profile updates persist, inactive profiles can be filtered, slug remains immutable after creation
+
 ### Keyboard Shortcuts
 - **Functionality**: Quick navigation and actions using keyboard combinations
 - **Purpose**: Increase efficiency for power users managing inventory frequently

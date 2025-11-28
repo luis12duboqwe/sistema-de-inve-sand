@@ -86,6 +86,13 @@ class ApiClient {
     })
   }
 
+  async updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile> {
+    return this.request<Profile>(`/profiles/${profileId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+  }
+
   async fetchProducts(
     profileSlug?: string,
     search?: string,

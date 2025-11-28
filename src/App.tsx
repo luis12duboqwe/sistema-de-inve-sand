@@ -19,6 +19,7 @@ import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
 import { NewProfileDialog } from '@/components/NewProfileDialog'
+import { EditProfileDialog } from '@/components/EditProfileDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { inventoryServiceInstance as inventoryService } from '@/lib/inventoryServiceFactory'
@@ -49,6 +50,8 @@ function App() {
   const [isNewProductOpen, setIsNewProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
   const [isNewProfileOpen, setIsNewProfileOpen] = useState(false)
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false)
+  const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -249,6 +252,27 @@ function App() {
     } catch (error) {
       console.error('Error creating profile:', error)
       toast.error(error instanceof Error ? error.message : 'Error al crear perfil')
+      throw error
+    }
+  }
+
+  const handleEditProfile = (profile: Profile) => {
+    setEditingProfile(profile)
+    setIsEditProfileOpen(true)
+  }
+
+  const handleUpdateProfile = async (profileId: number, name: string, active: boolean) => {
+    try {
+      await inventoryService.updateProfile(profileId, { name, active })
+      toast.success('Perfil actualizado exitosamente')
+      const profilesList = await inventoryService.listProfiles()
+      setProfiles(profilesList)
+      if (!active && selectedProfile === profiles.find(p => p.id === profileId)?.slug) {
+        setSelectedProfile('all')
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      toast.error(error instanceof Error ? error.message : 'Error al actualizar perfil')
       throw error
     }
   }
@@ -609,6 +633,7 @@ function App() {
                         profile={profile}
                         productCount={stats.productCount}
                         orderCount={stats.orderCount}
+                        onEdit={handleEditProfile}
                       />
                     </motion.div>
                   )
@@ -645,6 +670,13 @@ function App() {
         open={isNewProfileOpen}
         onOpenChange={setIsNewProfileOpen}
         onSubmit={handleCreateProfile}
+      />
+
+      <EditProfileDialog
+        open={isEditProfileOpen}
+        onOpenChange={setIsEditProfileOpen}
+        profile={editingProfile}
+        onSubmit={handleUpdateProfile}
       />
 
       <SettingsDialog

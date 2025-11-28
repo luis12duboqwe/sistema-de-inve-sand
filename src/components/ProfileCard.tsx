@@ -1,15 +1,17 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Storefront } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { Storefront, PencilSimple } from '@phosphor-icons/react'
 import type { Profile } from '@/lib/types'
 
 interface ProfileCardProps {
   profile: Profile
   productCount?: number
   orderCount?: number
+  onEdit?: (profile: Profile) => void
 }
 
-export function ProfileCard({ profile, productCount = 0, orderCount = 0 }: ProfileCardProps) {
+export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit }: ProfileCardProps) {
   return (
     <Card className="p-6 hover:shadow-lg transition-shadow">
       <div className="flex flex-col gap-4">
@@ -27,11 +29,27 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0 }: Profi
               </p>
             </div>
           </div>
-          {profile.active && (
-            <Badge className="bg-accent text-accent-foreground">
-              Activo
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {profile.active ? (
+              <Badge className="bg-accent text-accent-foreground">
+                Activo
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="bg-muted text-muted-foreground">
+                Inactivo
+              </Badge>
+            )}
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEdit(profile)}
+                className="h-8 w-8"
+              >
+                <PencilSimple size={16} />
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 pt-4 border-t">

@@ -38,6 +38,8 @@ export interface IInventoryService {
   createProfile(name: string, slug: string): Promise<Profile>
   
   listProfiles(): Promise<Profile[]>
+
+  updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile>
   
   updateOrderStatus(
     orderId: number,
@@ -103,6 +105,11 @@ class UnifiedInventoryService implements IInventoryService {
     return service.listProfiles()
   }
 
+  async updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile> {
+    const service = await this.getService()
+    return service.updateProfile(profileId, updates)
+  }
+
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']
@@ -160,6 +167,10 @@ class ApiInventoryService implements IInventoryService {
 
   async listProfiles(): Promise<Profile[]> {
     return apiClient.listProfiles()
+  }
+
+  async updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile> {
+    return apiClient.updateProfile(profileId, updates)
   }
 
   async updateOrderStatus(
