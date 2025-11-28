@@ -18,7 +18,7 @@ const STORAGE_KEYS = {
 }
 
 export class InventoryService {
-  private async getProfiles(): Promise<Profile[]> {
+  private async loadProfiles(): Promise<Profile[]> {
     const data = await window.spark.kv.get<Profile[]>(STORAGE_KEYS.PROFILES)
     return data || []
   }
@@ -27,7 +27,7 @@ export class InventoryService {
     await window.spark.kv.set(STORAGE_KEYS.PROFILES, profiles)
   }
 
-  private async getProducts(): Promise<Product[]> {
+  private async loadProducts(): Promise<Product[]> {
     const data = await window.spark.kv.get<Product[]>(STORAGE_KEYS.PRODUCTS)
     return data || []
   }
@@ -45,7 +45,7 @@ export class InventoryService {
     await window.spark.kv.set(STORAGE_KEYS.STOCK, stock)
   }
 
-  private async getOrders(): Promise<Order[]> {
+  private async loadOrders(): Promise<Order[]> {
     const data = await window.spark.kv.get<Order[]>(STORAGE_KEYS.ORDERS)
     return data || []
   }
@@ -79,9 +79,9 @@ export class InventoryService {
 
   async fetchProducts(profileSlug?: string, search?: string, includeInactive = false): Promise<ProductWithStock[]> {
     const [products, stock, profiles] = await Promise.all([
-      this.getProducts(),
+      this.loadProducts(),
       this.getStock(),
-      this.getProfiles()
+      this.loadProfiles()
     ])
 
     let filtered = includeInactive ? products : products.filter(p => p.activo)
@@ -116,12 +116,16 @@ export class InventoryService {
     return productsWithStock
   }
 
+  async getProducts(): Promise<ProductWithStock[]> {
+    return this.fetchProducts(undefined, undefined, true)
+  }
+
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
     const [profiles, products, stock, orders, orderItems] = await Promise.all([
-      this.getProfiles(),
-      this.getProducts(),
+      this.loadProfiles(),
+      this.loadProducts(),
       this.getStock(),
-      this.getOrders(),
+      this.loadOrders(),
       this.getOrderItems()
     ])
 
@@ -200,10 +204,10 @@ export class InventoryService {
 
   async fetchOrders(profileSlug?: string): Promise<OrderWithItems[]> {
     const [orders, orderItems, products, profiles] = await Promise.all([
-      this.getOrders(),
+      this.loadOrders(),
       this.getOrderItems(),
-      this.getProducts(),
-      this.getProfiles()
+      this.loadProducts(),
+      this.loadProfiles()
     ])
 
     let filtered = orders
@@ -236,8 +240,12 @@ export class InventoryService {
     )
   }
 
+  async getOrders(): Promise<OrderWithItems[]> {
+    return this.fetchOrders()
+  }
+
   async createProfile(name: string, slug: string): Promise<Profile> {
-    const profiles = await this.getProfiles()
+    const profiles = await this.loadProfiles()
 
     if (profiles.some(p => p.slug === slug)) {
       throw new Error(`Profile with slug "${slug}" already exists`)
@@ -255,11 +263,15 @@ export class InventoryService {
   }
 
   async listProfiles(): Promise<Profile[]> {
-    return this.getProfiles()
+    return this.loadProfiles()
   }
 
-  async updateProfile(profileId: number, updates: { name?: string; active?: boolean }): Promise<Profile> {
-    const profiles = await this.getProfiles()
+  async getProfiles(): Promise<Profile[]> {
+    return this.loadProfiles()
+  }
+
+  async updateProfile(profileId: number, updates: Partial<Profile>): Promise<Profile> {
+    const profiles = await this.loadProfiles()
     const profileIndex = profiles.findIndex(p => p.id === profileId)
 
     if (profileIndex === -1) {
@@ -278,8 +290,8 @@ export class InventoryService {
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']
-  ): Promise<Order> {
-    const orders = await this.getOrders()
+  ): Promise<OrderWithItems> {
+    const orders = await this.loadOrders()
     const orderIndex = orders.findIndex(o => o.id === orderId)
 
     if (orderIndex === -1) {
@@ -289,12 +301,17 @@ export class InventoryService {
     orders[orderIndex].estado = estado
     await this.setOrders(orders)
 
-    return orders[orderIndex]
+    const orderWithItems = await this.fetchOrders()
+    const found = orderWithItems.find(o => o.id === orderId)
+    if (!found) {
+      throw new Error(`Order with id ${orderId} not found after update`)
+    }
+    return found
   }
 
-  async addProduct(product: Omit<Product, 'id'>, initialStock: number): Promise<Product> {
+  async addProduct(product: Omit<Product, 'id'>, initialStock: number): Promise<ProductWithStock> {
     const [products, stock] = await Promise.all([
-      this.getProducts(),
+      this.loadProducts(),
       this.getStock()
     ])
 
@@ -312,7 +329,15 @@ export class InventoryService {
     await this.setProducts([...products, newProduct])
     await this.setStock([...stock, newStock])
 
-    return newProduct
+    return {
+      ...newProduct,
+      stock_disponible: initialStock
+    }
+  }
+
+  async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
+    const { stock_disponible, ...productData } = product
+    return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
   }
 
   async updateStock(productId: number, cantidad: number): Promise<void> {
@@ -327,21 +352,34 @@ export class InventoryService {
     await this.setStock(stock)
   }
 
-  async updateProduct(productId: number, updates: Partial<Product>): Promise<Product> {
-    const products = await this.getProducts()
+  async updateProduct(productId: number, updates: Partial<ProductWithStock>): Promise<ProductWithStock> {
+    const products = await this.loadProducts()
     const productIndex = products.findIndex(p => p.id === productId)
 
     if (productIndex === -1) {
       throw new Error(`Product with id ${productId} not found`)
     }
 
+    const { stock_disponible, ...productUpdates } = updates
+
     products[productIndex] = {
       ...products[productIndex],
-      ...updates
+      ...productUpdates
     }
 
     await this.setProducts(products)
-    return products[productIndex]
+
+    if (stock_disponible !== undefined) {
+      await this.updateStock(productId, stock_disponible)
+    }
+
+    const stock = await this.getStock()
+    const stockEntry = stock.find(s => s.product_id === productId)
+
+    return {
+      ...products[productIndex],
+      stock_disponible: stockEntry?.cantidad_disponible || 0
+    }
   }
 }
 
