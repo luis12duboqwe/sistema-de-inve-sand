@@ -140,6 +140,29 @@ class ApiClient {
     })
   }
 
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+    const productsToCreate = productsData.map(p => ({
+      profile_id: p.profile_id!,
+      sku: p.sku!,
+      nombre: p.nombre!,
+      categoria: p.categoria!,
+      marca: p.marca!,
+      modelo: p.modelo || '',
+      capacidad: p.capacidad || '',
+      condicion: p.condicion!,
+      precio: p.precio!,
+      moneda: p.moneda || 'HNL',
+      garantia_meses: p.garantia_meses || 0,
+      activo: true,
+      stock_inicial: p.stock_disponible || 0
+    }))
+
+    return this.request<ProductWithStock[]>('/products/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ products: productsToCreate }),
+    })
+  }
+
   async fetchOrders(profileSlug?: string): Promise<OrderWithItems[]> {
     const params = new URLSearchParams()
     if (profileSlug) params.append('profile_slug', profileSlug)

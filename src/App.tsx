@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Toaster, toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database } from '@phosphor-icons/react'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -18,6 +18,7 @@ import { EditProductDialog } from '@/components/EditProductDialog'
 import { EditProfileDialog } from '@/components/EditProfileDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
+import { ImportProductsDialog } from '@/components/ImportProductsDialog'
 import { DashboardStats } from '@/components/DashboardStats'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
@@ -39,6 +40,7 @@ export default function App() {
   const [showNewProfileDialog, setShowNewProfileDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
+  const [showImportDialog, setShowImportDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [useAPI, setUseAPI] = useKV<boolean>('inventory-use-api', false)
@@ -111,6 +113,18 @@ export default function App() {
     const filtered = filteredOrders
     exportOrdersToCSV(filtered)
     toast.success(`${filtered.length} órdenes exportadas`)
+  }
+
+  const handleImportProducts = async (productsData: Partial<ProductWithStock>[]) => {
+    try {
+      const importedProducts = await service.bulkCreateProducts(productsData)
+      setProducts(current => [...(current ?? []), ...importedProducts])
+      toast.success(`${importedProducts.length} productos importados exitosamente`)
+    } catch (error) {
+      console.error('Error importing products:', error)
+      toast.error('Error al importar productos')
+      throw error
+    }
   }
 
   const filteredProducts = (products ?? []).filter(p => {
@@ -265,6 +279,14 @@ export default function App() {
                   title="Exportar a CSV"
                 >
                   <Download size={18} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowImportDialog(true)}
+                  title="Importar desde CSV"
+                >
+                  <Upload size={18} />
                 </Button>
                 <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
                   <Plus size={18} className="mr-2" />
@@ -529,6 +551,13 @@ export default function App() {
       <KeyboardShortcutsDialog
         open={showKeyboardDialog}
         onOpenChange={setShowKeyboardDialog}
+      />
+
+      <ImportProductsDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        profiles={activeProfiles}
+        onImport={handleImportProducts}
       />
     </div>
   )

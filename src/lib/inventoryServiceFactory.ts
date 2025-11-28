@@ -65,6 +65,8 @@ export interface IInventoryService {
     productId: number,
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock>
+
+  bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]>
 }
 
 class LocalServiceWrapper implements IInventoryService {
@@ -147,6 +149,10 @@ class LocalServiceWrapper implements IInventoryService {
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
     return this.service.updateProduct(productId, updates)
+  }
+
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+    return this.service.bulkCreateProducts(productsData)
   }
 }
 
@@ -246,6 +252,11 @@ class UnifiedInventoryService implements IInventoryService {
     const service = await this.getService()
     return service.updateProduct(productId, updates)
   }
+
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+    const service = await this.getService()
+    return service.bulkCreateProducts(productsData)
+  }
 }
 
 class ApiInventoryService implements IInventoryService {
@@ -327,6 +338,10 @@ class ApiInventoryService implements IInventoryService {
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
     return apiClient.updateProduct(productId, updates)
+  }
+
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+    return apiClient.bulkCreateProducts(productsData)
   }
 }
 

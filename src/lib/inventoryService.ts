@@ -381,6 +381,59 @@ export class InventoryService {
       stock_disponible: stockEntry?.cantidad_disponible || 0
     }
   }
+
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+    const [products, stock] = await Promise.all([
+      this.loadProducts(),
+      this.getStock()
+    ])
+
+    let nextProductId = Math.max(0, ...products.map(p => p.id)) + 1
+    let nextStockId = Math.max(0, ...stock.map(s => s.id)) + 1
+
+    const newProducts: Product[] = []
+    const newStockEntries: Stock[] = []
+    const createdProducts: ProductWithStock[] = []
+
+    for (const productData of productsData) {
+      const { stock_disponible, ...productFields } = productData
+
+      const newProduct: Product = {
+        id: nextProductId++,
+        profile_id: productFields.profile_id!,
+        sku: productFields.sku!,
+        nombre: productFields.nombre!,
+        categoria: productFields.categoria!,
+        marca: productFields.marca!,
+        modelo: productFields.modelo || '',
+        capacidad: productFields.capacidad || '',
+        condicion: productFields.condicion!,
+        precio: productFields.precio!,
+        moneda: productFields.moneda || 'HNL',
+        garantia_meses: productFields.garantia_meses || 0,
+        activo: productFields.activo ?? true
+      }
+
+      const newStockEntry: Stock = {
+        id: nextStockId++,
+        product_id: newProduct.id,
+        cantidad_disponible: stock_disponible || 0
+      }
+
+      newProducts.push(newProduct)
+      newStockEntries.push(newStockEntry)
+
+      createdProducts.push({
+        ...newProduct,
+        stock_disponible: newStockEntry.cantidad_disponible
+      })
+    }
+
+    await this.setProducts([...products, ...newProducts])
+    await this.setStock([...stock, ...newStockEntries])
+
+    return createdProducts
+  }
 }
 
 export const inventoryService = new InventoryService()
