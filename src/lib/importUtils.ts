@@ -6,13 +6,13 @@ export interface CSVValidationResult {
   product?: Partial<ProductWithStock>
 }
 
-export interface CSVImportResult {
-  success: boolean
   message: string
-  importedCount: number
-  errors: { row: number; error: string }[]
-  products: Partial<ProductWithStock>[]
+  errors: { row: n
 }
+function parseCSVLine(l
+  let current = ''
+
+ 
 
 function parseCSVLine(line: string): string[] {
   const row: string[] = []
@@ -30,11 +30,11 @@ function parseCSVLine(line: string): string[] {
         insideQuotes = !insideQuotes
       }
     } else if (char === ',' && !insideQuotes) {
-      row.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
+
+  row: Record<stri
+  profileId?
+  const errors: strin
+  if 
   }
   
   row.push(current.trim())
@@ -44,28 +44,28 @@ function parseCSVLine(line: string): string[] {
 function validateProductRow(
   row: Record<string, string>,
   rowNumber: number,
-  profileId?: number
+  profileId?: string
 ): CSVValidationResult {
   const errors: string[] = []
   
   if (!row.Nombre?.trim()) {
     errors.push('Nombre es requerido')
-  }
+  c
   
   if (!row.Categoría || !['celular', 'accesorio'].includes(row.Categoría.toLowerCase())) {
     errors.push('Categoría debe ser "celular" o "accesorio"')
   }
   
   const condicion = row.Condición?.toLowerCase()
-  if (!condicion || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(condicion)) {
-    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado A"')
+  if (!condicion || !['nuevo', 'usado', 'reacondicionado'].includes(condicion)) {
+    errors.push('Condición debe ser "nuevo", "usado" o "reacondicionado"')
   }
   
   const precio = parseFloat(row.Precio || '0')
   if (isNaN(precio) || precio < 0) {
     errors.push('Precio debe ser un número válido mayor o igual a 0')
   }
-  
+}
   const garantia = parseInt(row.Garantía || '0')
   if (isNaN(garantia) || garantia < 0) {
     errors.push('Garantía debe ser un número válido de meses')
@@ -80,31 +80,31 @@ function validateProductRow(
     return {
       valid: false,
       errors
-    }
+  con
   }
   
   return {
     valid: true,
     errors: [],
     product: {
-      sku: row.Código?.trim() || '',
+      codigo: row.Código?.trim() || '',
       nombre: row.Nombre.trim(),
       categoria: row.Categoría.toLowerCase() as 'celular' | 'accesorio',
       marca: row.Marca?.trim() || '',
       modelo: row.Modelo?.trim() || '',
       capacidad: row.Capacidad?.trim() || '',
-      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
+      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado',
       precio: precio,
-      moneda: row.Moneda?.toUpperCase() || 'HNL',
+      moneda: (row.Moneda?.toUpperCase() || 'HNL') as 'HNL' | 'USD',
       garantia_meses: garantia,
       stock_disponible: stock,
       profile_id: profileId,
       activo: true
-    }
+  
   }
-}
+ 
 
-export function parseProductsCSV(csvContent: string, profileId?: number): CSVImportResult {
+export function parseCSV(csvContent: string, profileId?: string): CSVImportResult {
   const lines = csvContent.split('\n').filter(line => line.trim())
   
   if (lines.length < 2) {
@@ -159,16 +159,16 @@ export function parseProductsCSV(csvContent: string, profileId?: number): CSVImp
 export function downloadCSVTemplate() {
   const csvContent = [
     'Código,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Moneda,Garantía,Stock',
-    'DEMO001,iPhone 13 Pro,celular,Apple,iPhone 13 Pro,128GB,nuevo,15000,HNL,12,5'
+
   ].join('\n')
   
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
+
+
+
   link.href = url
-  link.download = 'plantilla_productos.csv'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+
+
+
+
   URL.revokeObjectURL(url)
-}
+
