@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Toaster, toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload } from '@phosphor-icons/react'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -45,6 +45,9 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [useAPI, setUseAPI] = useKV<boolean>('inventory-use-api', false)
   const [apiUrl, setApiUrl] = useKV<string>('inventory-api-url', 'http://localhost:8000')
+  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
+  const [bulkActionMode, setBulkActionMode] = useState(false)
 
   const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000')
 
@@ -68,6 +71,110 @@ export default function App() {
 
     loadData()
   }, [useAPI, apiUrl])
+
+  const handleBulkDeleteProducts = async () => {
+    if (selectedProducts.size === 0) return
+    
+    try {
+      const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
+      setProducts(updatedProducts)
+      toast.success(`${selectedProducts.size} productos eliminados`)
+      setSelectedProducts(new Set())
+      setBulkActionMode(false)
+    } catch (error) {
+      console.error('Error deleting products:', error)
+      toast.error('Error al eliminar productos')
+    }
+  }
+
+  const handleBulkToggleProductStatus = async () => {
+    if (selectedProducts.size === 0) return
+    
+    try {
+      const updatedProducts = (products ?? []).map(p =>
+        selectedProducts.has(p.id) ? { ...p, activo: !p.activo } : p
+      )
+      setProducts(updatedProducts)
+      toast.success(`Estado actualizado para ${selectedProducts.size} productos`)
+      setSelectedProducts(new Set())
+      setBulkActionMode(false)
+    } catch (error) {
+      console.error('Error updating products:', error)
+      toast.error('Error al actualizar productos')
+    }
+  }
+
+  const handleBulkUpdateOrderStatus = async (newStatus: OrderWithItems['estado']) => {
+    if (selectedOrders.size === 0) return
+    
+    try {
+      const updatedOrders = (orders ?? []).map(o =>
+        selectedOrders.has(o.id) ? { ...o, estado: newStatus } : o
+      )
+      setOrders(updatedOrders)
+      toast.success(`${selectedOrders.size} órdenes actualizadas a ${newStatus}`)
+      setSelectedOrders(new Set())
+      setBulkActionMode(false)
+    } catch (error) {
+      console.error('Error updating orders:', error)
+      toast.error('Error al actualizar órdenes')
+    }
+  }
+
+  const handleBulkDeleteOrders = async () => {
+    if (selectedOrders.size === 0) return
+    
+    try {
+      const updatedOrders = (orders ?? []).filter(o => !selectedOrders.has(o.id))
+      setOrders(updatedOrders)
+      toast.success(`${selectedOrders.size} órdenes eliminadas`)
+      setSelectedOrders(new Set())
+      setBulkActionMode(false)
+    } catch (error) {
+      console.error('Error deleting orders:', error)
+      toast.error('Error al eliminar órdenes')
+    }
+  }
+
+  const toggleProductSelection = (productId: number) => {
+    setSelectedProducts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(productId)) {
+        newSet.delete(productId)
+      } else {
+        newSet.add(productId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleOrderSelection = (orderId: number) => {
+    setSelectedOrders(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId)
+      } else {
+        newSet.add(orderId)
+      }
+      return newSet
+    })
+  }
+
+  const selectAllProducts = () => {
+    if (selectedProducts.size === filteredProducts.length) {
+      setSelectedProducts(new Set())
+    } else {
+      setSelectedProducts(new Set(filteredProducts.map(p => p.id)))
+    }
+  }
+
+  const selectAllOrders = () => {
+    if (selectedOrders.size === filteredOrders.length) {
+      setSelectedOrders(new Set())
+    } else {
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)))
+    }
+  }
 
   useKeyboardShortcuts([
     {
@@ -170,6 +277,13 @@ export default function App() {
 
   const activeProfiles = (profiles ?? []).filter(p => p.active)
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    setBulkActionMode(false)
+    setSelectedProducts(new Set())
+    setSelectedOrders(new Set())
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Toaster position="top-right" richColors />
@@ -214,7 +328,7 @@ export default function App() {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-3 max-w-md mb-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package size={18} />
@@ -273,6 +387,17 @@ export default function App() {
 
               <div className="flex gap-2 w-full sm:w-auto">
                 <Button
+                  variant={bulkActionMode ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => {
+                    setBulkActionMode(!bulkActionMode)
+                    setSelectedProducts(new Set())
+                  }}
+                  title="Modo selección múltiple"
+                >
+                  {bulkActionMode ? <CheckSquare size={18} /> : <Square size={18} />}
+                </Button>
+                <Button
                   variant="outline"
                   size="icon"
                   onClick={handleExportProducts}
@@ -295,6 +420,32 @@ export default function App() {
               </div>
             </div>
 
+            {bulkActionMode && selectedProducts.size > 0 && (
+              <div className="flex items-center gap-3 p-4 bg-accent rounded-lg">
+                <span className="text-sm font-medium">
+                  {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
+                </span>
+                <div className="flex gap-2 ml-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkToggleProductStatus}
+                  >
+                    <Power size={16} className="mr-2" />
+                    Cambiar Estado
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleBulkDeleteProducts}
+                  >
+                    <Trash size={16} className="mr-2" />
+                    Eliminar
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -306,6 +457,18 @@ export default function App() {
               <label htmlFor="show-inactive" className="text-sm text-muted-foreground cursor-pointer">
                 Mostrar productos inactivos
               </label>
+              
+              {bulkActionMode && filteredProducts.length > 0 && (
+                <>
+                  <span className="mx-2 text-muted-foreground">|</span>
+                  <button
+                    onClick={selectAllProducts}
+                    className="text-sm text-primary hover:underline cursor-pointer"
+                  >
+                    {selectedProducts.size === filteredProducts.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                  </button>
+                </>
+              )}
             </div>
 
             {filteredProducts.length === 0 ? (
@@ -325,16 +488,32 @@ export default function App() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredProducts.map(product => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onEdit={setEditingProduct}
-                    onToggleActive={async (p) => {
-                      const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
-                      setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
-                      toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
-                    }}
-                  />
+                  <div key={product.id} className="relative">
+                    {bulkActionMode && (
+                      <div className="absolute top-3 left-3 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleProductSelection(product.id)
+                          }}
+                          className="w-6 h-6 rounded bg-background border-2 border-primary flex items-center justify-center hover:bg-accent transition-colors"
+                        >
+                          {selectedProducts.has(product.id) && (
+                            <CheckCircle size={20} weight="fill" className="text-primary" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                    <ProductCard
+                      product={product}
+                      onEdit={setEditingProduct}
+                      onToggleActive={async (p) => {
+                        const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
+                        setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
+                        toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
+                      }}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -383,6 +562,17 @@ export default function App() {
 
               <div className="flex gap-2 w-full sm:w-auto">
                 <Button
+                  variant={bulkActionMode && activeTab === 'orders' ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => {
+                    setBulkActionMode(!bulkActionMode)
+                    setSelectedOrders(new Set())
+                  }}
+                  title="Modo selección múltiple"
+                >
+                  {bulkActionMode && activeTab === 'orders' ? <CheckSquare size={18} /> : <Square size={18} />}
+                </Button>
+                <Button
                   variant="outline"
                   size="icon"
                   onClick={handleExportOrders}
@@ -396,6 +586,65 @@ export default function App() {
                 </Button>
               </div>
             </div>
+
+            {bulkActionMode && activeTab === 'orders' && selectedOrders.size > 0 && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 bg-accent rounded-lg">
+                <span className="text-sm font-medium">
+                  {selectedOrders.size} orden{selectedOrders.size !== 1 ? 'es' : ''} seleccionada{selectedOrders.size !== 1 ? 's' : ''}
+                </span>
+                <div className="flex flex-wrap gap-2 sm:ml-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkUpdateOrderStatus('pendiente')}
+                  >
+                    Pendiente
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkUpdateOrderStatus('por_entregar')}
+                  >
+                    Por Entregar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkUpdateOrderStatus('completada')}
+                  >
+                    <CheckCircle size={16} className="mr-2" />
+                    Completar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleBulkUpdateOrderStatus('cancelada')}
+                  >
+                    <XCircle size={16} className="mr-2" />
+                    Cancelar
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleBulkDeleteOrders}
+                  >
+                    <Trash size={16} className="mr-2" />
+                    Eliminar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {bulkActionMode && activeTab === 'orders' && filteredOrders.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={selectAllOrders}
+                  className="text-sm text-primary hover:underline cursor-pointer"
+                >
+                  {selectedOrders.size === filteredOrders.length ? 'Deseleccionar todas' : 'Seleccionar todas'}
+                </button>
+              </div>
+            )}
 
             {filteredOrders.length === 0 ? (
               <div className="text-center py-12">
@@ -414,15 +663,31 @@ export default function App() {
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {filteredOrders.map(order => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onStatusChange={async (orderId, newStatus) => {
-                      const updated = await service.updateOrderStatus(orderId, newStatus)
-                      setOrders(current => (current ?? []).map(o => o.id === updated.id ? updated : o))
-                      toast.success('Estado de orden actualizado')
-                    }}
-                  />
+                  <div key={order.id} className="relative">
+                    {bulkActionMode && activeTab === 'orders' && (
+                      <div className="absolute top-3 left-3 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleOrderSelection(order.id)
+                          }}
+                          className="w-6 h-6 rounded bg-background border-2 border-primary flex items-center justify-center hover:bg-accent transition-colors"
+                        >
+                          {selectedOrders.has(order.id) && (
+                            <CheckCircle size={20} weight="fill" className="text-primary" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                    <OrderCard
+                      order={order}
+                      onStatusChange={async (orderId, newStatus) => {
+                        const updated = await service.updateOrderStatus(orderId, newStatus)
+                        setOrders(current => (current ?? []).map(o => o.id === updated.id ? updated : o))
+                        toast.success('Estado de orden actualizado')
+                      }}
+                    />
+                  </div>
                 ))}
               </div>
             )}
