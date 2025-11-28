@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import type { OrderWithItems, ProductWithStock, Order } from '@/lib/types'
 import { Trash, Plus } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -26,107 +27,135 @@ interface EditOrderDialogProps {
   }) => Promise<void>
 }
 
+interface OrderItemForm {
+  id?: number
+  product_id: number
+  cantidad: number
+}
+
 export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit }: EditOrderDialogProps) {
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<Order['canal']>('whatsapp')
-  const [items, setItems] = useState<Array<{
-    product_id: number
-  }>>([])
+  const [metodoPago, setMetodoPago] = useState<Order['metodo_pago']>('efectivo')
+  const [items, setItems] = useState<OrderItemForm[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
+  useEffect(() => {
     if (order) {
-      set
+      setCustomerName(order.customer_name)
+      setCustomerPhone(order.customer_phone)
+      setCanal(order.canal)
       setMetodoPago(order.metodo_pago)
-
-        cantidad: i
+      setItems(order.items.map(item => ({
+        id: item.id,
+        product_id: item.product_id,
+        cantidad: item.cantidad
+      })))
     }
+  }, [order])
 
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customerName.trim(
-    }
-    if (items.length === 0) {
-    }
-    setIsSubmitting(true)
-      await onSubmit(order.id, 
-        cu
-     
-      })
-
-    } finally {
-    }
-
-    const availableProduct = products.find(p => 
-    )
-    i
-
-
-    setItems
-
-
-    setItems(newItems)
-
-    const newItems = [...items]
-    setItems(newItems)
-
-    return ite
-      return sum + (product?.pre
-  }
-  const 
-      if (p.id === curren
-      return !isAlrea
-  }
-  return (
-      <DialogContent classNa
-     
-
-
-              <Label html
-                id="edit-customer-name"
-                onChange={(e) => setCustomerName(e.target.value)}
-     
     
-            <div className=
-              <Input
-     
-   
+    if (!customerName.trim()) {
+      toast.error('Por favor ingresa el nombre del cliente')
+      return
+    }
+    
+    if (!customerPhone.trim()) {
+      toast.error('Por favor ingresa el teléfono del cliente')
+      return
+    }
+    
+    if (items.length === 0) {
+      toast.error('Por favor agrega al menos un producto')
+      return
+    }
 
+    const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
+    if (validItems.length === 0) {
+      toast.error('Por favor agrega productos válidos')
+      return
+    }
 
-              <Label htmlFor="edit-canal">Canal</
-   
-
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem
-                  <SelectItem v
-              </Select>
-
-   
-
-                </SelectTrigger>
-                  <SelectItem v
-                  <SelectItem value="tarjeta">Tarjeta<
-                </Sele
-   
-
-            <div className="flex
-              <Button
-                variant="outline"
-                onClick={addItem}
-         
-   
-
-            {items.length === 0 ? (
-                <p className="tex
-                </p>
-            ) : (
-                {items.map((item, index) => {
+    for (const item of validItems) {
+      const product = products.find(p => p.id === item.product_id)
+      if (!product) continue
       
-   
+      const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+      const originalQuantity = originalItem?.cantidad || 0
+      const maxAvailable = product.stock_disponible + originalQuantity
+      
+      if (item.cantidad > maxAvailable) {
+        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${maxAvailable}`)
+        return
+      }
+    }
 
-          
-                      <div className="flex-1 space-y
-                          <Label className="text-xs">Producto</Label>
-                      
-                          >
-                       
+    setIsSubmitting(true)
+    try {
+      await onSubmit(order.id, {
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        canal,
+        metodo_pago: metodoPago,
+        items: validItems
+      })
+    } catch (error) {
+      console.error('Error updating order:', error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const addItem = () => {
+    const availableProduct = products.find(p => 
+      !items.some(item => item.product_id === p.id)
+    )
+    if (availableProduct) {
+      setItems([...items, { product_id: availableProduct.id, cantidad: 1 }])
+    }
+  }
+
+  const removeItem = (index: number) => {
+    const newItems = items.filter((_, i) => i !== index)
+    setItems(newItems)
+  }
+
+  const updateItemProduct = (index: number, productId: number) => {
+    const newItems = [...items]
+    newItems[index].product_id = productId
+    setItems(newItems)
+  }
+
+  const updateItemQuantity = (index: number, cantidad: number) => {
+    const newItems = [...items]
+    newItems[index].cantidad = cantidad
+    setItems(newItems)
+  }
+
+  const calculateTotal = () => {
+    return items.reduce((sum, item) => {
+      const product = products.find(p => p.id === item.product_id)
+      return sum + (product?.precio || 0) * item.cantidad
+    }, 0)
+  }
+
+  const getAvailableProducts = (currentProductId?: number) => {
+    return products.filter(p => {
+      if (p.id === currentProductId) return true
+      const isAlreadySelected = items.some(item => item.product_id === p.id)
+      return !isAlreadySelected
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar Orden #{order.id}</DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -233,7 +262,7 @@ export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit 
                               ))}
                             </SelectContent>
                           </Select>
-
+                        </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-2">
@@ -259,48 +288,43 @@ export function EditOrderDialog({ open, order, products, onOpenChange, onSubmit 
                             </div>
                           </div>
                         </div>
+                      </div>
 
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeItem(index)}
+                        className="mt-6"
+                      >
+                        <Trash size={18} className="text-destructive" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
+          <div className="pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-semibold">Total:</span>
+              <span className="text-2xl font-bold text-primary">
+                HNL {calculateTotal().toLocaleString()}
+              </span>
+            </div>
+          </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
