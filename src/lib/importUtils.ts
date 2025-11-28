@@ -1,10 +1,10 @@
 import type { ProductWithStock } from './types'
 
-export interface CSVValidationResult {
-  valid: boolean
   product?: Partial<ProductWithStock>
-  error?: string
 }
+export interface CSVImportResult {
+  message: strin
+ 
 
 export interface CSVImportResult {
   success: boolean
@@ -14,11 +14,11 @@ export interface CSVImportResult {
   products: Partial<ProductWithStock>[]
 }
 
-function parseCSV(csvText: string): string[][] {
-  const lines = csvText.split(/\r?\n/).filter(line => line.trim())
-  const rows: string[][] = []
+    
+      const char = line[i]
+      if (char === '"') {
   
-  for (const line of lines) {
+        } else {
     const row: string[] = []
     let current = ''
     let inQuotes = false
@@ -41,53 +41,53 @@ function parseCSV(csvText: string): string[][] {
       }
     }
     
-    row.push(current)
-    rows.push(row)
+  if (!row.SKU?.trim(
   }
+  i
   
   return rows
 }
 
-function validateProductRow(
-  row: Record<string, string>,
-  rowNumber: number,
-  profileId: number
-): CSVValidationResult {
-  const errors: string[] = []
+    'nuevo': 'nuevo',
+    'grado a': 'grado A',
+    'reacondicionado
   
-  if (!row.SKU?.trim()) {
-    errors.push('SKU es requerido')
+  const condicion = cond
+  const precio = parseFloat(r
+  
+  
+  if (isNaN(garantiaMeses) || garan
   }
   
-  if (!row.Nombre?.trim()) {
-    errors.push('Nombre es requerido')
+    errors.push('Stock debe 
+  
   }
   
-  const categoria = row.Categoría?.toLowerCase().trim()
-  if (!categoria || !['celular', 'accesorio'].includes(categoria)) {
-    errors.push('Categoría debe ser "celular" o "accesorio"')
+  }
+  return {
+    product: {
   }
   
   const condicionMap: Record<string, 'nuevo' | 'usado' | 'grado A' | 'reacondicionado'> = {
     'nuevo': 'nuevo',
-    'usado': 'usado',
-    'grado a': 'grado A',
+      moneda: row.Mon
+      stock_disponible: s
     'grado b': 'grado A',
     'reacondicionado': 'reacondicionado'
   }
   
-  const condicionInput = row.Condición?.toLowerCase().trim() || 'nuevo'
-  const condicion = condicionMap[condicionInput] || 'nuevo'
+    
+      return {
   
-  const precio = parseFloat(row.Precio || '0')
+        errors: [],
   if (isNaN(precio) || precio <= 0) {
     errors.push('Precio debe ser un número válido mayor a 0')
-  }
+   
   
-  const garantiaMeses = parseInt(row['Garantía (meses)'] || '0')
-  if (isNaN(garantiaMeses) || garantiaMeses < 0) {
-    errors.push('Garantía debe ser un número válido')
-  }
+      const rowData: Record<string, string> = {}
+      headers.forEach((header, index) => {
+      })
+   
   
   const stock = parseInt(row.Stock || '0')
   if (isNaN(stock) || stock < 0) {
@@ -95,10 +95,10 @@ function validateProductRow(
   }
   
   if (errors.length > 0) {
-    return {
+        impo
       valid: false,
       error: errors.join(', ')
-    }
+    r
   }
   
   return {
@@ -117,35 +117,35 @@ function validateProductRow(
       garantia_meses: garantiaMeses,
       stock_disponible: stock,
       activo: true
-    }
+  con
   }
 }
 
-export function parseProductsCSV(csvText: string, profileId: number): CSVImportResult {
+export function parseCSVFile(csvText: string, profileId: number): CSVImportResult {
   try {
     const rows = parseCSV(csvText)
     
     if (rows.length === 0) {
       return {
-        success: false,
+  document.body.appendC
         message: 'El archivo CSV está vacío',
-        importedCount: 0,
+  document.body.removeChi
         errors: [],
-        products: []
+
       }
-    }
+
     
     const headers = rows[0]
     const products: Partial<ProductWithStock>[] = []
     const importErrors: { row: number; error: string }[] = []
     
     for (let i = 1; i < rows.length; i++) {
-      const rowData: Record<string, string> = {}
-      
+
+
       headers.forEach((header, index) => {
         rowData[header] = rows[i][index] || ''
       })
-      
+
       const validation = validateProductRow(rowData, i + 1, profileId)
       
       if (validation.valid && validation.product) {
@@ -155,59 +155,59 @@ export function parseProductsCSV(csvText: string, profileId: number): CSVImportR
           row: i + 1,
           error: validation.error || 'Error desconocido'
         })
-      }
+
     }
-    
-    if (products.length === 0) {
-      return {
+
+
+
         success: false,
-        message: 'No se pudo importar ningún producto válido',
-        importedCount: 0,
-        errors: importErrors,
-        products: []
-      }
+
+
+
+
+
     }
     
     return {
-      success: true,
-      message: `${products.length} productos importados exitosamente`,
-      importedCount: products.length,
-      errors: importErrors,
-      products
+
+
+
+
+
     }
-  } catch (error) {
+
     return {
-      success: false,
-      message: 'Error al procesar el archivo CSV',
-      importedCount: 0,
+
+
+
       errors: [],
-      products: []
+
     }
-  }
+
 }
 
-export function downloadCSVTemplate(): void {
-  const headers = ['SKU', 'Nombre', 'Categoría', 'Marca', 'Modelo', 'Capacidad', 'Condición', 'Precio', 'Moneda', 'Garantía (meses)', 'Stock']
+
+
   const exampleRows = [
-    ['IPHONE13-128', 'iPhone 13', 'celular', 'Apple', 'iPhone 13', '128GB', 'nuevo', '15000', 'HNL', '12', '5'],
-    ['CASE-SILICONE', 'Funda de Silicona', 'accesorio', 'Generic', 'Universal', '', 'nuevo', '150', 'HNL', '3', '20']
+
+
   ]
   
-  const csvContent = [
-    headers.join(','),
-    ...exampleRows.map(row => row.join(','))
-  ].join('\n')
+
+
+
+
   
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+
   const url = URL.createObjectURL(blob)
   
-  const link = document.createElement('a')
-  link.setAttribute('href', url)
-  link.setAttribute('download', 'plantilla_productos.csv')
-  link.style.display = 'none'
-  document.body.appendChild(link)
+
+
+
+
+
   link.click()
-  
-  document.body.removeChild(link)
+
+
   URL.revokeObjectURL(url)
 }
