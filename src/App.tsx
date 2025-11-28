@@ -31,7 +31,7 @@ import {
   initialOrderItems
 } from '@/lib/initialData'
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
-import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear, Download, Database, CloudArrowUp, Keyboard, SortAscending } from '@phosphor-icons/react'
+import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront, Gear, Download, Database, CloudArrowUp, Keyboard, SortAscending, CheckSquare, Square } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
@@ -64,6 +64,7 @@ function App() {
   const [useApi, setUseApi] = useState<boolean>(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [sortBy, setSortBy] = useState<string>('none')
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     const checkApiStatus = async () => {
@@ -378,6 +379,42 @@ function App() {
 
       return true
     })
+  }
+
+  const handleToggleOrder = (orderId: number) => {
+    setSelectedOrders(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId)
+      } else {
+        newSet.add(orderId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAllOrders = () => {
+    const filteredOrders = getFilteredOrders()
+    if (selectedOrders.size === filteredOrders.length) {
+      setSelectedOrders(new Set())
+    } else {
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)))
+    }
+  }
+
+  const handleBulkStatusUpdate = async (newStatus: Order['estado']) => {
+    try {
+      const promises = Array.from(selectedOrders).map(orderId =>
+        inventoryService.updateOrderStatus(orderId, newStatus)
+      )
+      await Promise.all(promises)
+      toast.success(`${selectedOrders.size} órdenes actualizadas a ${newStatus}`)
+      setSelectedOrders(new Set())
+      await loadOrders()
+    } catch (error) {
+      console.error('Error updating orders in bulk:', error)
+      toast.error('Error al actualizar órdenes')
+    }
   }
 
   if (isLoading) {
@@ -713,6 +750,59 @@ function App() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {selectedOrders.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 p-4 bg-primary/10 border border-primary/20 rounded-lg"
+                >
+                  <span className="text-sm font-medium">
+                    {selectedOrders.size} {selectedOrders.size === 1 ? 'orden seleccionada' : 'órdenes seleccionadas'}
+                  </span>
+                  <div className="flex-1" />
+                  <span className="text-sm text-muted-foreground">Cambiar estado a:</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('pendiente')}
+                    className="bg-yellow-500/10 hover:bg-yellow-500/20 border-yellow-500/30"
+                  >
+                    Pendiente
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('por_entregar')}
+                    className="bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30"
+                  >
+                    Por Entregar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('completada')}
+                    className="bg-green-500/10 hover:bg-green-500/20 border-green-500/30"
+                  >
+                    Completada
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleBulkStatusUpdate('cancelada')}
+                    className="bg-muted hover:bg-muted/80 border-border"
+                  >
+                    Cancelada
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedOrders(new Set())}
+                  >
+                    Limpiar
+                  </Button>
+                </motion.div>
+              )}
             </div>
 
             {getFilteredOrders().length === 0 ? (
@@ -732,26 +822,58 @@ function App() {
                 </Button>
               </motion.div>
             ) : (
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.3 }}
-                className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-              >
-                {getFilteredOrders().map((order, index) => (
-                  <motion.div
-                    key={order.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05, duration: 0.2 }}
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 pb-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSelectAllOrders}
+                    className="gap-2 text-sm"
                   >
-                    <OrderCard
-                      order={order}
-                      onStatusChange={handleStatusChange}
-                    />
-                  </motion.div>
-                ))}
-              </motion.div>
+                    {selectedOrders.size === getFilteredOrders().length ? (
+                      <CheckSquare size={20} className="text-primary" />
+                    ) : (
+                      <Square size={20} />
+                    )}
+                    {selectedOrders.size === getFilteredOrders().length ? 'Deseleccionar todas' : 'Seleccionar todas'}
+                  </Button>
+                </div>
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+                >
+                  {getFilteredOrders().map((order, index) => (
+                    <motion.div
+                      key={order.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05, duration: 0.2 }}
+                      className="relative"
+                    >
+                      <div 
+                        className={`absolute top-4 left-4 z-10 cursor-pointer transition-all ${
+                          selectedOrders.has(order.id) ? 'scale-110' : 'hover:scale-105'
+                        }`}
+                        onClick={() => handleToggleOrder(order.id)}
+                      >
+                        {selectedOrders.has(order.id) ? (
+                          <CheckSquare size={24} className="text-primary drop-shadow-md" />
+                        ) : (
+                          <Square size={24} className="text-muted-foreground hover:text-foreground" />
+                        )}
+                      </div>
+                      <div className={`transition-all ${selectedOrders.has(order.id) ? 'ring-2 ring-primary rounded-lg' : ''}`}>
+                        <OrderCard
+                          order={order}
+                          onStatusChange={handleStatusChange}
+                        />
+                      </div>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              </div>
             )}
           </TabsContent>
 
