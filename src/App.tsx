@@ -13,9 +13,11 @@ import {
 } from '@/components/ui/select'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
+import { ProfileCard } from '@/components/ProfileCard'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
+import { NewProfileDialog } from '@/components/NewProfileDialog'
 import { inventoryService } from '@/lib/inventoryService'
 import {
   initialProfiles,
@@ -25,7 +27,7 @@ import {
   initialOrderItems
 } from '@/lib/initialData'
 import type { Profile, ProductWithStock, OrderWithItems, CreateOrderRequest, Order, Product } from '@/lib/types'
-import { MagnifyingGlass, Package, ShoppingCart, Plus } from '@phosphor-icons/react'
+import { MagnifyingGlass, Package, ShoppingCart, Plus, Storefront } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 
 function App() {
@@ -40,6 +42,7 @@ function App() {
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false)
   const [isNewProductOpen, setIsNewProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
+  const [isNewProfileOpen, setIsNewProfileOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -181,6 +184,28 @@ function App() {
     }
   }
 
+  const handleCreateProfile = async (name: string, slug: string) => {
+    try {
+      await inventoryService.createProfile(name, slug)
+      toast.success('Perfil creado exitosamente')
+      const profilesList = await inventoryService.listProfiles()
+      setProfiles(profilesList)
+    } catch (error) {
+      console.error('Error creating profile:', error)
+      toast.error(error instanceof Error ? error.message : 'Error al crear perfil')
+      throw error
+    }
+  }
+
+  const getProfileStats = (profileId: number) => {
+    const profileProducts = products.filter(p => p.profile_id === profileId)
+    const profileOrders = orders.filter(o => o.profile_id === profileId)
+    return {
+      productCount: profileProducts.length,
+      orderCount: profileOrders.length
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -234,6 +259,10 @@ function App() {
             <TabsTrigger value="orders" className="gap-2">
               <ShoppingCart size={20} />
               Órdenes
+            </TabsTrigger>
+            <TabsTrigger value="profiles" className="gap-2">
+              <Storefront size={20} />
+              Perfiles
             </TabsTrigger>
           </TabsList>
 
@@ -340,6 +369,46 @@ function App() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="profiles" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">
+                Perfiles de Negocio ({profiles.length})
+              </h2>
+              <Button onClick={() => setIsNewProfileOpen(true)} className="gap-2">
+                <Plus size={20} />
+                Nuevo Perfil
+              </Button>
+            </div>
+
+            {profiles.length === 0 ? (
+              <div className="text-center py-12">
+                <Storefront size={64} className="mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2">No hay perfiles registrados</h3>
+                <p className="text-muted-foreground mb-4">
+                  Crea tu primer perfil de negocio para comenzar
+                </p>
+                <Button onClick={() => setIsNewProfileOpen(true)} className="gap-2">
+                  <Plus size={20} />
+                  Crear Primer Perfil
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {profiles.map(profile => {
+                  const stats = getProfileStats(profile.id)
+                  return (
+                    <ProfileCard
+                      key={profile.id}
+                      profile={profile}
+                      productCount={stats.productCount}
+                      orderCount={stats.orderCount}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -363,6 +432,12 @@ function App() {
         onOpenChange={setIsEditProductOpen}
         product={editingProduct}
         onSubmit={handleUpdateProduct}
+      />
+
+      <NewProfileDialog
+        open={isNewProfileOpen}
+        onOpenChange={setIsNewProfileOpen}
+        onSubmit={handleCreateProfile}
       />
     </div>
   )

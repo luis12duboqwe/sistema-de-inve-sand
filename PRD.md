@@ -94,12 +94,12 @@ Animations should be subtle and functional, reinforcing state changes and guidin
 
 ## Component Selection
 - **Components**: 
-  - Card (product display, order summaries) - with subtle border and shadow on hover
+  - Card (product display, order summaries, profile cards) - with subtle border and shadow on hover
   - Table (order history, product lists) - with striped rows and sticky headers
-  - Dialog (order creation form) - modal overlay with form validation
+  - Dialog (order creation form, product forms, profile creation) - modal overlay with form validation
   - Select (profile picker, status filters) - with search capability for many profiles
   - Input (search, customer details) - with clear icons and validation states
-  - Badge (stock status, order status, category) - color-coded by state
+  - Badge (stock status, order status, category, profile status) - color-coded by state
   - Button (primary actions) - with loading states during submission
   - Tabs (switch between Products/Orders/Profiles) - with active indicator
   - Toast (success/error notifications) - using sonner for order confirmations
@@ -108,6 +108,7 @@ Animations should be subtle and functional, reinforcing state changes and guidin
   - Custom stock level indicator component with color thresholds (red <5, yellow <20, green ≥20)
   - Product card with prominent image placeholder, quick-add button, and stock badge overlay
   - Order item selector with inline quantity spinner and live subtotal
+  - Profile card with statistics showing product and order counts
   
 - **States**: 
   - Buttons: Default/Hover (darker)/Active (scale 0.98)/Disabled (50% opacity)
@@ -118,12 +119,14 @@ Animations should be subtle and functional, reinforcing state changes and guidin
   - MagnifyingGlass (search), 
   - Package (products), 
   - ShoppingCart (orders), 
-  - User (profiles), 
+  - Storefront (profiles),
   - Plus (add actions), 
   - Check (confirmations), 
   - Warning (stock alerts),
   - Phone (mobile category),
-  - Plugs (accessories category)
+  - Plugs (accessories category),
+  - PencilSimple (edit),
+  - Power (activate/deactivate)
   
 - **Spacing**: 
   - Card padding: p-6
