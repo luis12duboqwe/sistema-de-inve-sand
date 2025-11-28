@@ -47,7 +47,7 @@ export function DashboardStats({ products, orders }: DashboardStatsProps) {
       title: 'Valor del Inventario',
       value: `L ${inventoryValue.toFixed(2)}`,
       subtitle: 'Total en stock',
-      icon: TrendingUp,
+      icon: TrendUp,
       color: 'text-green-600',
       bgColor: 'bg-green-600/10',
     },
