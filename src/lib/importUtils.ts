@@ -48,17 +48,19 @@ function validateProductRow(
 ): CSVValidationResult {
   const errors: string[] = []
   
-  const nombre = row.Nombre?.trim() || row.nombre?.trim()
+  const nombre = row.Nombre?.trim() || row.nombre?.trim() || ''
   if (!nombre) {
     errors.push('El nombre del producto es requerido')
   }
   
-  const categoria = row.Categoría?.trim().toLowerCase() || row.categoria?.trim().toLowerCase() || row.Category?.trim().toLowerCase()
+  const categoriaRaw = row.Categoría?.trim() || row.categoria?.trim() || row.Category?.trim() || ''
+  const categoria = categoriaRaw.toLowerCase()
   if (!categoria || !['celular', 'accesorio'].includes(categoria)) {
     errors.push('Categoría debe ser "celular" o "accesorio"')
   }
   
-  const condicion = row.Condición?.trim().toLowerCase() || row.condicion?.trim().toLowerCase() || row.Condition?.trim().toLowerCase()
+  const condicionRaw = row.Condición?.trim() || row.condicion?.trim() || row.Condition?.trim() || ''
+  const condicion = condicionRaw.toLowerCase()
   if (!condicion || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(condicion)) {
     errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado a"')
   }

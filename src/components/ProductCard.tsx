@@ -26,7 +26,7 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
       reacondicionado: 'Reacondicionado',
       'grado A': 'Grado A'
     }
-    return map[condicion] || condicion
+    return condicion ? (map[condicion] || condicion) : 'N/A'
   }
 
   return (
@@ -47,7 +47,7 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-lg text-card-foreground">
-                  {product.nombre}
+                  {product.nombre || 'Sin nombre'}
                 </h3>
                 {!product.activo && (
                   <Badge variant="outline" className="text-xs bg-muted">
@@ -55,7 +55,7 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">{product.sku}</p>
+              <p className="text-sm text-muted-foreground">{product.sku || 'N/A'}</p>
             </div>
           </div>
           <div className="flex items-start gap-2">

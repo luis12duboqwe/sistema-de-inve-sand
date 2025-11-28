@@ -43,7 +43,7 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
       facebook: 'Facebook',
       instagram: 'Instagram'
     }
-    return text[canal] || canal
+    return canal ? (text[canal] || canal) : 'N/A'
   }
 
   const getPaymentText = (metodo: string) => {
@@ -53,7 +53,7 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
       tarjeta: 'Tarjeta',
       financiamiento: 'Financiamiento'
     }
-    return text[metodo] || metodo
+    return metodo ? (text[metodo] || metodo) : 'N/A'
   }
 
   return (
@@ -74,11 +74,11 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-muted-foreground">Cliente:</span>
-            <p className="font-medium">{order.customer_name}</p>
+            <p className="font-medium">{order.customer_name || 'N/A'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Teléfono:</span>
-            <p className="font-medium">{order.customer_phone}</p>
+            <p className="font-medium">{order.customer_phone || 'N/A'}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Canal:</span>
@@ -99,14 +99,14 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
                 className="flex items-center justify-between text-sm bg-muted/50 p-2 rounded"
               >
                 <div className="flex-1">
-                  <p className="font-medium">{item.product.nombre}</p>
+                  <p className="font-medium">{item.product?.nombre || 'Producto desconocido'}</p>
                   <p className="text-xs text-muted-foreground">
-                    {item.cantidad}x {item.product.moneda}{' '}
+                    {item.cantidad}x {item.product?.moneda || 'HNL'}{' '}
                     {item.precio_unitario.toLocaleString()}
                   </p>
                 </div>
                 <p className="font-semibold">
-                  {item.product.moneda}{' '}
+                  {item.product?.moneda || 'HNL'}{' '}
                   {(item.cantidad * item.precio_unitario).toLocaleString()}
                 </p>
               </div>
