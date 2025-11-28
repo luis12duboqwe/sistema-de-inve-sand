@@ -371,7 +371,7 @@ function App() {
       if (orderSearchTerm && orderSearchTerm.trim()) {
         const searchLower = orderSearchTerm.toLowerCase().trim()
         const matchesCustomerName = order.customer_name?.toLowerCase().includes(searchLower) ?? false
-        const matchesCustomerPhone = order.customer_phone?.toLowerCase().includes(searchLower) ?? false
+        const matchesCustomerPhone = String(order.customer_phone || '').toLowerCase().includes(searchLower)
         if (!matchesCustomerName && !matchesCustomerPhone) {
           return false
         }
