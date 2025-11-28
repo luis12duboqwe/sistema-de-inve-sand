@@ -368,7 +368,7 @@ function App() {
         }
       }
 
-      if (orderSearchTerm.trim()) {
+      if (orderSearchTerm && orderSearchTerm.trim()) {
         const searchLower = orderSearchTerm.toLowerCase().trim()
         const matchesCustomerName = order.customer_name?.toLowerCase().includes(searchLower) ?? false
         const matchesCustomerPhone = order.customer_phone?.toLowerCase().includes(searchLower) ?? false
