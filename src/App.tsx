@@ -161,7 +161,7 @@ export default function App() {
       const term = customerSearchTerm.toLowerCase()
       return (
         (o.customer_name && o.customer_name.toLowerCase().includes(term)) ||
-        (o.customer_phone && o.customer_phone.toLowerCase().includes(term))
+        (o.customer_phone && String(o.customer_phone).toLowerCase().includes(term))
       )
     }
     
