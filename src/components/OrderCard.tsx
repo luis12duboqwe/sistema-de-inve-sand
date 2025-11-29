@@ -39,7 +39,7 @@ export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
     return text[estado]
   }
 
-  const getChannelText = (canal: string) => {
+  const getChannelText = (canal?: string) => {
     const text: Record<string, string> = {
       whatsapp: 'WhatsApp',
       facebook: 'Facebook',
@@ -48,7 +48,7 @@ export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
     return canal ? (text[canal] || canal) : 'N/A'
   }
 
-  const getPaymentText = (metodo: string) => {
+  const getPaymentText = (metodo?: string) => {
     const text: Record<string, string> = {
       efectivo: 'Efectivo',
       transferencia: 'Transferencia',

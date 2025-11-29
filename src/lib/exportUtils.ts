@@ -91,8 +91,8 @@ export function exportOrderDetailsToCSV(order: OrderWithItems) {
     const exportData = order.items.map(item => ({
       'ID Orden': order.id,
       Cliente: order.customer_name,
-      Producto: item.product.nombre,
-      SKU: item.product.sku,
+      Producto: item.product?.nombre || 'Producto desconocido',
+      SKU: item.product?.sku || 'N/A',
       Cantidad: item.cantidad,
       'Precio Unitario': item.precio_unitario,
       Subtotal: item.cantidad * item.precio_unitario,

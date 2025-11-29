@@ -52,8 +52,9 @@ export function DashboardStats({ products, orders }: DashboardStatsProps) {
   const productSales = orders
     .filter(o => o.estado === 'completada')
     .flatMap(o => o.items)
+    .filter(item => item.product?.nombre)
     .reduce((acc, item) => {
-      const key = item.product.nombre
+      const key = item.product!.nombre
       if (!acc[key]) {
         acc[key] = { nombre: key, cantidad: 0, ingresos: 0 }
       }

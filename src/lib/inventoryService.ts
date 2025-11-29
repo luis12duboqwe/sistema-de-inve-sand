@@ -256,7 +256,7 @@ export class InventoryService {
         ...newOrder,
         items: newOrderItems.map(oi => ({
           ...oi,
-          product: products.find(p => p.id === oi.product_id)!
+          product: products.find(p => p.id === oi.product_id)
         }))
       }
 
@@ -293,7 +293,7 @@ export class InventoryService {
           .filter(oi => oi.order_id === order.id)
           .map(oi => ({
             ...oi,
-            product: products.find(p => p.id === oi.product_id)!
+            product: products.find(p => p.id === oi.product_id)
           }))
 
         return {
@@ -474,10 +474,16 @@ export class InventoryService {
 
         let total = 0
         for (const item of updates.items) {
-          const product = products.find(p => p.id === item.product_id)!
+          const product = products.find(p => p.id === item.product_id)
+          if (!product) {
+            throw new Error(`Product with id ${item.product_id} not found`)
+          }
           total += product.precio * item.cantidad
 
-          const stockEntry = stock.find(s => s.product_id === item.product_id)!
+          const stockEntry = stock.find(s => s.product_id === item.product_id)
+          if (!stockEntry) {
+            throw new Error(`Stock entry for product ${item.product_id} not found`)
+          }
           stockEntry.cantidad_disponible -= item.cantidad
 
           const newOrderItem: OrderItem = {

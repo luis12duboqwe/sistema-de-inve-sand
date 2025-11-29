@@ -53,7 +53,7 @@ export interface ProductWithStock extends Product {
 }
 
 export interface OrderWithItems extends Order {
-  items: (OrderItem & { product: Product })[]
+  items: (OrderItem & { product?: Product })[]
 }
 
 export interface CreateOrderRequest {

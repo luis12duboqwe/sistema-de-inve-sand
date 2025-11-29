@@ -47,7 +47,7 @@ interface ApiOrderResponse {
     cantidad: number
     precio_unitario: number
     es_regalo_promocion: boolean
-    product: ApiProductResponse
+    product?: ApiProductResponse
   }[]
 }
 
@@ -225,29 +225,32 @@ class ApiClient {
         ...order,
         customer_name: String(order.customer_name || ''),
         customer_phone: String(order.customer_phone || ''),
-        items: order.items.map(item => ({
-          id: item.id,
-          order_id: order.id,
-          product_id: item.product_id,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario,
-          es_regalo_promocion: item.es_regalo_promocion,
-          product: {
-            id: item.product.id,
-            profile_id: item.product.profile_id,
-            sku: item.product.sku,
-            nombre: item.product.nombre,
-            categoria: item.product.categoria,
-            marca: item.product.marca,
-            modelo: item.product.modelo,
-            capacidad: item.product.capacidad,
-            condicion: item.product.condicion,
-            precio: item.product.precio,
-            moneda: item.product.moneda,
-            garantia_meses: item.product.garantia_meses,
-            activo: item.product.activo,
+        items: order.items.map(item => {
+          const product = item.product
+          return {
+            id: item.id,
+            order_id: order.id,
+            product_id: item.product_id,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            es_regalo_promocion: item.es_regalo_promocion,
+            product: product ? {
+              id: product.id,
+              profile_id: product.profile_id,
+              sku: product.sku,
+              nombre: product.nombre,
+              categoria: product.categoria,
+              marca: product.marca,
+              modelo: product.modelo,
+              capacidad: product.capacidad,
+              condicion: product.condicion,
+              precio: product.precio,
+              moneda: product.moneda,
+              garantia_meses: product.garantia_meses,
+              activo: product.activo,
+            } : undefined
           }
-        }))
+        })
       }))
     } catch (error) {
       console.error('Error fetching orders from API:', error)
@@ -269,29 +272,32 @@ class ApiClient {
 
       return {
         ...apiOrder,
-        items: apiOrder.items.map(item => ({
-          id: item.id,
-          order_id: apiOrder.id,
-          product_id: item.product_id,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario,
-          es_regalo_promocion: item.es_regalo_promocion,
-          product: {
-            id: item.product.id,
-            profile_id: item.product.profile_id,
-            sku: item.product.sku,
-            nombre: item.product.nombre,
-            categoria: item.product.categoria,
-            marca: item.product.marca,
-            modelo: item.product.modelo,
-            capacidad: item.product.capacidad,
-            condicion: item.product.condicion,
-            precio: item.product.precio,
-            moneda: item.product.moneda,
-            garantia_meses: item.product.garantia_meses,
-            activo: item.product.activo,
+        items: apiOrder.items.map(item => {
+          const product = item.product
+          return {
+            id: item.id,
+            order_id: apiOrder.id,
+            product_id: item.product_id,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            es_regalo_promocion: item.es_regalo_promocion,
+            product: product ? {
+              id: product.id,
+              profile_id: product.profile_id,
+              sku: product.sku,
+              nombre: product.nombre,
+              categoria: product.categoria,
+              marca: product.marca,
+              modelo: product.modelo,
+              capacidad: product.capacidad,
+              condicion: product.condicion,
+              precio: product.precio,
+              moneda: product.moneda,
+              garantia_meses: product.garantia_meses,
+              activo: product.activo,
+            } : undefined
           }
-        }))
+        })
       }
     } catch (error) {
       console.error('Error creating order via API:', error)
@@ -341,29 +347,32 @@ class ApiClient {
 
       return {
         ...apiOrder,
-        items: apiOrder.items.map(item => ({
-          id: item.id,
-          order_id: apiOrder.id,
-          product_id: item.product_id,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario,
-          es_regalo_promocion: item.es_regalo_promocion,
-          product: {
-            id: item.product.id,
-            profile_id: item.product.profile_id,
-            sku: item.product.sku,
-            nombre: item.product.nombre,
-            categoria: item.product.categoria,
-            marca: item.product.marca,
-            modelo: item.product.modelo,
-            capacidad: item.product.capacidad,
-            condicion: item.product.condicion,
-            precio: item.product.precio,
-            moneda: item.product.moneda,
-            garantia_meses: item.product.garantia_meses,
-            activo: item.product.activo,
+        items: apiOrder.items.map(item => {
+          const product = item.product
+          return {
+            id: item.id,
+            order_id: apiOrder.id,
+            product_id: item.product_id,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            es_regalo_promocion: item.es_regalo_promocion,
+            product: product ? {
+              id: product.id,
+              profile_id: product.profile_id,
+              sku: product.sku,
+              nombre: product.nombre,
+              categoria: product.categoria,
+              marca: product.marca,
+              modelo: product.modelo,
+              capacidad: product.capacidad,
+              condicion: product.condicion,
+              precio: product.precio,
+              moneda: product.moneda,
+              garantia_meses: product.garantia_meses,
+              activo: product.activo,
+            } : undefined
           }
-        }))
+        })
       }
     } catch (error) {
       console.error('Error updating order via API:', error)

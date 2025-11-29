@@ -19,7 +19,7 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
     return 'bg-accent text-accent-foreground'
   }
 
-  const getConditionText = (condicion: string) => {
+  const getConditionText = (condicion?: string) => {
     const map: Record<string, string> = {
       nuevo: 'Nuevo',
       usado: 'Usado',
