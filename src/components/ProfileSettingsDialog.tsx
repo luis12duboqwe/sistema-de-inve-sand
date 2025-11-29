@@ -1,26 +1,24 @@
-import { useState, useEffect } from 'react'
-import { Input } from '@/components/ui/input'
+import { useState, useEffect } f
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { CurrencyDollar, Bell, Gear, Buildings } from
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
-import type { Profile, ProfileSettings } from '@/lib/types'
-
-interface ProfileSettingsDialogProps {
-  open: boolean
-  profile: Profile
+import { Button } from '@/components/ui/button'
   onOpenChange: (open: boolean) => void
+  onSubmit: (profileId: number, settings: ProfileSettings) => void
+
+  currency: 'USD',
+  lowStockThres
+  defaultPaymentMethod: 'efectivo',
+  autoCalculateTax
   onSubmit: (profileId: number, settings: ProfileSettings) => void
 }
 
-export function ProfileSettingsDialog({
-  open,
-  profile,
-  onOpenChange,
+    <Dialog open={open} onOpenChange={onOp
+        <DialogHea
+        </Dia
   onSubmit,
 }: ProfileSettingsDialogProps) {
   const defaultSettings: ProfileSettings = {
