@@ -55,21 +55,21 @@ export function ProfileSettingsDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
-          <Tabs defaultValue="general" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="general" className="flex items-center gap-2">
                 <CurrencyDollar size={16} />
-                General
               </TabsTrigger>
-              <TabsTrigger value="notifications" className="flex items-center gap-2">
                 <Bell size={16} />
-                Notificaciones
+              </TabsTri
+                <Storefront 
               </TabsTrigger>
-              <TabsTrigger value="business" className="flex items-center gap-2">
+
+              <div className="
+                <Select
+                  onValueChange={(value: ProfileSettings['currency']) => setSett
                 <Storefront size={16} />
-                Negocio
+                    <Se
               </TabsTrigger>
-            </TabsList>
+                    <Se
 
             <TabsContent value="general" className="space-y-4 mt-4">
               <div className="space-y-2">
@@ -79,19 +79,19 @@ export function ProfileSettingsDialog({
                   onValueChange={(value: ProfileSettings['currency']) => setSettings({ ...settings, currency: value })}
                 >
                   <SelectTrigger id="currency">
-                    <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  </SelectTrigger>
+                    <SelectItem v
                     <SelectItem value="USD">USD ($)</SelectItem>
                     <SelectItem value="EUR">EUR (€)</SelectItem>
                     <SelectItem value="MXN">MXN ($)</SelectItem>
-                  </SelectContent>
+                <Label htmlFor="de
                 </Select>
-              </div>
+                  on
 
               <div className="space-y-2">
                 <Label htmlFor="priceFormat">Formato de precio</Label>
-                <Select
+                    <Se
                   value={settings.priceFormat}
                   onValueChange={(value: ProfileSettings['priceFormat']) => setSettings({ ...settings, priceFormat: value })}
                 >
@@ -102,135 +102,57 @@ export function ProfileSettingsDialog({
                     <SelectItem value="standard">1,234.56 (Estándar)</SelectItem>
                     <SelectItem value="space">1 234.56 (Espacio)</SelectItem>
                   </SelectContent>
-                </Select>
+                  <Select
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
                 <Select
-                  value={settings.defaultPaymentMethod}
-                  onValueChange={(value: ProfileSettings['defaultPaymentMethod']) => setSettings({ ...settings, defaultPaymentMethod: value })}
-                >
-                  <SelectTrigger id="defaultPaymentMethod">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="efectivo">Efectivo</SelectItem>
-                    <SelectItem value="transferencia">Transferencia</SelectItem>
-                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                    <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="defaultChannel">Canal por defecto</Label>
-                <Select
-                  value={settings.defaultChannel}
-                  onValueChange={(value: ProfileSettings['defaultChannel']) => setSettings({ ...settings, defaultChannel: value })}
-                >
-                  <SelectTrigger id="defaultChannel">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                    <SelectItem value="instagram">Instagram</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
-                <Input
+                <Label htmlFor="lowStockThreshold">Umbr
                   id="lowStockThreshold"
-                  type="number"
-                  min="0"
-                  value={settings.lowStockThreshold}
-                  onChange={(e) => setSettings({ ...settings, lowStockThreshold: parseInt(e.target.value) || 0 })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Recibirás alertas cuando el stock caiga por debajo de este número
+                 
+                  onChange={(e) => setSettings({ ...setting
+                <p className="text-
                 </p>
-              </div>
             </TabsContent>
-
-            <TabsContent value="notifications" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TabsContent value="notifications" className="space-y-4 mt
                 <div className="space-y-0.5">
-                  <Label htmlFor="enableNotifications">Habilitar notificaciones</Label>
                   <p className="text-sm text-muted-foreground">
-                    Recibe alertas sobre stock bajo y nuevas órdenes
                   </p>
-                </div>
                 <Switch
-                  id="enableNotifications"
-                  checked={settings.enableNotifications}
-                  onCheckedChange={(checked) => setSettings({ ...settings, enableNotifications: checked })}
+                  checked
                 />
-              </div>
 
-              {settings.enableNotifications && (
-                <div className="pl-4 text-sm text-muted-foreground">
-                  <p className="mb-2">Se enviarán notificaciones para:</p>
+                <div className="pl-4 text
                   <ul className="space-y-1">
-                    <li>• Stock bajo en productos</li>
-                    <li>• Nuevas órdenes creadas</li>
-                    <li>• Órdenes completadas</li>
+                    <li
                   </ul>
-                </div>
               )}
-            </TabsContent>
 
-            <TabsContent value="business" className="space-y-4 mt-4">
               <div className="space-y-2">
-                <Label htmlFor="businessAddress">Dirección del negocio</Label>
                 <Input
-                  id="businessAddress"
-                  value={settings.businessAddress}
-                  onChange={(e) => setSettings({ ...settings, businessAddress: e.target.value })}
-                  placeholder="Calle Principal #123"
-                />
+                  value={settings.
+                  placeholder="Ca
+              </div>
+              <div className="space-y-2">
+                <Input
+                  value={settings.
+                  placeho
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="businessPhone">Teléfono del negocio</Label>
                 <Input
-                  id="businessPhone"
-                  value={settings.businessPhone}
-                  onChange={(e) => setSettings({ ...settings, businessPhone: e.target.value })}
-                  placeholder="+1234567890"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="businessEmail">Email del negocio</Label>
-                <Input
-                  id="businessEmail"
                   type="email"
-                  value={settings.businessEmail}
-                  onChange={(e) => setSettings({ ...settings, businessEmail: e.target.value })}
-                  placeholder="contacto@negocio.com"
+                  onCh
                 />
-              </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-0.5">
-                  <Label htmlFor="autoCalculateTax">Calcular impuestos automáticamente</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Aplicar tasa de impuestos a los precios de productos
+                <div clas
+                  <p className="text-sm text-muted-f
                   </p>
-                </div>
-                <Switch
-                  id="autoCalculateTax"
+                <S
                   checked={settings.autoCalculateTax}
-                  onCheckedChange={(checked) => setSettings({ ...settings, autoCalculateTax: checked })}
                 />
-              </div>
 
-              {settings.autoCalculateTax && (
-                <div className="space-y-2">
-                  <Label htmlFor="taxRate">Tasa de impuesto (%)</Label>
+                <div
                   <Input
                     id="taxRate"
                     type="number"
