@@ -248,7 +248,7 @@ export default function App() {
     if (categoryFilter && categoryFilter !== 'all' && p.categoria !== categoryFilter) return false
     
     if (searchTerm && typeof searchTerm === 'string' && searchTerm.trim()) {
-      const term = searchTerm.toLowerCase()
+      const term = String(searchTerm).toLowerCase()
       const nombre = p.nombre ? String(p.nombre).toLowerCase() : ''
       const marca = p.marca ? String(p.marca).toLowerCase() : ''
       const modelo = p.modelo ? String(p.modelo).toLowerCase() : ''
@@ -267,7 +267,7 @@ export default function App() {
     if (orderStatusFilter && orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
     
     if (customerSearchTerm && typeof customerSearchTerm === 'string' && customerSearchTerm.trim()) {
-      const term = customerSearchTerm.toLowerCase()
+      const term = String(customerSearchTerm).toLowerCase()
       const customerName = o.customer_name ? String(o.customer_name).toLowerCase() : ''
       const customerPhone = o.customer_phone ? String(o.customer_phone) : ''
       return customerName.includes(term) || customerPhone.includes(term)
