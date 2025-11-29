@@ -205,7 +205,6 @@ export function EditOrderDialog({
                   <SelectItem value="whatsapp">WhatsApp</SelectItem>
                   <SelectItem value="facebook">Facebook</SelectItem>
                   <SelectItem value="instagram">Instagram</SelectItem>
-                  <SelectItem value="tienda">Tienda</SelectItem>
                 </SelectContent>
               </Select>
             </div>

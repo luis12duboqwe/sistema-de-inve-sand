@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Toaster, toast } from 'sonner'
+import { toast } from 'sonner'
 import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
@@ -56,10 +56,11 @@ export default function App() {
   useEffect(() => {
     const loadData = async () => {
       try {
+        const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000')
         const [loadedProducts, loadedOrders, loadedProfiles] = await Promise.all([
-          service.getProducts(),
-          service.getOrders(),
-          service.getProfiles()
+          currentService.getProducts(),
+          currentService.getOrders(),
+          currentService.getProfiles()
         ])
         
         setProducts(loadedProducts)
@@ -72,7 +73,7 @@ export default function App() {
     }
 
     loadData()
-  }, [useAPI, apiUrl])
+  }, [useAPI, apiUrl, setProducts, setOrders, setProfiles])
 
   const handleBulkDeleteProducts = async () => {
     if (selectedProducts.size === 0) return
@@ -286,8 +287,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Toaster position="top-right" richColors />
-      
       <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">

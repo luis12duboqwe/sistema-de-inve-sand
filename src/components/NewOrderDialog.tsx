@@ -53,6 +53,12 @@ export function NewOrderDialog({
     !profileSlug || profiles.find(pr => pr.slug === profileSlug)?.id === p.profile_id
   )
 
+  useEffect(() => {
+    if (profileSlug) {
+      setItems([{ product_id: 0, cantidad: 1 }])
+    }
+  }, [profileSlug])
+
   const handleAddItem = () => {
     setItems([...items, { product_id: 0, cantidad: 1 }])
   }

@@ -91,7 +91,7 @@ function validateProductRow(
       marca: row.Marca?.trim() || row.marca?.trim() || row.Brand?.trim() || '',
       modelo: row.Modelo?.trim() || row.modelo?.trim() || row.Model?.trim() || '',
       capacidad: row.Capacidad?.trim() || row.capacidad?.trim() || row.Capacity?.trim() || '',
-      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
+      condicion: (condicion === 'grado a' ? 'grado A' : condicion) as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
       precio: precio,
       moneda: row.Moneda?.trim() || row.moneda?.trim() || row.Currency?.trim() || 'HNL',
       garantia_meses: garantia,
