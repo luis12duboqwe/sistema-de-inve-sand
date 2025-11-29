@@ -1,12 +1,10 @@
 import { useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switc
+import { Tabs, TabsContent, TabsList, TabsTrigg
 import { Input } from '@/components/ui/input'
+import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
+interface ProfileSettingsDialogProps {
 import type { Profile, ProfileSettings } from '@/lib/types'
 import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
 
@@ -31,21 +29,17 @@ const defaultSettings: ProfileSettings = {
 export function ProfileSettingsDialog({ open, onOpenChange, profile, onSubmit }: ProfileSettingsDialogProps) {
   const [settings, setSettings] = useState<ProfileSettings>(profile.settings || defaultSettings)
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSubmit(profile.id, settings)
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Configuración de {profile.name}</DialogTitle>
-        </DialogHeader>
+      <DialogContent c
+          <DialogTitle>Configuraci
+   
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+        <f
+            <TabsList className="grid w-full grid-co
+                <Gear size={16} />
+              </TabsTr
+                <CurrencyDollar size={16} />
+              </TabsTrigger>
               <TabsTrigger value="general" className="flex items-center gap-2">
                 <Gear size={16} />
                 General
