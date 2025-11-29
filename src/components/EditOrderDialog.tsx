@@ -237,78 +237,67 @@ export function EditOrderDialog({
                 Agregar Producto
               </Button>
             </div>
-            <div className="space-y-2">
               {items.map((item, index) => {
                 const availableForThisItem = getAvailableProducts(item.product_id)
                 return (
                   <div key={index} className="flex items-end gap-2">
                     <div className="flex-1 space-y-2">
-                      <Label className="text-sm">Producto</Label>
+                    <div className="flex-1 space-y-2">cto</Label>
+                      <Select
                       <Select
                         value={item.product_id.toString()}
-                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
                       >
-                        <SelectTrigger>
+                      >
                           <SelectValue placeholder="Seleccionar producto" />
-                        </SelectTrigger>
+                          <SelectValue placeholder="Seleccionar producto" />
+                        <SelectContent>
                         <SelectContent>
                           {availableForThisItem.map(product => {
-                            const originalItem = order.items.find(oi => oi.product_id === product.id)
                             const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
-                            return (
-                              <SelectItem key={product.id} value={product.id.toString()}>
+                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
+                            return (d.toString()}>
                                 {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                                {availableStock})
                                 {availableStock})
                               </SelectItem>
                             )
-                          })}
+                        </SelectContent>
                         </SelectContent>
                       </Select>
-                    </div>
 
                     <div className="w-24 space-y-2">
                       <Label className="text-sm">Cantidad</Label>
                       <Input
-                        type="number"
+                      <Input
                         min="1"
                         value={item.cantidad}
                         onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
-                        placeholder="Cant."
+                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
                       />
-                    </div>
+                      />
 
-                    {items.length > 1 && (
+ength > 1 && (
+                      <Button
                       <Button
                         type="button"
-                        variant="outline"
                         size="icon"
                         onClick={() => removeItem(index)}
-                      >
+                        onClick={() => removeItem(index)}
                         <Trash size={16} />
-                      </Button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
           <div className="flex items-center justify-between pt-4 border-t">
             <span className="text-lg font-semibold">Total:</span>
-            <span className="text-2xl font-bold text-primary">
-              HNL {calculateTotal().toLocaleString()}
+                    )}
+                  </div>
             </span>
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-          </Button>
-        </DialogFooter>
+          <div className="flex items-center justify-between pt-4 border-t">
+            <span className="text-lg font-semibold">Total:</span>
+            <span className="text-2xl font-bold text-primary">
+              HNL {calculateTotal().toLocaleString()}
+            </span>
       </DialogContent>
     </Dialog>
   )
