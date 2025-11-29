@@ -237,67 +237,75 @@ export function EditOrderDialog({
                 Agregar Producto
               </Button>
             </div>
-              {items.map((item, index) => {
-                const availableForThisItem = getAvailableProducts(item.product_id)
-                return (
-                  <div key={index} className="flex items-end gap-2">
-                    <div className="flex-1 space-y-2">
-                    <div className="flex-1 space-y-2">cto</Label>
-                      <Select
-                      <Select
-                        value={item.product_id.toString()}
-                      >
-                      >
-                          <SelectValue placeholder="Seleccionar producto" />
-                          <SelectValue placeholder="Seleccionar producto" />
-                        <SelectContent>
-                        <SelectContent>
-                          {availableForThisItem.map(product => {
-                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
-                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
-                            return (d.toString()}>
-                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
-                                {availableStock})
-                                {availableStock})
-                              </SelectItem>
-                            )
-                        </SelectContent>
-                        </SelectContent>
-                      </Select>
-
-                    <div className="w-24 space-y-2">
-                      <Label className="text-sm">Cantidad</Label>
-                      <Input
-                      <Input
-                        min="1"
-                        value={item.cantidad}
-                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
-                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
-                      />
-                      />
-
-ength > 1 && (
-                      <Button
-                      <Button
-                        type="button"
-                        size="icon"
-                        onClick={() => removeItem(index)}
-                        onClick={() => removeItem(index)}
-                        <Trash size={16} />
-          <div className="flex items-center justify-between pt-4 border-t">
-            <span className="text-lg font-semibold">Total:</span>
-                    )}
+            {items.map((item, index) => {
+              const availableForThisItem = getAvailableProducts(item.product_id)
+              const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+              return (
+                <div key={index} className="flex items-end gap-2">
+                  <div className="flex-1 space-y-2">
+                    <Label className="text-sm">Producto</Label>
+                    <Select
+                      value={item.product_id.toString()}
+                      onValueChange={(v) => updateItemProduct(index, parseInt(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccionar producto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableForThisItem.map(product => {
+                          const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
+                          return (
+                            <SelectItem key={product.id} value={product.id.toString()}>
+                              {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                              {availableStock})
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
                   </div>
-            </span>
-          </div>
-        </div>
 
-        <DialogFooter>
+                  <div className="w-24 space-y-2">
+                    <Label className="text-sm">Cantidad</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={item.cantidad}
+                      onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
+                    />
+                  </div>
+
+                  {items.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => removeItem(index)}
+                    >
+                      <Trash size={16} />
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
           <div className="flex items-center justify-between pt-4 border-t">
             <span className="text-lg font-semibold">Total:</span>
             <span className="text-2xl font-bold text-primary">
               HNL {calculateTotal().toLocaleString()}
             </span>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
