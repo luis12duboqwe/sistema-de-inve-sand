@@ -269,7 +269,7 @@ export default function App() {
     if (customerSearchTerm && typeof customerSearchTerm === 'string' && customerSearchTerm.trim()) {
       const term = String(customerSearchTerm).toLowerCase()
       const customerName = o.customer_name ? String(o.customer_name).toLowerCase() : ''
-      const customerPhone = o.customer_phone ? String(o.customer_phone) : ''
+      const customerPhone = o.customer_phone ? String(o.customer_phone).toLowerCase() : ''
       return customerName.includes(term) || customerPhone.includes(term)
     }
     
