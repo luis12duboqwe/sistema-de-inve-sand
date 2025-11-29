@@ -1,0 +1,267 @@
+import { useState } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Separator } from '@/components/ui/separator'
+import type { Profile, ProfileSettings } from '@/lib/types'
+import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
+
+interface ProfileSettingsDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  profile: Profile
+  onSubmit: (profileId: number, settings: ProfileSettings) => void
+}
+
+const defaultSettings: ProfileSettings = {
+  currency: 'USD',
+  taxRate: 0,
+  lowStockThreshold: 5,
+  enableNotifications: true,
+  defaultPaymentMethod: 'efectivo',
+  defaultChannel: 'whatsapp',
+  autoCalculateTax: false,
+  priceFormat: 'standard'
+}
+
+export function ProfileSettingsDialog({ open, onOpenChange, profile, onSubmit }: ProfileSettingsDialogProps) {
+  const [settings, setSettings] = useState<ProfileSettings>(profile.settings || defaultSettings)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSubmit(profile.id, settings)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Configuración de {profile.name}</DialogTitle>
+          <DialogDescription>
+            Personaliza las configuraciones específicas para este perfil
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit}>
+          <Tabs defaultValue="general" className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="general" className="flex items-center gap-2">
+                <Gear size={16} />
+                <span className="hidden sm:inline">General</span>
+              </TabsTrigger>
+              <TabsTrigger value="pricing" className="flex items-center gap-2">
+                <CurrencyDollar size={16} />
+                <span className="hidden sm:inline">Precios</span>
+              </TabsTrigger>
+              <TabsTrigger value="notifications" className="flex items-center gap-2">
+                <Bell size={16} />
+                <span className="hidden sm:inline">Notificaciones</span>
+              </TabsTrigger>
+              <TabsTrigger value="business" className="flex items-center gap-2">
+                <Buildings size={16} />
+                <span className="hidden sm:inline">Negocio</span>
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="general" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="defaultPaymentMethod">Método de pago predeterminado</Label>
+                <Select
+                  value={settings.defaultPaymentMethod}
+                  onValueChange={(value) => setSettings({ ...settings, defaultPaymentMethod: value as any })}
+                >
+                  <SelectTrigger id="defaultPaymentMethod">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efectivo">Efectivo</SelectItem>
+                    <SelectItem value="transferencia">Transferencia</SelectItem>
+                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                    <SelectItem value="financiamiento">Financiamiento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="defaultChannel">Canal predeterminado</Label>
+                <Select
+                  value={settings.defaultChannel}
+                  onValueChange={(value) => setSettings({ ...settings, defaultChannel: value as any })}
+                >
+                  <SelectTrigger id="defaultChannel">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
+                <Input
+                  id="lowStockThreshold"
+                  type="number"
+                  min="0"
+                  value={settings.lowStockThreshold}
+                  onChange={(e) => setSettings({ ...settings, lowStockThreshold: parseInt(e.target.value) || 0 })}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Alertar cuando el stock esté por debajo de este número
+                </p>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="pricing" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="currency">Moneda</Label>
+                <Select
+                  value={settings.currency}
+                  onValueChange={(value) => setSettings({ ...settings, currency: value })}
+                >
+                  <SelectTrigger id="currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD - Dólar Estadounidense</SelectItem>
+                    <SelectItem value="EUR">EUR - Euro</SelectItem>
+                    <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
+                    <SelectItem value="ARS">ARS - Peso Argentino</SelectItem>
+                    <SelectItem value="COP">COP - Peso Colombiano</SelectItem>
+                    <SelectItem value="CLP">CLP - Peso Chileno</SelectItem>
+                    <SelectItem value="PEN">PEN - Sol Peruano</SelectItem>
+                    <SelectItem value="BRL">BRL - Real Brasileño</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="priceFormat">Formato de precio</Label>
+                <Select
+                  value={settings.priceFormat}
+                  onValueChange={(value) => setSettings({ ...settings, priceFormat: value as any })}
+                >
+                  <SelectTrigger id="priceFormat">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">1234.56 (Estándar)</SelectItem>
+                    <SelectItem value="comma">1234,56 (Coma decimal)</SelectItem>
+                    <SelectItem value="space">1 234.56 (Con espacios)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="autoCalculateTax">Calcular impuestos automáticamente</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Añadir impuestos al precio final
+                  </p>
+                </div>
+                <Switch
+                  id="autoCalculateTax"
+                  checked={settings.autoCalculateTax}
+                  onCheckedChange={(checked) => setSettings({ ...settings, autoCalculateTax: checked })}
+                />
+              </div>
+
+              {settings.autoCalculateTax && (
+                <div className="space-y-2">
+                  <Label htmlFor="taxRate">Tasa de impuesto (%)</Label>
+                  <Input
+                    id="taxRate"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={settings.taxRate}
+                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="notifications" className="space-y-4 mt-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="enableNotifications">Habilitar notificaciones</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Recibir alertas sobre stock bajo y nuevas órdenes
+                  </p>
+                </div>
+                <Switch
+                  id="enableNotifications"
+                  checked={settings.enableNotifications}
+                  onCheckedChange={(checked) => setSettings({ ...settings, enableNotifications: checked })}
+                />
+              </div>
+
+              {settings.enableNotifications && (
+                <div className="p-4 bg-muted rounded-lg space-y-2">
+                  <p className="text-sm font-medium">Recibirás notificaciones cuando:</p>
+                  <ul className="text-sm text-muted-foreground space-y-1 ml-4">
+                    <li>• El stock de un producto esté por debajo del umbral configurado</li>
+                    <li>• Se cree una nueva orden</li>
+                    <li>• El estado de una orden cambie</li>
+                  </ul>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="business" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="businessAddress">Dirección del negocio</Label>
+                <Input
+                  id="businessAddress"
+                  value={settings.businessAddress || ''}
+                  onChange={(e) => setSettings({ ...settings, businessAddress: e.target.value })}
+                  placeholder="Calle, número, ciudad, país"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="businessPhone">Teléfono del negocio</Label>
+                <Input
+                  id="businessPhone"
+                  type="tel"
+                  value={settings.businessPhone || ''}
+                  onChange={(e) => setSettings({ ...settings, businessPhone: e.target.value })}
+                  placeholder="+1 234 567 8900"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="businessEmail">Email del negocio</Label>
+                <Input
+                  id="businessEmail"
+                  type="email"
+                  value={settings.businessEmail || ''}
+                  onChange={(e) => setSettings({ ...settings, businessEmail: e.target.value })}
+                  placeholder="contacto@negocio.com"
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="flex justify-end gap-2 mt-6">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit">
+              Guardar configuración
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

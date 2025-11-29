@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Storefront, PencilSimple } from '@phosphor-icons/react'
+import { Storefront, PencilSimple, Gear } from '@phosphor-icons/react'
 import type { Profile } from '@/lib/types'
 
 interface ProfileCardProps {
@@ -9,11 +9,16 @@ interface ProfileCardProps {
   productCount?: number
   orderCount?: number
   onEdit?: (profile: Profile) => void
+  onSettings?: (profile: Profile) => void
+  onClick?: (profile: Profile) => void
 }
 
-export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit }: ProfileCardProps) {
+export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit, onSettings, onClick }: ProfileCardProps) {
   return (
-    <Card className="p-6 hover:shadow-lg transition-shadow">
+    <Card 
+      className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
+      onClick={() => onClick?.(profile)}
+    >
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3 flex-1">
@@ -39,16 +44,6 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit 
                 Inactivo
               </Badge>
             )}
-            {onEdit && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onEdit(profile)}
-                className="h-8 w-8"
-              >
-                <PencilSimple size={16} />
-              </Button>
-            )}
           </div>
         </div>
 
@@ -61,6 +56,37 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit 
             <p className="text-2xl font-bold text-accent">{orderCount}</p>
             <p className="text-xs text-muted-foreground">Órdenes</p>
           </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          {onSettings && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                onSettings(profile)
+              }}
+              className="flex-1"
+            >
+              <Gear size={16} className="mr-2" />
+              Configuración
+            </Button>
+          )}
+          {onEdit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit(profile)
+              }}
+              className="flex-1"
+            >
+              <PencilSimple size={16} className="mr-2" />
+              Editar
+            </Button>
+          )}
         </div>
       </div>
     </Card>

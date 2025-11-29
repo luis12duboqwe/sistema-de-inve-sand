@@ -1,8 +1,23 @@
+export interface ProfileSettings {
+  currency: string
+  taxRate: number
+  lowStockThreshold: number
+  enableNotifications: boolean
+  defaultPaymentMethod: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  defaultChannel: 'whatsapp' | 'facebook' | 'instagram'
+  businessAddress?: string
+  businessPhone?: string
+  businessEmail?: string
+  autoCalculateTax: boolean
+  priceFormat: 'standard' | 'comma' | 'space'
+}
+
 export interface Profile {
   id: number
   name: string
   slug: string
   active: boolean
+  settings?: ProfileSettings
 }
 
 export interface Product {

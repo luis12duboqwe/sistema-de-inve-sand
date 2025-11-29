@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, OrderWithItems } from '@/lib/types'
+import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 import { ProfileCard } from '@/components/ProfileCard'
@@ -20,6 +20,8 @@ import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { ImportProductsDialog } from '@/components/ImportProductsDialog'
+import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog'
+import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
 import { DashboardStats } from '@/components/DashboardStats'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
@@ -45,6 +47,8 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
+  const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
+  const [viewingProfile, setViewingProfile] = useState<Profile | null>(null)
   const [useAPI, setUseAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
@@ -283,6 +287,21 @@ export default function App() {
     setBulkActionMode(false)
     setSelectedProducts(new Set())
     setSelectedOrders(new Set())
+  }
+
+  const handleUpdateProfileSettings = async (profileId: number, settings: ProfileSettings) => {
+    try {
+      const updatedProfile = (profiles ?? []).find(p => p.id === profileId)
+      if (!updatedProfile) return
+
+      const profileWithNewSettings = { ...updatedProfile, settings }
+      setProfiles(current => (current ?? []).map(p => p.id === profileId ? profileWithNewSettings : p))
+      toast.success('Configuración guardada exitosamente')
+      setProfileWithSettings(null)
+    } catch (error) {
+      console.error('Error updating profile settings:', error)
+      toast.error('Error al guardar configuración')
+    }
   }
 
   return (
@@ -720,6 +739,8 @@ export default function App() {
                     productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
                     orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
                     onEdit={setEditingProfile}
+                    onSettings={setProfileWithSettings}
+                    onClick={setViewingProfile}
                   />
                 ))}
               </div>
@@ -838,6 +859,27 @@ export default function App() {
         profiles={activeProfiles}
         onImport={handleImportProducts}
       />
+
+      {profileWithSettings && (
+        <ProfileSettingsDialog
+          open={true}
+          profile={profileWithSettings}
+          onOpenChange={(open) => !open && setProfileWithSettings(null)}
+          onSubmit={handleUpdateProfileSettings}
+        />
+      )}
+
+      {viewingProfile && (
+        <ProfileDetailsDialog
+          open={true}
+          profile={viewingProfile}
+          productCount={(products ?? []).filter(p => p.profile_id === viewingProfile.id && p.activo).length}
+          orderCount={(orders ?? []).filter(o => o.profile_id === viewingProfile.id).length}
+          onOpenChange={(open) => !open && setViewingProfile(null)}
+          onEdit={setEditingProfile}
+          onSettings={setProfileWithSettings}
+        />
+      )}
     </div>
   )
 }
