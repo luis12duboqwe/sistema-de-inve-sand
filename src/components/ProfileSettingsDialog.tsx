@@ -66,6 +66,10 @@ export function ProfileSettingsDialog({
                 Notificaciones
               </TabsTrigger>
               <TabsTrigger value="business" className="flex items-center gap-2">
+                <Storefront size={16} />
+                Negocio
+              </TabsTrigger>
+            </TabsList>
 
             <TabsContent value="general" className="space-y-4 mt-4">
               <div className="space-y-2">
@@ -105,40 +109,40 @@ export function ProfileSettingsDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
-                >
+                <Select
                   value={settings.defaultPaymentMethod}
                   onValueChange={(value: ProfileSettings['defaultPaymentMethod']) => setSettings({ ...settings, defaultPaymentMethod: value })}
-                  </SelectTrigger>
+                >
                   <SelectTrigger id="defaultPaymentMethod">
-                    <SelectItem value="efectivo">Efectivo</SelectItem>
-                    <SelectItem value="transferencia">Transferencia</SelectItem>
-                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     <SelectItem value="efectivo">Efectivo</SelectItem>
                     <SelectItem value="transferencia">Transferencia</SelectItem>
                     <SelectItem value="tarjeta">Tarjeta</SelectItem>
                     <SelectItem value="financiamiento">Financiamiento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="defaultChannel">Canal por defecto</Label>
                 <Select
                   value={settings.defaultChannel}
-                <Label htmlFor="defaultChannel">Canal por defecto</Label>
-                >
-                  value={settings.defaultChannel}
                   onValueChange={(value: ProfileSettings['defaultChannel']) => setSettings({ ...settings, defaultChannel: value })}
-                  </SelectTrigger>
+                >
                   <SelectTrigger id="defaultChannel">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     <SelectItem value="whatsapp">WhatsApp</SelectItem>
                     <SelectItem value="facebook">Facebook</SelectItem>
                     <SelectItem value="instagram">Instagram</SelectItem>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                    <SelectItem value="instagram">Instagram</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               <div className="space-y-2">
-                <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
-                <Input
-                  id="lowStockThreshold"
                 <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
                 <Input
                   id="lowStockThreshold"
@@ -180,6 +184,9 @@ export function ProfileSettingsDialog({
               )}
             </TabsContent>
 
+            <TabsContent value="business" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="businessAddress">Dirección del negocio</Label>
                 <Input
                   id="businessAddress"
                   value={settings.businessAddress}
