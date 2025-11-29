@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,12 @@ export function NewProfileDialog({
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      resetForm()
+    }
+  }, [open])
 
   const generateSlug = (text: string) => {
     return text
@@ -56,7 +62,8 @@ export function NewProfileDialog({
     try {
       await onSubmit(name, slug)
       resetForm()
-      onOpenChange(false)
+    } catch (error) {
+      console.error('Error submitting profile:', error)
     } finally {
       setIsSubmitting(false)
     }

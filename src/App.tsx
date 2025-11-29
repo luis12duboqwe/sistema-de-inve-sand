@@ -762,10 +762,16 @@ export default function App() {
         open={showNewProfileDialog}
         onOpenChange={setShowNewProfileDialog}
         onSubmit={async (name, slug) => {
-          const created = await service.createProfile({ name, slug, active: true })
-          setProfiles(current => [...(current ?? []), created])
-          toast.success('Perfil creado exitosamente')
-          setShowNewProfileDialog(false)
+          try {
+            const created = await service.createProfile({ name, slug, active: true })
+            setProfiles(current => [...(current ?? []), created])
+            toast.success('Perfil creado exitosamente')
+            setShowNewProfileDialog(false)
+          } catch (error) {
+            console.error('Error creating profile:', error)
+            toast.error(error instanceof Error ? error.message : 'Error al crear perfil')
+            throw error
+          }
         }}
       />
 
