@@ -84,7 +84,6 @@ export function ProfileSettingsDialog({
                   <SelectContent>
                     <SelectItem value="USD">USD ($)</SelectItem>
                     <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="MXN">MXN ($)</SelectItem>
                     <SelectItem value="COP">COP ($)</SelectItem>
                   </SelectContent>
                 </Select>
