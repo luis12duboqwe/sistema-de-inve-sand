@@ -45,18 +45,18 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
-  const [useAPI, setUseAPI] = useKV<boolean>('inventory-use-api', false)
-  const [apiUrl, setApiUrl] = useKV<string>('inventory-api-url', 'http://localhost:8000')
+  const [useAPI, setUseAPI] = useKV<boolean>('settings_use_api', false)
+  const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
 
-  const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000')
+  const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000')
+        const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
         const [loadedProducts, loadedOrders, loadedProfiles] = await Promise.all([
           currentService.getProducts(),
           currentService.getOrders(),
@@ -750,15 +750,8 @@ export default function App() {
           const created = await service.createOrder(newOrder)
           setOrders(current => [created, ...(current ?? [])])
           
-          for (const item of newOrder.items) {
-            setProducts(current =>
-              (current ?? []).map(p =>
-                p.id === item.product_id
-                  ? { ...p, stock_disponible: p.stock_disponible - item.cantidad }
-                  : p
-              )
-            )
-          }
+          const updatedProducts = await service.getProducts()
+          setProducts(updatedProducts)
           
           toast.success('Orden creada exitosamente')
           setShowNewOrderDialog(false)
