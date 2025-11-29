@@ -66,49 +66,27 @@ export function ProfileSettingsDialog({
                 Notificaciones
               </TabsTrigger>
               <TabsTrigger value="business" className="flex items-center gap-2">
-                <Storefront size={16} />
                 Negocio
-              </TabsTrigger>
             </TabsList>
+            <TabsContent val
+                <Label 
 
-            <TabsContent value="general" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="currency">Moneda</Label>
-                <Select
-                  value={settings.currency}
-                  onValueChange={(value: ProfileSettings['currency']) => setSettings({ ...settings, currency: value })}
                 >
-                  <SelectTrigger id="currency">
                     <SelectValue />
-                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="USD">USD ($)</SelectItem>
-                    <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="COP">COP ($)</SelectItem>
+                    <Se
                   </SelectContent>
-                </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="priceFormat">Formato de precio</Label>
+              <di
                 <Select
-                  value={settings.priceFormat}
-                  onValueChange={(value: 'standard' | 'comma' | 'space') => setSettings({ ...settings, priceFormat: value })}
-                >
-                  <SelectTrigger id="priceFormat">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">1,234.56 (Estándar)</SelectItem>
-                    <SelectItem value="comma">1.234,56 (Coma)</SelectItem>
-                    <SelectItem value="space">1 234.56 (Espacio)</SelectItem>
-                  </SelectContent>
+                  onValueChange={(v
+                  <SelectTrigger i
+                  </SelectTrigger
+                    <SelectItem value="standard">1,234.56 (Están
+                    <SelectItem value="space">1 234.56 (Espacio)
                 </Select>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
-                <Select
+                <Label ht
                   value={settings.defaultPaymentMethod}
                   onValueChange={(value: ProfileSettings['defaultPaymentMethod']) => setSettings({ ...settings, defaultPaymentMethod: value })}
                 >
