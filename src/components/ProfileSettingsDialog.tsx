@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
 import type { Profile, ProfileSettings } from '@/lib/types'
 import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
 
@@ -14,8 +14,8 @@ interface ProfileSettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   profile: Profile
-  currency: 'USD',
- 
+  onSubmit: (profileId: number, settings: ProfileSettings) => void
+}
 
 const defaultSettings: ProfileSettings = {
   currency: 'USD',
@@ -43,34 +43,34 @@ export function ProfileSettingsDialog({ open, onOpenChange, profile, onSubmit }:
           onSubmit(profile.id, settings)
         }}>
           <Tabs defaultValue="general">
-            <TabsList className="grid w-full grid-cols-4"> items-center gap-2">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="general" className="flex items-center gap-2">
                 <Gear size={16} />
                 General
-              </TabsTrigger>ations" className="flex items-center gap-2">
+              </TabsTrigger>
               <TabsTrigger value="pricing" className="flex items-center gap-2">
                 <CurrencyDollar size={16} />
                 Precios
-              </TabsTrigger>ex items-center gap-2">
+              </TabsTrigger>
               <TabsTrigger value="notifications" className="flex items-center gap-2">
                 <Bell size={16} />
                 Notificaciones
               </TabsTrigger>
               <TabsTrigger value="business" className="flex items-center gap-2">
                 <Buildings size={16} />
-                NegociosName="space-y-2">
-              </TabsTrigger>tPaymentMethod">Método de pago por defecto</Label>
+                Negocios
+              </TabsTrigger>
             </TabsList>
-ymentMethod}
-            <TabsContent value="general" className="space-y-4 mt-4">d: value as ProfileSettings['defaultPaymentMethod'] })}
+
+            <TabsContent value="general" className="space-y-4 mt-4">
               <div className="space-y-2">
                 <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
-                <SelectlectValue />
+                <Select
                   value={settings.defaultPaymentMethod}
                   onValueChange={(value) => setSettings({ ...settings, defaultPaymentMethod: value as ProfileSettings['defaultPaymentMethod'] })}
-                ></SelectItem>
+                >
                   <SelectTrigger id="defaultPaymentMethod">
-                    <SelectValue />tItem>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="efectivo">Efectivo</SelectItem>
@@ -134,6 +134,11 @@ ymentMethod}
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="priceFormat">Formato de precio</Label>
+                <Select
+                  value={settings.priceFormat}
+                  onValueChange={(value) => setSettings({ ...settings, priceFormat: value as ProfileSettings['priceFormat'] })}
+                >
                   <SelectTrigger id="priceFormat">
                     <SelectValue />
                   </SelectTrigger>
