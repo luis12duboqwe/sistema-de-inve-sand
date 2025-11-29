@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switc
-import { Tabs, TabsContent, TabsList, TabsTrigg
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
-import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
-interface ProfileSettingsDialogProps {
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Separator } from '@/components/ui/separator'
 import type { Profile, ProfileSettings } from '@/lib/types'
 import { CurrencyDollar, Bell, Gear, Buildings } from '@phosphor-icons/react'
 
@@ -30,16 +32,18 @@ export function ProfileSettingsDialog({ open, onOpenChange, profile, onSubmit }:
   const [settings, setSettings] = useState<ProfileSettings>(profile.settings || defaultSettings)
 
   return (
-      <DialogContent c
-          <DialogTitle>Configuraci
-   
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Configuración de {profile.name}</DialogTitle>
+        </DialogHeader>
 
-        <f
-            <TabsList className="grid w-full grid-co
-                <Gear size={16} />
-              </TabsTr
-                <CurrencyDollar size={16} />
-              </TabsTrigger>
+        <form onSubmit={(e) => {
+          e.preventDefault()
+          onSubmit(profile.id, settings)
+        }}>
+          <Tabs defaultValue="general">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="general" className="flex items-center gap-2">
                 <Gear size={16} />
                 General
