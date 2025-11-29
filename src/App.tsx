@@ -244,15 +244,14 @@ export default function App() {
     
     if (!showInactive && !p.activo) return false
     
-    if (categoryFilter !== 'all' && p.categoria !== categoryFilter) return false
+    if (categoryFilter && categoryFilter !== 'all' && p.categoria !== categoryFilter) return false
     
     if (searchTerm && typeof searchTerm === 'string' && searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
-      return (
-        (p.nombre && String(p.nombre).toLowerCase().includes(term)) ||
-        (p.marca && String(p.marca).toLowerCase().includes(term)) ||
-        (p.modelo && String(p.modelo).toLowerCase().includes(term))
-      )
+      const nombre = p.nombre ? String(p.nombre).toLowerCase() : ''
+      const marca = p.marca ? String(p.marca).toLowerCase() : ''
+      const modelo = p.modelo ? String(p.modelo).toLowerCase() : ''
+      return nombre.includes(term) || marca.includes(term) || modelo.includes(term)
     }
     
     return true
@@ -264,14 +263,13 @@ export default function App() {
       if (!profile || o.profile_id !== profile.id) return false
     }
     
-    if (orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
+    if (orderStatusFilter && orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
     
     if (customerSearchTerm && typeof customerSearchTerm === 'string' && customerSearchTerm.trim()) {
       const term = customerSearchTerm.toLowerCase()
-      return (
-        (o.customer_name && String(o.customer_name).toLowerCase().includes(term)) ||
-        (o.customer_phone && String(o.customer_phone).includes(term))
-      )
+      const customerName = o.customer_name ? String(o.customer_name).toLowerCase() : ''
+      const customerPhone = o.customer_phone ? String(o.customer_phone) : ''
+      return customerName.includes(term) || customerPhone.includes(term)
     }
     
     return true
