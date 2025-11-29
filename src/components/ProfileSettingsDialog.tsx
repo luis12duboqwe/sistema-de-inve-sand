@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switc
-import { Dialog, DialogContent, DialogHeader, D
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -14,7 +14,7 @@ interface ProfileSettingsDialogProps {
   profile: Profile
   onOpenChange: (open: boolean) => void
   onSubmit: (profileId: number, settings: ProfileSettings) => void
-}xport function ProfileSettingsDialog({
+}
 
 export function ProfileSettingsDialog({
   open,
@@ -259,4 +259,4 @@ export function ProfileSettingsDialog({
       </DialogContent>
     </Dialog>
   )
-
+}
