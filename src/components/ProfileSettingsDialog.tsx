@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader,
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-interface ProfileSettingsDialogProps {
-  profile: Profile
+import { Switch } from '@/components/ui/switch'
+import { CurrencyDollar, Bell, Storefront } from '@phosphor-icons/react'
+import type { Profile, ProfileSettings } from '@/lib/types'
 
 interface ProfileSettingsDialogProps {
   open: boolean
@@ -17,14 +17,14 @@ interface ProfileSettingsDialogProps {
 }
 
 export function ProfileSettingsDialog({
-  open,ileSettingsDialogProps) {
-  profile,leSettings>({
+  open,
+  profile,
   onOpenChange,
   onSubmit,
 }: ProfileSettingsDialogProps) {
   const [settings, setSettings] = useState<ProfileSettings>({
-    currency: 'USD',hod: 'efectivo',
-    taxRate: 0,nel: 'whatsapp',
+    currency: 'USD',
+    taxRate: 0,
     lowStockThreshold: 5,
     enableNotifications: false,
     defaultPaymentMethod: 'efectivo',
@@ -105,40 +105,40 @@ export function ProfileSettingsDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
-                <Select
+                >
                   value={settings.defaultPaymentMethod}
                   onValueChange={(value: ProfileSettings['defaultPaymentMethod']) => setSettings({ ...settings, defaultPaymentMethod: value })}
-                >
-                  <SelectTrigger id="defaultPaymentMethod">
-                    <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger id="defaultPaymentMethod">
+                    <SelectItem value="efectivo">Efectivo</SelectItem>
+                    <SelectItem value="transferencia">Transferencia</SelectItem>
+                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
                     <SelectItem value="efectivo">Efectivo</SelectItem>
                     <SelectItem value="transferencia">Transferencia</SelectItem>
                     <SelectItem value="tarjeta">Tarjeta</SelectItem>
                     <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="defaultChannel">Canal por defecto</Label>
                 <Select
                   value={settings.defaultChannel}
-                  onValueChange={(value: ProfileSettings['defaultChannel']) => setSettings({ ...settings, defaultChannel: value })}
+                <Label htmlFor="defaultChannel">Canal por defecto</Label>
                 >
-                  <SelectTrigger id="defaultChannel">
-                    <SelectValue />
+                  value={settings.defaultChannel}
+                  onValueChange={(value: ProfileSettings['defaultChannel']) => setSettings({ ...settings, defaultChannel: value })}
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger id="defaultChannel">
                     <SelectItem value="whatsapp">WhatsApp</SelectItem>
                     <SelectItem value="facebook">Facebook</SelectItem>
                     <SelectItem value="instagram">Instagram</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
 
               <div className="space-y-2">
+                <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
+                <Input
+                  id="lowStockThreshold"
                 <Label htmlFor="lowStockThreshold">Umbral de stock bajo</Label>
                 <Input
                   id="lowStockThreshold"
@@ -180,9 +180,6 @@ export function ProfileSettingsDialog({
               )}
             </TabsContent>
 
-            <TabsContent value="business" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="businessAddress">Dirección del negocio</Label>
                 <Input
                   id="businessAddress"
                   value={settings.businessAddress}
