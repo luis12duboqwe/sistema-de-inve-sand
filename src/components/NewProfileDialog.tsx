@@ -33,6 +33,7 @@ export function NewProfileDialog({
   }, [open])
 
   const generateSlug = (text: string) => {
+    if (!text) return ''
     return text
       .toLowerCase()
       .normalize('NFD')
@@ -43,7 +44,8 @@ export function NewProfileDialog({
 
   const handleNameChange = (value: string) => {
     setName(value)
-    if (!slug || slug === generateSlug(name)) {
+    const currentSlugFromName = generateSlug(name)
+    if (!slug || slug === currentSlugFromName) {
       setSlug(generateSlug(value))
     }
   }
