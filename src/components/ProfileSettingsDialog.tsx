@@ -66,11 +66,17 @@ export function ProfileSettingsDialog({
                 Notificaciones
               </TabsTrigger>
               <TabsTrigger value="business" className="flex items-center gap-2">
+                <Storefront size={16} />
                 Negocio
+              </TabsTrigger>
             </TabsList>
-            <TabsContent val
-                <Label 
 
+            <TabsContent value="general" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="currency">Moneda</Label>
+                <Select
+                  value={settings.currency}
+                  onValueChange={(value: ProfileSettings['currency']) => setSettings({ ...settings, currency: value })}
                 >
                   <SelectTrigger id="currency">
                     <SelectValue />
