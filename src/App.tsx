@@ -270,7 +270,6 @@ export default function App() {
       const customerName = o.customer_name ? String(o.customer_name).toLowerCase() : ''
       const customerPhone = o.customer_phone ? String(o.customer_phone) : ''
       return customerName.includes(term) || customerPhone.includes(term)
-    }
     
     return true
   })
