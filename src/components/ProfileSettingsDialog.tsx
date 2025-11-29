@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader,
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { CurrencyDollar, Bell, Buildings } from '@phosphor-icons/react'
-import type { Profile, ProfileSettings } from '@/lib/types'
+interface ProfileSettingsDialogProps {
+  profile: Profile
 
 interface ProfileSettingsDialogProps {
   open: boolean
@@ -17,14 +17,14 @@ interface ProfileSettingsDialogProps {
 }
 
 export function ProfileSettingsDialog({
-  open,
-  profile,
+  open,ileSettingsDialogProps) {
+  profile,leSettings>({
   onOpenChange,
   onSubmit,
 }: ProfileSettingsDialogProps) {
   const [settings, setSettings] = useState<ProfileSettings>({
-    currency: 'USD',
-    taxRate: 0,
+    currency: 'USD',hod: 'efectivo',
+    taxRate: 0,nel: 'whatsapp',
     lowStockThreshold: 5,
     enableNotifications: false,
     defaultPaymentMethod: 'efectivo',
@@ -66,10 +66,6 @@ export function ProfileSettingsDialog({
                 Notificaciones
               </TabsTrigger>
               <TabsTrigger value="business" className="flex items-center gap-2">
-                <Buildings size={16} />
-                Negocio
-              </TabsTrigger>
-            </TabsList>
 
             <TabsContent value="general" className="space-y-4 mt-4">
               <div className="space-y-2">
