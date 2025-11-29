@@ -164,158 +164,146 @@ export function EditOrderDialog({
   }
 
   return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
           <DialogTitle>Editar Orden #{order.id}</DialogTitle>
+        </DialogHeader>
 
         <div className="space-y-4 py-4">
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
+              <Label htmlFor="edit-customer-name">Nombre del Cliente</Label>
               <Input
-            <div className="space-y-2">
+                id="edit-customer-name"
                 value={customerName}
-              <Inputalue)}
+                onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Juan Pérez"
-                value={customerName}
+              />
             </div>
 
-              />y-2">
+            <div className="space-y-2">
               <Label htmlFor="edit-customer-phone">Teléfono</Label>
-
+              <Input
                 id="edit-customer-phone"
                 value={customerPhone}
-              <Inputalue)}
+                onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder="+504 9999-9999"
                 type="tel"
-                value={customerPhone}
+              />
+            </div>
           </div>
 
-              />d-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="edit-canal">Canal</Label>
-{(v) => setCanal(v as typeof canal)}>
+              <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
                 <SelectTrigger id="edit-canal">
-            <div className="space-y-2">
-              <Label htmlFor="edit-canal">Canal</Label>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="whatsapp">WhatsApp</SelectItem>
                   <SelectItem value="facebook">Facebook</SelectItem>
                   <SelectItem value="instagram">Instagram</SelectItem>
-                <SelectContent>
+                  <SelectItem value="tienda">Tienda</SelectItem>
+                </SelectContent>
               </Select>
-                  <SelectItem value="facebook">Facebook</SelectItem>
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="edit-metodo-pago">Método de Pago</Label>
               <Select
-
-                onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
-                <SelectTrigger id="edit-metodo-pago">
-              <Select
                 value={metodoPago}
-                <SelectContent>
+                onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
               >
+                <SelectTrigger id="edit-metodo-pago">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="efectivo">Efectivo</SelectItem>
                   <SelectItem value="transferencia">Transferencia</SelectItem>
                   <SelectItem value="tarjeta">Tarjeta</SelectItem>
                   <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                <SelectContent>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-                  <SelectItem value="tarjeta">Tarjeta</SelectItem>
+          </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Productos</Label>
               <Button type="button" variant="outline" size="sm" onClick={addItem}>
-
+                <Plus size={16} className="mr-2" />
                 Agregar Producto
+              </Button>
             </div>
-              <Label>Productos</Label>
             <div className="space-y-2">
               {items.map((item, index) => {
                 const availableForThisItem = getAvailableProducts(item.product_id)
                 return (
                   <div key={index} className="flex items-end gap-2">
-
-                      <Label className="text-sm">Producto</Label>
-              {items.map((item, index) => {
-                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
-                return (
-                        <SelectTrigger>
                     <div className="flex-1 space-y-2">
-                        </SelectTrigger>
+                      <Label className="text-sm">Producto</Label>
                       <Select
                         value={item.product_id.toString()}
-                            const originalItem = order.items.find(oi => oi.product_id === product.id)
-                      >ck_disponible + (originalItem?.cantidad || 0)
+                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
+                      >
                         <SelectTrigger>
-                              <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                          <SelectValue placeholder="Seleccionar producto" />
+                        </SelectTrigger>
                         <SelectContent>
                           {availableForThisItem.map(product => {
                             const originalItem = order.items.find(oi => oi.product_id === product.id)
-                          })}
+                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
                             return (
                               <SelectItem key={product.id} value={product.id.toString()}>
+                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                                {availableStock})
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="w-24 space-y-2">
                       <Label className="text-sm">Cantidad</Label>
-                          })}
+                      <Input
                         type="number"
                         min="1"
                         value={item.cantidad}
-
+                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
                         placeholder="Cant."
+                      />
                     </div>
-                      <Input
+
                     {items.length > 1 && (
-                        min="1"
-                        value={item.cantidad}
-                        variant="outline"
-                        size="icon"
-                      />index)}
-                      >
->
-                      </Button>
                       <Button
                         type="button"
                         variant="outline"
-              })}
-            </div>
-
+                        size="icon"
+                        onClick={() => removeItem(index)}
+                      >
                         <Trash size={16} />
                       </Button>
-              <span className="text-lg font-semibold">Total:</span>
-              <span className="text-2xl font-bold text-primary">
+                    )}
+                  </div>
                 )
               })}
             </div>
           </div>
 
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-              <span className="text-2xl font-bold text-primary">
-                HNL {calculateTotal().toLocaleString()}
-              </span>
-            </div>
+          <div className="flex items-center justify-between pt-4 border-t">
+            <span className="text-lg font-semibold">Total:</span>
+            <span className="text-2xl font-bold text-primary">
+              HNL {calculateTotal().toLocaleString()}
+            </span>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
