@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -11,6 +8,9 @@ import type { Profile, ProfileSettings } from '@/lib/types'
 
 interface ProfileSettingsDialogProps {
   open: boolean
+  profile: Profile
+  onOpenChange: (open: boolean) => void
+  onSubmit: (profileId: number, settings: ProfileSettings) => void
   profile: Profile
   onOpenChange: (open: boolean) => void
   onSubmit: (profileId: number, settings: ProfileSettings) => void
