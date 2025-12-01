@@ -2,21 +2,36 @@ import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
-} from '@/compo
-import { Input
-import { Alert, Aler
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Info } from '@phosphor-icons/react'
 
-  open: boolean
-  onSubmit: (name: string, slug: string) => Pro
-
-  open,
-  onSubmit
-  const [name, setName] = useState('')
-
-  const [error, setError] = useSt
+interface NewProfileDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (name: string, slug: string) => Promise<void>
+}
+
+function validateSlug(slug: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) && slug.length >= 2
+}
+
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
 }
 
 export function NewProfileDialog({
@@ -30,30 +45,22 @@ export function NewProfileDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-    setName('')
-    setManualSlugEdit(false)
-    setIsSubmitting(false)
-
-    const trimm
-
-      setError('El nombre del
+  useEffect(() => {
+    if (!manualSlugEdit && name) {
+      setSlug(generateSlug(name))
     }
-    if (!trimmedSlug) {
-    }
+  }, [name, manualSlugEdit])
 
-
+  useEffect(() => {
+    if (open) {
+      resetForm()
     }
-    setIsSubmitt
-    
-    }
-    } catch 
+  }, [open])
 
-      } else {
-      }
-      setIsSubmitting(false)
+  const handleNameChange = (value: string) => {
+    setName(value)
+    setError('')
   }
-
-      <DialogContent className="max-w-md">
 
   const handleSlugChange = (value: string) => {
     setManualSlugEdit(true)
@@ -106,14 +113,16 @@ export function NewProfileDialog({
     }
   }
 
+  const isValid = name.trim() && slug.trim() && validateSlug(slug.trim())
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Crear Nuevo Perfil</DialogTitle>
-
-
-
+          <DialogDescription>
+            Crea un nuevo perfil de negocio para organizar tus productos y órdenes.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -122,64 +131,56 @@ export function NewProfileDialog({
             <Input
               id="name"
               value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="Ej: Mi Tienda Principal"
+              disabled={isSubmitting}
+            />
+          </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="slug">Slug (Identificador único) *</Label>
+            <Input
+              id="slug"
+              value={slug}
+              onChange={(e) => handleSlugChange(e.target.value)}
+              placeholder="mi-tienda-principal"
+              disabled={isSubmitting}
+            />
+            <p className="text-xs text-muted-foreground">
+              Solo letras minúsculas, números y guiones. Mínimo 2 caracteres.
+            </p>
+          </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
           <Alert>
-
+            <Info className="h-4 w-4" />
             <AlertDescription>
-
-
-
+              El slug se usa para identificar de forma única este perfil en el sistema.
+            </AlertDescription>
+          </Alert>
         </div>
 
         <DialogFooter>
           <Button 
-
-
-
-
-
-
-
-
+            variant="outline" 
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleSubmit}
             disabled={isSubmitting || !isValid}
-
-
-
-
-
-
-
-
+          >
+            {isSubmitting ? 'Creando...' : 'Crear Perfil'}
+          </Button>
         </DialogFooter>
-
+      </DialogContent>
     </Dialog>
-
+  )
 }
