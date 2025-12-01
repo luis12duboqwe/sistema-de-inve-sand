@@ -1,114 +1,114 @@
 import { useState, useEffect } from 'react'
-import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { CurrencyDollar, Bell, Storefront } from '@phosphor-icons/react'
-import type { Profile, ProfileSettings } from '@/lib/types'
 
-interface ProfileSettingsDialogProps {
   open: boolean
-  profile: Profile
   onOpenChange: (open: boolean) => void
-  onSubmit: (profileId: number, settings: ProfileSettings) => void
 }
 
-export function ProfileSettingsDialog({
-  open,
   profile,
-  onOpenChange,
   onSubmit,
-}: ProfileSettingsDialogProps) {
-  const [settings, setSettings] = useState<ProfileSettings>({
-    currency: 'USD',
+  const [settings,
     taxRate: 0,
-    lowStockThreshold: 5,
     enableNotifications: false,
-    defaultPaymentMethod: 'efectivo',
-    defaultChannel: 'whatsapp',
-    businessAddress: '',
-    businessPhone: '',
-    businessEmail: '',
+ 
+
     autoCalculateTax: false,
-    priceFormat: 'standard',
   })
-
-  useEffect(() => {
-    if (profile.settings) {
-      setSettings(profile.settings)
-    }
-  }, [profile])
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  useEffec
+      setSettin
+  }, [profi
+  const handleSubmit = (e: React
     onSubmit(profile.id, settings)
-  }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog ope
         <DialogHeader>
-          <DialogTitle>Configuración de {profile.name}</DialogTitle>
         </DialogHeader>
+        <form onSubmit={handleSubmit}
+            <TabsList className
+                <Currenc
+              </TabsTr
+                <Bell 
+              </TabsTrigger>
+                <Storefront 
+    
 
-        <form onSubmit={handleSubmit}>
+              <div 
+                <Select
+                  onValueChange={(v
+     
+               
+
+                    <SelectItem value="MXN">MXN 
+                </Sele
+
+   
+
+          
+                    <SelectValue />
+                  <SelectContent>
+                    <S
+                  </SelectContent>
+              </div>
+
+                <Select
           <Tabs defaultValue="general">
-            <TabsList className="grid w-full grid-cols-3">
+                >
               <TabsTrigger value="general" className="flex items-center gap-2">
-                <CurrencyDollar size={16} />
+                  </SelectTrigger>
                 <span className="hidden sm:inline">General</span>
-              </TabsTrigger>
+                    <SelectI
               <TabsTrigger value="notifications" className="flex items-center gap-2">
-                <Bell size={16} />
+                  </SelectContent>
                 <span className="hidden sm:inline">Notificaciones</span>
-              </TabsTrigger>
+                <Label htmlF
               <TabsTrigger value="business" className="flex items-center gap-2">
-                <Storefront size={16} />
+                  </SelectTrigger>
                 <span className="hidden sm:inline">Negocio</span>
-              </TabsTrigger>
+                    <SelectI
             </TabsList>
 
-            <TabsContent value="general" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="currency">Moneda</Label>
-                <Select
-                  value={settings.currency}
-                  onValueChange={(value: ProfileSettings['currency']) => setSettings({ ...settings, currency: value })}
-                >
-                  <SelectTrigger id="currency">
+                <div className="space-y-0.5">
+                  <p className="text-sm t
+                  </p>
+                <Switch
+                  onCheckedChange={(checked
+              </div>
+              {se
+                  <Label htmlFor="taxRate">Tasa
                     <SelectValue />
-                  </SelectTrigger>
+                    type="number"
                   <SelectContent>
-                    <SelectItem value="USD">USD ($)</SelectItem>
-                    <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="MXN">MXN ($)</SelectItem>
+                    onChange={(e) => setSettings({ ...settings, 
+                </div>
+            </TabsContent>
                   </SelectContent>
-                </Select>
+                <div clas
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="priceFormat">Formato de precio</Label>
+                <Switch
+                  onCheckedChange={(checked) => setSettings({ ...setti
                 <Select
-                  value={settings.priceFormat}
-                  onValueChange={(value: ProfileSettings['priceFormat']) => setSettings({ ...settings, priceFormat: value })}
-                >
-                  <SelectTrigger id="priceFormat">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">1,234.56 (Estándar)</SelectItem>
+              {settings.enableNotifications &&
+                  <p className="mb-2">Recibirás notificaciones para:</p>
+                 
+                    <li>Órdenes completadas</li>
+                </div>
+
+                <Label htmlFor="l
+                  id="lowStockThreshold"
                     <SelectItem value="comma">1.234,56 (Coma)</SelectItem>
-                    <SelectItem value="space">1 234.56 (Espacio)</SelectItem>
-                  </SelectContent>
+                  value={settings.lowStockThreshold}
+                />
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="defaultPaymentMethod">Método de pago por defecto</Label>
-                <Select
+                <Input
+                  value
                   value={settings.defaultPaymentMethod}
                   onValueChange={(value: ProfileSettings['defaultPaymentMethod']) => setSettings({ ...settings, defaultPaymentMethod: value })}
                 >
@@ -122,9 +122,9 @@ export function ProfileSettingsDialog({
                     <SelectItem value="financiamiento">Financiamiento</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+  )
 
-              <div className="space-y-2">
+
                 <Label htmlFor="defaultChannel">Canal por defecto</Label>
                 <Select
                   value={settings.defaultChannel}
@@ -139,36 +139,36 @@ export function ProfileSettingsDialog({
                     <SelectItem value="instagram">Instagram</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+
 
               <div className="flex items-center justify-between py-2">
                 <div className="space-y-0.5">
                   <Label>Cálculo automático de impuestos</Label>
                   <p className="text-sm text-muted-foreground">
                     Agregar impuestos automáticamente a los precios
-                  </p>
+
                 </div>
                 <Switch
-                  checked={settings.autoCalculateTax}
+
                   onCheckedChange={(checked) => setSettings({ ...settings, autoCalculateTax: checked })}
-                />
+
               </div>
 
               {settings.autoCalculateTax && (
                 <div className="space-y-2">
                   <Label htmlFor="taxRate">Tasa de impuesto (%)</Label>
-                  <Input
-                    id="taxRate"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    value={settings.taxRate}
-                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-              )}
-            </TabsContent>
+
+
+
+
+
+
+
+
+
+
+
+
 
             <TabsContent value="notifications" className="space-y-4 mt-4">
               <div className="flex items-center justify-between py-2">
@@ -242,18 +242,18 @@ export function ProfileSettingsDialog({
                 />
               </div>
             </TabsContent>
-          </Tabs>
 
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit">
-              Guardar cambios
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
