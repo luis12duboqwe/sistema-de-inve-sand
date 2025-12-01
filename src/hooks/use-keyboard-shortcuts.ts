@@ -1,25 +1,45 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface KeyboardShortcut {
   key: string
   ctrlKey?: boolean
   shiftKey?: boolean
   altKey?: boolean
+  metaKey?: boolean
   callback: () => void
   description: string
 }
 
 export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
+  const shortcutsRef = useRef(shortcuts)
+
+  useEffect(() => {
+    shortcutsRef.current = shortcuts
+  }, [shortcuts])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      for (const shortcut of shortcuts) {
-        const ctrlMatch = shortcut.ctrlKey === undefined || shortcut.ctrlKey === event.ctrlKey
-        const shiftMatch = shortcut.shiftKey === undefined || shortcut.shiftKey === event.shiftKey
-        const altMatch = shortcut.altKey === undefined || shortcut.altKey === event.altKey
+      const target = event.target as HTMLElement
+      
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        const allowedKeys = ['Escape']
+        if (!allowedKeys.includes(event.key)) {
+          return
+        }
+      }
+
+      for (const shortcut of shortcutsRef.current) {
+        const ctrlOrMeta = event.ctrlKey || event.metaKey
+        
+        const ctrlMatch = shortcut.ctrlKey ? ctrlOrMeta : !ctrlOrMeta
+        const shiftMatch = shortcut.shiftKey ? event.shiftKey : !event.shiftKey
+        const altMatch = shortcut.altKey ? event.altKey : !event.altKey
+        
         const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase()
 
         if (ctrlMatch && shiftMatch && altMatch && keyMatch) {
           event.preventDefault()
+          event.stopPropagation()
           shortcut.callback()
           break
         }
@@ -28,5 +48,5 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [shortcuts])
+  }, [])
 }
