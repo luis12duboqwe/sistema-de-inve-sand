@@ -1,26 +1,25 @@
 import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-  open: boolean
 
-}
+interface NewProfileDialogProps {
   open: boolean
-  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/
+  onOpenChange: (open: boolean) => void
   onSubmit: (name: string, slug: string) => Promise<void>
-f
+}
 
 function validateSlug(slug: string): boolean {
   return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) && slug.length >= 2
- 
+}
 
 function generateSlug(name: string): string {
   return name
-  open,
+    .toLowerCase()
     .normalize('NFD')
-}: NewProfileDialogProps) {
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
@@ -28,51 +27,50 @@ function generateSlug(name: string): string {
 }
 
 export function NewProfileDialog({
-    set
+  open,
   onOpenChange,
+  onSubmit
+}: NewProfileDialogProps) {
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setName('')
+      setSlug('')
+      setError('')
+      setIsSubmitting(false)
+    }
+  }, [open])
+
+  const handleNameChange = (value: string) => {
+    setName(value)
+    if (value.trim()) {
+      setSlug(generateSlug(value))
+    } else {
+      setSlug('')
+    }
+    setError('')
   }
-  const handleSubmit = asyn
-      setError('El nombre es requerido
-    }
-    if (!slug.trim()) {
-      return
 
-
-    }
-    setIsSubmit
-      await onS
-    } catch (error) {
-    } finally {
-    }
+  const handleSlugChange = (value: string) => {
+    setSlug(value.toLowerCase())
+    setError('')
   }
 
-    <Dialog open={o
-        <Dialog
-        </DialogH
-     
-            
-
-              onCha
-                setError('')
-              placeholder="Mi Neg
-     
-
-
-              id="slug"
-              onChange={(e) => h
-              disabled={isS
-            <p c
-   
+  const isValid = name.trim() && slug.trim() && validateSlug(slug.trim())
 
   const handleSubmit = async () => {
-            </Alert>
+    if (!name.trim()) {
       setError('El nombre es requerido')
-            
-     
+      return
+    }
 
     if (!slug.trim()) {
       setError('El slug es requerido')
-            
+      return
     }
 
     if (!validateSlug(slug.trim())) {
@@ -81,17 +79,17 @@ export function NewProfileDialog({
     }
 
     setIsSubmitting(true)
-
+    try {
       await onSubmit(name.trim(), slug.trim())
-
+      setName('')
+      setSlug('')
+      setError('')
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Error al crear el perfil')
     } finally {
       setIsSubmitting(false)
-
+    }
   }
-
-
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -106,59 +104,56 @@ export function NewProfileDialog({
             <Input
               id="name"
               value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              disabled={isSubmitting}
+              placeholder="Mi Negocio"
+              autoFocus
+            />
+          </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="slug">Slug (identificador único) *</Label>
+            <Input
+              id="slug"
+              value={slug}
+              onChange={(e) => handleSlugChange(e.target.value)}
+              disabled={isSubmitting}
+              placeholder="mi-negocio"
+            />
+            <p className="text-xs text-muted-foreground">
+              Solo letras minúsculas, números y guiones. Se genera automáticamente.
+            </p>
+          </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
           <Alert>
-
             <AlertDescription>
-
-
-
+              Los perfiles te permiten gestionar múltiples negocios o líneas de productos de forma independiente.
+            </AlertDescription>
+          </Alert>
         </div>
 
         <DialogFooter>
           <Button 
-
-
-
-
-
-
-
-
+            variant="outline" 
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleSubmit}
             disabled={!isValid || isSubmitting}
-
-
-
+          >
+            {isSubmitting ? 'Creando...' : 'Crear Perfil'}
+          </Button>
         </DialogFooter>
-
+      </DialogContent>
     </Dialog>
-
+  )
 }
