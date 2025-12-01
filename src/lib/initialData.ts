@@ -1,11 +1,30 @@
-import type { Profile, Product, Stock, Order, OrderItem } from './types'
+import type { Profile, Product, Stock, Order, OrderItem, ProfileSettings } from './types'
+
+const defaultProfileSettings: ProfileSettings = {
+  currency: 'HNL',
+  taxRate: 15,
+  lowStockThreshold: 5,
+  enableNotifications: true,
+  defaultPaymentMethod: 'efectivo',
+  defaultChannel: 'whatsapp',
+  autoCalculateTax: false,
+  priceFormat: 'standard',
+  businessAddress: '',
+  businessPhone: '',
+  businessEmail: ''
+}
 
 export const initialProfiles: Profile[] = [
   {
     id: 1,
     name: 'Softmobile',
     slug: 'softmobile',
-    active: true
+    active: true,
+    settings: {
+      ...defaultProfileSettings,
+      businessAddress: 'Honduras',
+      businessPhone: '+504 0000-0000'
+    }
   }
 ]
 

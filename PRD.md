@@ -41,11 +41,11 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Success criteria**: Orders save with all line items, stock decreases atomically, validation prevents overselling
 
 ### Multi-Profile Support
-- **Functionality**: Support multiple business profiles (stores/brands) with isolated product catalogs
-- **Purpose**: Allow single system to manage inventory for different business entities
-- **Trigger**: User selects profile from dropdown or creates new profile
-- **Progression**: Select profile → View profile-specific products → Create profile-specific orders → Switch profiles → See different data
-- **Success criteria**: Products and orders correctly filtered by profile, no data leakage between profiles
+- **Functionality**: Support multiple business profiles (stores/brands) with isolated product catalogs and customizable settings per profile
+- **Purpose**: Allow single system to manage inventory for different business entities with independent configurations (currency, taxes, business info)
+- **Trigger**: User selects profile from dropdown, creates new profile, or accesses profile settings
+- **Progression**: Select profile → View profile-specific products → Create profile-specific orders → Configure profile settings → Switch profiles → See different data with appropriate settings applied
+- **Success criteria**: Products and orders correctly filtered by profile, no data leakage between profiles, profile settings persist and apply correctly, slug validation prevents duplicates, setup guide helps new users understand multi-profile system
 
 ### Real-Time Stock Tracking
 - **Functionality**: Display current stock levels and prevent orders exceeding available inventory
@@ -76,11 +76,11 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Success criteria**: Charts render correctly, data updates in real-time, responsive on all devices, clear visual hierarchy
 
 ### Profile Management (Enhanced)
-- **Functionality**: Create, edit, activate/deactivate business profiles
-- **Purpose**: Allow full lifecycle management of business entities within the system
-- **Trigger**: User clicks edit button on profile card or creates new profile
-- **Progression**: Click edit → Modify name or toggle active status → Save → Profile list updates → Filter respects active status
-- **Success criteria**: Profile updates persist, inactive profiles can be filtered, slug remains immutable after creation
+- **Functionality**: Create, edit, activate/deactivate business profiles with full settings customization
+- **Purpose**: Allow full lifecycle management of business entities within the system with independent configurations
+- **Trigger**: User clicks edit button on profile card, settings button, or creates new profile
+- **Progression**: Navigate to Profiles → View existing profiles or setup guide → Create new profile with validated slug → Configure profile settings (currency, taxes, business info) → Edit profile name or status → Manage products and orders per profile
+- **Success criteria**: Profile updates persist, inactive profiles can be filtered, slug remains immutable after creation, settings apply to profile operations, validation prevents duplicate slugs, helpful guide shown for single-profile users
 
 ### Keyboard Shortcuts
 - **Functionality**: Quick navigation and actions using keyboard combinations

@@ -22,6 +22,7 @@ import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { ImportProductsDialog } from '@/components/ImportProductsDialog'
 import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog'
 import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
+import { ProfileSetupGuide } from '@/components/ProfileSetupGuide'
 import { DashboardStats } from '@/components/DashboardStats'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
@@ -255,10 +256,11 @@ export default function App() {
     
     if (searchTerm && searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
-      const nombre = (p.nombre ?? '').toLowerCase()
-      const marca = (p.marca ?? '').toLowerCase()
-      const modelo = (p.modelo ?? '').toLowerCase()
-      return nombre.includes(term) || marca.includes(term) || modelo.includes(term)
+      const nombre = String(p.nombre ?? '').toLowerCase()
+      const marca = String(p.marca ?? '').toLowerCase()
+      const modelo = String(p.modelo ?? '').toLowerCase()
+      const sku = String(p.sku ?? '').toLowerCase()
+      return nombre.includes(term) || marca.includes(term) || modelo.includes(term) || sku.includes(term)
     }
     
     return true
@@ -274,8 +276,8 @@ export default function App() {
     
     if (customerSearchTerm && customerSearchTerm.trim()) {
       const term = customerSearchTerm.toLowerCase()
-      const customerName = (o.customer_name ?? '').toLowerCase()
-      const customerPhone = (o.customer_phone ?? '').toLowerCase()
+      const customerName = String(o.customer_name ?? '').toLowerCase()
+      const customerPhone = String(o.customer_phone ?? '').toLowerCase()
       return customerName.includes(term) || customerPhone.includes(term)
     }
     
@@ -723,7 +725,13 @@ export default function App() {
           </TabsContent>
 
           <TabsContent value="profiles" className="space-y-6">
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-card-foreground">Perfiles de Negocio</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Gestiona múltiples negocios o líneas de productos
+                </p>
+              </div>
               <Button onClick={() => setShowNewProfileDialog(true)}>
                 <Plus size={18} className="mr-2" />
                 Nuevo Perfil
@@ -745,19 +753,25 @@ export default function App() {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {(profiles ?? []).map(profile => (
-                  <ProfileCard
-                    key={profile.id}
-                    profile={profile}
-                    productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
-                    orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
-                    onEdit={setEditingProfile}
-                    onSettings={setProfileWithSettings}
-                    onClick={setViewingProfile}
-                  />
-                ))}
-              </div>
+              <>
+                {(profiles ?? []).length === 1 && (
+                  <ProfileSetupGuide />
+                )}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(profiles ?? []).map(profile => (
+                    <ProfileCard
+                      key={profile.id}
+                      profile={profile}
+                      productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
+                      orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
+                      onEdit={setEditingProfile}
+                      onSettings={setProfileWithSettings}
+                      onClick={setViewingProfile}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </TabsContent>
         </Tabs>
