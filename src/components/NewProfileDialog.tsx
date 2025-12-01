@@ -1,34 +1,34 @@
 import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Alert, AlertDescription } from '@/co
-import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 
 interface NewProfileDialogProps {
-
+  open: boolean
   onOpenChange: (open: boolean) => void
-
+  onSubmit: (name: string, slug: string) => Promise<void>
 }
 
+function generateSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim()
 }
 
-  onOpenChange,
-}: NewProfile
-    .toLowerCase()
-  const [isSubmitting
-    .replace(/[\u0300-\u036f]/g, '')
-      setName('')
-      setEr
-    }
+function validateSlug(slug: string): boolean {
+  return /^[a-z0-9-]+$/.test(slug)
+}
 
- 
-
-      setSlug('')
+export function NewProfileDialog({
   open,
-
+  onOpenChange,
   onSubmit
 }: NewProfileDialogProps) {
   const [name, setName] = useState('')
@@ -42,7 +42,7 @@ interface NewProfileDialogProps {
       setSlug('')
       setError('')
       setIsSubmitting(false)
-
+    }
   }, [open])
 
   const handleNameChange = (value: string) => {
@@ -53,7 +53,7 @@ interface NewProfileDialogProps {
       setSlug('')
     }
     setError('')
-   
+  }
 
   const handleSlugChange = (value: string) => {
     setSlug(value.toLowerCase())
@@ -62,48 +62,48 @@ interface NewProfileDialogProps {
 
   const isValid = name.trim() && slug.trim() && validateSlug(slug.trim())
 
-          </div>
+  const handleSubmit = async () => {
     if (!name.trim()) {
-              <AlertDescription>{error}<
+      setError('El nombre es requerido')
       return
     }
 
-          </Alert>
-
+    if (!slug.trim()) {
+      setError('El slug es requerido')
       return
-     
+    }
 
-          </Button>
-            onClick={handleSubmit}
-          >
-     
+    if (!validateSlug(slug.trim())) {
+      setError('El slug solo puede contener letras minúsculas, números y guiones')
+      return
+    }
 
-  )
     try {
-
+      setIsSubmitting(true)
+      await onSubmit(name.trim(), slug.trim())
       setName('')
       setSlug('')
       setError('')
-
-
-
-
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear perfil')
+    } finally {
+      setIsSubmitting(false)
     }
+  }
 
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Crear Nuevo Perfil</DialogTitle>
+        </DialogHeader>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Nombre del Perfil *</Label>
+            <Input
+              id="name"
+              value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               disabled={isSubmitting}
               placeholder="Mi Negocio"
@@ -131,15 +131,15 @@ interface NewProfileDialogProps {
             </Alert>
           )}
 
-
-
+          <Alert>
+            <AlertDescription>
               Los perfiles te permiten gestionar múltiples negocios o líneas de productos de forma independiente.
             </AlertDescription>
           </Alert>
+        </div>
 
-
-
-
+        <DialogFooter>
+          <Button 
             variant="outline" 
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
@@ -148,12 +148,12 @@ interface NewProfileDialogProps {
           </Button>
           <Button 
             onClick={handleSubmit}
-
+            disabled={!isValid || isSubmitting}
           >
             {isSubmitting ? 'Creando...' : 'Crear Perfil'}
           </Button>
-
+        </DialogFooter>
       </DialogContent>
-
+    </Dialog>
   )
-
+}
