@@ -24,10 +24,12 @@ import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog'
 import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
 import { DashboardStats } from '@/components/DashboardStats'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { useInitializeData } from '@/hooks/use-initialize-data'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
 
 export default function App() {
+  const { isInitialized, isLoading } = useInitializeData()
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
   const [orders, setOrders] = useKV<OrderWithItems[]>('inventory-orders', [])
   const [profiles, setProfiles] = useKV<Profile[]>('inventory-profiles', [])
@@ -302,6 +304,18 @@ export default function App() {
       console.error('Error updating profile settings:', error)
       toast.error('Error al guardar configuración')
     }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Package size={64} className="mx-auto text-primary mb-4 animate-pulse" weight="duotone" />
+          <h2 className="text-2xl font-bold mb-2">Cargando Sistema</h2>
+          <p className="text-muted-foreground">Inicializando inventario...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
