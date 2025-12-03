@@ -25,6 +25,9 @@ import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
 import { ProfileSetupGuide } from '@/components/ProfileSetupGuide'
 import { DashboardStats } from '@/components/DashboardStats'
 import { HealthCheckDialog } from '@/components/HealthCheckDialog'
+import { LowStockAlert } from '@/components/LowStockAlert'
+import { ProfileConfigPrompt } from '@/components/ProfileConfigPrompt'
+import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -488,6 +491,11 @@ export default function App() {
           <TabsContent value="products" className="space-y-6">
             <DashboardStats products={products ?? []} orders={orders ?? []} />
             
+            {selectedProfile !== 'all' && (() => {
+              const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
+              return profile ? <LowStockAlert products={products ?? []} profile={profile} /> : null
+            })()}
+            
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
                 <div className="relative flex-1 max-w-md">
@@ -861,8 +869,26 @@ export default function App() {
               </div>
             ) : (
               <>
+                <ProfilesConfigSummary profiles={profiles ?? []} />
+                
                 {(profiles ?? []).length === 1 && (
                   <ProfileSetupGuide />
+                )}
+                
+                {(profiles ?? []).some(p => !p.settings || Object.keys(p.settings).length === 0) && (
+                  <div className="space-y-4">
+                    {(profiles ?? [])
+                      .filter(p => !p.settings || Object.keys(p.settings).length === 0)
+                      .slice(0, 1)
+                      .map(profile => (
+                        <ProfileConfigPrompt
+                          key={profile.id}
+                          profile={profile}
+                          onConfigure={setProfileWithSettings}
+                        />
+                      ))
+                    }
+                  </div>
                 )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

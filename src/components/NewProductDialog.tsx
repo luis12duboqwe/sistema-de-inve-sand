@@ -41,10 +41,12 @@ export function NewProductDialog({
   const [capacidad, setCapacidad] = useState('')
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [precio, setPrecio] = useState('')
-  const [moneda] = useState('HNL')
   const [garantiaMeses, setGarantiaMeses] = useState('12')
   const [stockInicial, setStockInicial] = useState('0')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const selectedProfile = profiles.find(p => p.id === profileId)
+  const currency = selectedProfile?.settings?.currency || 'HNL'
 
   const resetForm = () => {
     setProfileId(0)
@@ -104,7 +106,7 @@ export function NewProductDialog({
           capacidad: capacidad || 'N/A',
           condicion,
           precio: parseFloat(precio),
-          moneda,
+          moneda: currency,
           garantia_meses: parseInt(garantiaMeses)
         },
         parseInt(stockInicial)
@@ -229,7 +231,7 @@ export function NewProductDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="precio">Precio (HNL) *</Label>
+              <Label htmlFor="precio">Precio ({currency}) *</Label>
               <Input
                 id="precio"
                 type="number"
@@ -239,6 +241,11 @@ export function NewProductDialog({
                 onChange={e => setPrecio(e.target.value)}
                 placeholder="15000"
               />
+              {selectedProfile?.settings && (
+                <p className="text-xs text-muted-foreground">
+                  Moneda configurada en el perfil: {currency}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
