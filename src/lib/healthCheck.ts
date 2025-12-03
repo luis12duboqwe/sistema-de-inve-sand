@@ -1,11 +1,11 @@
 import type { Profile, ProductWithStock, OrderWithItems } from './types'
 
-  severity: 'critical' | 'warning' 
-  message: s
-    type: 'product' | 'order' | 'profile'
-    name?: string
-  autoFixable: bo
-
+export interface HealthCheckIssue {
+  id: string
+  severity: 'critical' | 'warning' | 'info'
+  category: 'orphaned' | 'consistency' | 'integrity' | 'duplicate'
+  message: string
+  affectedItems: {
     type: 'product' | 'order' | 'profile'
     id: number
     name?: string
@@ -42,62 +42,62 @@ export class HealthChecker {
     this.checkOrphanedProducts()
     this.checkOrphanedOrders()
     this.checkMissingProfileReferences()
-      info: this.issues.filte
+    this.checkNegativeStock()
     this.checkOrderItemConsistency()
     this.checkDuplicateSkus()
     this.checkInvalidPrices()
     this.checkDuplicateProfileSlugs()
     this.checkCorruptedData()
 
-
+    const summary = {
       critical: this.issues.filter(i => i.severity === 'critical').length,
       warnings: this.issues.filter(i => i.severity === 'warning').length,
       info: this.issues.filter(i => i.severity === 'info').length
-
+    }
 
     return {
       healthy: summary.critical === 0,
       issues: this.issues,
-          id: 
-        })),
-     
-  }
-
-    const ordersWithoutProfile = this.ord
-    if (productsWithoutProfile.length > 0) {
-        id: 'products-missing-profile',
-        category: 'consistency',
-    )
-
-        })),
-      })
-
-      this.issues.push({
-        severity: 'warning'
-        message: `${ordersWithoutProfile.length} orden(es) sin referencia de perfil`,
-          type: 'order',
-          name: o.customer
-        autoFixable
+      summary,
+      lastCheck: new Date().toISOString()
     }
-        })),
-    const negativeStockPro
+  }
+
+  private checkOrphanedProducts(): void {
+    const profileIds = new Set(this.profiles.map(p => p.id))
+    const orphanedProducts = this.products.filter(
+      product => product.profile_id && !profileIds.has(product.profile_id)
     )
-    i
-  }
 
-        affectedItems: negativeStockPro
-          id: p.id,
-        })),
-      })
-  }
-
-    
+    if (orphanedProducts.length > 0) {
       this.issues.push({
-
+        id: 'orphaned-products',
         severity: 'critical',
-        severity: 'critical
-        message: `${ordersWithMissingProducts.length} orden(es) con productos ine
-          type: 'order',
+        category: 'orphaned',
+        message: `${orphanedProducts.length} producto(s) referenciando perfiles inexistentes`,
+        affectedItems: orphanedProducts.map(p => ({
+          type: 'product',
+          id: p.id,
+          name: p.nombre
+        })),
+        autoFixable: false
+      })
+    }
+  }
+
+  private checkOrphanedOrders(): void {
+    const profileIds = new Set(this.profiles.map(p => p.id))
+    const orphanedOrders = this.orders.filter(
+      order => order.profile_id && !profileIds.has(order.profile_id)
+    )
+
+    if (orphanedOrders.length > 0) {
+      this.issues.push({
+        id: 'orphaned-orders',
+        severity: 'critical',
+        category: 'orphaned',
+        message: `${orphanedOrders.length} orden(es) referenciando perfiles inexistentes`,
+        affectedItems: orphanedOrders.map(o => ({
           type: 'order',
           id: o.id,
           name: o.customer_name
@@ -145,7 +145,7 @@ export class HealthChecker {
   private checkNegativeStock(): void {
     const negativeStockProducts = this.products.filter(
       product => product.stock_disponible < 0
-     
+    )
 
     if (negativeStockProducts.length > 0) {
       this.issues.push({
@@ -157,11 +157,11 @@ export class HealthChecker {
           type: 'product',
           id: p.id,
           name: `${p.nombre} (Stock: ${p.stock_disponible})`
-        !isF
+        })),
         autoFixable: true
-      )
+      })
     }
-   
+  }
 
   private checkOrderItemConsistency(): void {
     const productIds = new Set(this.products.map(p => p.id))
@@ -222,7 +222,7 @@ export class HealthChecker {
     }
   }
 
-      }
+  private checkInvalidPrices(): void {
     const invalidPriceProducts = this.products.filter(
       product => product.precio <= 0 || !isFinite(product.precio) || isNaN(product.precio)
     )
@@ -230,27 +230,27 @@ export class HealthChecker {
     if (invalidPriceProducts.length > 0) {
       this.issues.push({
         id: 'invalid-prices',
-          name: p.nombre || '
+        severity: 'critical',
         category: 'integrity',
         message: `${invalidPriceProducts.length} producto(s) con precios inválidos`,
         affectedItems: invalidPriceProducts.map(p => ({
-    const corruptedOrders 
+          type: 'product',
           id: p.id,
           name: `${p.nombre} (Precio: ${p.precio})`
         })),
-          typeof order.cus
+        autoFixable: false
       })
-     
+    }
 
     const ordersWithInvalidItems = this.orders.filter(order =>
       order.items.some(item =>
-        severity: 'critical',
+        item.cantidad <= 0 ||
         item.precio_unitario <= 0 ||
         !isFinite(item.cantidad) ||
         !isFinite(item.precio_unitario) ||
         isNaN(item.cantidad) ||
         isNaN(item.precio_unitario)
-      }
+      )
     )
 
     if (ordersWithInvalidItems.length > 0) {
@@ -260,25 +260,25 @@ export class HealthChecker {
         category: 'integrity',
         message: `${ordersWithInvalidItems.length} orden(es) con items inválidos`,
         affectedItems: ordersWithInvalidItems.map(o => ({
-} {
+          type: 'order',
           id: o.id,
-  const updatedProfiles = [...p
+          name: o.customer_name
         })),
-  const fixableIssues = is
+        autoFixable: false
       })
-    i
+    }
   }
 
   private checkDuplicateProfileSlugs(): void {
     const slugMap = new Map<string, Profile[]>()
     
-  })
+    this.profiles.forEach(profile => {
       const key = profile.slug.toLowerCase()
       if (!slugMap.has(key)) {
         slugMap.set(key, [])
       }
       slugMap.get(key)!.push(profile)
-
+    })
 
     const duplicates: Profile[] = []
     slugMap.forEach(profiles => {
@@ -287,21 +287,21 @@ export class HealthChecker {
       }
     })
 
-
+    if (duplicates.length > 0) {
       this.issues.push({
-
+        id: 'duplicate-profile-slugs',
         severity: 'critical',
-
+        category: 'duplicate',
         message: `${duplicates.length} perfil(es) con slugs duplicados`,
         affectedItems: duplicates.map(p => ({
           type: 'profile',
-
+          id: p.id,
           name: `${p.name} (${p.slug})`
-
+        })),
         autoFixable: false
-
+      })
     }
-
+  }
 
   private checkCorruptedData(): void {
     const corruptedProducts = this.products.filter(product => {
@@ -312,13 +312,13 @@ export class HealthChecker {
           !product.nombre ||
           typeof product.nombre !== 'string' ||
           typeof product.precio !== 'number'
-
+        )
       } catch {
         return true
       }
+    })
 
-
-
+    if (corruptedProducts.length > 0) {
       this.issues.push({
         id: 'corrupted-products',
         severity: 'critical',
@@ -326,7 +326,7 @@ export class HealthChecker {
         message: `${corruptedProducts.length} producto(s) con datos corruptos`,
         affectedItems: corruptedProducts.map(p => ({
           type: 'product',
-
+          id: p.id || 0,
           name: p.nombre || 'Desconocido'
         })),
         autoFixable: false
@@ -334,9 +334,9 @@ export class HealthChecker {
     }
 
     const corruptedOrders = this.orders.filter(order => {
-
+      try {
         return (
-
+          !order.id ||
           typeof order.id !== 'number' ||
           !order.customer_name ||
           typeof order.customer_name !== 'string' ||
@@ -348,51 +348,53 @@ export class HealthChecker {
     })
 
     if (corruptedOrders.length > 0) {
-
+      this.issues.push({
         id: 'corrupted-orders',
-
+        severity: 'critical',
         category: 'integrity',
         message: `${corruptedOrders.length} orden(es) con datos corruptos`,
         affectedItems: corruptedOrders.map(o => ({
-
+          type: 'order',
           id: o.id || 0,
-
+          name: o.customer_name || 'Desconocido'
         })),
-
+        autoFixable: false
       })
-
+    }
   }
+}
 
-
-
+export function performAutoFix(
   products: ProductWithStock[],
   orders: OrderWithItems[],
   profiles: Profile[],
   issues: HealthCheckIssue[]
 ): {
+  products: ProductWithStock[]
+  orders: OrderWithItems[]
+  profiles: Profile[]
+  fixed: string[]
+} {
+  const updatedProducts = [...products]
+  const updatedOrders = [...orders]
+  const updatedProfiles = [...profiles]
+  const fixed: string[] = []
 
+  const fixableIssues = issues.filter(issue => issue.autoFixable)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  fixableIssues.forEach(issue => {
+    if (issue.id === 'negative-stock') {
+      issue.affectedItems.forEach(item => {
+        if (item.type === 'product') {
+          const productIndex = updatedProducts.findIndex(p => p.id === item.id)
+          if (productIndex !== -1 && updatedProducts[productIndex].stock_disponible < 0) {
+            updatedProducts[productIndex].stock_disponible = 0
+            fixed.push(`Corregido stock negativo para: ${item.name}`)
+          }
+        }
+      })
+    }
+  })
 
   return {
     products: updatedProducts,

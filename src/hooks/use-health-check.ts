@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { HealthChecker, autoFixIssues, type HealthCheckResult } from '@/lib/healthCheck'
+import { HealthChecker, performAutoFix as autoFixIssues, type HealthCheckResult } from '@/lib/healthCheck'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 
 export function useHealthCheck(
