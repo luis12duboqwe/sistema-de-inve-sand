@@ -30,39 +30,39 @@ export class HealthChecker {
   private profiles: Profile[]
   private issues: HealthCheckIssue[] = []
 
-  constructor(
-    products: ProductWithStock[],
-    orders: OrderWithItems[],
-    profiles: Profile[]
-  ) {
-    this.products = products
-    this.orders = orders
-    this.profiles = profiles
+    this.check
+    this.checkMissingProfileRefer
+    this.checkNegativeStock()
+    this.checkOrderItem
+    t
+    const summary = {
+      warnings: this.iss
+    }
+   
+
+      lastCheck: new Date().toISOString()
   }
 
-  async runFullCheck(): Promise<HealthCheckResult> {
-    this.issues = []
+    const orphanedProducts = thi
+    )
+    if (orphanedProducts.length > 
+        id: 'orphaned-products',
+        category: 'orphan',
+        affectedItems: orphan
+          id: p.id,
+        })),
+      })
+  }
 
-    this.checkOrphanedProducts()
-    this.checkOrphanedOrders()
-    this.checkOrphanedOrderItems()
-    this.checkMissingProfileReferences()
-    this.checkDuplicateSKUs()
-    this.checkNegativeStock()
-    this.checkInvalidPrices()
-    this.checkOrderItemIntegrity()
-    this.checkProfileConsistency()
-    this.checkDataCorruption()
+    const orphanedOrd
+    )
+    if (orphanedOrders.length > 0) {
+        id: 'orphaned-orders',
+     
 
-    const summary = {
-      critical: this.issues.filter(i => i.severity === 'critical').length,
-      warnings: this.issues.filter(i => i.severity === 'warning').length,
-      info: this.issues.filter(i => i.severity === 'info').length
-    }
-
-    return {
-      healthy: summary.critical === 0 && summary.warnings === 0,
-      issues: this.issues,
+          id
+        })),
+      })
       summary,
       lastCheck: new Date().toISOString()
     }
@@ -72,7 +72,7 @@ export class HealthChecker {
     const validProfileIds = new Set(this.profiles.map(p => p.id))
     const orphanedProducts = this.products.filter(
       product => !validProfileIds.has(product.profile_id)
-    )
+    i
 
     if (orphanedProducts.length > 0) {
       this.issues.push({
@@ -84,11 +84,11 @@ export class HealthChecker {
           type: 'product',
           id: p.id,
           name: p.nombre
-        })),
+      ...thi
         autoFixable: false
       })
     }
-  }
+   
 
   private checkOrphanedOrders(): void {
     const validProfileIds = new Set(this.profiles.map(p => p.id))
@@ -97,277 +97,277 @@ export class HealthChecker {
     )
 
     if (orphanedOrders.length > 0) {
-      this.issues.push({
+      })
         id: 'orphaned-orders',
-        severity: 'critical',
+
         category: 'orphan',
         message: `${orphanedOrders.length} orden(es) sin perfil asociado válido`,
         affectedItems: orphanedOrders.map(o => ({
-          type: 'order',
-          id: o.id,
-          name: o.customer_name
-        })),
-        autoFixable: false
-      })
-    }
-  }
+      if (!skuMap.has(ke
 
-  private checkOrphanedOrderItems(): void {
-    const validProductIds = new Set(this.products.map(p => p.id))
-    
-    const ordersWithOrphanedItems = this.orders.filter(order =>
-      order.items.some(item => !validProductIds.has(item.product_id))
+    const negativeStockProducts
     )
+    if (negativeStockProdu
+        
+     
+   
 
-    if (ordersWithOrphanedItems.length > 0) {
-      this.issues.push({
-        id: 'orphaned-order-items',
-        severity: 'critical',
-        category: 'orphan',
-        message: `${ordersWithOrphanedItems.length} orden(es) contiene(n) items que referencian productos eliminados`,
-        affectedItems: ordersWithOrphanedItems.map(o => ({
-          type: 'order',
-          id: o.id,
-          name: o.customer_name
         })),
-        autoFixable: false
       })
-    }
   }
-
-  private checkMissingProfileReferences(): void {
-    const usedProfileIds = new Set([
-      ...this.products.map(p => p.profile_id),
-      ...this.orders.map(o => o.profile_id)
-    ])
-
-    const unusedProfiles = this.profiles.filter(
-      profile => !usedProfileIds.has(profile.id) && profile.active
-    )
-
-    if (unusedProfiles.length > 0) {
-      this.issues.push({
-        id: 'unused-profiles',
-        severity: 'info',
-        category: 'consistency',
-        message: `${unusedProfiles.length} perfil(es) activo(s) sin productos u órdenes asociadas`,
-        affectedItems: unusedProfiles.map(p => ({
-          type: 'profile',
-          id: p.id,
-          name: p.name
-        })),
-        autoFixable: false
-      })
-    }
-  }
-
-  private checkDuplicateSKUs(): void {
-    const skuMap = new Map<string, ProductWithStock[]>()
-    
-    this.products.forEach(product => {
-      const key = `${product.profile_id}-${product.sku}`
-      if (!skuMap.has(key)) {
-        skuMap.set(key, [])
-      }
-      skuMap.get(key)!.push(product)
-    })
-
-    const duplicates: ProductWithStock[] = []
-    skuMap.forEach(products => {
-      if (products.length > 1) {
-        duplicates.push(...products)
-      }
-    })
-
-    if (duplicates.length > 0) {
-      this.issues.push({
-        id: 'duplicate-skus',
-        severity: 'warning',
-        category: 'duplicate',
-        message: `${duplicates.length} producto(s) con SKU duplicado en el mismo perfil`,
-        affectedItems: duplicates.map(p => ({
-          type: 'product',
-          id: p.id,
-          name: `${p.nombre} (SKU: ${p.sku})`
-        })),
-        autoFixable: false
-      })
-    }
-  }
-
-  private checkNegativeStock(): void {
-    const negativeStockProducts = this.products.filter(
-      product => product.stock_disponible < 0
-    )
-
-    if (negativeStockProducts.length > 0) {
-      this.issues.push({
-        id: 'negative-stock',
-        severity: 'critical',
-        category: 'integrity',
-        message: `${negativeStockProducts.length} producto(s) con stock negativo`,
-        affectedItems: negativeStockProducts.map(p => ({
-          type: 'product',
-          id: p.id,
-          name: `${p.nombre} (Stock: ${p.stock_disponible})`
-        })),
-        autoFixable: true
-      })
-    }
-  }
-
   private checkInvalidPrices(): void {
-    const invalidPriceProducts = this.products.filter(
-      product => product.precio <= 0 || !isFinite(product.precio) || isNaN(product.precio)
-    )
+      product => product.precio <= 0 || !isFinite(product.precio) || 
 
-    if (invalidPriceProducts.length > 0) {
-      this.issues.push({
-        id: 'invalid-prices',
+
         severity: 'critical',
-        category: 'integrity',
-        message: `${invalidPriceProducts.length} producto(s) con precio inválido`,
-        affectedItems: invalidPriceProducts.map(p => ({
+        message: `${inva
           type: 'product',
-          id: p.id,
-          name: `${p.nombre} (Precio: ${p.precio})`
-        })),
+          name: `${p.nombre} 
         autoFixable: false
-      })
     }
-  }
 
-  private checkOrderItemIntegrity(): void {
-    const ordersWithInvalidItems = this.orders.filter(order => {
-      if (!order.items || order.items.length === 0) return true
+    const ordersWithInva
       
-      return order.items.some(item => 
         item.cantidad <= 0 || 
-        item.precio_unitario < 0 ||
-        !isFinite(item.cantidad) ||
-        !isFinite(item.precio_unitario) ||
-        isNaN(item.cantidad) ||
-        isNaN(item.precio_unitario)
+        !isF
+        isNaN(item.cantida
       )
-    })
 
-    if (ordersWithInvalidItems.length > 0) {
-      this.issues.push({
-        id: 'invalid-order-items',
-        severity: 'critical',
-        category: 'integrity',
-        message: `${ordersWithInvalidItems.length} orden(es) con items inválidos o vacíos`,
-        affectedItems: ordersWithInvalidItems.map(o => ({
+   
+
+        message: `${ordersWithInvalidItems.length
           type: 'order',
-          id: o.id,
           name: o.customer_name
-        })),
         autoFixable: false
-      })
     }
-  }
 
-  private checkProfileConsistency(): void {
-    const duplicateSlugs = new Map<string, Profile[]>()
-    
+    const duplicateSlugs = new Map<string, Profi
     this.profiles.forEach(profile => {
-      if (!duplicateSlugs.has(profile.slug)) {
-        duplicateSlugs.set(profile.slug, [])
-      }
-      duplicateSlugs.get(profile.slug)!.push(profile)
-    })
+     
 
-    const duplicates: Profile[] = []
-    duplicateSlugs.forEach(profiles => {
-      if (profiles.length > 1) {
-        duplicates.push(...profiles)
-      }
-    })
 
+    duplicateSlugs.forEa
+        duplicates.push(...pro
+    })
     if (duplicates.length > 0) {
-      this.issues.push({
         id: 'duplicate-profile-slugs',
-        severity: 'critical',
         category: 'duplicate',
-        message: `${duplicates.length} perfil(es) con slug duplicado`,
-        affectedItems: duplicates.map(p => ({
-          type: 'profile',
+        affectedItems: dup
           id: p.id,
-          name: `${p.name} (${p.slug})`
         })),
-        autoFixable: false
       })
-    }
   }
+  privat
+     
+   
 
-  private checkDataCorruption(): void {
-    const corruptedProducts = this.products.filter(product => {
-      try {
-        return (
-          !product.id ||
-          !product.nombre ||
-          !product.sku ||
-          typeof product.id !== 'number' ||
-          typeof product.nombre !== 'string' ||
-          typeof product.sku !== 'string'
+          typeof product.nombre !== 's
         )
-      } catch {
-        return true
-      }
+    
     })
-
     if (corruptedProducts.length > 0) {
-      this.issues.push({
-        id: 'corrupted-products',
-        severity: 'critical',
-        category: 'integrity',
-        message: `${corruptedProducts.length} producto(s) con datos corruptos`,
-        affectedItems: corruptedProducts.map(p => ({
-          type: 'product',
+        id: 'corrupted-produc
+        category: 'integrit
+       
           id: p.id || 0,
-          name: p.nombre || 'Desconocido'
-        })),
-        autoFixable: false
-      })
-    }
+      
 
-    const corruptedOrders = this.orders.filter(order => {
+
       try {
-        return (
           !order.id ||
-          !order.customer_name ||
-          typeof order.id !== 'number' ||
-          typeof order.customer_name !== 'string' ||
-          !Array.isArray(order.items)
-        )
-      } catch {
-        return true
-      }
-    })
+          typeof order.id !== 'numbe
+       
+      
 
-    if (corruptedOrders.length > 0) {
+
       this.issues.push({
-        id: 'corrupted-orders',
         severity: 'critical',
-        category: 'integrity',
-        message: `${corruptedOrders.length} orden(es) con datos corruptos`,
-        affectedItems: corruptedOrders.map(o => ({
+        message: `${corrupte
           type: 'order',
-          id: o.id || 0,
           name: o.customer_name || 'Desconocido'
-        })),
         autoFixable: false
-      })
     }
-  }
+}
+export function autoFixIssues(
+  products: 
+  profiles: Profile[]
+  produc
+  pro
+} {
+
+  const fixed: string[] = []
+  const fixableIssues = issues.filter(i => i.autoFixabl
+  fixableIssues.forEach(issue => {
+     
+
+          fixed.push(`Corregido stock negat
+      })
+  })
+  return {
+    orders: updatedOrders,
+    fixed
 }
 
-export function autoFixIssues(
-  issues: HealthCheckIssue[],
-  products: ProductWithStock[],
-  orders: OrderWithItems[],
-  profiles: Profile[]
-): {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   products: ProductWithStock[]
   orders: OrderWithItems[]
   profiles: Profile[]
@@ -392,10 +392,10 @@ export function autoFixIssues(
     }
   })
 
-  return {
-    products: updatedProducts,
-    orders: updatedOrders,
-    profiles: updatedProfiles,
-    fixed
-  }
-}
+
+
+
+
+
+
+
