@@ -1,35 +1,34 @@
 import type { Profile, ProductWithStock, OrderWithItems } from './types'
 
-  severity: 'critical' | 'warning' 
-  message: s
-    type: 'product' | 'order' | 'profile' |
+export interface HealthCheckIssue {
+  id: string
+  severity: 'critical' | 'warning' | 'info'
+  category: 'orphan' | 'duplicate' | 'integrity' | 'consistency'
+  message: string
+  affectedItems: {
+    type: 'product' | 'order' | 'profile'
+    id: number
     name?: string
-  autoFixable: bo
+  }[]
+  autoFixable: boolean
 }
+
 export interface HealthCheckResult {
-  issues: Heal
-    critical: num
-    i
+  healthy: boolean
+  issues: HealthCheckIssue[]
+  summary: {
+    critical: number
+    warnings: number
+    info: number
+  }
   lastCheck: string
+}
 
- 
-
-
-    products: Prod
-    profiles: Profile[]
-    this.pro
-    this.profiles = 
-
-    this.issues 
-   
-    this.checkOrpha
- 
-
-    this.checkProfileConsistency()
-
-      critical: this.issues.filter
-      info: this.issues.filte
-
+export class HealthChecker {
+  private products: ProductWithStock[]
+  private orders: OrderWithItems[]
+  private profiles: Profile[]
+  private issues: HealthCheckIssue[] = []
 
   constructor(
     products: ProductWithStock[],
@@ -64,49 +63,47 @@ export interface HealthCheckResult {
     return {
       healthy: summary.critical === 0 && summary.warnings === 0,
       issues: this.issues,
-    )
-    if (orphanedOrders.length > 0) {
-     
-   
-
-          id: o.id,
-        })),
-    
+      summary,
+      lastCheck: new Date().toISOString()
+    }
   }
-  private checkOrphanedOrderItems(): void {
-    
 
+  private checkOrphanedProducts(): void {
+    const validProfileIds = new Set(this.profiles.map(p => p.id))
+    const orphanedProducts = this.products.filter(
+      product => !validProfileIds.has(product.profile_id)
+    )
 
+    if (orphanedProducts.length > 0) {
       this.issues.push({
+        id: 'orphaned-products',
         severity: 'critical',
-        message: `${ordersWit
+        category: 'orphan',
+        message: `${orphanedProducts.length} producto(s) sin perfil asociado válido`,
+        affectedItems: orphanedProducts.map(p => ({
+          type: 'product',
+          id: p.id,
+          name: p.nombre
+        })),
+        autoFixable: false
+      })
+    }
+  }
+
+  private checkOrphanedOrders(): void {
+    const validProfileIds = new Set(this.profiles.map(p => p.id))
+    const orphanedOrders = this.orders.filter(
+      order => !validProfileIds.has(order.profile_id)
+    )
+
+    if (orphanedOrders.length > 0) {
+      this.issues.push({
+        id: 'orphaned-orders',
+        severity: 'critical',
+        category: 'orphan',
+        message: `${orphanedOrders.length} orden(es) sin perfil asociado válido`,
+        affectedItems: orphanedOrders.map(o => ({
           type: 'order',
-          name: o.customer_name
-        autoFixable: false
-    }
-
-    const usedProfileIds
-      ...thi
-
-      pr
-
-   
-
-        message: `${unusedProfiles.leng
-          type: 'profile',
-    
-        autoFixable: false
-    }
-
-
-    this.products.forEach(product =>
-      if (!skuMap.has(ke
-      }
-    })
-    const duplicates: Produ
-      if (products.length > 1) {
-      }
-
           id: o.id,
           name: o.customer_name
         })),
@@ -371,29 +368,29 @@ export function autoFixIssues(
   orders: OrderWithItems[],
   profiles: Profile[]
 ): {
+  products: ProductWithStock[]
+  orders: OrderWithItems[]
+  profiles: Profile[]
+  fixed: string[]
+} {
+  const updatedProducts = [...products]
+  const updatedOrders = [...orders]
+  const updatedProfiles = [...profiles]
+  const fixed: string[] = []
 
+  const fixableIssues = issues.filter(i => i.autoFixable)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  fixableIssues.forEach(issue => {
+    if (issue.id === 'negative-stock') {
+      issue.affectedItems.forEach(item => {
+        const productIndex = updatedProducts.findIndex(p => p.id === item.id)
+        if (productIndex !== -1 && updatedProducts[productIndex].stock_disponible < 0) {
+          updatedProducts[productIndex].stock_disponible = 0
+          fixed.push(`Corregido stock negativo para "${item.name}"`)
+        }
+      })
+    }
+  })
 
   return {
     products: updatedProducts,

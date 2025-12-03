@@ -4,7 +4,7 @@ import type { KeyboardShortcut, ShortcutBinding } from '@/lib/keyboardShortcuts'
 import { loadShortcutPreferences } from '@/lib/keyboardShortcuts'
 
 export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
-  const [preferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
+  const [preferences] = useKV<Record<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const shortcutsRef = useRef(shortcuts)
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
       }
 
       for (const shortcut of shortcutsRef.current) {
-        const binding = preferences?.get(shortcut.id)
+        const binding = preferences?.[shortcut.id]
         if (!binding) continue
 
         const ctrlOrMeta = event.ctrlKey || event.metaKey

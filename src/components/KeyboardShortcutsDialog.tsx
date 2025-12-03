@@ -26,7 +26,7 @@ interface ShortcutGroup {
 }
 
 export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcutsDialogProps) {
-  const [preferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
+  const [preferences] = useKV<Record<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const [showCustomize, setShowCustomize] = useState(false)
 
   const shortcutGroups: ShortcutGroup[] = [
@@ -100,7 +100,7 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
                 </div>
                 <div className="space-y-2">
                   {shortcutsByCategory[group.category]?.map((shortcut, shortcutIndex) => {
-                    const binding = preferences?.get(shortcut.id)
+                    const binding = preferences?.[shortcut.id]
                     const keyString = binding ? formatShortcut(binding) : ''
 
                     return (

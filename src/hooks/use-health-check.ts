@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { InventoryHealthCheck, autoFixIssues, type HealthCheckResult } from '@/lib/healthCheck'
+import { HealthChecker, autoFixIssues, type HealthCheckResult } from '@/lib/healthCheck'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 
 export function useHealthCheck(
@@ -16,7 +16,7 @@ export function useHealthCheck(
     try {
       await new Promise(resolve => setTimeout(resolve, 500))
       
-      const checker = new InventoryHealthCheck(products, orders, profiles)
+      const checker = new HealthChecker(products, orders, profiles)
       const checkResult = await checker.runFullCheck()
       
       setResult(checkResult)

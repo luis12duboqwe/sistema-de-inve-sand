@@ -18,6 +18,7 @@ import {
   formatShortcut,
   checkShortcutConflict,
   loadShortcutPreferences,
+  initializeShortcutPreferences,
   type ShortcutBinding
 } from '@/lib/keyboardShortcuts'
 
@@ -26,8 +27,29 @@ interface CustomizeShortcutsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+function formatShortcutKeys(binding: ShortcutBinding): string[] {
+  const parts: string[] = []
+  
+  if (binding.ctrlKey) parts.push('Ctrl')
+  if (binding.shiftKey) parts.push('Shift')
+  if (binding.altKey) parts.push('Alt')
+  if (binding.metaKey) parts.push('Cmd')
+  
+  const keyMap: Record<string, string> = {
+    'ArrowUp': '↑',
+    'ArrowDown': '↓',
+    'ArrowLeft': '←',
+    'ArrowRight': '→',
+    'Escape': 'Esc'
+  }
+  
+  parts.push(keyMap[binding.key] || binding.key.toUpperCase())
+  
+  return parts
+}
+
 export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortcutsDialogProps) {
-  const [preferences, setPreferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
+  const [preferences, setPreferences] = useKV<Record<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [recordedKeys, setRecordedKeys] = useState<ShortcutBinding | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
@@ -58,7 +80,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
         metaKey: event.metaKey
       }
 
-      const conflict = checkShortcutConflict(newBinding, id, preferences || new Map())
+      const conflict = checkShortcutConflict(newBinding, id, preferences || {})
       if (conflict) {
         setConflictError(`Conflicto con: ${conflict}`)
         setRecordedKeys(newBinding)
@@ -79,7 +101,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
     if (!editingId || !recordedKeys || conflictError) return
 
     setPreferences((current) => ({
-      ...current,
+      ...(current || {}),
       [editingId]: recordedKeys
     }))
 
@@ -105,7 +127,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
     if (!defaultBinding) return
 
     setPreferences((current) => ({
-      ...current,
+      ...(current || {}),
       [id]: {
         id,
         key: defaultBinding.key,

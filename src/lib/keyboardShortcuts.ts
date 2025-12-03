@@ -144,9 +144,9 @@ export function formatKey(key: string): string {
 export function checkShortcutConflict(
   binding: ShortcutBinding,
   currentId: string,
-  allShortcuts: Map<string, ShortcutBinding>
+  allShortcuts: Record<string, ShortcutBinding>
 ): string | null {
-  for (const [id, shortcut] of allShortcuts.entries()) {
+  for (const [id, shortcut] of Object.entries(allShortcuts)) {
     if (id === currentId) continue
     
     if (
@@ -178,19 +178,23 @@ export function getDefaultBinding(id: string): ShortcutBinding | null {
   }
 }
 
-export function loadShortcutPreferences(): Map<string, ShortcutBinding> {
-  const preferences = new Map<string, ShortcutBinding>()
+export function loadShortcutPreferences(): Record<string, ShortcutBinding> {
+  const preferences: Record<string, ShortcutBinding> = {}
   
   DEFAULT_SHORTCUTS.forEach(shortcut => {
-    preferences.set(shortcut.id, {
+    preferences[shortcut.id] = {
       id: shortcut.id,
       key: shortcut.key,
       ctrlKey: shortcut.ctrlKey,
       shiftKey: shortcut.shiftKey,
       altKey: shortcut.altKey,
       metaKey: shortcut.metaKey
-    })
+    }
   })
   
   return preferences
+}
+
+export function initializeShortcutPreferences(): Record<string, ShortcutBinding> {
+  return loadShortcutPreferences()
 }
