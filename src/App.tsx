@@ -188,94 +188,118 @@ export default function App() {
 
   useKeyboardShortcuts([
     {
+      id: 'show-help',
       key: '?',
       shiftKey: true,
-      callback: () => setShowKeyboardDialog(true),
-      description: 'Mostrar atajos de teclado'
+      action: () => setShowKeyboardDialog(true),
+      description: 'Mostrar atajos de teclado',
+      category: 'general'
     },
     {
+      id: 'focus-search',
       key: 'k',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement
         searchInput?.focus()
       },
-      description: 'Enfocar búsqueda'
+      description: 'Enfocar búsqueda',
+      category: 'general'
     },
     {
+      id: 'open-settings',
       key: ',',
       ctrlKey: true,
-      callback: () => setShowSettingsDialog(true),
-      description: 'Abrir configuración'
+      action: () => setShowSettingsDialog(true),
+      description: 'Abrir configuración',
+      category: 'general'
     },
     {
+      id: 'nav-products',
       key: '1',
-      callback: () => setActiveTab('products'),
-      description: 'Ir a Productos'
+      action: () => setActiveTab('products'),
+      description: 'Ir a Productos',
+      category: 'navigation'
     },
     {
+      id: 'nav-orders',
       key: '2',
-      callback: () => setActiveTab('orders'),
-      description: 'Ir a Órdenes'
+      action: () => setActiveTab('orders'),
+      description: 'Ir a Órdenes',
+      category: 'navigation'
     },
     {
+      id: 'nav-profiles',
       key: '3',
-      callback: () => setActiveTab('profiles'),
-      description: 'Ir a Perfiles'
+      action: () => setActiveTab('profiles'),
+      description: 'Ir a Perfiles',
+      category: 'navigation'
     },
     {
+      id: 'create-new',
       key: 'n',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         if (activeTab === 'products') setShowNewProductDialog(true)
         else if (activeTab === 'orders') setShowNewOrderDialog(true)
         else if (activeTab === 'profiles') setShowNewProfileDialog(true)
       },
-      description: 'Crear nuevo elemento'
+      description: 'Crear nuevo elemento',
+      category: 'actions'
     },
     {
+      id: 'export-csv',
       key: 'e',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         if (activeTab === 'products') handleExportProducts()
         else if (activeTab === 'orders') handleExportOrders()
       },
-      description: 'Exportar a CSV'
+      description: 'Exportar a CSV',
+      category: 'actions'
     },
     {
+      id: 'import-csv',
       key: 'i',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         if (activeTab === 'products') setShowImportDialog(true)
       },
-      description: 'Importar desde CSV'
+      description: 'Importar desde CSV',
+      category: 'actions'
     },
     {
+      id: 'bulk-mode',
       key: 'b',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         setBulkActionMode(!bulkActionMode)
       },
-      description: 'Modo selección múltiple'
+      description: 'Modo selección múltiple',
+      category: 'actions'
     },
     {
+      id: 'clear-search',
       key: 'Escape',
-      callback: () => {
+      action: () => {
         setSearchTerm('')
         setCustomerSearchTerm('')
       },
-      description: 'Limpiar búsqueda'
+      description: 'Limpiar búsqueda',
+      category: 'search'
     },
     {
+      id: 'select-all',
       key: 'a',
       ctrlKey: true,
-      callback: () => {
+      action: () => {
         if (bulkActionMode) {
           if (activeTab === 'products') selectAllProducts()
           else if (activeTab === 'orders') selectAllOrders()
         }
       },
-      description: 'Seleccionar todos'
+      description: 'Seleccionar todos',
+      category: 'search'
     }
   ])
 
@@ -406,15 +430,12 @@ export default function App() {
                 className="relative"
               >
                 <Keyboard size={20} />
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-primary text-[8px] items-center justify-center text-primary-foreground font-bold">?</span>
-                </span>
-              </Button>
               </Button>
               
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={() => setShowSettingsDialog(true)}
                 title="Configuración (Ctrl + ,)"
               >
                 <Gear size={20} />

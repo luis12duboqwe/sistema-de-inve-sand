@@ -89,6 +89,13 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Progression**: Press shortcut → Action executed immediately → Visual feedback provided
 - **Success criteria**: All shortcuts work reliably, help dialog accessible, shortcuts documented
 
+### Customizable Keyboard Shortcuts
+- **Functionality**: Allow users to customize keyboard shortcut bindings to match their preferred workflows and avoid conflicts
+- **Purpose**: Provide flexibility for power users to optimize their workflow and accommodate different keyboard layouts or personal preferences
+- **Trigger**: User clicks settings icon in keyboard shortcuts dialog or accesses preferences
+- **Progression**: Open keyboard shortcuts dialog → Click customize/settings → View list of all actions with current bindings → Click on action to rebind → Press desired key combination → System validates for conflicts → Save new binding or cancel → Changes apply immediately
+- **Success criteria**: All shortcuts are customizable, conflict detection prevents duplicate bindings, reset to defaults option available, custom bindings persist across sessions, visual recording of key combinations works reliably
+
 ## Edge Case Handling
 - **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
 - **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
