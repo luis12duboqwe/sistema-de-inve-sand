@@ -10,11 +10,11 @@ import type {
 } from './types'
 
 const STORAGE_KEYS = {
-  PROFILES: 'inventory_profiles',
-  PRODUCTS: 'inventory_products',
-  STOCK: 'inventory_stock',
-  ORDERS: 'inventory_orders',
-  ORDER_ITEMS: 'inventory_order_items'
+  PROFILES: 'inventory-profiles',
+  PRODUCTS: 'inventory-products',
+  STOCK: 'inventory-stock',
+  ORDERS: 'inventory-orders',
+  ORDER_ITEMS: 'inventory-order-items'
 }
 
 export class InventoryService {

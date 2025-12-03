@@ -36,6 +36,7 @@ export default function App() {
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
   const [orders, setOrders] = useKV<OrderWithItems[]>('inventory-orders', [])
   const [profiles, setProfiles] = useKV<Profile[]>('inventory-profiles', [])
+  const [dataLoaded, setDataLoaded] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
@@ -71,6 +72,8 @@ export default function App() {
 
   useEffect(() => {
     const loadData = async () => {
+      if (!isInitialized) return
+      
       try {
         const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
         const [loadedProducts, loadedOrders, loadedProfiles] = await Promise.all([
@@ -82,14 +85,15 @@ export default function App() {
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
+        setDataLoaded(true)
       } catch (error) {
         console.error('Error loading data:', error)
-        toast.error('Error al cargar datos del inventario')
+        setDataLoaded(true)
       }
     }
 
     loadData()
-  }, [useAPI, apiUrl, setProducts, setOrders, setProfiles])
+  }, [isInitialized, useAPI, apiUrl, setProducts, setOrders, setProfiles])
 
   const handleBulkDeleteProducts = async () => {
     if (selectedProducts.size === 0) return
@@ -400,7 +404,7 @@ export default function App() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || !dataLoaded) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">

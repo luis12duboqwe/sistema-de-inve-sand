@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { inventoryService } from '@/lib/inventoryService'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { initialProfiles, initialProducts, initialStock, initialOrders, initialOrderItems } from '@/lib/initialData'
 
 export function useInitializeData() {
@@ -9,10 +9,10 @@ export function useInitializeData() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        const existingProfiles = await inventoryService.getProfiles()
+        const existingProfiles = await inventoryServiceInstance.getProfiles()
         
         if (existingProfiles.length === 0) {
-          await inventoryService.initializeData(
+          await inventoryServiceInstance.initializeData(
             initialProfiles,
             initialProducts,
             initialStock,
@@ -24,6 +24,7 @@ export function useInitializeData() {
         setIsInitialized(true)
       } catch (error) {
         console.error('Error initializing data:', error)
+        setIsInitialized(true)
       } finally {
         setIsLoading(false)
       }
