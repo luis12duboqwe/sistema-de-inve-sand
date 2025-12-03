@@ -4,9 +4,55 @@ from typing import List, Optional
 from decimal import Decimal
 from app.database import get_db
 from app.models import Order, OrderItem, Product, Profile, Stock
-from app.schemas import OrderCreate, OrderResponse, OrderListResponse, ProductResponse
+from app.schemas import (
+    OrderCreate,
+    OrderResponse,
+    OrderListResponse,
+    ProductResponse,
+    OrderStatusUpdate,
+    OrderUpdate
+)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+
+def _serialize_order(order: Order) -> OrderResponse:
+    items_response = []
+    for item in order.items:
+        product = item.product
+        items_response.append({
+            "id": item.id,
+            "product_id": item.product_id,
+            "cantidad": item.cantidad,
+            "precio_unitario": item.precio_unitario,
+            "es_regalo_promocion": item.es_regalo_promocion,
+            "product": ProductResponse(
+                id=product.id,
+                nombre=product.nombre,
+                categoria=product.categoria,
+                marca=product.marca,
+                modelo=product.modelo,
+                capacidad=product.capacidad,
+                condicion=product.condicion,
+                precio=product.precio,
+                moneda=product.moneda,
+                garantia_meses=product.garantia_meses,
+                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
+            ) if product else None
+        })
+
+    return OrderResponse(
+        id=order.id,
+        profile_id=order.profile_id,
+        customer_name=order.customer_name,
+        customer_phone=order.customer_phone,
+        canal=order.canal,
+        metodo_pago=order.metodo_pago,
+        total=order.total,
+        estado=order.estado,
+        created_at=order.created_at,
+        items=items_response
+    )
 
 @router.get("", response_model=List[OrderListResponse])
 def list_orders(
@@ -154,51 +200,122 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         for item in db_order_items:
             db.refresh(item)
         
-        items_response = []
-        for item in db_order.items:
-            product = item.product
-            items_response.append({
-                "id": item.id,
-                "product_id": item.product_id,
-                "cantidad": item.cantidad,
-                "precio_unitario": item.precio_unitario,
-                "es_regalo_promocion": item.es_regalo_promocion,
-                "product": ProductResponse(
-                    id=product.id,
-                    nombre=product.nombre,
-                    categoria=product.categoria,
-                    marca=product.marca,
-                    modelo=product.modelo,
-                    capacidad=product.capacidad,
-                    condicion=product.condicion,
-                    precio=product.precio,
-                    moneda=product.moneda,
-                    garantia_meses=product.garantia_meses,
-                    stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-                )
-            })
-        
-        return OrderResponse(
-            id=db_order.id,
-            profile_id=db_order.profile_id,
-            customer_name=db_order.customer_name,
-            customer_phone=db_order.customer_phone,
-            canal=db_order.canal,
-            metodo_pago=db_order.metodo_pago,
-            total=db_order.total,
-            estado=db_order.estado,
-            created_at=db_order.created_at,
-            items=items_response
-        )
+        return _serialize_order(db_order)
     except HTTPException:
         db.rollback()
         raise
     except Exception as e:
         db.rollback()
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Error al crear la orden: {str(e)}"
         )
+
+
+@router.put("/{order_id}/status", response_model=OrderResponse)
+def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza el estado de una orden.
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+    order.estado = payload.estado
+
+    try:
+        db.commit()
+        db.refresh(order)
+        return _serialize_order(order)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar estado: {str(e)}")
+
+
+@router.put("/{order_id}", response_model=OrderResponse)
+def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza una orden existente, incluyendo sus items y totales.
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+    try:
+        current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+
+        if updates.items is not None:
+            for item in current_items:
+                stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+                if stock:
+                    stock.cantidad_disponible += item.cantidad
+
+            if len(updates.items) == 0:
+                raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
+
+            total = Decimal("0.00")
+            db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
+
+            for item_update in updates.items:
+                product = db.query(Product).filter(
+                    Product.id == item_update.product_id,
+                    Product.activo == True
+                ).first()
+
+                if not product:
+                    raise HTTPException(status_code=404, detail=f"Producto {item_update.product_id} no encontrado o inactivo")
+
+                stock = db.query(Stock).filter(Stock.product_id == item_update.product_id).first()
+                if not stock:
+                    raise HTTPException(status_code=400, detail=f"El producto {item_update.product_id} no tiene stock registrado")
+
+                if stock.cantidad_disponible < item_update.cantidad:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Stock insuficiente para '{product.nombre}'. Disponible: {stock.cantidad_disponible}, Solicitado: {item_update.cantidad}"
+                    )
+
+                price = Decimal(str(product.precio))
+                if not item_update.es_regalo_promocion:
+                    total += price * item_update.cantidad
+
+                new_item = OrderItem(
+                    order_id=order.id,
+                    product_id=item_update.product_id,
+                    cantidad=item_update.cantidad,
+                    precio_unitario=price,
+                    es_regalo_promocion=item_update.es_regalo_promocion
+                )
+                db.add(new_item)
+
+                stock.cantidad_disponible -= item_update.cantidad
+
+            order.total = total
+
+        if updates.customer_name is not None:
+            order.customer_name = updates.customer_name
+
+        if updates.customer_phone is not None:
+            phone = str(updates.customer_phone).strip()
+            if not phone:
+                raise HTTPException(status_code=400, detail="El número de teléfono del cliente es requerido")
+            order.customer_phone = phone
+
+        if updates.canal is not None:
+            order.canal = updates.canal
+
+        if updates.metodo_pago is not None:
+            order.metodo_pago = updates.metodo_pago
+
+        db.commit()
+        db.refresh(order)
+        return _serialize_order(order)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar la orden: {str(e)}")
 
 @router.get("/{order_id}", response_model=OrderResponse)
 def get_order(order_id: int, db: Session = Depends(get_db)):

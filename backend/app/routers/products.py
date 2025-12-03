@@ -1,10 +1,11 @@
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
 from app.database import get_db
 from app.models import Product, Profile, Stock
-from app.schemas import ProductCreate, ProductResponse
+from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/products", tags=["products"])
 def list_products(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
+    include_inactive: bool = Query(False, description="Incluir productos inactivos y sin stock"),
     db: Session = Depends(get_db)
 ):
     """
@@ -29,10 +31,13 @@ def list_products(
     Raises:
         - 404: Si el profile_slug especificado no existe
     """
-    query = db.query(Product).join(Stock).filter(
-        Product.activo == True,
-        Stock.cantidad_disponible > 0
-    )
+    query = db.query(Product).join(Stock)
+
+    if not include_inactive:
+        query = query.filter(
+            Product.activo == True,
+            Stock.cantidad_disponible > 0
+        )
     
     if profile_slug:
         profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
@@ -106,8 +111,8 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         product.garantia_meses = 2
     
     try:
-        product_data = product.model_dump()
-        cantidad_inicial = product_data.pop("cantidad_inicial", 0)
+        product_data = product.model_dump(by_alias=True)
+        cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
         db_product = Product(**product_data)
         db.add(db_product)
@@ -172,3 +177,141 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
         garantia_meses=product.garantia_meses,
         stock_disponible=product.stock.cantidad_disponible if product.stock else 0
     )
+
+
+@router.put("/{product_id}", response_model=ProductResponse)
+def update_product(product_id: int, updates: ProductUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza un producto existente y devuelve su stock actual.
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"El producto con ID {product_id} no fue encontrado")
+
+    if updates.nombre is not None:
+        product.nombre = updates.nombre
+    if updates.categoria is not None:
+        product.categoria = updates.categoria
+    if updates.marca is not None:
+        product.marca = updates.marca
+    if updates.modelo is not None:
+        product.modelo = updates.modelo
+    if updates.capacidad is not None:
+        product.capacidad = updates.capacidad
+    if updates.condicion is not None:
+        product.condicion = updates.condicion
+    if updates.precio is not None:
+        product.precio = Decimal(updates.precio)
+    if updates.moneda is not None:
+        product.moneda = updates.moneda
+    if updates.garantia_meses is not None:
+        product.garantia_meses = updates.garantia_meses
+    if updates.activo is not None:
+        product.activo = updates.activo
+
+    try:
+        db.commit()
+        db.refresh(product)
+        return ProductResponse(
+            id=product.id,
+            nombre=product.nombre,
+            categoria=product.categoria,
+            marca=product.marca,
+            modelo=product.modelo,
+            capacidad=product.capacidad,
+            condicion=product.condicion,
+            precio=product.precio,
+            moneda=product.moneda,
+            garantia_meses=product.garantia_meses,
+            stock_disponible=product.stock.cantidad_disponible if product.stock else 0
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar producto: {str(e)}")
+
+
+@router.put("/{product_id}/stock")
+def update_product_stock(product_id: int, update: StockUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza la cantidad disponible de stock para un producto.
+    """
+    stock = db.query(Stock).filter(Stock.product_id == product_id).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"No se encontró stock para el producto {product_id}")
+
+    stock.cantidad_disponible = update.cantidad_disponible
+
+    try:
+        db.commit()
+        return {"message": "Stock actualizado"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar stock: {str(e)}")
+
+
+@router.post("/bulk", response_model=List[ProductResponse], status_code=201)
+def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
+    """
+    Crea múltiples productos en una sola operación.
+    """
+    products_data = payload.get("products", [])
+    if not isinstance(products_data, list) or len(products_data) == 0:
+        raise HTTPException(status_code=400, detail="Se requiere una lista de productos")
+
+    created_products = []
+
+    try:
+        for product_input in products_data:
+            product = ProductCreate.model_validate(product_input)
+
+            profile = db.query(Profile).filter(Profile.id == product.profile_id).first()
+            if not profile:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"El perfil con ID {product.profile_id} no fue encontrado"
+                )
+
+            existing = db.query(Product).filter(Product.sku == product.sku).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Ya existe un producto con el SKU '{product.sku}'"
+                )
+
+            product_data = product.model_dump(by_alias=True)
+            cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
+
+            db_product = Product(**product_data)
+            db.add(db_product)
+            db.flush()
+
+            db_stock = Stock(product_id=db_product.id, cantidad_disponible=cantidad_inicial)
+            db.add(db_stock)
+
+            created_products.append((db_product, db_stock))
+
+        db.commit()
+
+        result = []
+        for product, stock in created_products:
+            result.append(ProductResponse(
+                id=product.id,
+                nombre=product.nombre,
+                categoria=product.categoria,
+                marca=product.marca,
+                modelo=product.modelo,
+                capacidad=product.capacidad,
+                condicion=product.condicion,
+                precio=product.precio,
+                moneda=product.moneda,
+                garantia_meses=product.garantia_meses,
+                stock_disponible=stock.cantidad_disponible
+            ))
+
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear productos: {str(e)}")
