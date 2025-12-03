@@ -1,35 +1,35 @@
 import type { Profile, ProductWithStock, OrderWithItems } from './types'
 
-export interface HealthCheckIssue {
-  id: string
-  severity: 'critical' | 'warning' | 'info'
-  category: 'dependency' | 'integrity' | 'orphan' | 'duplicate' | 'consistency'
-  message: string
-  affectedItems: {
-    type: 'product' | 'order' | 'profile' | 'orderItem'
-    id: number
+  severity: 'critical' | 'warning' 
+  message: s
+    type: 'product' | 'order' | 'profile' |
     name?: string
-  }[]
-  autoFixable: boolean
-  fixAction?: () => void
+  autoFixable: bo
 }
-
 export interface HealthCheckResult {
-  healthy: boolean
-  issues: HealthCheckIssue[]
-  summary: {
-    critical: number
-    warnings: number
-    info: number
-  }
+  issues: Heal
+    critical: num
+    i
   lastCheck: string
-}
 
-export class InventoryHealthCheck {
-  private products: ProductWithStock[]
-  private orders: OrderWithItems[]
-  private profiles: Profile[]
-  private issues: HealthCheckIssue[] = []
+ 
+
+
+    products: Prod
+    profiles: Profile[]
+    this.pro
+    this.profiles = 
+
+    this.issues 
+   
+    this.checkOrpha
+ 
+
+    this.checkProfileConsistency()
+
+      critical: this.issues.filter
+      info: this.issues.filte
+
 
   constructor(
     products: ProductWithStock[],
@@ -64,49 +64,49 @@ export class InventoryHealthCheck {
     return {
       healthy: summary.critical === 0 && summary.warnings === 0,
       issues: this.issues,
-      summary,
-      lastCheck: new Date().toISOString()
-    }
-  }
-
-  private checkOrphanedProducts(): void {
-    const validProfileIds = new Set(this.profiles.map(p => p.id))
-    
-    const orphanedProducts = this.products.filter(
-      product => !validProfileIds.has(product.profile_id)
     )
-
-    if (orphanedProducts.length > 0) {
-      this.issues.push({
-        id: 'orphaned-products',
-        severity: 'critical',
-        category: 'orphan',
-        message: `${orphanedProducts.length} producto(s) referencia(n) perfiles inexistentes`,
-        affectedItems: orphanedProducts.map(p => ({
-          type: 'product',
-          id: p.id,
-          name: p.nombre
-        })),
-        autoFixable: false
-      })
-    }
-  }
-
-  private checkOrphanedOrders(): void {
-    const validProfileIds = new Set(this.profiles.map(p => p.id))
-    
-    const orphanedOrders = this.orders.filter(
-      order => !validProfileIds.has(order.profile_id)
-    )
-
     if (orphanedOrders.length > 0) {
+     
+   
+
+          id: o.id,
+        })),
+    
+  }
+  private checkOrphanedOrderItems(): void {
+    
+
+
       this.issues.push({
-        id: 'orphaned-orders',
         severity: 'critical',
-        category: 'orphan',
-        message: `${orphanedOrders.length} orden(es) referencia(n) perfiles inexistentes`,
-        affectedItems: orphanedOrders.map(o => ({
+        message: `${ordersWit
           type: 'order',
+          name: o.customer_name
+        autoFixable: false
+    }
+
+    const usedProfileIds
+      ...thi
+
+      pr
+
+   
+
+        message: `${unusedProfiles.leng
+          type: 'profile',
+    
+        autoFixable: false
+    }
+
+
+    this.products.forEach(product =>
+      if (!skuMap.has(ke
+      }
+    })
+    const duplicates: Produ
+      if (products.length > 1) {
+      }
+
           id: o.id,
           name: o.customer_name
         })),
@@ -371,29 +371,29 @@ export function autoFixIssues(
   orders: OrderWithItems[],
   profiles: Profile[]
 ): {
-  products: ProductWithStock[]
-  orders: OrderWithItems[]
-  profiles: Profile[]
-  fixed: string[]
-} {
-  const fixed: string[] = []
-  let updatedProducts = [...products]
-  const updatedOrders = [...orders]
-  const updatedProfiles = [...profiles]
 
-  issues.forEach(issue => {
-    if (!issue.autoFixable) return
 
-    if (issue.id === 'negative-stock') {
-      updatedProducts = updatedProducts.map(p => {
-        if (p.stock_disponible < 0) {
-          fixed.push(`Corregido stock negativo para ${p.nombre}`)
-          return { ...p, stock_disponible: 0 }
-        }
-        return p
-      })
-    }
-  })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   return {
     products: updatedProducts,
