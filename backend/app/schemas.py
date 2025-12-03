@@ -156,3 +156,50 @@ class OrderUpdate(BaseModel):
     canal: Optional[str] = Field(None, pattern="^(whatsapp|facebook|instagram)$")
     metodo_pago: Optional[str] = Field(None, pattern="^(efectivo|transferencia|tarjeta|financiamiento)$")
     items: Optional[List[OrderItemUpdate]] = None
+
+
+class FAQEntryBase(BaseModel):
+    pregunta_clave: str
+    ejemplo_pregunta_cliente: Optional[str] = None
+    respuesta: str
+    categoria: str
+    nivel_seriedad: str = "normal"
+    activa: bool = True
+    created_by: Optional[str] = None
+
+
+class FAQEntryCreate(FAQEntryBase):
+
+    @field_validator("pregunta_clave", "respuesta")
+    @classmethod
+    def validate_not_empty(cls, value: str):
+        if not value or not value.strip():
+            raise ValueError("Este campo no puede estar vacío")
+        return value
+
+
+class FAQEntryUpdate(BaseModel):
+    pregunta_clave: Optional[str] = None
+    ejemplo_pregunta_cliente: Optional[str] = None
+    respuesta: Optional[str] = None
+    categoria: Optional[str] = None
+    nivel_seriedad: Optional[str] = None
+    activa: Optional[bool] = None
+
+
+class FAQEntryResponse(BaseModel):
+    id: int
+    pregunta_clave: str
+    ejemplo_pregunta_cliente: Optional[str]
+    respuesta: str
+    categoria: str
+    nivel_seriedad: str
+    activa: bool
+    veces_usada: int
+    created_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True

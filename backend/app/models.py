@@ -1,4 +1,5 @@
-from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime
+from datetime import datetime
+from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -72,3 +73,19 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")
+
+
+class FAQEntry(Base):
+    __tablename__ = "faq_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pregunta_clave = Column(String(255), nullable=False)
+    ejemplo_pregunta_cliente = Column(Text, nullable=True)
+    respuesta = Column(Text, nullable=False)
+    categoria = Column(String(50), nullable=False)
+    nivel_seriedad = Column(String(20), nullable=False, default="normal")
+    activa = Column(Boolean, default=True)
+    veces_usada = Column(Integer, default=0)
+    created_by = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
