@@ -17,7 +17,7 @@ export function useHealthCheck(
       await new Promise(resolve => setTimeout(resolve, 500))
       
       const checker = new HealthChecker(products, orders, profiles)
-      const checkResult = await checker.runFullCheck()
+      const checkResult = checker.runCheck()
       
       setResult(checkResult)
       
@@ -30,7 +30,7 @@ export function useHealthCheck(
   const performAutoFix = useCallback(() => {
     if (!result || result.issues.length === 0) return null
 
-    const fixes = autoFixIssues(result.issues, products, orders, profiles)
+    const fixes = autoFixIssues(products, orders, profiles, result.issues)
     
     return fixes
   }, [result, products, orders, profiles])
