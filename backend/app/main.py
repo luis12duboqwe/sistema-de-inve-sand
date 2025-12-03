@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, get_db
-from app.routers import profiles, products, orders
+from app.routers import profiles, products, orders, faq
 from app.models import Profile, Product, Stock
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
+app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
 
 @app.on_event("startup")
 def on_startup():
