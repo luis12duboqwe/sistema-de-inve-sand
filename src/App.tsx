@@ -188,14 +188,10 @@ export default function App() {
 
   useKeyboardShortcuts([
     {
-      key: 'n',
-      ctrlKey: true,
-      callback: () => {
-        if (activeTab === 'products') setShowNewProductDialog(true)
-        else if (activeTab === 'orders') setShowNewOrderDialog(true)
-        else if (activeTab === 'profiles') setShowNewProfileDialog(true)
-      },
-      description: 'Crear nuevo elemento'
+      key: '?',
+      shiftKey: true,
+      callback: () => setShowKeyboardDialog(true),
+      description: 'Mostrar atajos de teclado'
     },
     {
       key: 'k',
@@ -213,10 +209,73 @@ export default function App() {
       description: 'Abrir configuración'
     },
     {
-      key: '?',
-      shiftKey: true,
-      callback: () => setShowKeyboardDialog(true),
-      description: 'Mostrar atajos de teclado'
+      key: '1',
+      callback: () => setActiveTab('products'),
+      description: 'Ir a Productos'
+    },
+    {
+      key: '2',
+      callback: () => setActiveTab('orders'),
+      description: 'Ir a Órdenes'
+    },
+    {
+      key: '3',
+      callback: () => setActiveTab('profiles'),
+      description: 'Ir a Perfiles'
+    },
+    {
+      key: 'n',
+      ctrlKey: true,
+      callback: () => {
+        if (activeTab === 'products') setShowNewProductDialog(true)
+        else if (activeTab === 'orders') setShowNewOrderDialog(true)
+        else if (activeTab === 'profiles') setShowNewProfileDialog(true)
+      },
+      description: 'Crear nuevo elemento'
+    },
+    {
+      key: 'e',
+      ctrlKey: true,
+      callback: () => {
+        if (activeTab === 'products') handleExportProducts()
+        else if (activeTab === 'orders') handleExportOrders()
+      },
+      description: 'Exportar a CSV'
+    },
+    {
+      key: 'i',
+      ctrlKey: true,
+      callback: () => {
+        if (activeTab === 'products') setShowImportDialog(true)
+      },
+      description: 'Importar desde CSV'
+    },
+    {
+      key: 'b',
+      ctrlKey: true,
+      callback: () => {
+        setBulkActionMode(!bulkActionMode)
+      },
+      description: 'Modo selección múltiple'
+    },
+    {
+      key: 'Escape',
+      callback: () => {
+        setSearchTerm('')
+        setCustomerSearchTerm('')
+      },
+      description: 'Limpiar búsqueda'
+    },
+    {
+      key: 'a',
+      ctrlKey: true,
+      callback: () => {
+        if (bulkActionMode) {
+          if (activeTab === 'products') selectAllProducts()
+          else if (activeTab === 'orders') selectAllOrders()
+        }
+      },
+      description: 'Seleccionar todos'
     }
   ])
 
@@ -344,8 +403,13 @@ export default function App() {
                 size="icon"
                 onClick={() => setShowKeyboardDialog(true)}
                 title="Atajos de teclado (Shift + ?)"
+                className="relative"
               >
                 <Keyboard size={20} />
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-primary text-[8px] items-center justify-center text-primary-foreground font-bold">?</span>
+                </span>
               </Button>
               
               <Button
