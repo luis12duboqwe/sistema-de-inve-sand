@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.models import Profile
-from app.schemas import ProfileCreate, ProfileResponse
+from app.schemas import ProfileCreate, ProfileResponse, ProfileUpdate
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
@@ -66,7 +66,43 @@ def get_profile(profile_id: int, db: Session = Depends(get_db)):
     profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not profile:
         raise HTTPException(
-            status_code=404, 
+            status_code=404,
             detail=f"El perfil con ID {profile_id} no fue encontrado"
         )
     return profile
+
+
+@router.put("/{profile_id}", response_model=ProfileResponse)
+def update_profile(profile_id: int, updates: ProfileUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza un perfil existente.
+
+    Args:
+        - profile_id: ID del perfil a actualizar
+        - updates: Campos a modificar (nombre/activo)
+
+    Returns:
+        Perfil actualizado
+
+    Raises:
+        - 404: Si el perfil no existe
+    """
+    profile = db.query(Profile).filter(Profile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El perfil con ID {profile_id} no fue encontrado"
+        )
+
+    if updates.name is not None:
+        profile.name = updates.name
+    if updates.active is not None:
+        profile.active = updates.active
+
+    try:
+        db.commit()
+        db.refresh(profile)
+        return profile
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar perfil: {str(e)}")

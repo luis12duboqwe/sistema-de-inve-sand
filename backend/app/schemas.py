@@ -17,6 +17,11 @@ class ProfileResponse(ProfileBase):
     class Config:
         from_attributes = True
 
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    active: Optional[bool] = None
+
 class ProductBase(BaseModel):
     profile_id: int
     sku: str
@@ -32,7 +37,31 @@ class ProductBase(BaseModel):
     activo: bool = True
 
 class ProductCreate(ProductBase):
-    cantidad_inicial: int = 0
+    cantidad_inicial: int = Field(0, alias="stock_inicial")
+
+    model_config = {
+        "populate_by_name": True
+    }
+
+
+class ProductUpdate(BaseModel):
+    nombre: Optional[str] = None
+    categoria: Optional[str] = Field(None, pattern="^(celular|accesorio)$")
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    capacidad: Optional[str] = None
+    condicion: Optional[str] = None
+    precio: Optional[Decimal] = None
+    moneda: Optional[str] = None
+    garantia_meses: Optional[int] = None
+    activo: Optional[bool] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StockUpdate(BaseModel):
+    cantidad_disponible: int = Field(..., ge=0)
 
 class ProductResponse(BaseModel):
     id: int
@@ -65,6 +94,12 @@ class OrderItemResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrderItemUpdate(BaseModel):
+    product_id: int
+    cantidad: int = Field(..., gt=0)
+    es_regalo_promocion: bool = False
 
 class OrderCreate(BaseModel):
     profile_slug: str
@@ -109,3 +144,15 @@ class OrderListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrderStatusUpdate(BaseModel):
+    estado: str = Field(..., pattern="^(pendiente|por_entregar|completada|cancelada)$")
+
+
+class OrderUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    canal: Optional[str] = Field(None, pattern="^(whatsapp|facebook|instagram)$")
+    metodo_pago: Optional[str] = Field(None, pattern="^(efectivo|transferencia|tarjeta|financiamiento)$")
+    items: Optional[List[OrderItemUpdate]] = None
