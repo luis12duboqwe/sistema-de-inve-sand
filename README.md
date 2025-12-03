@@ -183,6 +183,39 @@ Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
 
 ---
 
+## 🔧 Troubleshooting
+
+### Error: "Cannot find module vite/dist/node/chunks/dist.js"
+
+This is a **node_modules corruption issue**, not a code issue. It happens when Vite's installation is incomplete.
+
+**Quick Fix:**
+```bash
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+```
+
+👉 See [FIX_VITE_ERROR.md](./FIX_VITE_ERROR.md) for detailed troubleshooting steps.
+
+### Other Common Issues
+
+**Application won't start:**
+- Check that you're using Node.js 18+ 
+- Run `npm install` to ensure all dependencies are installed
+- Clear browser cache if you see stale data
+
+**Backend connection fails:**
+- Verify the backend is running: `cd backend && uvicorn main:app --reload`
+- Check the API URL in settings (default: `http://localhost:8000/api`)
+- Look for CORS errors in browser console
+
+**Data not persisting:**
+- In Local mode: Check browser's local storage quota
+- In API mode: Verify backend database file exists: `backend/inventory.db`
+
+---
+
 ## 📊 Próximos Pasos (Opcionales)
 
 El sistema está 100% completo y listo para producción. Posibles mejoras futuras:
