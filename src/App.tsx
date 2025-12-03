@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power } from '@phosphor-icons/react'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -24,8 +24,10 @@ import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog'
 import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
 import { ProfileSetupGuide } from '@/components/ProfileSetupGuide'
 import { DashboardStats } from '@/components/DashboardStats'
+import { HealthCheckDialog } from '@/components/HealthCheckDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
+import { useHealthCheck } from '@/hooks/use-health-check'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
 
@@ -47,6 +49,7 @@ export default function App() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showHealthCheckDialog, setShowHealthCheckDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -57,6 +60,12 @@ export default function App() {
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
+
+  const { result: healthCheckResult, isRunning: isHealthCheckRunning, runCheck, performAutoFix } = useHealthCheck(
+    products ?? [],
+    orders ?? [],
+    profiles ?? []
+  )
 
   const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
 
@@ -421,6 +430,16 @@ export default function App() {
                 {useAPI ? <CloudArrowUp size={14} /> : <Database size={14} />}
                 {useAPI ? 'API' : 'Local'}
               </Badge>
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowHealthCheckDialog(true)}
+                title="Diagnóstico de Salud"
+                className="relative"
+              >
+                <Pulse size={20} />
+              </Button>
               
               <Button
                 variant="ghost"
@@ -992,6 +1011,33 @@ export default function App() {
           onSettings={setProfileWithSettings}
         />
       )}
+
+      <HealthCheckDialog
+        open={showHealthCheckDialog}
+        onOpenChange={setShowHealthCheckDialog}
+        result={healthCheckResult}
+        isRunning={isHealthCheckRunning}
+        onRunCheck={async () => {
+          await runCheck()
+        }}
+        onAutoFix={() => {
+          const fixes = performAutoFix()
+          if (fixes) {
+            setProducts(fixes.products)
+            setOrders(fixes.orders)
+            setProfiles(fixes.profiles)
+            
+            if (fixes.fixed.length > 0) {
+              toast.success(`Auto-reparación completada: ${fixes.fixed.length} corrección(es)`)
+              fixes.fixed.forEach(msg => toast.info(msg))
+            } else {
+              toast.info('No hay problemas auto-reparables')
+            }
+            
+            runCheck()
+          }
+        }}
+      />
     </div>
   )
 }

@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Keyboard, Package, ShoppingCart, UserCircle, MagnifyingGlass, Gear, Wrench } from '@phosphor-icons/react'
 import { Separator } from '@/components/ui/separator'
 import { CustomizeShortcutsDialog } from './CustomizeShortcutsDialog'
-import { formatShortcutKeys, initializeShortcutPreferences, type ShortcutPreferences } from '@/lib/keyboardShortcuts'
+import { formatShortcut, loadShortcutPreferences, DEFAULT_SHORTCUTS, type ShortcutBinding } from '@/lib/keyboardShortcuts'
 
 interface KeyboardShortcutsDialogProps {
   open: boolean
@@ -26,7 +26,7 @@ interface ShortcutGroup {
 }
 
 export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcutsDialogProps) {
-  const [preferences] = useKV<ShortcutPreferences>('keyboard-shortcuts', initializeShortcutPreferences())
+  const [preferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const [showCustomize, setShowCustomize] = useState(false)
 
   const shortcutGroups: ShortcutGroup[] = [
@@ -52,28 +52,13 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
     }
   ]
 
-  const shortcutsByCategory: Record<string, Array<{ id: string; description: string }>> = {
-    general: [
-      { id: 'show-help', description: 'Mostrar atajos de teclado' },
-      { id: 'focus-search', description: 'Enfocar búsqueda' },
-      { id: 'open-settings', description: 'Abrir configuración' },
-    ],
-    navigation: [
-      { id: 'nav-products', description: 'Ir a Productos' },
-      { id: 'nav-orders', description: 'Ir a Órdenes' },
-      { id: 'nav-profiles', description: 'Ir a Perfiles' },
-    ],
-    actions: [
-      { id: 'create-new', description: 'Crear nuevo elemento' },
-      { id: 'export-csv', description: 'Exportar a CSV' },
-      { id: 'import-csv', description: 'Importar desde CSV' },
-      { id: 'bulk-mode', description: 'Modo selección múltiple' },
-    ],
-    search: [
-      { id: 'clear-search', description: 'Limpiar búsqueda' },
-      { id: 'select-all', description: 'Seleccionar todos (en modo bulk)' },
-    ]
-  }
+  const shortcutsByCategory = DEFAULT_SHORTCUTS.reduce((acc, shortcut) => {
+    if (!acc[shortcut.category]) {
+      acc[shortcut.category] = []
+    }
+    acc[shortcut.category].push({ id: shortcut.id, description: shortcut.description })
+    return acc
+  }, {} as Record<string, Array<{ id: string; description: string }>>)
 
   return (
     <>
@@ -115,8 +100,8 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
                 </div>
                 <div className="space-y-2">
                   {shortcutsByCategory[group.category]?.map((shortcut, shortcutIndex) => {
-                    const binding = preferences?.[shortcut.id]
-                    const keys = binding ? formatShortcutKeys(binding) : []
+                    const binding = preferences?.get(shortcut.id)
+                    const keyString = binding ? formatShortcut(binding) : ''
 
                     return (
                       <div 
@@ -126,16 +111,11 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
                         <span className="text-sm text-foreground flex-1">
                           {shortcut.description}
                         </span>
-                        <div className="flex gap-1 ml-4">
-                          {keys.map((key, keyIndex) => (
-                            <kbd 
-                              key={keyIndex}
-                              className="px-2 py-1 text-xs font-semibold text-foreground bg-background border border-border rounded shadow-sm min-w-[28px] text-center"
-                            >
-                              {key}
-                            </kbd>
-                          ))}
-                        </div>
+                        <kbd 
+                          className="px-2 py-1 text-xs font-semibold text-foreground bg-background border border-border rounded shadow-sm"
+                        >
+                          {keyString}
+                        </kbd>
                       </div>
                     )
                   })}

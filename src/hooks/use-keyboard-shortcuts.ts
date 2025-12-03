@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useKV } from '@github/spark/hooks'
-import type { KeyboardShortcut, ShortcutPreferences } from '@/lib/keyboardShortcuts'
-import { initializeShortcutPreferences } from '@/lib/keyboardShortcuts'
+import type { KeyboardShortcut, ShortcutBinding } from '@/lib/keyboardShortcuts'
+import { loadShortcutPreferences } from '@/lib/keyboardShortcuts'
 
 export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
-  const [preferences] = useKV<ShortcutPreferences>('keyboard-shortcuts', initializeShortcutPreferences())
+  const [preferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const shortcutsRef = useRef(shortcuts)
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
       }
 
       for (const shortcut of shortcutsRef.current) {
-        const binding = preferences?.[shortcut.id]
+        const binding = preferences?.get(shortcut.id)
         if (!binding) continue
 
         const ctrlOrMeta = event.ctrlKey || event.metaKey
@@ -48,4 +48,4 @@ export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]) {
   }, [preferences])
 }
 
-export { type KeyboardShortcut, type ShortcutPreferences }
+export { type KeyboardShortcut, type ShortcutBinding }

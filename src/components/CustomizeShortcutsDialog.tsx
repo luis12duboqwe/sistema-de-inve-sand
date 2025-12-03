@@ -15,10 +15,9 @@ import { Keyboard, ArrowCounterClockwise, PencilSimple, Check, X, Warning } from
 import {
   DEFAULT_SHORTCUTS,
   CATEGORY_LABELS,
-  formatShortcutKeys,
+  formatShortcut,
   checkShortcutConflict,
-  initializeShortcutPreferences,
-  type ShortcutPreferences,
+  loadShortcutPreferences,
   type ShortcutBinding
 } from '@/lib/keyboardShortcuts'
 
@@ -28,7 +27,7 @@ interface CustomizeShortcutsDialogProps {
 }
 
 export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortcutsDialogProps) {
-  const [preferences, setPreferences] = useKV<ShortcutPreferences>('keyboard-shortcuts', initializeShortcutPreferences())
+  const [preferences, setPreferences] = useKV<Map<string, ShortcutBinding>>('keyboard-shortcuts', loadShortcutPreferences())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [recordedKeys, setRecordedKeys] = useState<ShortcutBinding | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
@@ -59,7 +58,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
         metaKey: event.metaKey
       }
 
-      const conflict = checkShortcutConflict(newBinding, preferences || {}, id)
+      const conflict = checkShortcutConflict(newBinding, id, preferences || new Map())
       if (conflict) {
         setConflictError(`Conflicto con: ${conflict}`)
         setRecordedKeys(newBinding)
