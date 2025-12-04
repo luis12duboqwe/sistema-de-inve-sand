@@ -13,16 +13,17 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { useKV } from '@github/spark/hooks'
-import { Database, CloudArrowUp, CloudSlash } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenNotificationSettings?: () => void
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings }: SettingsDialogProps) {
   const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [useApi, setUseApi] = useKV<boolean>('settings_use_api', false)
   const [isTestingConnection, setIsTestingConnection] = useState(false)
@@ -87,6 +88,30 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </DialogHeader>
 
         <div className="space-y-6">
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">
+                  Notificaciones y Alertas
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Configurar alertas de stock bajo y notificaciones
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  onOpenNotificationSettings?.()
+                }}
+              >
+                <Bell size={16} className="mr-2" />
+                Configurar
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">

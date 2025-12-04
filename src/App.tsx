@@ -28,6 +28,9 @@ import { HealthCheckDialog } from '@/components/HealthCheckDialog'
 import { LowStockAlert } from '@/components/LowStockAlert'
 import { ProfileConfigPrompt } from '@/components/ProfileConfigPrompt'
 import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary'
+import { NotificationCenter } from '@/components/NotificationCenter'
+import { NotificationSettingsDialog } from '@/components/NotificationSettingsDialog'
+import { LowStockReportDialog } from '@/components/LowStockReportDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -54,6 +57,8 @@ export default function App() {
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showHealthCheckDialog, setShowHealthCheckDialog] = useState(false)
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false)
+  const [showLowStockReport, setShowLowStockReport] = useState(false)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -228,6 +233,25 @@ export default function App() {
       ctrlKey: true,
       action: () => setShowSettingsDialog(true),
       description: 'Abrir configuración',
+      category: 'general'
+    },
+    {
+      id: 'open-notifications',
+      key: 'n',
+      altKey: true,
+      action: () => {
+        const notificationButton = document.querySelector('[data-notification-trigger]') as HTMLButtonElement
+        notificationButton?.click()
+      },
+      description: 'Abrir notificaciones',
+      category: 'general'
+    },
+    {
+      id: 'view-low-stock',
+      key: 'l',
+      altKey: true,
+      action: () => setShowLowStockReport(true),
+      description: 'Ver reporte de stock bajo',
       category: 'general'
     },
     {
@@ -438,6 +462,11 @@ export default function App() {
                 {useAPI ? 'API' : 'Local'}
               </Badge>
               
+              <NotificationCenter
+                products={products ?? []}
+                profiles={profiles ?? []}
+              />
+              
               <Button
                 variant="ghost"
                 size="icon"
@@ -489,11 +518,21 @@ export default function App() {
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
-            <DashboardStats products={products ?? []} orders={orders ?? []} />
+            <DashboardStats
+              products={products ?? []}
+              orders={orders ?? []}
+              onViewLowStockReport={() => setShowLowStockReport(true)}
+            />
             
             {selectedProfile !== 'all' && (() => {
               const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
-              return profile ? <LowStockAlert products={products ?? []} profile={profile} /> : null
+              return profile ? (
+                <LowStockAlert
+                  products={products ?? []}
+                  profile={profile}
+                  onProductClick={setEditingProduct}
+                />
+              ) : null
             })()}
             
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -1007,6 +1046,7 @@ export default function App() {
       <SettingsDialog
         open={showSettingsDialog}
         onOpenChange={setShowSettingsDialog}
+        onOpenNotificationSettings={() => setShowNotificationSettings(true)}
       />
 
       <KeyboardShortcutsDialog
@@ -1066,6 +1106,23 @@ export default function App() {
             
             runCheck()
           }
+        }}
+      />
+
+      <NotificationSettingsDialog
+        open={showNotificationSettings}
+        onOpenChange={setShowNotificationSettings}
+        profiles={profiles ?? []}
+      />
+
+      <LowStockReportDialog
+        open={showLowStockReport}
+        onOpenChange={setShowLowStockReport}
+        products={products ?? []}
+        profiles={profiles ?? []}
+        onProductClick={(product) => {
+          setShowLowStockReport(false)
+          setEditingProduct(product)
         }}
       />
     </div>

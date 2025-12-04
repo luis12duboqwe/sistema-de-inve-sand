@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import type { ProductWithStock, OrderWithItems } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, TrendUp, Money } from '@phosphor-icons/react'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, TrendUp, Money, TrendDown } from '@phosphor-icons/react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { format, subDays, startOfDay, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
@@ -8,9 +9,10 @@ import { motion } from 'framer-motion'
 interface DashboardStatsProps {
   products: ProductWithStock[]
   orders: OrderWithItems[]
+  onViewLowStockReport?: () => void
 }
 
-export function DashboardStats({ products, orders }: DashboardStatsProps) {
+export function DashboardStats({ products, orders, onViewLowStockReport }: DashboardStatsProps) {
   const activeProducts = products.filter(p => p.activo).length
   const lowStockProducts = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
   const outOfStockProducts = products.filter(p => p.activo && p.stock_disponible === 0).length
@@ -135,18 +137,31 @@ export function DashboardStats({ products, orders }: DashboardStatsProps) {
           transition={{ delay: 0.4, duration: 0.3 }}
         >
           <Card className="p-6 border-yellow-500/50 bg-yellow-50/50">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-lg bg-yellow-500/10">
-                <WarningCircle size={24} className="text-yellow-600" />
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-lg bg-yellow-500/10">
+                  <WarningCircle size={24} className="text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold mb-1 text-yellow-900">Alertas de Inventario</h3>
+                  <p className="text-sm text-yellow-800">
+                    {lowStockProducts > 0 && `${lowStockProducts} producto${lowStockProducts > 1 ? 's' : ''} con stock bajo`}
+                    {lowStockProducts > 0 && outOfStockProducts > 0 && ' • '}
+                    {outOfStockProducts > 0 && `${outOfStockProducts} producto${outOfStockProducts > 1 ? 's' : ''} agotado${outOfStockProducts > 1 ? 's' : ''}`}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1 text-yellow-900">Alertas de Inventario</h3>
-                <p className="text-sm text-yellow-800">
-                  {lowStockProducts > 0 && `${lowStockProducts} producto${lowStockProducts > 1 ? 's' : ''} con stock bajo`}
-                  {lowStockProducts > 0 && outOfStockProducts > 0 && ' • '}
-                  {outOfStockProducts > 0 && `${outOfStockProducts} producto${outOfStockProducts > 1 ? 's' : ''} agotado${outOfStockProducts > 1 ? 's' : ''}`}
-                </p>
-              </div>
+              {onViewLowStockReport && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onViewLowStockReport}
+                  className="shrink-0"
+                >
+                  <TrendDown size={16} className="mr-2" />
+                  Ver Reporte
+                </Button>
+              )}
             </div>
           </Card>
         </motion.div>
