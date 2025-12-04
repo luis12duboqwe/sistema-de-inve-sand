@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/s
-import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import {
   Popover,
-import { Bell, Wa
-import { format }
-export interface Notification {
-  type: 'low_stock' | 'out_of_stock' | 'restock_needed'
-  productName: string
-  profileName: string
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Bell, Warning, Package, X } from '@phosphor-icons/react'
+import { format } from 'date-fns'
+import type { ProductWithStock, Profile } from '@/lib/types'
 
-  read: boolean
+export interface Notification {
   id: string
   type: 'low_stock' | 'out_of_stock' | 'restock_needed'
   productId: number
@@ -119,7 +119,7 @@ export function NotificationCenter({ products, profiles }: NotificationCenterPro
     switch (type) {
       case 'out_of_stock':
         return <Warning size={18} weight="fill" className="text-destructive" />
-        return 'Stock B
+      case 'low_stock':
         return <Warning size={18} weight="fill" className="text-yellow-500" />
       case 'restock_needed':
         return <Package size={18} weight="duotone" className="text-blue-500" />
@@ -131,129 +131,131 @@ export function NotificationCenter({ products, profiles }: NotificationCenterPro
       case 'out_of_stock':
         return 'Sin Stock'
       case 'low_stock':
-        return `Se recomien
+        return 'Stock Bajo'
+      case 'restock_needed':
+        return 'Se recomienda reabastecer'
+    }
   }
+
+  const getNotificationMessage = (notification: Notification) => {
+    switch (notification.type) {
+      case 'out_of_stock':
+        return `${notification.productName} está agotado`
+      case 'low_stock':
+        return `${notification.productName} tiene solo ${notification.currentStock} unidades (umbral: ${notification.threshold})`
+      case 'restock_needed':
+        return `${notification.productName} necesita reabastecimiento`
+    }
+  }
+
   return (
-     
-   
-
-              className="absolute -top-1 -right-1 h-5 w-5 p-0 flex
-              {unreadCount > 9 ?
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          data-notification-trigger
+        >
+          <Bell size={20} />
+          {unreadCount > 0 && (
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </Badge>
           )}
+        </Button>
       </PopoverTrigger>
-        <div className=
+      <PopoverContent className="w-96 p-0" align="end">
+        <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-2">
+            <h3 className="font-semibold">Notificaciones</h3>
+            {unreadCount > 0 && (
+              <Badge variant="secondary">{unreadCount} nueva{unreadCount !== 1 ? 's' : ''}</Badge>
+            )}
+          </div>
+          <div className="flex gap-1">
+            {unreadCount > 0 && (
               <Button
-                size="sm"
-     
-   
-
-          
                 variant="ghost"
-                onClick={clear
+                size="sm"
+                onClick={markAllAsRead}
+              >
+                Marcar todas
+              </Button>
+            )}
+            {notifications && notifications.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAll}
               >
                 Limpiar
+              </Button>
             )}
+          </div>
         </div>
-        <ScrollArea className="h-[4
+        <ScrollArea className="h-[400px]">
+          {!notifications || notifications.length === 0 ? (
             <div className="text-center py-12 px-4">
-             
+              <Bell size={48} className="mx-auto text-muted-foreground mb-3" weight="duotone" />
+              <p className="text-sm text-muted-foreground">
+                No hay notificaciones
               </p>
+            </div>
           ) : (
-            
-                 
+            <div className="p-2 space-y-2">
+              {notifications.map(notification => (
+                <Card
+                  key={notification.id}
+                  className={`p-3 cursor-pointer transition-colors hover:bg-accent/50 ${
+                    !notification.read ? 'border-primary' : ''
+                  }`}
+                  onClick={() => markAsRead(notification.id)}
                 >
+                  <div className="flex gap-3">
                     <div className="mt-0.5">
+                      {getNotificationIcon(notification.type)}
                     </div>
-                      <div className="flex items-start just
-                          {getNotificationTitle(not
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">
+                            {getNotificationTitle(notification)}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            {getNotificationMessage(notification)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {notification.profileName}
+                            </Badge>
+                            <span>•</span>
+                            <span>{format(new Date(notification.timestamp), 'dd/MM/yyyy HH:mm')}</span>
+                          </div>
+                        </div>
                         <Button
-                     
-                          onCli
-                         
-                      </div>
-                        {getNotificatio
-               
-                          {notification.profileName}
-                        <sp
-                       
-              
                           variant="ghost"
-                     
+                          size="icon"
+                          className="h-6 w-6 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteNotification(notification.id)
+                          }}
                         >
-                        <
+                          <X size={14} />
+                        </Button>
+                      </div>
                     </div>
+                  </div>
                 </Card>
-            </d
+              ))}
+            </div>
+          )}
         </ScrollArea>
+      </PopoverContent>
     </Popover>
+  )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
