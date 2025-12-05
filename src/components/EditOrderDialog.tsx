@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -35,6 +36,7 @@ interface EditOrderDialogProps {
       product_id: number
       cantidad: number
     }[]
+    notas?: string
   }) => Promise<void>
 }
 
@@ -54,6 +56,7 @@ export function EditOrderDialog({
   const [customerPhone, setCustomerPhone] = useState(order.customer_phone)
   const [canal, setCanal] = useState<OrderWithItems['canal']>(order.canal)
   const [metodoPago, setMetodoPago] = useState<OrderWithItems['metodo_pago']>(order.metodo_pago)
+  const [notas, setNotas] = useState(order.notas || '')
   const [items, setItems] = useState<OrderItemForm[]>(
     order.items.map(item => ({
       product_id: item.product_id,
@@ -68,6 +71,7 @@ export function EditOrderDialog({
       setCustomerPhone(order.customer_phone)
       setCanal(order.canal)
       setMetodoPago(order.metodo_pago)
+      setNotas(order.notas || '')
       setItems(
         order.items.map(item => ({
           product_id: item.product_id,
@@ -153,7 +157,8 @@ export function EditOrderDialog({
         customer_phone: phoneValidation.phone,
         canal,
         metodo_pago: metodoPago,
-        items: validItems
+        items: validItems,
+        notas: notas.trim() || undefined
       })
       onOpenChange(false)
     } catch (error) {
@@ -287,6 +292,17 @@ export function EditOrderDialog({
                 </div>
               )
             })}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit-notas">Notas (opcional)</Label>
+            <Textarea
+              id="edit-notas"
+              value={notas}
+              onChange={e => setNotas(e.target.value)}
+              placeholder="Instrucciones especiales, comentarios, etc..."
+              rows={3}
+            />
           </div>
 
           <div className="flex items-center justify-between pt-4 border-t">

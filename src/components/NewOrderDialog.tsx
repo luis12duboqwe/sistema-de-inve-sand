@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -47,6 +48,7 @@ export function NewOrderDialog({
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
   const [metodoPago, setMetodoPago] = useState<CreateOrderRequest['metodo_pago']>('efectivo')
   const [items, setItems] = useState<OrderItemForm[]>([{ product_id: 0, cantidad: 1 }])
+  const [notas, setNotas] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const availableProducts = products.filter(p => 
@@ -120,7 +122,8 @@ export function NewOrderDialog({
         customer_name: customerName,
         customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
-        items: validItems
+        items: validItems,
+        notas: notas.trim() || undefined
       })
 
       setProfileSlug('')
@@ -129,6 +132,7 @@ export function NewOrderDialog({
       setCanal('whatsapp')
       setMetodoPago('efectivo')
       setItems([{ product_id: 0, cantidad: 1 }])
+      setNotas('')
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating order:', error)
@@ -274,6 +278,17 @@ export function NewOrderDialog({
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="notas">Notas (opcional)</Label>
+            <Textarea
+              id="notas"
+              value={notas}
+              onChange={e => setNotas(e.target.value)}
+              placeholder="Instrucciones especiales, comentarios, etc..."
+              rows={3}
+            />
           </div>
 
           <div className="pt-4 border-t">

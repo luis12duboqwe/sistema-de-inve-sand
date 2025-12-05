@@ -10,15 +10,17 @@ import {
 } from '@/components/ui/select'
 import type { OrderWithItems, Order } from '@/lib/types'
 import { format } from 'date-fns'
-import { PencilSimple } from '@phosphor-icons/react'
+import { PencilSimple, User, FilePdf } from '@phosphor-icons/react'
 
 interface OrderCardProps {
   order: OrderWithItems
   onStatusChange?: (orderId: number, newStatus: Order['estado']) => void
   onEdit?: (order: OrderWithItems) => void
+  onViewCustomerHistory?: (customerPhone: string) => void
+  onExportPDF?: (order: OrderWithItems) => void
 }
 
-export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
+export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory, onExportPDF }: OrderCardProps) {
   const getStatusBadgeColor = (estado: Order['estado']) => {
     const colors: Record<Order['estado'], string> = {
       pendiente: 'bg-yellow-500 text-white',
@@ -88,7 +90,20 @@ export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-muted-foreground">Cliente:</span>
-            <p className="font-medium">{order.customer_name || 'N/A'}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium">{order.customer_name || 'N/A'}</p>
+              {onViewCustomerHistory && order.customer_phone && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onViewCustomerHistory(order.customer_phone)}
+                  className="h-6 px-2"
+                >
+                  <User size={14} className="mr-1" />
+                  Historial
+                </Button>
+              )}
+            </div>
           </div>
           <div>
             <span className="text-muted-foreground">Teléfono:</span>
@@ -103,6 +118,13 @@ export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
             <p className="font-medium">{getPaymentText(order.metodo_pago)}</p>
           </div>
         </div>
+
+        {order.notas && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p className="text-sm font-medium text-yellow-900 mb-1">Notas:</p>
+            <p className="text-sm text-yellow-800">{order.notas}</p>
+          </div>
+        )}
 
         <div className="border-t pt-3">
           <h4 className="font-medium text-sm mb-2">Productos:</h4>
@@ -135,22 +157,34 @@ export function OrderCard({ order, onStatusChange, onEdit }: OrderCardProps) {
               HNL {order.total.toLocaleString()}
             </p>
           </div>
-          {onStatusChange && order.estado !== 'completada' && order.estado !== 'cancelada' && (
-            <Select
-              value={order.estado}
-              onValueChange={(value) => onStatusChange(order.id, value as Order['estado'])}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pendiente">Pendiente</SelectItem>
-                <SelectItem value="por_entregar">Por Entregar</SelectItem>
-                <SelectItem value="completada">Completada</SelectItem>
-                <SelectItem value="cancelada">Cancelada</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex items-center gap-2">
+            {onExportPDF && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onExportPDF(order)}
+              >
+                <FilePdf size={16} className="mr-2" />
+                PDF
+              </Button>
+            )}
+            {onStatusChange && order.estado !== 'completada' && order.estado !== 'cancelada' && (
+              <Select
+                value={order.estado}
+                onValueChange={(value) => onStatusChange(order.id, value as Order['estado'])}
+              >
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendiente">Pendiente</SelectItem>
+                  <SelectItem value="por_entregar">Por Entregar</SelectItem>
+                  <SelectItem value="completada">Completada</SelectItem>
+                  <SelectItem value="cancelada">Cancelada</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
       </div>
     </Card>

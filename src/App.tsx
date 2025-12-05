@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings } from '@/lib/types'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine } from '@phosphor-icons/react'
+import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings, AdvancedSearchFilters } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 import { ProfileCard } from '@/components/ProfileCard'
@@ -31,10 +31,15 @@ import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { NotificationSettingsDialog } from '@/components/NotificationSettingsDialog'
 import { LowStockReportDialog } from '@/components/LowStockReportDialog'
+import { AdvancedSearchDialog } from '@/components/AdvancedSearchDialog'
+import { ReportsDialog } from '@/components/ReportsDialog'
+import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
+import { generateOrderPDF, generateProductReportPDF } from '@/lib/pdfExport'
+import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
 import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
 
 export default function App() {
@@ -59,6 +64,11 @@ export default function App() {
   const [showHealthCheckDialog, setShowHealthCheckDialog] = useState(false)
   const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   const [showLowStockReport, setShowLowStockReport] = useState(false)
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
+  const [showReportsDialog, setShowReportsDialog] = useState(false)
+  const [showCustomerHistory, setShowCustomerHistory] = useState(false)
+  const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -389,23 +399,31 @@ export default function App() {
     return true
   })
 
-  const filteredOrders = (orders ?? []).filter(o => {
-    if (selectedProfile !== 'all') {
-      const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
-      if (!profile || o.profile_id !== profile.id) return false
+  const filteredOrders = (() => {
+    let filtered = (orders ?? []).filter(o => {
+      if (selectedProfile !== 'all') {
+        const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
+        if (!profile || o.profile_id !== profile.id) return false
+      }
+      
+      if (orderStatusFilter && orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
+      
+      if (customerSearchTerm && customerSearchTerm.trim()) {
+        const term = customerSearchTerm.toLowerCase()
+        const customerName = String(o.customer_name ?? '').toLowerCase()
+        const customerPhone = String(o.customer_phone ?? '').toLowerCase()
+        return customerName.includes(term) || customerPhone.includes(term)
+      }
+      
+      return true
+    })
+
+    if (advancedFilters) {
+      filtered = filterOrdersByAdvancedSearch(filtered, advancedFilters)
     }
-    
-    if (orderStatusFilter && orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
-    
-    if (customerSearchTerm && customerSearchTerm.trim()) {
-      const term = customerSearchTerm.toLowerCase()
-      const customerName = String(o.customer_name ?? '').toLowerCase()
-      const customerPhone = String(o.customer_phone ?? '').toLowerCase()
-      return customerName.includes(term) || customerPhone.includes(term)
-    }
-    
-    return true
-  })
+
+    return filtered
+  })()
 
   const activeProfiles = (profiles ?? []).filter(p => p.active)
 
@@ -746,6 +764,33 @@ export default function App() {
 
               <div className="flex gap-2 w-full sm:w-auto">
                 <Button
+                  variant={advancedFilters ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => setShowAdvancedSearch(true)}
+                  title="Búsqueda avanzada"
+                >
+                  <FunnelSimple size={18} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    const currentProfile = selectedProfile !== 'all' 
+                      ? (profiles ?? []).find(p => p.slug === selectedProfile)
+                      : (profiles ?? [])[0]
+                    
+                    if (currentProfile) {
+                      const reportData = generateReportData(orders ?? [], products ?? [])
+                      setShowReportsDialog(true)
+                    } else {
+                      toast.error('Selecciona un perfil primero')
+                    }
+                  }}
+                  title="Ver reportes"
+                >
+                  <ChartLine size={18} />
+                </Button>
+                <Button
                   variant={bulkActionMode && activeTab === 'orders' ? "default" : "outline"}
                   size="icon"
                   onClick={() => {
@@ -871,6 +916,16 @@ export default function App() {
                         toast.success('Estado de orden actualizado')
                       }}
                       onEdit={setEditingOrder}
+                      onViewCustomerHistory={(phone) => {
+                        setSelectedCustomerPhone(phone)
+                        setShowCustomerHistory(true)
+                      }}
+                      onExportPDF={(order) => {
+                        const profile = (profiles ?? []).find(p => p.id === order.profile_id)
+                        if (profile) {
+                          generateOrderPDF(order, profile)
+                        }
+                      }}
                     />
                   </div>
                 ))}
@@ -1125,6 +1180,46 @@ export default function App() {
           setEditingProduct(product)
         }}
       />
+
+      <AdvancedSearchDialog
+        open={showAdvancedSearch}
+        onOpenChange={setShowAdvancedSearch}
+        onSearch={(filters) => setAdvancedFilters(filters)}
+        onClear={() => setAdvancedFilters(null)}
+      />
+
+      {showReportsDialog && (() => {
+        const currentProfile = selectedProfile !== 'all' 
+          ? (profiles ?? []).find(p => p.slug === selectedProfile)
+          : (profiles ?? [])[0]
+        
+        if (!currentProfile) return null
+        
+        const reportData = generateReportData(orders ?? [], products ?? [])
+        
+        return (
+          <ReportsDialog
+            open={showReportsDialog}
+            onOpenChange={setShowReportsDialog}
+            reportData={reportData}
+            profile={currentProfile}
+          />
+        )
+      })()}
+
+      {showCustomerHistory && (
+        <CustomerHistoryDialog
+          open={showCustomerHistory}
+          onOpenChange={setShowCustomerHistory}
+          customerPhone={selectedCustomerPhone}
+          orders={orders ?? []}
+          profile={(profiles ?? [])[0] || { id: 0, name: 'Default', slug: 'default', active: true }}
+          onViewOrder={(order) => {
+            setEditingOrder(order)
+            setShowCustomerHistory(false)
+          }}
+        />
+      )}
     </div>
   )
 }

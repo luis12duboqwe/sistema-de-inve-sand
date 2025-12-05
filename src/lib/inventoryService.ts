@@ -245,7 +245,9 @@ export class InventoryService {
         metodo_pago: request.metodo_pago,
         total,
         estado: 'pendiente',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        notas: request.notas,
+        updated_at: new Date().toISOString()
       }
 
       await this.setStock(stock)
@@ -423,6 +425,7 @@ export class InventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
@@ -513,7 +516,9 @@ export class InventoryService {
         customer_name: updates.customer_name ?? currentOrder.customer_name,
         customer_phone: phoneAsString,
         canal: updates.canal ?? currentOrder.canal,
-        metodo_pago: updates.metodo_pago ?? currentOrder.metodo_pago
+        metodo_pago: updates.metodo_pago ?? currentOrder.metodo_pago,
+        notas: updates.notas !== undefined ? updates.notas : currentOrder.notas,
+        updated_at: new Date().toISOString()
       }
 
       await this.setOrders(orders)

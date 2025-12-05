@@ -52,6 +52,8 @@ export interface Order {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
+  notas?: string
+  updated_at?: string
 }
 
 export interface OrderItem {
@@ -81,4 +83,54 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
   }[]
+  notas?: string
+}
+
+export interface Supplier {
+  id: number
+  profile_id: number
+  nombre: string
+  contacto: string
+  telefono: string
+  email?: string
+  direccion?: string
+  notas?: string
+  activo: boolean
+  created_at: string
+}
+
+export interface ProductWithSupplier extends ProductWithStock {
+  supplier_id?: number
+  supplier?: Supplier
+}
+
+export interface DateRange {
+  from: Date
+  to: Date
+}
+
+export interface AdvancedSearchFilters {
+  dateRange?: DateRange
+  minAmount?: number
+  maxAmount?: number
+  customerName?: string
+  customerPhone?: string
+  productId?: number
+  supplierId?: number
+}
+
+export interface ReportData {
+  totalRevenue: number
+  totalOrders: number
+  topProducts: Array<{
+    product: ProductWithStock
+    quantity: number
+    revenue: number
+  }>
+  monthlyTrends: Array<{
+    month: string
+    revenue: number
+    orders: number
+  }>
+  profitMargin: number
 }

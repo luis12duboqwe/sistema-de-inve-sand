@@ -1,14 +1,14 @@
 # Planning Guide
 
-A comprehensive inventory management system for mobile phones and accessories designed for sales chatbot integration, featuring real-time stock tracking, order processing, multi-profile support, and flexible backend connectivity (local storage or FastAPI backend).
+A comprehensive inventory management system for mobile phones and accessories designed for sales chatbot integration, featuring real-time stock tracking, order processing, multi-profile support, advanced reporting, PDF exports, customer history tracking, and flexible backend connectivity (local storage or FastAPI backend).
 
 **Experience Qualities**: 
-1. **Efficient** - Streamlined workflows that allow quick product lookup and order creation with minimal clicks
-2. **Reliable** - Clear stock indicators and validation messages ensure accurate inventory management
-3. **Professional** - Clean, business-focused interface that inspires confidence in the data presented
+1. **Efficient** - Streamlined workflows that allow quick product lookup, order creation, and customer history access with minimal clicks
+2. **Reliable** - Clear stock indicators, validation messages, and comprehensive health checks ensure accurate inventory management
+3. **Professional** - Clean, business-focused interface with advanced reporting and PDF exports that inspire confidence in business operations
 
-**Complexity Level**: Light Application (multiple features with basic state)
-  - The app manages products, inventory, orders, and profiles with persistent state, supports both local and API backends, but doesn't require user authentication or complex workflows beyond CRUD operations.
+**Complexity Level**: Complex Application (advanced functionality with multiple views and reporting features)
+  - The app manages products, inventory, orders, profiles, customer history, advanced search filters, visual reports, and PDF generation with persistent state, supports both local and API backends, features comprehensive analytics and health diagnostics.
 
 ## Essential Features
 
@@ -34,11 +34,39 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Success criteria**: Products filter in <100ms, stock levels accurately reflect inventory, search matches name/brand/model
 
 ### Order Creation & Processing
-- **Functionality**: Create new orders with product selection, customer info, and payment method tracking
-- **Purpose**: Record sales transactions and automatically update inventory levels
+- **Functionality**: Create new orders with product selection, customer info, payment method tracking, and optional notes
+- **Purpose**: Record sales transactions, automatically update inventory levels, and track special instructions
 - **Trigger**: User clicks "New Order" button
-- **Progression**: Click new order → Select profile & channel → Enter customer details → Add products with quantities → Validate stock availability → Confirm order → Stock automatically decremented
-- **Success criteria**: Orders save with all line items, stock decreases atomically, validation prevents overselling
+- **Progression**: Click new order → Select profile & channel → Enter customer details → Add products with quantities → Add optional notes → Validate stock availability → Confirm order → Stock automatically decremented
+- **Success criteria**: Orders save with all line items and notes, stock decreases atomically, validation prevents overselling
+
+### Advanced Order Search
+- **Functionality**: Filter orders by date range, amount range, customer name/phone, and product
+- **Purpose**: Quickly find specific orders or analyze order patterns
+- **Trigger**: User clicks advanced search icon in orders tab
+- **Progression**: Click search icon → Select date range → Set amount filters → Enter customer criteria → Apply filters → See filtered results
+- **Success criteria**: All filter combinations work correctly, filters persist during session, clear indication when filters are active
+
+### Customer History
+- **Functionality**: View complete purchase history, total spent, and average order value for any customer
+- **Purpose**: Build customer relationships and identify valuable repeat customers
+- **Trigger**: User clicks "Historial" button next to customer name in order card
+- **Progression**: Click customer history → View customer stats → See all past orders → Click order to view details
+- **Success criteria**: All customer orders displayed chronologically, accurate spending calculations, quick access to order details
+
+### PDF Export
+- **Functionality**: Generate professional PDF invoices for orders and inventory reports for products
+- **Purpose**: Create printable documents for customers and accounting
+- **Trigger**: User clicks PDF button on order card or generates product report
+- **Progression**: Click PDF → Document opens in new window → Print dialog appears automatically
+- **Success criteria**: PDFs include all order details, business information from profile settings, proper formatting, print-ready
+
+### Reports & Analytics
+- **Functionality**: Interactive dashboard with revenue charts, monthly trends, top products by revenue, and profitability metrics
+- **Purpose**: Provide deep business insights for strategic decision-making
+- **Trigger**: User clicks reports icon in orders tab
+- **Progression**: Click reports → View KPI summary → Analyze monthly trends → Review top products → Examine profit margins
+- **Success criteria**: Charts render smoothly, data calculations accurate, responsive on all devices, intuitive navigation between report sections
 
 ### Multi-Profile Support
 - **Functionality**: Support multiple business profiles (stores/brands) with isolated product catalogs and customizable settings per profile
