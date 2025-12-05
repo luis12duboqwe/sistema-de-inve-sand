@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
+from datetime import datetime, date
 from app.database import get_db
 from app.models import Order, OrderItem, Product, Profile, Stock
 from app.schemas import (
@@ -10,7 +11,8 @@ from app.schemas import (
     OrderListResponse,
     ProductResponse,
     OrderStatusUpdate,
-    OrderUpdate
+    OrderUpdate,
+    OrderSearchParams
 )
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
@@ -105,6 +107,86 @@ def list_orders(
     
     orders = query.order_by(Order.created_at.desc()).all()
     return orders
+
+
+@router.post("/search", response_model=List[OrderListResponse])
+def search_orders(
+    search_params: OrderSearchParams,
+    profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil"),
+    db: Session = Depends(get_db)
+):
+    """
+    Búsqueda avanzada de órdenes con múltiples filtros.
+    
+    Permite filtrar por:
+    - Rango de fechas
+    - Rango de montos
+    - Cliente (nombre o teléfono)
+    - Producto incluido en la orden
+    - Estado de la orden
+    
+    Args:
+        - search_params: Parámetros de búsqueda
+        - profile_slug: Filtro opcional por perfil
+        
+    Returns:
+        Lista de órdenes que coinciden con los criterios
+    """
+    query = db.query(Order)
+    
+    # Filter by profile
+    if profile_slug:
+        profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
+        if not profile:
+            raise HTTPException(
+                status_code=404,
+                detail=f"El perfil con slug '{profile_slug}' no fue encontrado"
+            )
+        query = query.filter(Order.profile_id == profile.id)
+    
+    # Filter by date range
+    if search_params.date_from:
+        date_from_dt = datetime.combine(search_params.date_from, datetime.min.time())
+        query = query.filter(Order.created_at >= date_from_dt)
+    
+    if search_params.date_to:
+        date_to_dt = datetime.combine(search_params.date_to, datetime.max.time())
+        query = query.filter(Order.created_at <= date_to_dt)
+    
+    # Filter by amount range
+    if search_params.amount_min is not None:
+        query = query.filter(Order.total >= search_params.amount_min)
+    
+    if search_params.amount_max is not None:
+        query = query.filter(Order.total <= search_params.amount_max)
+    
+    # Filter by customer (name or phone)
+    if search_params.customer_query:
+        customer_pattern = f"%{search_params.customer_query}%"
+        query = query.filter(
+            (Order.customer_name.ilike(customer_pattern)) |
+            (Order.customer_phone.ilike(customer_pattern))
+        )
+    
+    # Filter by estado
+    if search_params.estado:
+        query = query.filter(Order.estado == search_params.estado.value)
+    
+    # Get orders
+    orders = query.order_by(Order.created_at.desc()).all()
+    
+    # Filter by product if specified
+    if search_params.product_id:
+        filtered_orders = []
+        for order in orders:
+            # Check if any order item has the specified product
+            has_product = any(item.product_id == search_params.product_id for item in order.items)
+            if has_product:
+                filtered_orders.append(order)
+        orders = filtered_orders
+    
+    return orders
+
 
 @router.post("", response_model=OrderResponse, status_code=201)
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
@@ -360,3 +442,46 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
         )
     
     return _serialize_order(order)
+
+
+@router.delete("/{order_id}", status_code=204)
+def delete_order(order_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina una orden del sistema y repone el stock de los productos.
+    
+    Esta operación:
+    1. Encuentra la orden y sus items
+    2. Repone el stock de cada producto
+    3. Elimina la orden (los items se eliminan en cascada)
+    
+    Args:
+        - order_id: ID de la orden a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si la orden no existe
+        - 500: Si ocurre un error al eliminar
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La orden con ID {order_id} no fue encontrada"
+        )
+    
+    try:
+        # Reponer stock antes de eliminar
+        for item in order.items:
+            stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+            if stock:
+                stock.cantidad_disponible += item.cantidad
+        
+        # Eliminar orden (items se eliminan en cascada)
+        db.delete(order)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar orden: {str(e)}")

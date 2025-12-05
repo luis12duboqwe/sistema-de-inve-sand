@@ -106,3 +106,37 @@ def update_profile(profile_id: int, updates: ProfileUpdate, db: Session = Depend
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar perfil: {str(e)}")
+
+
+@router.delete("/{profile_id}", status_code=204)
+def delete_profile(profile_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina un perfil del sistema.
+    
+    ADVERTENCIA: Esta operación eliminará en cascada todos los productos y órdenes 
+    asociados al perfil debido a las reglas CASCADE configuradas.
+    
+    Args:
+        - profile_id: ID del perfil a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si el perfil no existe
+        - 500: Si ocurre un error al eliminar
+    """
+    profile = db.query(Profile).filter(Profile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El perfil con ID {profile_id} no fue encontrado"
+        )
+    
+    try:
+        db.delete(profile)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar perfil: {str(e)}")

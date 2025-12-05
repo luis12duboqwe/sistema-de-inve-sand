@@ -272,3 +272,45 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear productos: {str(e)}")
+
+
+@router.delete("/{product_id}", status_code=204)
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina un producto del sistema.
+    
+    NOTA: Si el producto está referenciado en order_items, la eliminación 
+    fallará debido a la restricción RESTRICT en la foreign key.
+    
+    Args:
+        - product_id: ID del producto a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si el producto no existe
+        - 400: Si el producto está referenciado en órdenes
+        - 500: Si ocurre un error al eliminar
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El producto con ID {product_id} no fue encontrado"
+        )
+    
+    try:
+        db.delete(product)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        # Check if it's a foreign key constraint error
+        error_msg = str(e)
+        if "FOREIGN KEY constraint failed" in error_msg or "foreign key" in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede eliminar el producto porque está referenciado en órdenes existentes"
+            )
+        raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")

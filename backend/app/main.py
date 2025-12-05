@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, get_db, check_db_connection
-from app.routers import profiles, products, orders, faq
+from app.routers import profiles, products, orders, faq, customers, reports
 from app.models import Profile, Product, Stock
 from app.config import settings
 from sqlalchemy.orm import Session
@@ -35,6 +35,8 @@ app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
+app.include_router(customers.router)
+app.include_router(reports.router)
 
 @app.get("/")
 def read_root():

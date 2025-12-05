@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Generic, TypeVar
+from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
+import math
 
 
 class CategoriaEnum(str, Enum):
@@ -247,3 +248,87 @@ class FAQEntryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Pagination schema
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response schema"""
+    items: List[T]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+# Customer schemas
+class CustomerStats(BaseModel):
+    """Customer statistics schema"""
+    customer_phone: str
+    customer_name: str
+    total_orders: int
+    total_spent: Decimal
+    average_order: Decimal
+    first_order_date: datetime
+    last_order_date: datetime
+
+
+class CustomerHistory(CustomerStats):
+    """Customer history with order list"""
+    orders: List[OrderListResponse]
+
+
+# Advanced search schemas
+class OrderSearchParams(BaseModel):
+    """Advanced order search parameters"""
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    amount_min: Optional[Decimal] = None
+    amount_max: Optional[Decimal] = None
+    customer_query: Optional[str] = None  # Search in name or phone
+    product_id: Optional[int] = None
+    estado: Optional[EstadoOrdenEnum] = None
+
+
+# Dashboard/Analytics schemas
+class DashboardStats(BaseModel):
+    """Dashboard KPIs"""
+    active_products: int
+    total_products: int
+    low_stock_count: int  # Products with stock < 10
+    out_of_stock_count: int  # Products with stock = 0
+    total_inventory_value: Decimal
+    pending_orders: int
+    total_orders_today: int
+    total_revenue_today: Decimal
+    total_revenue_month: Decimal
+    total_revenue_last_month: Decimal
+
+
+class TopProduct(BaseModel):
+    """Top selling product"""
+    product_id: int
+    product_name: str
+    units_sold: int
+    total_revenue: Decimal
+
+
+class SalesReport(BaseModel):
+    """Sales analytics report"""
+    period_start: date
+    period_end: date
+    total_orders: int
+    total_revenue: Decimal
+    average_order_value: Decimal
+    top_products: List[TopProduct]
+
+
+class InventoryAlert(BaseModel):
+    """Inventory stock alert"""
+    product_id: int
+    product_name: str
+    sku: str
+    current_stock: int
+    category: str
+    alert_level: str  # "critical", "low", "out_of_stock"

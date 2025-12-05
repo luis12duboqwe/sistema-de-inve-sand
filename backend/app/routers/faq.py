@@ -182,3 +182,34 @@ def update_faq_entry(faq_id: int, updates: FAQEntryUpdate, db: Session = Depends
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar entrada FAQ: {str(e)}")
+
+
+@router.delete("/{faq_id}", status_code=204)
+def delete_faq_entry(faq_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina una entrada FAQ del sistema.
+    
+    Args:
+        - faq_id: ID de la entrada FAQ a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si la entrada FAQ no existe
+        - 500: Si ocurre un error al eliminar
+    """
+    faq_entry = db.query(FAQEntry).filter(FAQEntry.id == faq_id).first()
+    if not faq_entry:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La entrada FAQ con ID {faq_id} no fue encontrada"
+        )
+    
+    try:
+        db.delete(faq_entry)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar entrada FAQ: {str(e)}")
