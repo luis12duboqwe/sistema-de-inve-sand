@@ -10,92 +10,82 @@ export interface SyncStatus {
 
 export function useRealtimeSync() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    isSyncing: false,
+    lastSyncTime: null,
     syncError: null,
-  }))
-  const syncTimeoutR
+    deviceId: generateDeviceId()
+  })
 
-    
-  
-          isSyncing: true,
-        }))
+  const syncTimeoutRef = useRef<number | null>(null)
+  const isFirstMount = useRef(true)
 
-        }
-        syncTimeoutRef.current = setTimeout(() => {
-            ...prev,
-        setSyncStatus(prev => ({
-          ...prev,
-          isSyncing: true,
-          lastSyncTime: new Date()
-        }))
-
-        if (syncTimeoutRef.current) {
-          clearTimeout(syncTimeoutRef.current)
-        }
-
-        syncTimeoutRef.current = setTimeout(() => {
-          setSyncStatus(prev => ({
-            ...prev,
-            isSyncing: false
-          }))
-        }, 500)
-
-        if (!isFirstMount.current) {
-          const keyName = e.key.replace('spark-kv-', '')
-          toast.info(`Cambio detectado: ${keyName}`, {
-            description: 'Datos sincronizados desde otro dispositivo',
-            duration: 2000
-          })
-        }
-
-     
-
-      window.removeEventListener('storage'
-      if (syncTimeoutRef.curr
-      }
+  useEffect(() => {
+    isFirstMount.current = false
   }, [])
-  const markSyncStart = useCallbac
-      ...pr
-    }))
 
-
-      isSyncing: false,
-      syncError: null
-
-  const markSyncError 
+  const markSyncStart = useCallback(() => {
+    setSyncStatus(prev => ({
       ...prev,
-      syncEr
+      isSyncing: true,
+      syncError: null
+    }))
+  }, [])
 
-  return {
-    markSyncStart,
-    markSyncError
-}
-function generateDeviceId(): string {
-  if (s
-  con
-  return
+  const markSyncComplete = useCallback(() => {
+    setSyncStatus(prev => ({
+      ...prev,
+      isSyncing: false,
+      lastSyncTime: new Date(),
+      syncError: null
+    }))
+  }, [])
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  const markSyncError = useCallback((error: string) => {
+    setSyncStatus(prev => ({
+      ...prev,
+      isSyncing: false,
       syncError: error
     }))
+  }, [])
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (!e.key || !e.key.startsWith('spark-kv-')) return
+
+      setSyncStatus(prev => ({
+        ...prev,
+        isSyncing: true,
+        lastSyncTime: new Date()
+      }))
+
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current)
+      }
+
+      syncTimeoutRef.current = window.setTimeout(() => {
+        setSyncStatus(prev => ({
+          ...prev,
+          isSyncing: false
+        }))
+      }, 500)
+
+      if (!isFirstMount.current) {
+        const keyName = e.key.replace('spark-kv-', '')
+        toast.info(`Cambio detectado: ${keyName}`, {
+          description: 'Datos sincronizados desde otro dispositivo',
+          duration: 2000
+        })
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current)
+      }
+    }
   }, [])
 
   return {
