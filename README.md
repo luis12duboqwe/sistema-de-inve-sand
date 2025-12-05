@@ -4,13 +4,15 @@
 
 Un sistema completo de gestión de inventario de celulares y accesorios diseñado para integrarse con chatbots de ventas en WhatsApp, Facebook e Instagram.
 
-**🆕 NOVEDAD**: Ahora con soporte para backend FastAPI - elige entre almacenamiento local o base de datos compartida.
+**🆕 NOVEDAD**: Ahora con **sincronización en tiempo real multi-dispositivo** - trabaja desde cualquier dispositivo y mantén todo sincronizado automáticamente.
+
+**🔄 SINCRONIZACIÓN MULTI-DISPOSITIVO**: Ver [REALTIME_SYNC.md](./REALTIME_SYNC.md) para documentación completa.
 
 ## 🏗️ Arquitectura
 
 El sistema soporta **dos modos de backend**:
 
-- **Modo Local** (por defecto): Datos en Spark KV (almacenamiento del navegador)
+- **Modo Local** (por defecto): Datos en Spark KV (almacenamiento del navegador) con sincronización automática
 - **Modo API**: Conectado a backend FastAPI con SQLite
 
 👉 Ver [INTEGRATION.md](./INTEGRATION.md) para guía completa de integración.
@@ -104,6 +106,18 @@ El sistema soporta **dos modos de backend**:
 - ✅ Atajos de teclado
 - ✅ **Gráficos interactivos con recharts**
 
+#### 🔹 Sincronización Multi-Dispositivo (100%) ✓
+- ✅ Sincronización automática en tiempo real
+- ✅ Indicador de estado de sincronización
+- ✅ Detección de cambios remotos
+- ✅ Notificaciones de actualización
+- ✅ Identificación única por dispositivo
+- ✅ Configuración de intervalo de sincronización
+- ✅ Resolución automática de conflictos
+- ✅ Panel de configuración de sincronización
+- ✅ Limpiar datos de sincronización
+- ✅ Documentación completa
+
 ---
 
 ## 🚀 Inicio Rápido
@@ -135,7 +149,7 @@ Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
 - **date-fns** - Manejo de fechas
 - **Recharts** - Gráficos y visualizaciones
 - **Framer Motion** - Animaciones
-- **Spark KV** - Persistencia de datos
+- **Spark KV** - Persistencia de datos y sincronización en tiempo real
 
 ### Backend
 - **FastAPI** - Framework API

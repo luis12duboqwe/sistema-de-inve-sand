@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { useKV } from '@github/spark/hooks'
-import { Database, CloudArrowUp, CloudSlash, Bell } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
 
@@ -21,9 +21,10 @@ interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenNotificationSettings?: () => void
+  onOpenSyncSettings?: () => void
 }
 
-export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings, onOpenSyncSettings }: SettingsDialogProps) {
   const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [useApi, setUseApi] = useKV<boolean>('settings_use_api', false)
   const [isTestingConnection, setIsTestingConnection] = useState(false)
@@ -88,6 +89,30 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings 
         </DialogHeader>
 
         <div className="space-y-6">
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">
+                  Sincronización Multi-Dispositivo
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Configurar sincronización en tiempo real
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  onOpenSyncSettings?.()
+                }}
+              >
+                <ArrowsClockwise size={16} className="mr-2" />
+                Configurar
+              </Button>
+            </div>
+          </div>
+
           <div className="rounded-lg border p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">

@@ -37,10 +37,14 @@ import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
 import { AIForecastingDialog } from '@/components/AIForecastingDialog'
 import { ForecastingWidget } from '@/components/ForecastingWidget'
 import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDialog'
+import { SyncIndicator } from '@/components/SyncIndicator'
+import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
 import { useForecasting } from '@/hooks/use-forecasting'
+import { useRealtimeSync } from '@/hooks/use-realtime-sync'
+import { useSyncDetection } from '@/hooks/use-sync-detection'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF, generateProductReportPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
@@ -74,6 +78,7 @@ export default function App() {
   const [showCustomerHistory, setShowCustomerHistory] = useState(false)
   const [showForecastingDialog, setShowForecastingDialog] = useState(false)
   const [showOptimizationDialog, setShowOptimizationDialog] = useState(false)
+  const [showSyncSettings, setShowSyncSettings] = useState(false)
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
@@ -91,6 +96,21 @@ export default function App() {
     products ?? [],
     orders ?? [],
     profiles ?? []
+  )
+
+  const { syncStatus, markSyncStart, markSyncComplete } = useRealtimeSync()
+
+  useSyncDetection(
+    ['inventory-products', 'inventory-orders', 'inventory-profiles'],
+    (event) => {
+      if (event.key === 'inventory-products') {
+        setProducts(event.newValue || [])
+      } else if (event.key === 'inventory-orders') {
+        setOrders(event.newValue || [])
+      } else if (event.key === 'inventory-profiles') {
+        setProfiles(event.newValue || [])
+      }
+    }
   )
 
   const currentProfile = selectedProfile !== 'all' 
@@ -143,11 +163,13 @@ export default function App() {
     if (selectedProducts.size === 0) return
     
     try {
+      markSyncStart()
       const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
       setProducts(updatedProducts)
       toast.success(`${selectedProducts.size} productos eliminados`)
       setSelectedProducts(new Set())
       setBulkActionMode(false)
+      markSyncComplete()
     } catch (error) {
       console.error('Error deleting products:', error)
       toast.error('Error al eliminar productos')
@@ -304,6 +326,14 @@ export default function App() {
       altKey: true,
       action: () => setShowOptimizationDialog(true),
       description: 'Ver insights de optimización',
+      category: 'general'
+    },
+    {
+      id: 'open-sync-settings',
+      key: 's',
+      altKey: true,
+      action: () => setShowSyncSettings(true),
+      description: 'Configuración de sincronización',
       category: 'general'
     },
     {
@@ -559,6 +589,8 @@ export default function App() {
             </motion.div>
             
             <div className="flex items-center gap-2">
+              <SyncIndicator syncStatus={syncStatus} />
+              
               <Badge variant={useAPI ? "default" : "secondary"} className="hidden sm:flex items-center gap-1">
                 {useAPI ? <CloudArrowUp size={14} /> : <Database size={14} />}
                 {useAPI ? 'API' : 'Local'}
@@ -1228,6 +1260,7 @@ export default function App() {
         open={showSettingsDialog}
         onOpenChange={setShowSettingsDialog}
         onOpenNotificationSettings={() => setShowNotificationSettings(true)}
+        onOpenSyncSettings={() => setShowSyncSettings(true)}
       />
 
       <KeyboardShortcutsDialog
@@ -1371,6 +1404,11 @@ export default function App() {
           setShowOptimizationDialog(false)
           setEditingProduct(product)
         }}
+      />
+
+      <SyncSettingsDialog
+        open={showSyncSettings}
+        onOpenChange={setShowSyncSettings}
       />
     </div>
   )

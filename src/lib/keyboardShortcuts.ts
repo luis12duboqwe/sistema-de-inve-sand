@@ -99,6 +99,41 @@ export const DEFAULT_SHORTCUTS: Omit<KeyboardShortcut, 'action'>[] = [
     ctrlKey: true,
     description: 'Seleccionar todos',
     category: 'search'
+  },
+  {
+    id: 'open-sync-settings',
+    key: 's',
+    altKey: true,
+    description: 'Configuración de sincronización',
+    category: 'general'
+  },
+  {
+    id: 'open-notifications',
+    key: 'n',
+    altKey: true,
+    description: 'Abrir notificaciones',
+    category: 'general'
+  },
+  {
+    id: 'view-low-stock',
+    key: 'l',
+    altKey: true,
+    description: 'Ver reporte de stock bajo',
+    category: 'general'
+  },
+  {
+    id: 'view-forecasting',
+    key: 'f',
+    altKey: true,
+    description: 'Ver pronóstico de ventas IA',
+    category: 'general'
+  },
+  {
+    id: 'view-optimization',
+    key: 'o',
+    altKey: true,
+    description: 'Ver insights de optimización',
+    category: 'general'
   }
 ]
 
