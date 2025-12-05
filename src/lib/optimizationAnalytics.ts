@@ -129,7 +129,7 @@ export function analyzePricing(
   products.filter(p => p.activo).forEach(product => {
     const productOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.created_at) >= thirtyDaysAgo
+    )
     )
 
     const totalSold = productOrders.reduce((sum, order) => {
