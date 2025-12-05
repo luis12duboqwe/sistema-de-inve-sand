@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle } from '@phosphor-icons/react'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings, AdvancedSearchFilters } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -36,6 +36,7 @@ import { ReportsDialog } from '@/components/ReportsDialog'
 import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
 import { AIForecastingDialog } from '@/components/AIForecastingDialog'
 import { ForecastingWidget } from '@/components/ForecastingWidget'
+import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -72,6 +73,7 @@ export default function App() {
   const [showReportsDialog, setShowReportsDialog] = useState(false)
   const [showCustomerHistory, setShowCustomerHistory] = useState(false)
   const [showForecastingDialog, setShowForecastingDialog] = useState(false)
+  const [showOptimizationDialog, setShowOptimizationDialog] = useState(false)
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
@@ -294,6 +296,14 @@ export default function App() {
       altKey: true,
       action: () => setShowForecastingDialog(true),
       description: 'Ver pronóstico de ventas IA',
+      category: 'general'
+    },
+    {
+      id: 'view-optimization',
+      key: 'o',
+      altKey: true,
+      action: () => setShowOptimizationDialog(true),
+      description: 'Ver insights de optimización',
       category: 'general'
     },
     {
@@ -558,6 +568,16 @@ export default function App() {
                 products={products ?? []}
                 profiles={profiles ?? []}
               />
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowOptimizationDialog(true)}
+                title="Insights de Optimización (Alt + O)"
+                className="relative hover:bg-accent/20"
+              >
+                <Lightbulb size={20} weight="duotone" className="text-accent" />
+              </Button>
               
               <Button
                 variant="ghost"
@@ -1338,6 +1358,18 @@ export default function App() {
           }}
         />
       )}
+
+      <OptimizationInsightsDialog
+        open={showOptimizationDialog}
+        onOpenChange={setShowOptimizationDialog}
+        products={products ?? []}
+        orders={orders ?? []}
+        profile={currentProfile}
+        onProductClick={(product) => {
+          setShowOptimizationDialog(false)
+          setEditingProduct(product)
+        }}
+      />
     </div>
   )
 }

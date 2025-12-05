@@ -145,6 +145,13 @@ A next-generation inventory management system for mobile phones and accessories 
 - **Progression**: AI reviews forecast data → Identifies patterns and anomalies → Generates natural language insights → Displays prioritized recommendations → User applies insights to business strategy
 - **Success criteria**: Insights are specific and actionable, recommendations align with business context, language is clear and non-technical, insights refresh with each forecast generation
 
+### AI Optimization Dashboard
+- **Functionality**: Comprehensive AI-powered analysis dashboard exploring optimization opportunities across pricing, inventory, customer behavior, product mix, and operational efficiency
+- **Purpose**: Provide deep, multi-dimensional business intelligence that identifies concrete actions to increase revenue, reduce costs, and improve operational efficiency
+- **Trigger**: User clicks "Optimization Insights" icon in header or accesses from main dashboard
+- **Progression**: Open dashboard → View executive summary with key metrics → Explore 5 analysis dimensions (Pricing, Inventory, Customer, Product Mix, Operations) → Review AI-generated insights for each dimension with data visualizations → See specific recommendations with projected impact → Click actions to implement changes → Track optimization score over time
+- **Success criteria**: Analysis completes within 15 seconds, insights are specific with quantified impact estimates, recommendations prioritized by potential value, visualizations clearly support insights, insights refresh based on latest data
+
 ## Edge Case Handling
 - **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
 - **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
