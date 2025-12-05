@@ -16,29 +16,50 @@ from app.schemas import (
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
+def _serialize_product_for_order(product: Product) -> dict:
+    """
+    Helper function to serialize a Product for order item responses.
+    
+    Args:
+        - product: Product model instance
+        
+    Returns:
+        Dictionary with product data for OrderItemResponse
+    """
+    return {
+        "id": product.id,
+        "nombre": product.nombre,
+        "categoria": product.categoria,
+        "marca": product.marca,
+        "modelo": product.modelo,
+        "capacidad": product.capacidad,
+        "condicion": product.condicion,
+        "precio": product.precio,
+        "moneda": product.moneda,
+        "garantia_meses": product.garantia_meses,
+        "stock_disponible": product.stock.cantidad_disponible if product.stock else 0
+    }
+
+
 def _serialize_order(order: Order) -> OrderResponse:
+    """
+    Helper function to serialize an Order model to OrderResponse schema.
+    
+    Args:
+        - order: Order model instance
+        
+    Returns:
+        OrderResponse with complete items and product details
+    """
     items_response = []
     for item in order.items:
-        product = item.product
         items_response.append({
             "id": item.id,
             "product_id": item.product_id,
             "cantidad": item.cantidad,
             "precio_unitario": item.precio_unitario,
             "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            ) if product else None
+            "product": ProductResponse(**_serialize_product_for_order(item.product)) if item.product else None
         })
 
     return OrderResponse(
@@ -338,39 +359,4 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
     
-    items_response = []
-    for item in order.items:
-        product = item.product
-        items_response.append({
-            "id": item.id,
-            "product_id": item.product_id,
-            "cantidad": item.cantidad,
-            "precio_unitario": item.precio_unitario,
-            "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            )
-        })
-    
-    return OrderResponse(
-        id=order.id,
-        profile_id=order.profile_id,
-        customer_name=order.customer_name,
-        customer_phone=order.customer_phone,
-        canal=order.canal,
-        metodo_pago=order.metodo_pago,
-        total=order.total,
-        estado=order.estado,
-        created_at=order.created_at,
-        items=items_response
-    )
+    return _serialize_order(order)

@@ -9,28 +9,33 @@ from app.schemas import FAQEntryCreate, FAQEntryResponse, FAQEntryUpdate
 router = APIRouter()
 
 
-@router.post("", response_model=FAQEntryResponse, status_code=201)
-def create_faq_entry(faq_entry: FAQEntryCreate, db: Session = Depends(get_db)):
-    if not faq_entry.pregunta_clave.strip():
-        raise HTTPException(status_code=400, detail="La pregunta clave no puede estar vacía")
-    if not faq_entry.respuesta.strip():
-        raise HTTPException(status_code=400, detail="La respuesta no puede estar vacía")
-
-    db_faq = FAQEntry(**faq_entry.model_dump())
-    db.add(db_faq)
-    db.commit()
-    db.refresh(db_faq)
-
-    return db_faq
-
-
-@router.get("/{faq_id}", response_model=FAQEntryResponse)
-def get_faq_entry(faq_id: int, db: Session = Depends(get_db)):
-    faq_entry = db.query(FAQEntry).filter(FAQEntry.id == faq_id).first()
-    if not faq_entry:
-        raise HTTPException(status_code=404, detail=f"La entrada FAQ con ID {faq_id} no fue encontrada")
-
-    return faq_entry
+@router.get("", response_model=List[FAQEntryResponse])
+def list_faq_entries(
+    activa: bool = Query(True, description="Filtrar por entradas activas"),
+    categoria: str = Query(None, description="Filtrar por categoría"),
+    limit: int = Query(100, description="Número máximo de resultados"),
+    db: Session = Depends(get_db)
+):
+    """
+    Lista entradas FAQ.
+    
+    Args:
+        - activa: Filtrar por estado activo (default: True)
+        - categoria: Filtro opcional por categoría
+        - limit: Número máximo de resultados (default: 100)
+        
+    Returns:
+        Lista de entradas FAQ
+    """
+    query = db.query(FAQEntry)
+    
+    if activa is not None:
+        query = query.filter(FAQEntry.activa == activa)
+    
+    if categoria:
+        query = query.filter(FAQEntry.categoria == categoria)
+    
+    return query.order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).limit(limit).all()
 
 
 @router.get("/search", response_model=List[FAQEntryResponse])
@@ -39,29 +44,116 @@ def search_faq_entries(
     limit: int = Query(3, description="Número máximo de resultados"),
     db: Session = Depends(get_db)
 ):
+    """
+    Busca entradas FAQ por coincidencia de texto.
+    
+    Args:
+        - query: Texto de búsqueda
+        - limit: Número máximo de resultados (default: 3)
+        
+    Returns:
+        Lista de entradas FAQ que coinciden con la búsqueda
+        
+    Raises:
+        - 400: Si el parámetro query está vacío
+        - 500: Si ocurre un error al buscar
+    """
     if not query.strip():
         raise HTTPException(status_code=400, detail="El parámetro 'query' no puede estar vacío")
 
-    search_term = f"%{query.strip().lower()}%"
+    try:
+        search_term = f"%{query.strip().lower()}%"
 
-    results = db.query(FAQEntry).filter(
-        FAQEntry.activa == True,
-        or_(
-            func.lower(FAQEntry.pregunta_clave).like(search_term),
-            func.lower(FAQEntry.ejemplo_pregunta_cliente).like(search_term)
-        )
-    ).order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).limit(limit).all()
+        results = db.query(FAQEntry).filter(
+            FAQEntry.activa == True,
+            or_(
+                func.lower(FAQEntry.pregunta_clave).like(search_term),
+                func.lower(FAQEntry.ejemplo_pregunta_cliente).like(search_term)
+            )
+        ).order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).limit(limit).all()
 
-    for faq in results:
-        faq.veces_usada += 1
-    if results:
+        for faq in results:
+            faq.veces_usada += 1
+        if results:
+            db.commit()
+
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al buscar entradas FAQ: {str(e)}")
+
+
+@router.post("", response_model=FAQEntryResponse, status_code=201)
+def create_faq_entry(faq_entry: FAQEntryCreate, db: Session = Depends(get_db)):
+    """
+    Crea una nueva entrada FAQ.
+    
+    Args:
+        - faq_entry: Datos de la entrada FAQ a crear
+        
+    Returns:
+        Entrada FAQ creada
+        
+    Raises:
+        - 400: Si la pregunta clave o respuesta están vacías
+        - 500: Si ocurre un error al crear la entrada
+    """
+    if not faq_entry.pregunta_clave.strip():
+        raise HTTPException(status_code=400, detail="La pregunta clave no puede estar vacía")
+    if not faq_entry.respuesta.strip():
+        raise HTTPException(status_code=400, detail="La respuesta no puede estar vacía")
+
+    try:
+        db_faq = FAQEntry(**faq_entry.model_dump())
+        db.add(db_faq)
         db.commit()
+        db.refresh(db_faq)
+        return db_faq
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear entrada FAQ: {str(e)}")
 
-    return results
+
+@router.get("/{faq_id}", response_model=FAQEntryResponse)
+def get_faq_entry(faq_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene una entrada FAQ por su ID.
+    
+    Args:
+        - faq_id: ID de la entrada FAQ
+        
+    Returns:
+        Entrada FAQ solicitada
+        
+    Raises:
+        - 404: Si la entrada FAQ no existe
+    """
+    faq_entry = db.query(FAQEntry).filter(FAQEntry.id == faq_id).first()
+    if not faq_entry:
+        raise HTTPException(status_code=404, detail=f"La entrada FAQ con ID {faq_id} no fue encontrada")
+
+    return faq_entry
 
 
 @router.patch("/{faq_id}", response_model=FAQEntryResponse)
 def update_faq_entry(faq_id: int, updates: FAQEntryUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza una entrada FAQ existente.
+    
+    Args:
+        - faq_id: ID de la entrada FAQ a actualizar
+        - updates: Campos a modificar
+        
+    Returns:
+        Entrada FAQ actualizada
+        
+    Raises:
+        - 404: Si la entrada FAQ no existe
+        - 400: Si se intenta establecer pregunta_clave o respuesta vacías
+        - 500: Si ocurre un error al actualizar
+    """
     faq_entry = db.query(FAQEntry).filter(FAQEntry.id == faq_id).first()
     if not faq_entry:
         raise HTTPException(status_code=404, detail=f"La entrada FAQ con ID {faq_id} no fue encontrada")
@@ -83,7 +175,10 @@ def update_faq_entry(faq_id: int, updates: FAQEntryUpdate, db: Session = Depends
     if updates.activa is not None:
         faq_entry.activa = updates.activa
 
-    db.commit()
-    db.refresh(faq_entry)
-
-    return faq_entry
+    try:
+        db.commit()
+        db.refresh(faq_entry)
+        return faq_entry
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar entrada FAQ: {str(e)}")

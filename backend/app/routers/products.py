@@ -9,6 +9,31 @@ from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpda
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
+
+def _serialize_product(product: Product) -> ProductResponse:
+    """
+    Helper function to serialize a Product model to ProductResponse schema.
+    
+    Args:
+        - product: Product model instance
+        
+    Returns:
+        ProductResponse with stock_disponible
+    """
+    return ProductResponse(
+        id=product.id,
+        nombre=product.nombre,
+        categoria=product.categoria,
+        marca=product.marca,
+        modelo=product.modelo,
+        capacidad=product.capacidad,
+        condicion=product.condicion,
+        precio=product.precio,
+        moneda=product.moneda,
+        garantia_meses=product.garantia_meses,
+        stock_disponible=product.stock.cantidad_disponible if product.stock else 0
+    )
+
 @router.get("", response_model=List[ProductResponse])
 def list_products(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
@@ -60,23 +85,7 @@ def list_products(
     
     products = query.all()
     
-    result = []
-    for product in products:
-        result.append(ProductResponse(
-            id=product.id,
-            nombre=product.nombre,
-            categoria=product.categoria,
-            marca=product.marca,
-            modelo=product.modelo,
-            capacidad=product.capacidad,
-            condicion=product.condicion,
-            precio=product.precio,
-            moneda=product.moneda,
-            garantia_meses=product.garantia_meses,
-            stock_disponible=product.stock.cantidad_disponible
-        ))
-    
-    return result
+    return [_serialize_product(product) for product in products]
 
 @router.post("", response_model=ProductResponse, status_code=201)
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
@@ -124,19 +133,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_product)
         
-        return ProductResponse(
-            id=db_product.id,
-            nombre=db_product.nombre,
-            categoria=db_product.categoria,
-            marca=db_product.marca,
-            modelo=db_product.modelo,
-            capacidad=db_product.capacidad,
-            condicion=db_product.condicion,
-            precio=db_product.precio,
-            moneda=db_product.moneda,
-            garantia_meses=db_product.garantia_meses,
-            stock_disponible=db_stock.cantidad_disponible
-        )
+        return _serialize_product(db_product)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
@@ -164,19 +161,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
             detail=f"El producto con ID {product_id} no fue encontrado"
         )
     
-    return ProductResponse(
-        id=product.id,
-        nombre=product.nombre,
-        categoria=product.categoria,
-        marca=product.marca,
-        modelo=product.modelo,
-        capacidad=product.capacidad,
-        condicion=product.condicion,
-        precio=product.precio,
-        moneda=product.moneda,
-        garantia_meses=product.garantia_meses,
-        stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-    )
+    return _serialize_product(product)
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
@@ -212,19 +197,7 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
     try:
         db.commit()
         db.refresh(product)
-        return ProductResponse(
-            id=product.id,
-            nombre=product.nombre,
-            categoria=product.categoria,
-            marca=product.marca,
-            modelo=product.modelo,
-            capacidad=product.capacidad,
-            condicion=product.condicion,
-            precio=product.precio,
-            moneda=product.moneda,
-            garantia_meses=product.garantia_meses,
-            stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-        )
+        return _serialize_product(product)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar producto: {str(e)}")
@@ -292,23 +265,7 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
 
         db.commit()
 
-        result = []
-        for product, stock in created_products:
-            result.append(ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=stock.cantidad_disponible
-            ))
-
-        return result
+        return [_serialize_product(product) for product, _ in created_products]
     except HTTPException:
         db.rollback()
         raise
