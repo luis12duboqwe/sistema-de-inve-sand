@@ -124,6 +124,27 @@ A next-generation inventory management system for mobile phones and accessories 
 - **Progression**: Open keyboard shortcuts dialog → Click customize/settings → View list of all actions with current bindings → Click on action to rebind → Press desired key combination → System validates for conflicts → Save new binding or cancel → Changes apply immediately
 - **Success criteria**: All shortcuts are customizable, conflict detection prevents duplicate bindings, reset to defaults option available, custom bindings persist across sessions, visual recording of key combinations works reliably
 
+### AI-Powered Sales Forecasting
+- **Functionality**: Analyze 90 days of sales history to predict future sales trends, estimate days until stockout, and generate intelligent restock recommendations
+- **Purpose**: Enable proactive inventory management by predicting when products will run out and how much to reorder
+- **Trigger**: User clicks AI forecast icon in header (Alt+F) or generates forecast from widget on dashboard
+- **Progression**: Click forecast icon → AI analyzes sales patterns → View summary dashboard with projected revenue → Review individual product forecasts with confidence scores → Check restock alerts sorted by urgency → Read AI-generated business insights → Click product to edit/restock
+- **Success criteria**: Forecasts generated within 10 seconds, predictions based on 30-day and 90-day trends with growth factors, critical alerts clearly highlighted, confidence scores reflect data availability, recommendations include safety stock calculations
+
+### Predictive Restocking Alerts
+- **Functionality**: Automatically identify products at risk of stockout and calculate optimal reorder quantities with urgency levels
+- **Purpose**: Prevent lost sales from stockouts and optimize inventory investment
+- **Trigger**: Generated automatically with forecasting analysis, visible in widget and full forecast dialog
+- **Progression**: System analyzes stock velocity → Identifies products below 14-day supply → Calculates recommended order quantities → Displays alerts sorted by urgency (critical/high/medium/low) → User reviews reasoning → Takes action on critical items
+- **Success criteria**: Alerts account for sales trends and growth patterns, urgency levels accurately reflect risk (critical = <3 days, high = <7 days), recommended quantities include 14-day safety buffer, reasoning explains why restock is needed
+
+### AI Business Insights
+- **Functionality**: GPT-4 powered analysis generates 3-5 actionable insights based on inventory patterns, sales trends, and stock levels
+- **Purpose**: Surface hidden opportunities and risks that aren't obvious from raw metrics
+- **Trigger**: Generated automatically during forecasting analysis
+- **Progression**: AI reviews forecast data → Identifies patterns and anomalies → Generates natural language insights → Displays prioritized recommendations → User applies insights to business strategy
+- **Success criteria**: Insights are specific and actionable, recommendations align with business context, language is clear and non-technical, insights refresh with each forecast generation
+
 ## Edge Case Handling
 - **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
 - **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
@@ -137,6 +158,11 @@ A next-generation inventory management system for mobile phones and accessories 
 - **Missing Data**: Required fields validated with clear error messages before submission
 - **Export Empty Data**: Export button disabled when no data available, shows helpful message if attempted
 - **Keyboard Shortcut Conflicts**: Shortcuts designed to not conflict with browser defaults, help accessible via Shift+?
+- **Insufficient Sales History**: Forecasts show low confidence scores when based on limited data (<5 orders), recommendations adjusted for uncertainty
+- **No Sales History**: Products without sales show infinite days until stockout, recommendations based on industry defaults
+- **AI Service Unavailable**: Insights generation fails gracefully with fallback generic recommendations, forecasting calculations continue without AI enhancement
+- **Stale Forecast Data**: Widget shows time since last update, prompts regeneration after 24 hours, manual refresh always available
+- **Profile Switch During Forecast**: Forecast regenerates automatically for selected profile, cached data invalidated when profile changes
 
 ## Design Direction
 The design should evoke premium business intelligence software - sophisticated data visualization meets tactile interface design. Think Bloomberg Terminal aesthetics refined for modern touchscreens: confident use of space, purposeful motion, and information hierarchy that guides the eye naturally from insights to actions.

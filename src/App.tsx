@@ -34,9 +34,12 @@ import { LowStockReportDialog } from '@/components/LowStockReportDialog'
 import { AdvancedSearchDialog } from '@/components/AdvancedSearchDialog'
 import { ReportsDialog } from '@/components/ReportsDialog'
 import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
+import { AIForecastingDialog } from '@/components/AIForecastingDialog'
+import { ForecastingWidget } from '@/components/ForecastingWidget'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
+import { useForecasting } from '@/hooks/use-forecasting'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF, generateProductReportPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
@@ -68,6 +71,7 @@ export default function App() {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
   const [showReportsDialog, setShowReportsDialog] = useState(false)
   const [showCustomerHistory, setShowCustomerHistory] = useState(false)
+  const [showForecastingDialog, setShowForecastingDialog] = useState(false)
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
@@ -85,6 +89,25 @@ export default function App() {
     products ?? [],
     orders ?? [],
     profiles ?? []
+  )
+
+  const currentProfile = selectedProfile !== 'all' 
+    ? (profiles ?? []).find(p => p.slug === selectedProfile) || null
+    : (profiles ?? [])[0] || null
+
+  const {
+    forecasts,
+    alerts,
+    summary: forecastingSummary,
+    lastUpdated: forecastingLastUpdated,
+    isGenerating: isForecastingGenerating,
+    generateForecastData,
+    getCriticalAlerts,
+  } = useForecasting(
+    products ?? [],
+    orders ?? [],
+    currentProfile,
+    false
   )
 
   const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
@@ -263,6 +286,14 @@ export default function App() {
       altKey: true,
       action: () => setShowLowStockReport(true),
       description: 'Ver reporte de stock bajo',
+      category: 'general'
+    },
+    {
+      id: 'view-forecasting',
+      key: 'f',
+      altKey: true,
+      action: () => setShowForecastingDialog(true),
+      description: 'Ver pronóstico de ventas IA',
       category: 'general'
     },
     {
@@ -531,6 +562,21 @@ export default function App() {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={() => setShowForecastingDialog(true)}
+                title="Pronóstico de Ventas IA (Alt + F)"
+                className="relative hover:bg-primary/10"
+              >
+                <Sparkle size={20} weight="duotone" />
+                {getCriticalAlerts().length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center font-bold">
+                    {getCriticalAlerts().length}
+                  </span>
+                )}
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowHealthCheckDialog(true)}
                 title="Diagnóstico de Salud"
                 className="relative hover:bg-primary/10"
@@ -580,11 +626,25 @@ export default function App() {
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
-            <DashboardStats
-              products={products ?? []}
-              orders={orders ?? []}
-              onViewLowStockReport={() => setShowLowStockReport(true)}
-            />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <DashboardStats
+                  products={products ?? []}
+                  orders={orders ?? []}
+                  onViewLowStockReport={() => setShowLowStockReport(true)}
+                />
+              </div>
+              <div>
+                <ForecastingWidget
+                  summary={forecastingSummary ?? null}
+                  criticalAlerts={getCriticalAlerts()}
+                  lastUpdated={forecastingLastUpdated ?? null}
+                  isGenerating={isForecastingGenerating}
+                  onViewDetails={() => setShowForecastingDialog(true)}
+                  onRefresh={generateForecastData}
+                />
+              </div>
+            </div>
             
             {selectedProfile !== 'all' && (() => {
               const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
@@ -1261,6 +1321,20 @@ export default function App() {
           onViewOrder={(order) => {
             setEditingOrder(order)
             setShowCustomerHistory(false)
+          }}
+        />
+      )}
+
+      {currentProfile && (
+        <AIForecastingDialog
+          open={showForecastingDialog}
+          onOpenChange={setShowForecastingDialog}
+          products={products ?? []}
+          orders={orders ?? []}
+          profile={currentProfile}
+          onProductClick={(product) => {
+            setShowForecastingDialog(false)
+            setEditingProduct(product)
           }}
         />
       )}
