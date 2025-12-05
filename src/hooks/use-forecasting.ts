@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
-import { generateAIForecast, generateRestockAlerts, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
+import { generateAIForecasts, generateRestockAlerts, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
 
 export function useForecasting(
   products: ProductWithStock[],
@@ -20,10 +20,9 @@ export function useForecasting(
 
     setIsGenerating(true)
     try {
-      const { forecasts: newForecasts, summary: newSummary } = await generateAIForecast(
+      const { forecasts: newForecasts, summary: newSummary } = await generateAIForecasts(
         products,
-        orders,
-        profile
+        orders
       )
 
       const newAlerts = await generateRestockAlerts(newForecasts, profile)

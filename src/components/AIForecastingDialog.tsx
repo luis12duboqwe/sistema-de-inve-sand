@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Sparkle, TrendUp, TrendDown, Minus, WarningCircle, Package, CalendarBlank, ChartLine, Lightbulb } from '@phosphor-icons/react'
 import { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
-import { generateAIForecast, generateRestockAlerts, generateAIInsights, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
+import { generateAIForecasts, generateRestockAlerts, generateAIInsights, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 
@@ -44,10 +44,9 @@ export function AIForecastingDialog({
   const generateForecasts = async () => {
     setIsLoading(true)
     try {
-      const { forecasts: newForecasts, summary: newSummary } = await generateAIForecast(
+      const { forecasts: newForecasts, summary: newSummary } = await generateAIForecasts(
         products,
-        orders,
-        profile
+        orders
       )
       setForecasts(newForecasts)
       setSummary(newSummary)
@@ -55,7 +54,7 @@ export function AIForecastingDialog({
       const newAlerts = await generateRestockAlerts(newForecasts, profile)
       setAlerts(newAlerts)
 
-      const newInsights = await generateAIInsights(newForecasts, newAlerts, products, orders)
+      const newInsights = await generateAIInsights(newForecasts, newAlerts, products)
       setInsights(newInsights)
 
       toast.success('Análisis predictivo completado')

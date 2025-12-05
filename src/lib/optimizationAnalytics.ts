@@ -1,7 +1,7 @@
-import type { ProductWithStock, OrderWithItems, Profile } from './types'
+import type { ProductWithStock, OrderWithItems } from './types'
 
-  potentialRevenue: number
-  efficiencyGain: number
+export interface OptimizationMetrics {
+  optimizationScore: number
   potentialRevenue: number
   costSavings: number
   efficiencyGain: number
@@ -30,38 +30,37 @@ export interface InventoryInsight {
   impact: number
 }
 
+export interface CustomerInsight {
+  type: 'high_value' | 'at_risk' | 'growth_opportunity' | 'segment'
+  customerName?: string
+  customerPhone?: string
   metric: string
+  value: string | number
   reasoning: string
+  action: string
 }
-export interface Produc
-  productIds: nu
-  metric: strin
-  reasoning: string
-  impact: number
 
-
+export interface ProductMixInsight {
+  type: 'best_seller' | 'poor_performer' | 'bundle_opportunity' | 'category_trend'
+  productIds: number[]
+  productNames: string[]
   metric: string
+  value: string | number
   reasoning: string
+  action: string
   impact: number
-
-  metrics: Optim
-    insights: P
-  }
-    insights: In
-  }
- 
-
-    insights: ProductMixInsight[]
-  }
-    insights: 
-  }
 }
-export function cal
-  orders: OrderW
-  let score = 0
- 
 
-    productMix: 0.15
+export interface OperationalInsight {
+  type: 'process' | 'timing' | 'resource' | 'automation'
+  area: string
+  metric: string
+  value: string | number
+  reasoning: string
+  action: string
+}
+
+export interface OptimizationAnalysis {
   metrics: OptimizationMetrics
   pricing: {
     insights: PricingInsight[]
@@ -108,7 +107,7 @@ export function calculateOptimizationScore(
 
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const recentOrders = orders.filter(o => new Date(o.fecha_orden) >= thirtyDaysAgo)
+  const recentOrders = orders.filter(o => new Date(o.created_at) >= thirtyDaysAgo)
   const salesVelocityScore = Math.min(100, (recentOrders.length / 30) * 10)
   score += salesVelocityScore * weights.salesVelocity
 
@@ -130,7 +129,7 @@ export function analyzePricing(
   products.filter(p => p.activo).forEach(product => {
     const productOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.fecha_orden) >= thirtyDaysAgo
+      new Date(o.created_at) >= thirtyDaysAgo
     )
 
     const totalSold = productOrders.reduce((sum, order) => {
@@ -141,30 +140,44 @@ export function analyzePricing(
     const avgSalesPerWeek = totalSold / 4
 
     if (avgSalesPerWeek > 5 && product.stock_disponible > 10) {
-      const suggestedPrice = product.precio_venta * 1.08
+      const suggestedPrice = product.precio * 1.08
       insights.push({
         type: 'underpriced',
         productId: product.id,
         productName: product.nombre,
-        currentPrice: product.precio_venta,
+        currentPrice: product.precio,
         suggestedPrice: Math.round(suggestedPrice),
-        reasoning: `Alta demanda (${totalSold} unidades/mes) con buen stock. El producto puede soportar un incremento de precio del 8%.`,
-        potentialImpact: Math.round((suggestedPrice - product.precio_venta) * totalSold),
+        reasoning: `Alta demanda (${totalSold} unidades/mes) con buen stock disponible. El mercado muestra disposición a pagar más por este producto.`,
+        potentialImpact: Math.round((suggestedPrice - product.precio) * totalSold),
         confidence: 0.85
       })
     }
 
     if (avgSalesPerWeek < 1 && product.stock_disponible > 15) {
-      const suggestedPrice = product.precio_venta * 0.92
+      const suggestedPrice = product.precio * 0.92
       insights.push({
         type: 'overpriced',
         productId: product.id,
         productName: product.nombre,
-        currentPrice: product.precio_venta,
+        currentPrice: product.precio,
         suggestedPrice: Math.round(suggestedPrice),
-        reasoning: `Baja rotación con exceso de inventario. Reducir precio 8% podría acelerar ventas y liberar capital.`,
+        reasoning: `Baja rotación con exceso de inventario. Reducir precio 8% podría acelerar ventas y liberar capital inmovilizado.`,
         potentialImpact: Math.round(product.stock_disponible * suggestedPrice * 0.5),
         confidence: 0.70
+      })
+    }
+
+    if (product.stock_disponible < 5 && avgSalesPerWeek > 2) {
+      const suggestedPrice = product.precio * 1.12
+      insights.push({
+        type: 'dynamic_opportunity',
+        productId: product.id,
+        productName: product.nombre,
+        currentPrice: product.precio,
+        suggestedPrice: Math.round(suggestedPrice),
+        reasoning: `Stock limitado con demanda activa. Oportunidad de precio dinámico antes de reabastecer (+12%).`,
+        potentialImpact: Math.round((suggestedPrice - product.precio) * product.stock_disponible),
+        confidence: 0.75
       })
     }
   })
@@ -183,7 +196,7 @@ export function analyzeInventory(
   products.filter(p => p.activo).forEach(product => {
     const recentOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.fecha_orden) >= ninetyDaysAgo
+      new Date(o.created_at) >= ninetyDaysAgo
     )
 
     const totalSold = recentOrders.reduce((sum, order) => {
@@ -195,54 +208,59 @@ export function analyzeInventory(
     const optimalStock = Math.ceil(avgMonthlyDemand * 1.5)
 
     if (product.stock_disponible > optimalStock * 2 && totalSold > 0) {
+      const capitalTied = Math.round((product.stock_disponible - optimalStock) * product.precio * 0.6)
       insights.push({
         type: 'overstock',
         productId: product.id,
         productName: product.nombre,
         currentStock: product.stock_disponible,
         optimalStock: optimalStock,
-        reasoning: `Stock actual es ${Math.round((product.stock_disponible / optimalStock) * 100)}% superior al óptimo basado en demanda de 90 días.`,
-        action: `Reducir inventario a ${optimalStock} unidades para liberar ${Math.round((product.stock_disponible - optimalStock) * product.precio_compra)} en capital`,
-        impact: Math.round((product.stock_disponible - optimalStock) * product.precio_compra)
+        reasoning: `Stock actual es ${Math.round((product.stock_disponible / optimalStock) * 100)}% superior al óptimo. Capital inmovilizado que podría reinvertirse.`,
+        action: `Reducir a ${optimalStock} unidades mediante promociones o ajuste de pedidos`,
+        impact: capitalTied
       })
     }
 
     if (totalSold === 0 && product.stock_disponible > 5) {
+      const deadCapital = Math.round(product.stock_disponible * product.precio * 0.6)
       insights.push({
         type: 'dead_stock',
         productId: product.id,
         productName: product.nombre,
         currentStock: product.stock_disponible,
         optimalStock: 0,
-        reasoning: `Sin ventas en 90 días. Inventario inmovilizado representa ${Math.round(product.stock_disponible * product.precio_compra)} en capital muerto.`,
-        action: `Considerar promoción agresiva, liquidación, o descontinuar producto`,
-        impact: Math.round(product.stock_disponible * product.precio_compra * 0.7)
+        reasoning: `Sin ventas en 90 días. ${product.stock_disponible} unidades representan $${deadCapital} en capital muerto.`,
+        action: `Liquidación agresiva (30-40% desc.) o bundle con productos estrella para recuperar inversión`,
+        impact: deadCapital
       })
     }
 
     if (avgMonthlyDemand > 10 && product.stock_disponible < avgMonthlyDemand * 0.5) {
+      const lostSales = Math.round(avgMonthlyDemand * 0.3)
+      const lostRevenue = Math.round(lostSales * product.precio * 0.3)
       insights.push({
         type: 'understock',
         productId: product.id,
         productName: product.nombre,
         currentStock: product.stock_disponible,
         optimalStock: optimalStock,
-        reasoning: `Alta demanda (${Math.round(avgMonthlyDemand)}/mes) pero stock crítico. Riesgo de perder ${Math.round(avgMonthlyDemand * 0.3)} ventas mensuales.`,
-        action: `Ordenar ${optimalStock - product.stock_disponible} unidades urgentemente`,
-        impact: Math.round((avgMonthlyDemand * 0.3) * (product.precio_venta - product.precio_compra))
+        reasoning: `Alta demanda (${Math.round(avgMonthlyDemand)}/mes) pero stock crítico. Riesgo de perder ~${lostSales} ventas mensuales.`,
+        action: `Reorden urgente de ${optimalStock - product.stock_disponible} unidades. Prioridad máxima.`,
+        impact: lostRevenue
       })
     }
 
-    if (totalSold > 20) {
+    if (totalSold > 20 && avgMonthlyDemand > 0) {
+      const monthlyProfit = Math.round(avgMonthlyDemand * product.precio * 0.25)
       insights.push({
         type: 'fast_mover',
         productId: product.id,
         productName: product.nombre,
         currentStock: product.stock_disponible,
         optimalStock: Math.ceil(avgMonthlyDemand * 2),
-        reasoning: `Producto estrella con ${totalSold} unidades vendidas en 90 días. Máxima prioridad de restock.`,
-        action: `Mantener stock mínimo de ${Math.ceil(avgMonthlyDemand * 2)} unidades para evitar quiebres`,
-        impact: Math.round(avgMonthlyDemand * (product.precio_venta - product.precio_compra))
+        reasoning: `Producto estrella: ${totalSold} unidades en 90 días. Genera ~$${monthlyProfit}/mes en margen.`,
+        action: `Mantener stock mínimo de ${Math.ceil(avgMonthlyDemand * 2)} unidades. Nunca permitir quiebres.`,
+        impact: monthlyProfit
       })
     }
   })
@@ -252,236 +270,276 @@ export function analyzeInventory(
 
 export function analyzeCustomers(orders: OrderWithItems[]): CustomerInsight[] {
   const insights: CustomerInsight[] = []
-  const customerMap = new Map<string, { name: string; phone: string; orders: OrderWithItems[]; totalSpent: number; lastOrder: Date }>()
+  const customerMap = new Map<string, { 
+    name: string
+    phone: string
+    orders: OrderWithItems[]
+    totalSpent: number
+    lastOrder: Date 
+  }>()
 
   orders.forEach(order => {
     const key = order.customer_phone || 'unknown'
-  const sixtyDaysAgo = new Date(
-
-    if (customer.orders.length >= 3 && customer
-      insights.push({
-        customerPho
-        metric: 'Días 
-        reasoning: `Cliente recurrente (${cust
+    if (!customerMap.has(key)) {
+      customerMap.set(key, {
+        name: order.customer_name,
+        phone: order.customer_phone,
+        orders: [],
+        totalSpent: 0,
+        lastOrder: new Date(order.created_at)
       })
-  })
-  return insights.slice(0, 12)
-
-  products: ProductWithStock[],
-): ProductMixInsight[] {
-  const thirtyDaysAgo = new Date()
-
-    
-
-
-      const item = order.items.f
-    }, 0)
-    const totalPr
-
-      return sum + (revenue - cost)
-
-      const item = 
-    }, 0)
-    return { product, revenue: total
-
-    .filter(p => p.revenue > 0
-    .slice(0, 3)
-  if (topByRevenue.length > 0) {
-      type: 'best_seller',
-      
-    
-
-    })
-
-    .filter(p => p.revenue > 0 &&
-  if (poorPerformers.length > 0) {
-
-      productNames: poorPerformer
-      value: poorPerformers.length,
-      action: `Revisar precios inmediatamente o descontinuar estos productos`,
-    })
-
-  productPerformance.forEach(p => {
-    if (!brandGroups.has(brand)) {
+    }
+    const customer = customerMap.get(key)!
+    customer.orders.push(order)
+    customer.totalSpent += order.total
+    const orderDate = new Date(order.created_at)
+    if (orderDate > customer.lastOrder) {
+      customer.lastOrder = orderDate
     }
   })
-  const topBrand = Array.from(brandGroups.entries())
-      brand,
-      pr
-    .
-  if
 
-      productNames: topBrand.p
- 
+  const sixtyDaysAgo = new Date()
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
 
-    })
+  customerMap.forEach(customer => {
+    if (customer.orders.length >= 3 && customer.totalSpent > 5000) {
+      insights.push({
+        type: 'high_value',
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        metric: 'Total Gastado',
+        value: customer.totalSpent,
+        reasoning: `Cliente VIP con ${customer.orders.length} compras y $${customer.totalSpent} en valor total. Top 10% de la base.`,
+        action: `Programa de lealtad VIP: descuentos exclusivos 5-10%, prioridad en nuevos lanzamientos, seguimiento personalizado`
+      })
+    }
 
-}
-export function analyzeO
-  orders: OrderWithItems[]
-  const insights: OperationalInsig
-  const ordersByDay = new Map<number, number>()
+    if (customer.orders.length >= 3 && customer.lastOrder < sixtyDaysAgo) {
+      const daysSinceLastOrder = Math.round((Date.now() - customer.lastOrder.getTime()) / (1000 * 60 * 60 * 24))
+      insights.push({
+        type: 'at_risk',
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        metric: 'Días desde última compra',
+        value: daysSinceLastOrder,
+        reasoning: `Cliente recurrente (${customer.orders.length} compras) inactivo ${daysSinceLastOrder} días. Alto riesgo de pérdida.`,
+        action: `Campaña de reactivación: WhatsApp personalizado, oferta especial 15%, recordatorio de productos que compró antes`
+      })
+    }
 
+    if (customer.orders.length === 2 && customer.lastOrder >= sixtyDaysAgo) {
+      insights.push({
+        type: 'growth_opportunity',
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        metric: 'Compras',
+        value: customer.orders.length,
+        reasoning: `Cliente con potencial: 2 compras recientes mostrando interés. Está en fase de conversión a recurrente.`,
+        action: `Incentivo de tercera compra: cupón 10%, cross-sell de accesorios, invitar a seguir redes sociales`
+      })
+    }
   })
-  const peakDay = Array.from(ordersByDay.entr
 
-    const days = ['Domingo', 'Lunes', 'Martes'
-    i
+  const avgOrderValue = orders.length > 0 
+    ? orders.reduce((sum, o) => sum + o.total, 0) / orders.length 
+    : 0
 
-      value: peakDay[1],
-      action: `Asegurar personal y stock adecuado los ${days[peakDay[
-    })
+  if (avgOrderValue > 0) {
+    const highValueCustomers = Array.from(customerMap.values())
+      .filter(c => c.totalSpent / c.orders.length > avgOrderValue * 1.5)
+      .length
 
-
-      type: 'process',
-      metric: 'Órdenes pendientes',
-      reasoning: `${pendingOrders.length} órdenes en estado pendiente pued
-      impact: 0
+    if (highValueCustomers > 0) {
+      insights.push({
+        type: 'segment',
+        metric: 'Clientes alto valor',
+        value: highValueCustomers,
+        reasoning: `${highValueCustomers} clientes gastan 50%+ sobre el promedio ($${Math.round(avgOrderValue)}).`,
+        action: `Crear segmento premium: ofertas de bundles, financiamiento preferencial, atención prioritaria`
+      })
+    }
   }
-  const l
 
-      area: 'Gestión de inventario',
-      value: lowStockItems.length,
-      action: `Implementar alertas autom
+  return insights.slice(0, 12)
+}
+
+export function analyzeProductMix(
+  products: ProductWithStock[],
+  orders: OrderWithItems[]
+): ProductMixInsight[] {
+  const insights: ProductMixInsight[] = []
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const productPerformance = products.filter(p => p.activo).map(product => {
+    const productOrders = orders.filter(o => 
+      o.items.some(item => item.product_id === product.id) &&
+      new Date(o.created_at) >= thirtyDaysAgo
+    )
+
+    const totalRevenue = productOrders.reduce((sum, order) => {
+      const item = order.items.find(i => i.product_id === product.id)
+      return sum + ((item?.precio_unitario || 0) * (item?.cantidad || 0))
+    }, 0)
+
+    const totalQuantity = productOrders.reduce((sum, order) => {
+      const item = order.items.find(i => i.product_id === product.id)
+      return sum + (item?.cantidad || 0)
+    }, 0)
+
+    const profit = totalRevenue - (totalQuantity * product.precio * 0.6)
+
+    return { product, revenue: totalRevenue, quantity: totalQuantity, profit }
+  })
+
+  const topByRevenue = productPerformance
+    .filter(p => p.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 3)
+
+  if (topByRevenue.length > 0) {
+    const totalRevenue = topByRevenue.reduce((sum, p) => sum + p.revenue, 0)
+    insights.push({
+      type: 'best_seller',
+      productIds: topByRevenue.map(p => p.product.id),
+      productNames: topByRevenue.map(p => p.product.nombre),
+      metric: 'Ingresos últimos 30 días',
+      value: totalRevenue,
+      reasoning: `Top 3 productos generan $${totalRevenue} (${topByRevenue.map(p => p.product.nombre).join(', ')}). Concentrar estrategia aquí.`,
+      action: `Asegurar stock perpetuo, invertir en marketing de estos SKUs, crear bundles alrededor de ellos`,
+      impact: Math.round(totalRevenue * 0.2)
     })
+  }
+
+  const poorPerformers = productPerformance
+    .filter(p => p.revenue > 0 && p.profit < 0)
+    .sort((a, b) => a.profit - b.profit)
+    .slice(0, 3)
+
+  if (poorPerformers.length > 0) {
+    insights.push({
+      type: 'poor_performer',
+      productIds: poorPerformers.map(p => p.product.id),
+      productNames: poorPerformers.map(p => p.product.nombre),
+      metric: 'Productos con pérdida',
+      value: poorPerformers.length,
+      reasoning: `${poorPerformers.length} productos vendiendo por debajo del costo. Están destruyendo margen.`,
+      action: `Revisar precios inmediatamente o descontinuar. No seguir invirtiendo en inventario de estos SKUs`,
+      impact: Math.round(Math.abs(poorPerformers.reduce((sum, p) => sum + p.profit, 0)))
+    })
+  }
+
+  const brandGroups = new Map<string, { products: ProductWithStock[]; revenue: number }>()
+  productPerformance.forEach(p => {
+    const brand = p.product.marca
+    if (!brandGroups.has(brand)) {
+      brandGroups.set(brand, { products: [], revenue: 0 })
+    }
+    brandGroups.get(brand)!.products.push(p.product)
+    brandGroups.get(brand)!.revenue += p.revenue
+  })
+
+  const topBrand = Array.from(brandGroups.entries())
+    .sort((a, b) => b[1].revenue - a[1].revenue)[0]
+
+  if (topBrand && topBrand[1].revenue > 0) {
+    insights.push({
+      type: 'category_trend',
+      productIds: topBrand[1].products.map(p => p.id),
+      productNames: topBrand[1].products.map(p => p.nombre),
+      metric: 'Marca líder',
+      value: topBrand[1].revenue,
+      reasoning: `${topBrand[0]} domina con $${topBrand[1].revenue} en ingresos. ${topBrand[1].products.length} SKUs activos.`,
+      action: `Expandir catálogo de ${topBrand[0]}, negociar mejores términos con distribuidor, marketing enfocado en esta marca`,
+      impact: Math.round(topBrand[1].revenue * 0.15)
+    })
+  }
+
+  return insights.filter(i => i.impact > 0)
+}
+
+export function analyzeOperations(
+  products: ProductWithStock[],
+  orders: OrderWithItems[]
+): OperationalInsight[] {
+  const insights: OperationalInsight[] = []
+
+  const ordersByDay = new Map<number, number>()
+  orders.forEach(order => {
+    const day = new Date(order.created_at).getDay()
+    ordersByDay.set(day, (ordersByDay.get(day) || 0) + 1)
+  })
+
+  const peakDay = Array.from(ordersByDay.entries())
+    .sort((a, b) => b[1] - a[1])[0]
+
+  if (peakDay) {
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+    insights.push({
+      type: 'timing',
+      area: 'Patrones de demanda',
+      metric: 'Día pico',
+      value: days[peakDay[0]],
+      reasoning: `${days[peakDay[0]]} concentra ${peakDay[1]} órdenes, ${Math.round((peakDay[1] / orders.length) * 100)}% del total.`,
+      action: `Asegurar personal y stock adecuado los ${days[peakDay[0]]}s. Planear promociones en días de baja demanda.`
+    })
+  }
+
+  const pendingOrders = orders.filter(o => o.estado === 'pendiente')
+  if (pendingOrders.length > 5) {
+    insights.push({
+      type: 'process',
+      area: 'Procesamiento de órdenes',
+      metric: 'Órdenes pendientes',
+      value: pendingOrders.length,
+      reasoning: `${pendingOrders.length} órdenes en estado pendiente pueden indicar cuellos de botella en fulfillment.`,
+      action: `Revisar proceso de confirmación y empaque. Automatizar notificaciones de seguimiento. Asignar responsable.`
+    })
+  }
+
+  const lowStockItems = products.filter(p => p.activo && p.stock_disponible < 5).length
+  if (lowStockItems > 3) {
+    insights.push({
+      type: 'automation',
+      area: 'Gestión de inventario',
+      metric: 'Productos en riesgo de quiebre',
+      value: lowStockItems,
+      reasoning: `${lowStockItems} productos bajo umbral crítico. Reorden manual es ineficiente y riesgoso.`,
+      action: `Implementar alertas automáticas por WhatsApp cuando stock < 5. Crear lista de reorden semanal automatizada.`
+    })
+  }
+
+  const avgOrderValue = orders.length > 0 
+    ? orders.reduce((sum, o) => sum + o.total, 0) / orders.length 
+    : 0
 
   if (avgOrderValue && avgOrderValue < 500) {
-    
-
-      reasoning: `Valor promedio de orden
-      impact: Math.round(orders
+    insights.push({
+      type: 'resource',
+      area: 'Valor de transacción',
+      metric: 'Ticket promedio',
+      value: `$${Math.round(avgOrderValue)}`,
+      reasoning: `Ticket promedio bajo ($${Math.round(avgOrderValue)}). Pequeño incremento tiene gran impacto acumulado.`,
+      action: `Implementar upselling: "lleva 2 x precio especial", bundles de accesorios, financiamiento en compras >$1000`
+    })
   }
-  return insight
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  const completedOrders = orders.filter(o => o.estado === 'completada')
+  const cancelledOrders = orders.filter(o => o.estado === 'cancelada')
+  
+  if (cancelledOrders.length > 0) {
+    const cancellationRate = (cancelledOrders.length / orders.length) * 100
+    if (cancellationRate > 10) {
+      insights.push({
+        type: 'process',
+        area: 'Retención de ventas',
+        metric: 'Tasa de cancelación',
+        value: `${cancellationRate.toFixed(1)}%`,
+        reasoning: `${cancellationRate.toFixed(1)}% de órdenes canceladas. Cada cancelación es ingreso perdido.`,
+        action: `Investigar razones: confirmar disponibilidad antes de venta, mejorar comunicación de tiempos de entrega, ofrecer alternativas`
+      })
+    }
+  }
+
+  return insights.slice(0, 8)
+}

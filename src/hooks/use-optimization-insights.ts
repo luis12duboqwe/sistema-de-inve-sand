@@ -177,12 +177,12 @@ function generateInventorySummary(insights: any[]): string {
   const understock = insights.filter(i => i.type === 'understock').length
   const deadStock = insights.filter(i => i.type === 'dead_stock').length
   
-  const parts = []
+  const parts: string[] = []
   if (overstock > 0) parts.push(`${overstock} productos con exceso de inventario`)
   if (understock > 0) parts.push(`${understock} productos con stock insuficiente`)
   if (deadStock > 0) parts.push(`${deadStock} productos sin movimiento`)
   
-  return parts.join(', ') + '. Optimización requerida para mejorar capital de trabajo.'
+  return parts.length > 0 ? parts.join(', ') + '. Optimización requerida para mejorar capital de trabajo.' : 'Niveles de inventario están balanceados.'
 }
 
 function generateCustomerSummary(insights: any[]): string {

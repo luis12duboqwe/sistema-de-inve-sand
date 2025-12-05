@@ -1,13 +1,13 @@
 import { ProductWithStock, OrderWithItems, Profile } from './types'
 
-  productName: string
+export interface SalesForecast {
   productId: number
   productName: string
   currentStock: number
   averageDailySales: number
   predictedSalesNext7Days: number
   predictedSalesNext30Days: number
-  trend: 'increasing' | 'st
+  daysUntilStockout: number
   restockRecommendation: number
   confidence: number
   trend: 'increasing' | 'stable' | 'decreasing'
@@ -18,188 +18,197 @@ export interface RestockAlert {
   productName: string
   currentStock: number
   daysUntilStockout: number
+  urgency: 'critical' | 'high' | 'medium' | 'low'
+  reasoning: string
+  recommendedOrderQuantity: number
+  estimatedRestockDate: Date
 }
+
 export interface ForecastingSummary {
-  productsNeedingRestock: nu
-  estimatedRevenue7
- 
+  totalProducts: number
+  productsNeedingRestock: number
+  criticalStockAlerts: number
+  estimatedRevenue7Days: number
+  estimatedRevenue30Days: number
+  topPerformingProducts: string[]
+  slowMovingProducts: string[]
+}
 
-export async function generateAIForec
-  orders: OrderWithItem
-): Promise<{ forecasts: SalesFor
-  const thirtyDaysAgo = new D
+export async function generateAIForecasts(
+  products: ProductWithStock[],
+  orders: OrderWithItems[]
+): Promise<{ forecasts: SalesForecast[]; summary: ForecastingSummary }> {
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const sixtyDaysAgo = new Date()
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
 
-    (o) => new Date(o.created_at
-
+  const recentOrders = orders.filter(
+    (o) => new Date(o.created_at) >= thirtyDaysAgo && o.estado !== 'cancelada'
+  )
+  const olderOrders = orders.filter(
     (o) =>
- 
+      new Date(o.created_at) >= sixtyDaysAgo &&
+      new Date(o.created_at) < thirtyDaysAgo &&
+      o.estado !== 'cancelada'
+  )
 
   const forecasts: SalesForecast[] = []
-  for (const product of product
 
-    const olderSal
+  for (const product of products.filter((p) => p.activo)) {
+    const recentSales = calculateProductSales(product.id, recentOrders)
+    const olderSales = calculateProductSales(product.id, olderOrders)
+
     const recentDailySales = recentSales.totalQuantity / 30
+    const olderDailySales = olderSales.totalQuantity / 30
 
+    const trend = calculateTrend(recentDailySales, olderDailySales)
+    const growthFactor = calculateGrowthFactor(recentDailySales, olderDailySales, trend)
 
+    const predictedDailySales = recentDailySales * growthFactor
+    const predictedSalesNext7Days = Math.round(predictedDailySales * 7)
+    const predictedSalesNext30Days = Math.round(predictedDailySales * 30)
 
-
-
+    const daysUntilStockout =
       predictedDailySales > 0
-   
+        ? Math.round(product.stock_disponible / predictedDailySales)
+        : 999
 
+    const restockRecommendation = Math.max(
       0,
+      predictedSalesNext30Days - product.stock_disponible
     )
-    const confidence = calculateConfidence(recen
+
+    const confidence = calculateConfidence(recentSales.orderCount, olderSales.orderCount)
+
     forecasts.push({
-      productName: `${product.
-   
-
+      productId: product.id,
+      productName: `${product.marca} ${product.modelo}`,
+      currentStock: product.stock_disponible,
+      averageDailySales: recentDailySales,
+      predictedSalesNext7Days,
+      predictedSalesNext30Days,
+      daysUntilStockout,
       restockRecommendation,
-
+      confidence,
+      trend,
+    })
   }
-  forecasts.sort((a, b) => a.days
+
+  forecasts.sort((a, b) => a.daysUntilStockout - b.daysUntilStockout)
+
+  const summary = generateForecastingSummary(forecasts, products)
 
   return { forecasts, summary }
+}
 
-
+export async function generateRestockAlerts(
+  forecasts: SalesForecast[],
+  profile: Profile
 ): Promise<RestockAlert[]> {
-  const lowStockThreshold = profile.settings?.lowStockThr
+  const lowStockThreshold = profile.settings?.lowStockThreshold || 5
+  const alerts: RestockAlert[] = []
 
+  for (const forecast of forecasts) {
+    const needsRestock =
       forecast.daysUntilStockout <= 14 ||
+      forecast.currentStock <= lowStockThreshold ||
+      forecast.restockRecommendation > 0
 
     if (!needsRestock) continue
 
+    const urgency = determineUrgency(
+      forecast.daysUntilStockout,
       forecast.currentStock,
+      lowStockThreshold
     )
+
+    const recommendedOrderQuantity = Math.max(
+      forecast.restockRecommendation,
+      Math.ceil(forecast.averageDailySales * 30)
+    )
+
     const leadTimeDays = 7
+    const estimatedRestockDate = new Date()
+    estimatedRestockDate.setDate(estimatedRestockDate.getDate() + leadTimeDays)
 
+    const reasoning = generateRestockReasoning(forecast, urgency, lowStockThreshold)
 
-
+    alerts.push({
       productId: forecast.productId,
-      current
-
+      productName: forecast.productName,
+      currentStock: forecast.currentStock,
+      daysUntilStockout: forecast.daysUntilStockout,
+      urgency,
+      reasoning,
+      recommendedOrderQuantity,
       estimatedRestockDate,
     })
+  }
 
-    const urgencyOrder = { critical: 0, high: 1, medium: 2, low: 3 
-  })
+  const urgencyOrder = { critical: 0, high: 1, medium: 2, low: 3 }
+  alerts.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency])
 
+  return alerts
+}
 
-
-  products: ProductW
+export async function generateAIInsights(
+  forecasts: SalesForecast[],
+  alerts: RestockAlert[],
+  products: ProductWithStock[]
 ): Promise<string[]> {
-    forecasts.slice(0, 10).map((f) => ({
-      currentStock: f.currentStock,
-      daysUntilStockout: f.daysUntilStocko
-    }))
+  const forecastData = forecasts.slice(0, 10).map((f) => ({
+    product: f.productName,
+    currentStock: f.currentStock,
+    daysUntilStockout: f.daysUntilStockout,
+    trend: f.trend,
+    dailySales: f.averageDailySales.toFixed(2),
+  }))
 
-    alerts.slice(0, 5).m
-      urgency: a.urgency,
-    }))
+  const alertData = alerts.slice(0, 5).map((a) => ({
+    product: a.productName,
+    urgency: a.urgency,
+    recommendedOrder: a.recommendedOrderQuantity,
+  }))
 
-  cons
-   
+  const totalProducts = products.filter((p) => p.activo).length
+  const criticalAlerts = alerts.filter((a) => a.urgency === 'critical').length
 
+  const prompt = spark.llmPrompt`Actúa como analista de inventario experto. Analiza estos datos de pronóstico de ventas y genera exactamente 5 insights estratégicos:
 
+Forecasts (Top 10):
+${JSON.stringify(forecastData, null, 2)}
 
 Restock Alerts:
+${JSON.stringify(alertData, null, 2)}
 
-- Total Products: ${totalProduc
--
+Métricas:
+- Total Products: ${totalProducts}
+- Critical Alerts: ${criticalAlerts}
+
+Genera SOLO un objeto JSON con el formato:
+{
+  "insights": ["insight 1", "insight 2", "insight 3", "insight 4", "insight 5"]
+}
+
+Cada insight debe:
+1. Ser específico y accionable
+2. Basarse en los datos proporcionados
+3. Incluir números concretos
+4. Ser conciso (máximo 2 líneas)`
 
   try {
-    const parsed = JSON.parse
-  } catch (error) 
+    const response = await spark.llm(prompt, 'gpt-4o', true)
+    const parsed = JSON.parse(response)
+    return parsed.insights || []
+  } catch (error) {
+    console.error('Error generating AI insights:', error)
     return [
-      'Considera aumentar pedidos p
-    ]
-
-function calculateProductSales(
-  orders: OrderWithItems
-  let totalQuantity = 0
-  let orderCount = 0
-  for (const order of orders) {
-
-        totalRevenue += item.ca
-
-  }
-  return { totalQuantity, totalRe
-
-  recentDailySales: num
-): 'i
-
-
-
-  if (changePercent < -15) return 'decreasing'
-}
-
-  olderDailySales: number,
-
-    const growthR
-    return 1 + Math.min(growthRate *
-
-    const declineRate =
-    return 1 - Math.min(declineRate * 0.3, 0.2)
-
-}
-function calculateConfidenc
-
-  if (
-  i
-
-function generateForecast
-  products: ProductWithStock[]
-  const productsNeedingRestock = forecasts.filter(
-  ).
-
-  ).length
- 
-
-
-    const product = products.
-  }, 0)
-  const topPerformingProducts =
-    .slice(0, 5)
-
-    .filter((f) => f.averageDailySales < 0.1 && f.currentStock > 5)
-
-  return {
-    productsNeedi
-    estimatedRevenue7Days,
-    topPerformingProducts,
-  }
-
-  daysUntilStockout: number,
-  lowStockThreshold: 
-  if (d
-  if
-
-function genera
-  urgency: string
-): string {
-
-    reasons.push('Sin sto
-    reasons.push(`Stock bajo (${forecast.curr
-
-    
-
-    reasons.push('Tendenc
-
-    reasons.push(`Alta demanda (${forecast.averageDailySales.
-
-
-
-
-
-
-
-
-
-
-
-
+      'Prioriza reabastecer productos con alertas críticas para evitar quiebres de stock',
       'Considera aumentar pedidos para productos con tendencia creciente',
-      'Revisa productos de movimiento lento para posibles promociones',
+      'Revisa productos de movimiento lento para posibles promociones o descontinuación',
+      'Implementa alertas automáticas para mantener stock óptimo de tus top performers',
+      'Analiza patrones de demanda semanales para optimizar niveles de inventario',
     ]
   }
 }
