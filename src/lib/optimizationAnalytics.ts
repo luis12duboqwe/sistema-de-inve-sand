@@ -1,7 +1,7 @@
 import type { ProductWithStock, OrderWithItems, Profile } from './types'
 
-export interface OptimizationMetrics {
-  optimizationScore: number
+  potentialRevenue: number
+  efficiencyGain: number
   potentialRevenue: number
   costSavings: number
   efficiencyGain: number
@@ -30,38 +30,38 @@ export interface InventoryInsight {
   impact: number
 }
 
-export interface CustomerInsight {
-  type: 'high_value' | 'at_risk' | 'growth_opportunity' | 'segment'
-  customerPhone?: string
-  customerName?: string
   metric: string
-  value: number
   reasoning: string
-  action: string
 }
-
-export interface ProductMixInsight {
-  type: 'best_seller' | 'poor_performer' | 'bundle_opportunity' | 'category_trend'
-  productIds: number[]
-  productNames: string[]
-  metric: string
-  value: number
+export interface Produc
+  productIds: nu
+  metric: strin
   reasoning: string
-  action: string
   impact: number
-}
 
-export interface OperationalInsight {
-  type: 'process' | 'timing' | 'resource' | 'automation'
-  area: string
+
   metric: string
-  value: number
   reasoning: string
-  action: string
   impact: number
-}
 
-export interface OptimizationAnalysis {
+  metrics: Optim
+    insights: P
+  }
+    insights: In
+  }
+ 
+
+    insights: ProductMixInsight[]
+  }
+    insights: 
+  }
+}
+export function cal
+  orders: OrderW
+  let score = 0
+ 
+
+    productMix: 0.15
   metrics: OptimizationMetrics
   pricing: {
     insights: PricingInsight[]
@@ -256,232 +256,232 @@ export function analyzeCustomers(orders: OrderWithItems[]): CustomerInsight[] {
 
   orders.forEach(order => {
     const key = order.customer_phone || 'unknown'
-    if (!customerMap.has(key)) {
-      customerMap.set(key, {
-        name: order.customer_name || 'Unknown',
-        phone: order.customer_phone || '',
-        orders: [],
-        totalSpent: 0,
-        lastOrder: new Date(order.fecha_orden)
-      })
-    }
-    const customer = customerMap.get(key)!
-    customer.orders.push(order)
-    customer.totalSpent += order.total
-    if (new Date(order.fecha_orden) > customer.lastOrder) {
-      customer.lastOrder = new Date(order.fecha_orden)
-    }
-  })
+  const sixtyDaysAgo = new Date(
 
-  const customers = Array.from(customerMap.values())
-  const topCustomers = customers
-    .sort((a, b) => b.totalSpent - a.totalSpent)
-    .slice(0, 10)
-
-  topCustomers.slice(0, 5).forEach(customer => {
-    const avgOrderValue = customer.totalSpent / customer.orders.length
-    insights.push({
-      type: 'high_value',
-      customerPhone: customer.phone,
-      customerName: customer.name,
-      metric: 'Total Gastado',
-      value: customer.totalSpent,
-      reasoning: `Cliente VIP con ${customer.orders.length} órdenes y gasto promedio de ${Math.round(avgOrderValue)} por compra.`,
-      action: `Ofrecer programa de lealtad o descuentos exclusivos para retener este cliente de alto valor`
-    })
-  })
-
-  const thirtyDaysAgo = new Date()
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const sixtyDaysAgo = new Date()
-  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
-
-  customers.forEach(customer => {
-    if (customer.orders.length >= 3 && customer.lastOrder < sixtyDaysAgo) {
-      const daysSinceLastOrder = Math.floor((Date.now() - customer.lastOrder.getTime()) / (1000 * 60 * 60 * 24))
+    if (customer.orders.length >= 3 && customer
       insights.push({
-        type: 'at_risk',
-        customerPhone: customer.phone,
-        customerName: customer.name,
-        metric: 'Días sin comprar',
-        value: daysSinceLastOrder,
-        reasoning: `Cliente recurrente (${customer.orders.length} compras) sin actividad por ${daysSinceLastOrder} días. Riesgo de pérdida.`,
-        action: `Contactar con oferta personalizada o descuento de reactivación del 10%`
+        customerPho
+        metric: 'Días 
+        reasoning: `Cliente recurrente (${cust
       })
-    }
   })
-
   return insights.slice(0, 12)
-}
 
-export function analyzeProductMix(
   products: ProductWithStock[],
-  orders: OrderWithItems[]
 ): ProductMixInsight[] {
-  const insights: ProductMixInsight[] = []
   const thirtyDaysAgo = new Date()
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-  const productPerformance = products.filter(p => p.activo).map(product => {
-    const productOrders = orders.filter(o => 
-      o.items.some(item => item.product_id === product.id) &&
-      new Date(o.fecha_orden) >= thirtyDaysAgo
-    )
+    
 
-    const totalRevenue = productOrders.reduce((sum, order) => {
-      const item = order.items.find(i => i.product_id === product.id)
-      return sum + ((item?.precio_unitario || 0) * (item?.cantidad || 0))
+
+      const item = order.items.f
     }, 0)
+    const totalPr
 
-    const totalProfit = productOrders.reduce((sum, order) => {
-      const item = order.items.find(i => i.product_id === product.id)
-      const revenue = (item?.precio_unitario || 0) * (item?.cantidad || 0)
-      const cost = product.precio_compra * (item?.cantidad || 0)
       return sum + (revenue - cost)
+
+      const item = 
     }, 0)
+    return { product, revenue: total
 
-    const unitsSold = productOrders.reduce((sum, order) => {
-      const item = order.items.find(i => i.product_id === product.id)
-      return sum + (item?.cantidad || 0)
-    }, 0)
-
-    return { product, revenue: totalRevenue, profit: totalProfit, unitsSold }
-  })
-
-  const topByRevenue = productPerformance
-    .filter(p => p.revenue > 0)
-    .sort((a, b) => b.revenue - a.revenue)
+    .filter(p => p.revenue > 0
     .slice(0, 3)
-
   if (topByRevenue.length > 0) {
-    insights.push({
       type: 'best_seller',
-      productIds: topByRevenue.map(p => p.product.id),
-      productNames: topByRevenue.map(p => p.product.nombre),
-      metric: 'Ingresos (30 días)',
-      value: topByRevenue.reduce((sum, p) => sum + p.revenue, 0),
-      reasoning: `Top 3 productos generan ${Math.round((topByRevenue.reduce((sum, p) => sum + p.revenue, 0) / productPerformance.reduce((sum, p) => sum + p.revenue, 0)) * 100)}% de ingresos totales.`,
-      action: `Asegurar stock constante de estos productos críticos y considerar aumentar márgenes`,
-      impact: topByRevenue.reduce((sum, p) => sum + p.profit, 0)
+      
+    
+
     })
-  }
 
-  const poorPerformers = productPerformance
-    .filter(p => p.revenue > 0 && p.profit < 0)
-
+    .filter(p => p.revenue > 0 &&
   if (poorPerformers.length > 0) {
-    insights.push({
-      type: 'poor_performer',
-      productIds: poorPerformers.map(p => p.product.id),
-      productNames: poorPerformers.map(p => p.product.nombre),
-      metric: 'Productos con margen negativo',
+
+      productNames: poorPerformer
       value: poorPerformers.length,
-      reasoning: `${poorPerformers.length} productos vendiendo por debajo del costo de adquisición.`,
       action: `Revisar precios inmediatamente o descontinuar estos productos`,
-      impact: Math.abs(poorPerformers.reduce((sum, p) => sum + p.profit, 0))
     })
-  }
 
-  const brandGroups = new Map<string, typeof productPerformance>()
   productPerformance.forEach(p => {
-    const brand = p.product.marca || 'Sin marca'
     if (!brandGroups.has(brand)) {
-      brandGroups.set(brand, [])
     }
-    brandGroups.get(brand)!.push(p)
   })
-
   const topBrand = Array.from(brandGroups.entries())
-    .map(([brand, products]) => ({
       brand,
-      revenue: products.reduce((sum, p) => sum + p.revenue, 0),
-      products: products.map(p => p.product)
-    }))
-    .sort((a, b) => b.revenue - a.revenue)[0]
+      pr
+    .
+  if
 
-  if (topBrand && topBrand.products.length > 1) {
-    insights.push({
-      type: 'category_trend',
-      productIds: topBrand.products.map(p => p.id),
-      productNames: topBrand.products.map(p => p.nombre),
-      metric: 'Marca líder',
-      value: topBrand.revenue,
-      reasoning: `${topBrand.brand} es la marca más rentable con ${topBrand.revenue} en ingresos mensuales.`,
-      action: `Ampliar catálogo de ${topBrand.brand} y negociar mejores términos con proveedor`,
-      impact: Math.round(topBrand.revenue * 0.15)
+      productNames: topBrand.p
+ 
+
     })
-  }
 
-  return insights
 }
-
-export function analyzeOperations(
-  products: ProductWithStock[],
+export function analyzeO
   orders: OrderWithItems[]
-): OperationalInsight[] {
-  const insights: OperationalInsight[] = []
-
+  const insights: OperationalInsig
   const ordersByDay = new Map<number, number>()
-  orders.forEach(order => {
-    const day = new Date(order.fecha_orden).getDay()
-    ordersByDay.set(day, (ordersByDay.get(day) || 0) + 1)
+
   })
+  const peakDay = Array.from(ordersByDay.entr
 
-  const peakDay = Array.from(ordersByDay.entries())
-    .sort((a, b) => b[1] - a[1])[0]
+    const days = ['Domingo', 'Lunes', 'Martes'
+    i
 
-  if (peakDay) {
-    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
-    const peakPercentage = Math.round((peakDay[1] / orders.length) * 100)
-    insights.push({
-      type: 'timing',
-      area: 'Patrones de venta',
-      metric: 'Día pico',
       value: peakDay[1],
-      reasoning: `${days[peakDay[0]]} concentra ${peakPercentage}% de las ventas semanales.`,
-      action: `Asegurar personal y stock adecuado los ${days[peakDay[0]]}s`,
-      impact: 0
+      action: `Asegurar personal y stock adecuado los ${days[peakDay[
     })
-  }
 
-  const pendingOrders = orders.filter(o => o.estado === 'pendiente')
-  if (pendingOrders.length > 5) {
-    insights.push({
+
       type: 'process',
-      area: 'Gestión de órdenes',
       metric: 'Órdenes pendientes',
-      value: pendingOrders.length,
-      reasoning: `${pendingOrders.length} órdenes en estado pendiente pueden indicar cuellos de botella en el proceso.`,
-      action: `Revisar workflow de órdenes y asignar recursos para procesar backlog`,
+      reasoning: `${pendingOrders.length} órdenes en estado pendiente pued
       impact: 0
-    })
   }
+  const l
 
-  const lowStockItems = products.filter(p => p.activo && p.stock_disponible < 5)
-  if (lowStockItems.length > products.length * 0.2) {
-    insights.push({
-      type: 'automation',
       area: 'Gestión de inventario',
-      metric: 'Productos con stock bajo',
       value: lowStockItems.length,
-      reasoning: `${Math.round((lowStockItems.length / products.length) * 100)}% del catálogo en stock crítico sugiere proceso de reorden manual ineficiente.`,
-      action: `Implementar alertas automáticas de reorden y considerar sistema de punto de reorden`,
-      impact: 0
+      action: `Implementar alertas autom
     })
-  }
 
-  const avgOrderValue = orders.reduce((sum, o) => sum + o.total, 0) / orders.length
   if (avgOrderValue && avgOrderValue < 500) {
-    insights.push({
-      type: 'process',
-      area: 'Optimización de ventas',
-      metric: 'Valor promedio de orden',
-      value: Math.round(avgOrderValue),
-      reasoning: `Valor promedio de orden relativamente bajo (${Math.round(avgOrderValue)}). Oportunidad de aumentar ticket promedio.`,
-      action: `Implementar estrategias de upselling, bundles, o mínimo de compra para envío gratis`,
-      impact: Math.round(orders.length * avgOrderValue * 0.15)
-    })
-  }
+    
 
-  return insights
-}
+      reasoning: `Valor promedio de orden
+      impact: Math.round(orders
+  }
+  return insight
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
