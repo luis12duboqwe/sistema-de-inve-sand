@@ -332,3 +332,67 @@ class InventoryAlert(BaseModel):
     current_stock: int
     category: str
     alert_level: str  # "critical", "low", "out_of_stock"
+
+
+# Authentication schemas
+class Token(BaseModel):
+    """JWT token response"""
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    """Data contained in JWT token"""
+    username: Optional[str] = None
+
+
+class UserBase(BaseModel):
+    """Base user schema"""
+    username: str
+    email: str
+    full_name: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    """Schema for creating a new user"""
+    password: str
+    
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str):
+        if len(value) < 6:
+            raise ValueError("Password must be at least 6 characters long")
+        return value
+    
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str):
+        if len(value) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if not value.isalnum():
+            raise ValueError("Username must contain only alphanumeric characters")
+        return value
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating user information"""
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserResponse(UserBase):
+    """Schema for user responses"""
+    id: int
+    is_active: bool
+    is_superuser: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class UserInDB(UserResponse):
+    """User schema as stored in database"""
+    hashed_password: str

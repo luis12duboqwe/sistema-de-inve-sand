@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: List[str] = ["*"]  # In production, set specific origins
     
+    # JWT Authentication
+    secret_key: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    
     # Environment
     environment: str = "development"
     

@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, get_db, check_db_connection
-from app.routers import profiles, products, orders, faq, customers, reports
+from app.routers import profiles, products, orders, faq, customers, reports, auth_router
 from app.models import Profile, Product, Stock
 from app.config import settings
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
