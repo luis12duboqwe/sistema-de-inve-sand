@@ -19,7 +19,7 @@ export function useRealtimeSync() {
   const syncTimeoutRef = useRef<number | null>(null)
   const isFirstMount = useRef(true)
 
-  useEffect(() => {
+
     isFirstMount.current = false
   }, [])
 
@@ -49,29 +49,29 @@ export function useRealtimeSync() {
   }, [])
 
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (!e.key || !e.key.startsWith('spark-kv-')) return
-
-      setSyncStatus(prev => ({
         ...prev,
-        isSyncing: true,
         lastSyncTime: new Date()
-      }))
 
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
+        clearTimeout(syncTimeo
+
+        setSyncStatus(pr
+          isSyncing: false
+      }, 
+
+        toast.info(`Cambio detectad
+          duration: 2000
       }
 
-      syncTimeoutRef.current = window.setTimeout(() => {
-        setSyncStatus(prev => ({
-          ...prev,
-          isSyncing: false
-        }))
-      }, 500)
 
-      if (!isFirstMount.current) {
-        const keyName = e.key.replace('spark-kv-', '')
-        toast.info(`Cambio detectado: ${keyName}`, {
+      window.removeEventListener
+        clearTimeo
+    }
+
+    syncStatu
+
+  }
+
+  const stored = localStorage.getItem('stellar-devic
           description: 'Datos sincronizados desde otro dispositivo',
           duration: 2000
         })
@@ -98,6 +98,12 @@ export function useRealtimeSync() {
 
 function generateDeviceId(): string {
   const stored = localStorage.getItem('stellar-device-id')
+  if (stored) return stored
+
+  const id = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  localStorage.setItem('stellar-device-id', id)
+  return id
+}
   if (stored) return stored
 
   const id = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
