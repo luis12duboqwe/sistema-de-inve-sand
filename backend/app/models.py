@@ -68,7 +68,6 @@ class Order(Base):
     
     __table_args__ = (
         Index('idx_order_profile_estado', 'profile_id', 'estado'),
-        Index('idx_order_created_at_desc', created_at.desc()),
     )
 
 class OrderItem(Base):
@@ -101,5 +100,5 @@ class FAQEntry(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     __table_args__ = (
-        Index('idx_faq_activa_veces_usada', 'activa', veces_usada.desc()),
+        Index('idx_faq_activa_veces_usada', 'activa', 'veces_usada'),
     )
