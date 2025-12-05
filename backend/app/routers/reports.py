@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from app.database import get_db
@@ -216,7 +216,7 @@ def get_sales_report(
     )
 
 
-@router.get("/inventory/alerts", response_model=list[InventoryAlert])
+@router.get("/inventory/alerts", response_model=List[InventoryAlert])
 def get_inventory_alerts(
     profile_slug: str = Query(..., description="Slug del perfil"),
     db: Session = Depends(get_db)

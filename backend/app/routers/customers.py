@@ -14,7 +14,8 @@ router = APIRouter(prefix="/api/customers", tags=["customers"])
 @router.get("", response_model=List[CustomerStats])
 def list_customers(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil"),
-    limit: int = Query(100, ge=1, le=500, description="Número máximo de clientes a retornar"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
@@ -22,10 +23,11 @@ def list_customers(
     
     Args:
         - profile_slug: Filtro opcional por perfil
-        - limit: Número máximo de clientes (default: 100, max: 500)
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de clientes con estadísticas
+        Lista de clientes con estadísticas (ordenados por total gastado, descendente)
     """
     query = db.query(Order)
     
@@ -38,11 +40,11 @@ def list_customers(
             )
         query = query.filter(Order.profile_id == profile.id)
     
-    # Group by customer phone to get unique customers
-    customers_data = {}
-    
+    # Get all orders
     orders = query.order_by(Order.created_at.desc()).all()
     
+    # Group by customer phone
+    customers_data = {}
     for order in orders:
         phone = order.customer_phone
         if phone not in customers_data:
@@ -55,9 +57,9 @@ def list_customers(
         customers_data[phone]["orders"].append(order)
         customers_data[phone]["total"] += order.total
     
-    # Build response
+    # Build and sort result by total spent
     result = []
-    for phone, data in list(customers_data.items())[:limit]:
+    for phone, data in customers_data.items():
         orders_list = data["orders"]
         result.append(CustomerStats(
             customer_phone=phone,
@@ -72,7 +74,11 @@ def list_customers(
     # Sort by total spent descending
     result.sort(key=lambda x: x.total_spent, reverse=True)
     
-    return result
+    # Apply pagination in-memory (after aggregation)
+    # NOTE: Ideally this should be done at database level with GROUP BY,
+    # but SQLite/SQLAlchemy makes this complex for this use case
+    offset = (page - 1) * per_page
+    return result[offset:offset + per_page]
 
 
 @router.get("/{customer_phone}/stats", response_model=CustomerStats)
