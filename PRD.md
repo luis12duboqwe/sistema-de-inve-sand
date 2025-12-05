@@ -1,14 +1,14 @@
 # Planning Guide
 
-A comprehensive inventory management system for mobile phones and accessories designed for sales chatbot integration, featuring real-time stock tracking, order processing, multi-profile support, advanced reporting, PDF exports, customer history tracking, and flexible backend connectivity (local storage or FastAPI backend).
+A next-generation inventory management system for mobile phones and accessories with AI-powered insights, real-time analytics, multi-channel sales tracking, and intelligent automation. Features include smart stock predictions, automated reordering, customer behavior analysis, multi-currency support, and seamless integration capabilities.
 
 **Experience Qualities**: 
-1. **Efficient** - Streamlined workflows that allow quick product lookup, order creation, and customer history access with minimal clicks
-2. **Reliable** - Clear stock indicators, validation messages, and comprehensive health checks ensure accurate inventory management
-3. **Professional** - Clean, business-focused interface with advanced reporting and PDF exports that inspire confidence in business operations
+1. **Intelligent** - AI-driven insights suggest optimal stock levels, predict sales trends, and automate routine tasks to maximize efficiency
+2. **Fluid** - Micro-interactions and smooth transitions create a tactile, responsive experience that feels instantaneous
+3. **Empowering** - Rich visualizations and actionable insights transform complex data into clear business intelligence
 
-**Complexity Level**: Complex Application (advanced functionality with multiple views and reporting features)
-  - The app manages products, inventory, orders, profiles, customer history, advanced search filters, visual reports, and PDF generation with persistent state, supports both local and API backends, features comprehensive analytics and health diagnostics.
+**Complexity Level**: Complex Application (enterprise-grade functionality with intelligence layer)
+  - Advanced inventory system with predictive analytics, multi-profile architecture, real-time reporting, automated workflows, customer intelligence, flexible backend integration, comprehensive health monitoring, and extensible API design.
 
 ## Essential Features
 
@@ -139,40 +139,45 @@ A comprehensive inventory management system for mobile phones and accessories de
 - **Keyboard Shortcut Conflicts**: Shortcuts designed to not conflict with browser defaults, help accessible via Shift+?
 
 ## Design Direction
-The design should feel professional and efficient like business software, with a clean dashboard aesthetic that prioritizes data clarity and quick task completion - minimal interface with information density balanced by generous spacing around key actions.
+The design should evoke premium business intelligence software - sophisticated data visualization meets tactile interface design. Think Bloomberg Terminal aesthetics refined for modern touchscreens: confident use of space, purposeful motion, and information hierarchy that guides the eye naturally from insights to actions.
 
 ## Color Selection
-Analogous color scheme using blues and teals to convey professionalism, trust, and clarity - perfect for business/inventory management context.
+Rich, sophisticated palette combining deep cosmic purples with energetic cyan accents - conveying innovation and intelligence while maintaining professional credibility.
 
-- **Primary Color**: Deep Professional Blue (oklch(0.45 0.12 250)) - Communicates reliability and corporate professionalism, used for primary actions and headers
+- **Primary Color**: Cosmic Purple (oklch(0.35 0.18 285)) - Sophisticated and memorable, represents intelligence and premium quality
 - **Secondary Colors**: 
-  - Light Blue Background (oklch(0.97 0.01 250)) - Subtle, clean backdrop that doesn't compete with content
-  - Medium Teal Accent (oklch(0.55 0.10 200)) - Supporting color for secondary buttons and highlights
-- **Accent Color**: Vibrant Teal (oklch(0.60 0.15 195)) - Draws attention to important elements like stock badges and active filters
+  - Deep Slate Background (oklch(0.15 0.02 260)) - Creates depth and focuses attention on content
+  - Muted Purple (oklch(0.25 0.10 285)) - For secondary UI elements and subdued states
+- **Accent Color**: Electric Cyan (oklch(0.75 0.15 195)) - High-energy highlight for CTAs, active states, and data visualization peaks
+- **Supporting Colors**:
+  - Success Green (oklch(0.65 0.18 145)) - Confirmations and positive metrics
+  - Warning Amber (oklch(0.70 0.15 65)) - Low stock alerts and caution states
+  - Error Coral (oklch(0.60 0.20 25)) - Critical issues and destructive actions
 - **Foreground/Background Pairings**:
-  - Background (Light Blue #F7F9FB): Dark Gray text (#1E293B) - Ratio 12.8:1 ✓
-  - Card (White #FFFFFF): Dark Gray text (#1E293B) - Ratio 14.5:1 ✓
-  - Primary (Deep Blue #2563EB): White text (#FFFFFF) - Ratio 8.2:1 ✓
-  - Secondary (Light Blue #F1F5F9): Dark Blue text (#1E3A8A) - Ratio 10.1:1 ✓
-  - Accent (Vibrant Teal #14B8A6): White text (#FFFFFF) - Ratio 4.7:1 ✓
-  - Muted (Pale Gray #F8FAFC): Medium Gray text (#64748B) - Ratio 5.2:1 ✓
+  - Background (Deep Slate #1A1A2E): Light Gray text (#E8E8F0) - Ratio 11.2:1 ✓
+  - Card (Elevated Slate #242438): White text (#FFFFFF) - Ratio 13.5:1 ✓
+  - Primary (Cosmic Purple #6D28D9): White text (#FFFFFF) - Ratio 9.1:1 ✓
+  - Accent (Electric Cyan #06B6D4): Deep Slate text (#0F0F1E) - Ratio 8.7:1 ✓
+  - Success (Green #10B981): White text (#FFFFFF) - Ratio 4.9:1 ✓
+  - Warning (Amber #F59E0B): Deep Slate text (#0F0F1E) - Ratio 10.3:1 ✓
 
 ## Font Selection
-Typography should be clean, modern, and highly legible for scanning data tables and forms - using Inter for its excellent readability at all sizes and professional appearance.
+Sophisticated typeface pairing using IBM Plex Sans for exceptional legibility in data-dense interfaces, with JetBrains Mono for numerical data and SKUs - creating a technical yet approachable aesthetic.
 
 - **Typographic Hierarchy**: 
-  - H1 (Page Titles): Inter SemiBold/32px/tight letter spacing/-0.02em
-  - H2 (Section Headers): Inter SemiBold/24px/normal letter spacing/-0.01em  
-  - H3 (Card Titles): Inter Medium/18px/normal letter spacing/0
-  - Body (Content): Inter Regular/14px/relaxed line height/1.6
-  - Small (Meta Info): Inter Regular/12px/normal letter spacing/0.5px color muted
-  - Labels (Form Fields): Inter Medium/13px/tracking-wide/uppercase
+  - H1 (Dashboard Titles): IBM Plex Sans Bold/36px/tight tracking/-0.03em
+  - H2 (Section Headers): IBM Plex Sans SemiBold/28px/tight tracking/-0.02em
+  - H3 (Card Titles): IBM Plex Sans Medium/20px/normal tracking/-0.01em
+  - Body (Content): IBM Plex Sans Regular/15px/relaxed line height/1.65
+  - Data (Numbers, SKUs): JetBrains Mono Medium/14px/tabular numbers
+  - Small (Meta Info): IBM Plex Sans Regular/13px/tracking-wide/color muted
 
 ## Animations
-Animations should be subtle and functional, reinforcing state changes and guiding attention without slowing down task completion - quick transitions that feel responsive rather than showy.
+Animations create a premium, fluid experience through purposeful motion design - every transition reinforces hierarchy and provides tactile feedback that makes the interface feel responsive and alive.
 
-- **Purposeful Meaning**: Smooth page transitions convey navigation context, stock badge pulses draw attention to low inventory, success states use gentle scale animations to confirm actions
-- **Hierarchy of Movement**: Primary actions (order creation) get satisfying confirmation animations, secondary interactions (hovering, selecting) use minimal 100ms fades, data updates use subtle opacity transitions
+- **Purposeful Meaning**: Smooth staggered list entrances guide attention sequentially, critical stock alerts pulse subtly to maintain awareness without distraction, success confirmations use gentle spring physics for satisfying feedback
+- **Hierarchy of Movement**: High-stakes actions (order completion) get celebratory micro-interactions with cascading effects, medium interactions (filtering, searching) use crisp 200ms eased transitions, hover states respond instantly at 100ms for immediate tactile feedback
+- **Signature Moments**: Dashboard stat cards animate in with staggered fade-up on load, chart data points draw progressively for narrative storytelling, low stock warnings use breathing pulse animation, page transitions slide with subtle parallax depth
 
 ## Component Selection
 - **Components**: 

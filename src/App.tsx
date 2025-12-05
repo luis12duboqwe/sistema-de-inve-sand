@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine } from '@phosphor-icons/react'
+import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings, AdvancedSearchFilters } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -41,6 +41,7 @@ import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF, generateProductReportPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
 import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function App() {
   const { isInitialized, isLoading } = useInitializeData()
@@ -452,27 +453,69 @@ export default function App() {
   if (isLoading || !dataLoaded) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Package size={64} className="mx-auto text-primary mb-4 animate-pulse" weight="duotone" />
-          <h2 className="text-2xl font-bold mb-2">Cargando Sistema</h2>
-          <p className="text-muted-foreground">Inicializando inventario...</p>
-        </div>
+        <motion.div 
+          className="text-center"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <motion.div
+            animate={{ 
+              scale: [1, 1.1, 1],
+              rotate: [0, 10, -10, 0]
+            }}
+            transition={{ 
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+          >
+            <Sparkle size={64} className="mx-auto text-primary mb-4" weight="duotone" />
+          </motion.div>
+          <h2 className="text-2xl font-bold mb-2 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+            Stellar Inventory
+          </h2>
+          <p className="text-muted-foreground">Inicializando sistema inteligente...</p>
+        </motion.div>
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b bg-card sticky top-0 z-50">
+      <header className="border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Package size={32} className="text-primary" weight="duotone" />
-              <div>
-                <h1 className="text-2xl font-bold text-card-foreground">Sistema de Inventario</h1>
-                <p className="text-sm text-muted-foreground">Gestión de productos y órdenes</p>
+            <motion.div 
+              className="flex items-center gap-3"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="relative">
+                <Sparkle size={32} className="text-primary" weight="duotone" />
+                <motion.div
+                  className="absolute inset-0"
+                  animate={{ 
+                    scale: [1, 1.2, 1],
+                    opacity: [0.5, 0, 0.5]
+                  }}
+                  transition={{ 
+                    duration: 2,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                >
+                  <Sparkle size={32} className="text-accent" weight="duotone" />
+                </motion.div>
               </div>
-            </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+                  Stellar Inventory
+                </h1>
+                <p className="text-sm text-muted-foreground">AI-Powered Management</p>
+              </div>
+            </motion.div>
             
             <div className="flex items-center gap-2">
               <Badge variant={useAPI ? "default" : "secondary"} className="hidden sm:flex items-center gap-1">
@@ -490,7 +533,7 @@ export default function App() {
                 size="icon"
                 onClick={() => setShowHealthCheckDialog(true)}
                 title="Diagnóstico de Salud"
-                className="relative"
+                className="relative hover:bg-primary/10"
               >
                 <Pulse size={20} />
               </Button>
@@ -500,7 +543,7 @@ export default function App() {
                 size="icon"
                 onClick={() => setShowKeyboardDialog(true)}
                 title="Atajos de teclado (Shift + ?)"
-                className="relative"
+                className="relative hover:bg-primary/10"
               >
                 <Keyboard size={20} />
               </Button>
@@ -510,6 +553,7 @@ export default function App() {
                 size="icon"
                 onClick={() => setShowSettingsDialog(true)}
                 title="Configuración (Ctrl + ,)"
+                className="hover:bg-primary/10"
               >
                 <Gear size={20} />
               </Button>
