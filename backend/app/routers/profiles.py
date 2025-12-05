@@ -1,22 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
+import math
 from app.database import get_db
 from app.models import Profile
-from app.schemas import ProfileCreate, ProfileResponse, ProfileUpdate
+from app.schemas import ProfileCreate, ProfileResponse, ProfileUpdate, PaginatedResponse
+
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
-@router.get("", response_model=List[ProfileResponse])
-def list_profiles(db: Session = Depends(get_db)):
+@router.get("", response_model=PaginatedResponse[ProfileResponse])
+def list_profiles(
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
+    include_inactive: bool = Query(False, description="Incluir perfiles inactivos"),
+    db: Session = Depends(get_db)
+):
     """
-    Lista todos los perfiles activos del sistema.
+    Lista perfiles del sistema con paginación.
     
+    Args:
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
+        - include_inactive: Incluir perfiles inactivos (default: False)
+        
     Returns:
-        Lista de perfiles activos
+        Respuesta paginada con lista de perfiles
     """
-    profiles = db.query(Profile).filter(Profile.active == True).all()
-    return profiles
+    query = db.query(Profile)
+    
+    if not include_inactive:
+        query = query.filter(Profile.active == True)
+    
+    total = query.count()
+    offset = (page - 1) * per_page
+    
+    profiles = query.offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=profiles,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 @router.post("", response_model=ProfileResponse, status_code=201)
 def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):

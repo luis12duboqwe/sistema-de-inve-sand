@@ -2,30 +2,33 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
+import math
 from app.database import get_db
 from app.models import FAQEntry
-from app.schemas import FAQEntryCreate, FAQEntryResponse, FAQEntryUpdate
+from app.schemas import FAQEntryCreate, FAQEntryResponse, FAQEntryUpdate, PaginatedResponse
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[FAQEntryResponse])
+@router.get("", response_model=PaginatedResponse[FAQEntryResponse])
 def list_faq_entries(
     activa: bool = Query(True, description="Filtrar por entradas activas"),
     categoria: str = Query(None, description="Filtrar por categoría"),
-    limit: int = Query(100, description="Número máximo de resultados"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista entradas FAQ.
+    Lista entradas FAQ con paginación.
     
     Args:
         - activa: Filtrar por estado activo (default: True)
         - categoria: Filtro opcional por categoría
-        - limit: Número máximo de resultados (default: 100)
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de entradas FAQ
+        Respuesta paginada con lista de entradas FAQ
     """
     query = db.query(FAQEntry)
     
@@ -35,7 +38,17 @@ def list_faq_entries(
     if categoria:
         query = query.filter(FAQEntry.categoria == categoria)
     
-    return query.order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).limit(limit).all()
+    total = query.count()
+    offset = (page - 1) * per_page
+    entries = query.order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=entries,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 
 @router.get("/search", response_model=List[FAQEntryResponse])

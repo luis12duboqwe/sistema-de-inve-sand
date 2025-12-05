@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
 from datetime import datetime, date
+import math
 from app.database import get_db
 from app.models import Order, OrderItem, Product, Profile, Stock
 from app.schemas import (
@@ -12,7 +13,8 @@ from app.schemas import (
     ProductResponse,
     OrderStatusUpdate,
     OrderUpdate,
-    OrderSearchParams
+    OrderSearchParams,
+    PaginatedResponse
 )
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
@@ -77,19 +79,23 @@ def _serialize_order(order: Order) -> OrderResponse:
         items=items_response
     )
 
-@router.get("", response_model=List[OrderListResponse])
+@router.get("", response_model=PaginatedResponse[OrderListResponse])
 def list_orders(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista todas las órdenes del sistema.
+    Lista órdenes del sistema con paginación.
     
     Args:
         - profile_slug: Filtro opcional por perfil
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de órdenes ordenadas por fecha de creación (más recientes primero)
+        Respuesta paginada con lista de órdenes ordenadas por fecha de creación (más recientes primero)
         
     Raises:
         - 404: Si el profile_slug especificado no existe
@@ -105,18 +111,29 @@ def list_orders(
             )
         query = query.filter(Order.profile_id == profile.id)
     
-    orders = query.order_by(Order.created_at.desc()).all()
-    return orders
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 
-@router.post("/search", response_model=List[OrderListResponse])
+@router.post("/search", response_model=PaginatedResponse[OrderListResponse])
 def search_orders(
     search_params: OrderSearchParams,
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Búsqueda avanzada de órdenes con múltiples filtros.
+    Búsqueda avanzada de órdenes con múltiples filtros y paginación.
     
     Permite filtrar por:
     - Rango de fechas
@@ -128,9 +145,11 @@ def search_orders(
     Args:
         - search_params: Parámetros de búsqueda
         - profile_slug: Filtro opcional por perfil
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de órdenes que coinciden con los criterios
+        Respuesta paginada con órdenes que coinciden con los criterios
     """
     query = db.query(Order)
     
@@ -172,20 +191,21 @@ def search_orders(
     if search_params.estado:
         query = query.filter(Order.estado == search_params.estado.value)
     
-    # Get orders
-    orders = query.order_by(Order.created_at.desc()).all()
-    
-    # Filter by product if specified
+    # Product filter requires special handling (join with order_items)
     if search_params.product_id:
-        filtered_orders = []
-        for order in orders:
-            # Check if any order item has the specified product
-            has_product = any(item.product_id == search_params.product_id for item in order.items)
-            if has_product:
-                filtered_orders.append(order)
-        orders = filtered_orders
+        query = query.join(OrderItem).filter(OrderItem.product_id == search_params.product_id)
     
-    return orders
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 
 @router.post("", response_model=OrderResponse, status_code=201)

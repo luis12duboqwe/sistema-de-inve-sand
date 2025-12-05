@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
+import math
 from app.database import get_db
 from app.models import Product, Profile, Stock
-from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate, CategoriaEnum
+from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate, CategoriaEnum, PaginatedResponse
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -34,24 +35,29 @@ def _serialize_product(product: Product) -> ProductResponse:
         stock_disponible=product.stock.cantidad_disponible if product.stock else 0
     )
 
-@router.get("", response_model=List[ProductResponse])
+@router.get("", response_model=PaginatedResponse[ProductResponse])
 def list_products(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
     include_inactive: bool = Query(False, description="Incluir productos inactivos y sin stock"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista todos los productos activos con stock disponible.
+    Lista productos con paginación.
     
     Siempre incluye el campo `stock_disponible` calculado desde la tabla stock.
     
     Args:
         - profile_slug: Filtro opcional por perfil
         - search: Término de búsqueda opcional (busca en nombre, marca y modelo)
+        - include_inactive: Incluir productos inactivos y sin stock
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
     
     Returns:
-        Lista de productos con stock disponible
+        Respuesta paginada con lista de productos
         
     Raises:
         - 404: Si el profile_slug especificado no existe
@@ -83,9 +89,17 @@ def list_products(
             )
         )
     
-    products = query.all()
+    total = query.count()
+    offset = (page - 1) * per_page
+    products = query.offset(offset).limit(per_page).all()
     
-    return [_serialize_product(product) for product in products]
+    return PaginatedResponse(
+        items=[_serialize_product(product) for product in products],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 @router.post("", response_model=ProductResponse, status_code=201)
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
