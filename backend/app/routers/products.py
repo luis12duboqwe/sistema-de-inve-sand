@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from typing import List, Optional
 from app.database import get_db
 from app.models import Product, Profile, Stock
-from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate
+from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate, CategoriaEnum
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -116,7 +116,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
             detail=f"Ya existe un producto con el SKU '{product.sku}'"
         )
     
-    if product.categoria == "celular" and product.garantia_meses == 0:
+    if product.categoria == CategoriaEnum.CELULAR and product.garantia_meses == 0:
         product.garantia_meses = 2
     
     try:
