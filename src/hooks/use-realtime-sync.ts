@@ -9,19 +9,19 @@ export interface SyncStatus {
 }
 
 export function useRealtimeSync() {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => ({
-    isSyncing: false,
-    lastSyncTime: null,
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     syncError: null,
-    deviceId: generateDeviceId()
   }))
-  
-  const syncTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
-  const isFirstMount = useRef(true)
+  const syncTimeoutR
 
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key && e.key.startsWith('spark-kv-')) {
+    
+  
+          isSyncing: true,
+        }))
+
+        }
+        syncTimeoutRef.current = setTimeout(() => {
+            ...prev,
         setSyncStatus(prev => ({
           ...prev,
           isSyncing: true,
@@ -46,54 +46,54 @@ export function useRealtimeSync() {
             duration: 2000
           })
         }
+
+     
+
+      window.removeEventListener('storage'
+      if (syncTimeoutRef.curr
       }
-    }
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        setSyncStatus(prev => ({
-          ...prev,
-          lastSyncTime: new Date()
-        }))
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    setTimeout(() => {
-      isFirstMount.current = false
-    }, 1000)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
-      }
-    }
   }, [])
-
-  const markSyncStart = useCallback(() => {
-    setSyncStatus(prev => ({
-      ...prev,
-      isSyncing: true
+  const markSyncStart = useCallbac
+      ...pr
     }))
-  }, [])
 
-  const markSyncComplete = useCallback(() => {
-    setSyncStatus(prev => ({
-      ...prev,
+
       isSyncing: false,
-      lastSyncTime: new Date(),
       syncError: null
-    }))
-  }, [])
 
-  const markSyncError = useCallback((error: string) => {
-    setSyncStatus(prev => ({
+  const markSyncError 
       ...prev,
-      isSyncing: false,
+      syncEr
+
+  return {
+    markSyncStart,
+    markSyncError
+}
+function generateDeviceId(): string {
+  if (s
+  con
+  return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       syncError: error
     }))
   }, [])
@@ -110,7 +110,7 @@ function generateDeviceId(): string {
   const stored = localStorage.getItem('stellar-device-id')
   if (stored) return stored
 
-  const id = `device-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+  const id = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
   localStorage.setItem('stellar-device-id', id)
   return id
 }
