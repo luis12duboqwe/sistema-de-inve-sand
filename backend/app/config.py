@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List
+import warnings
 
 
 class Settings(BaseSettings):
@@ -31,6 +32,17 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         # Support both lowercase and uppercase env vars
         case_sensitive = False
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Warn if using default secret key in production
+        if self.environment == "production" and "your-secret-key" in self.secret_key:
+            warnings.warn(
+                "Using default SECRET_KEY in production is insecure! "
+                "Generate a new key with: openssl rand -hex 32",
+                UserWarning,
+                stacklevel=2
+            )
 
 
 # Global settings instance

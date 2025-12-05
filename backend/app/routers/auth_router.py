@@ -96,8 +96,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Inactive user",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
@@ -151,11 +152,6 @@ def update_user_me(
         current_user.full_name = updates.full_name
     
     if updates.password is not None:
-        if len(updates.password) < 6:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Password must be at least 6 characters long"
-            )
         current_user.hashed_password = get_password_hash(updates.password)
     
     try:
