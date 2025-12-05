@@ -3,30 +3,61 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
+import math
 from app.database import get_db
 from app.models import Product, Profile, Stock
-from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate
+from app.schemas import ProductCreate, ProductResponse, ProductUpdate, StockUpdate, CategoriaEnum, PaginatedResponse
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
-@router.get("", response_model=List[ProductResponse])
+
+def _serialize_product(product: Product) -> ProductResponse:
+    """
+    Helper function to serialize a Product model to ProductResponse schema.
+    
+    Args:
+        - product: Product model instance
+        
+    Returns:
+        ProductResponse with stock_disponible
+    """
+    return ProductResponse(
+        id=product.id,
+        nombre=product.nombre,
+        categoria=product.categoria,
+        marca=product.marca,
+        modelo=product.modelo,
+        capacidad=product.capacidad,
+        condicion=product.condicion,
+        precio=product.precio,
+        moneda=product.moneda,
+        garantia_meses=product.garantia_meses,
+        stock_disponible=product.stock.cantidad_disponible if product.stock else 0
+    )
+
+@router.get("", response_model=PaginatedResponse[ProductResponse])
 def list_products(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
     include_inactive: bool = Query(False, description="Incluir productos inactivos y sin stock"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista todos los productos activos con stock disponible.
+    Lista productos con paginación.
     
     Siempre incluye el campo `stock_disponible` calculado desde la tabla stock.
     
     Args:
         - profile_slug: Filtro opcional por perfil
         - search: Término de búsqueda opcional (busca en nombre, marca y modelo)
+        - include_inactive: Incluir productos inactivos y sin stock
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
     
     Returns:
-        Lista de productos con stock disponible
+        Respuesta paginada con lista de productos
         
     Raises:
         - 404: Si el profile_slug especificado no existe
@@ -58,25 +89,17 @@ def list_products(
             )
         )
     
-    products = query.all()
+    total = query.count()
+    offset = (page - 1) * per_page
+    products = query.offset(offset).limit(per_page).all()
     
-    result = []
-    for product in products:
-        result.append(ProductResponse(
-            id=product.id,
-            nombre=product.nombre,
-            categoria=product.categoria,
-            marca=product.marca,
-            modelo=product.modelo,
-            capacidad=product.capacidad,
-            condicion=product.condicion,
-            precio=product.precio,
-            moneda=product.moneda,
-            garantia_meses=product.garantia_meses,
-            stock_disponible=product.stock.cantidad_disponible
-        ))
-    
-    return result
+    return PaginatedResponse(
+        items=[_serialize_product(product) for product in products],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
 
 @router.post("", response_model=ProductResponse, status_code=201)
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
@@ -107,7 +130,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
             detail=f"Ya existe un producto con el SKU '{product.sku}'"
         )
     
-    if product.categoria == "celular" and product.garantia_meses == 0:
+    if product.categoria == CategoriaEnum.CELULAR and product.garantia_meses == 0:
         product.garantia_meses = 2
     
     try:
@@ -124,19 +147,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_product)
         
-        return ProductResponse(
-            id=db_product.id,
-            nombre=db_product.nombre,
-            categoria=db_product.categoria,
-            marca=db_product.marca,
-            modelo=db_product.modelo,
-            capacidad=db_product.capacidad,
-            condicion=db_product.condicion,
-            precio=db_product.precio,
-            moneda=db_product.moneda,
-            garantia_meses=db_product.garantia_meses,
-            stock_disponible=db_stock.cantidad_disponible
-        )
+        return _serialize_product(db_product)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
@@ -164,19 +175,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
             detail=f"El producto con ID {product_id} no fue encontrado"
         )
     
-    return ProductResponse(
-        id=product.id,
-        nombre=product.nombre,
-        categoria=product.categoria,
-        marca=product.marca,
-        modelo=product.modelo,
-        capacidad=product.capacidad,
-        condicion=product.condicion,
-        precio=product.precio,
-        moneda=product.moneda,
-        garantia_meses=product.garantia_meses,
-        stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-    )
+    return _serialize_product(product)
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
@@ -212,19 +211,7 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
     try:
         db.commit()
         db.refresh(product)
-        return ProductResponse(
-            id=product.id,
-            nombre=product.nombre,
-            categoria=product.categoria,
-            marca=product.marca,
-            modelo=product.modelo,
-            capacidad=product.capacidad,
-            condicion=product.condicion,
-            precio=product.precio,
-            moneda=product.moneda,
-            garantia_meses=product.garantia_meses,
-            stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-        )
+        return _serialize_product(product)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar producto: {str(e)}")
@@ -292,26 +279,52 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
 
         db.commit()
 
-        result = []
-        for product, stock in created_products:
-            result.append(ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=stock.cantidad_disponible
-            ))
-
-        return result
+        return [_serialize_product(product) for product, _ in created_products]
     except HTTPException:
         db.rollback()
         raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear productos: {str(e)}")
+
+
+@router.delete("/{product_id}", status_code=204)
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina un producto del sistema.
+    
+    NOTA: Si el producto está referenciado en order_items, la eliminación 
+    fallará debido a la restricción RESTRICT en la foreign key.
+    
+    Args:
+        - product_id: ID del producto a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si el producto no existe
+        - 400: Si el producto está referenciado en órdenes
+        - 500: Si ocurre un error al eliminar
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El producto con ID {product_id} no fue encontrado"
+        )
+    
+    try:
+        db.delete(product)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        # Check if it's a foreign key constraint error
+        error_msg = str(e)
+        if "FOREIGN KEY constraint failed" in error_msg or "foreign key" in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede eliminar el producto porque está referenciado en órdenes existentes"
+            )
+        raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")

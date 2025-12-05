@@ -69,8 +69,11 @@ class ApiUsageTests(unittest.TestCase):
         status, _ = _http_json("POST", f"{base_url}/api/init-data")
         assert status == 200
 
-        status, profiles = _http_json("GET", f"{base_url}/api/profiles")
-        assert status == 200 and profiles, "Se esperaba al menos un perfil de prueba"
+        status, profiles_response = _http_json("GET", f"{base_url}/api/profiles")
+        assert status == 200 and profiles_response, "Se esperaba al menos un perfil de prueba"
+        # Response is now paginated, so access the 'items' field
+        profiles = profiles_response.get("items", [])
+        assert len(profiles) > 0, "Se esperaba al menos un perfil en items"
         cls.profile = profiles[0]
         cls.base_url = base_url
 
@@ -130,8 +133,10 @@ class ApiUsageTests(unittest.TestCase):
         self.assertIn("message", data)
 
     def test_list_products_returns_only_active_with_stock(self):
-        status, products = _http_json("GET", f"{self.base_url}/api/products")
+        status, response = _http_json("GET", f"{self.base_url}/api/products")
         self.assertEqual(status, 200)
+        # Response is now paginated
+        products = response.get("items", [])
         self.assertGreaterEqual(len(products), 1)
         for product in products:
             self.assertGreater(product["stock_disponible"], 0)

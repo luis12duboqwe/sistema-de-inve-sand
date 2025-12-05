@@ -1,7 +1,53 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Generic, TypeVar
+from datetime import datetime, date
 from decimal import Decimal
+from enum import Enum
+import math
+
+
+class CategoriaEnum(str, Enum):
+    """Categorías válidas para productos"""
+    CELULAR = "celular"
+    ACCESORIO = "accesorio"
+
+
+class CondicionEnum(str, Enum):
+    """Condiciones válidas para productos"""
+    NUEVO = "nuevo"
+    USADO = "usado"
+    REACONDICIONADO = "reacondicionado"
+
+
+class CanalEnum(str, Enum):
+    """Canales de venta válidos"""
+    WHATSAPP = "whatsapp"
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+
+
+class MetodoPagoEnum(str, Enum):
+    """Métodos de pago válidos"""
+    EFECTIVO = "efectivo"
+    TRANSFERENCIA = "transferencia"
+    TARJETA = "tarjeta"
+    FINANCIAMIENTO = "financiamiento"
+
+
+class EstadoOrdenEnum(str, Enum):
+    """Estados válidos de una orden"""
+    PENDIENTE = "pendiente"
+    POR_ENTREGAR = "por_entregar"
+    COMPLETADA = "completada"
+    CANCELADA = "cancelada"
+
+
+class NivelSeriedadEnum(str, Enum):
+    """Niveles de seriedad para FAQ"""
+    NORMAL = "normal"
+    IMPORTANTE = "importante"
+    URGENTE = "urgente"
+
 
 class ProfileBase(BaseModel):
     name: str
@@ -26,11 +72,11 @@ class ProductBase(BaseModel):
     profile_id: int
     sku: str
     nombre: str
-    categoria: str = Field(..., pattern="^(celular|accesorio)$")
+    categoria: CategoriaEnum
     marca: str
     modelo: str
     capacidad: Optional[str] = None
-    condicion: str
+    condicion: CondicionEnum
     precio: Decimal
     moneda: str = "HNL"
     garantia_meses: int = 0
@@ -46,11 +92,11 @@ class ProductCreate(ProductBase):
 
 class ProductUpdate(BaseModel):
     nombre: Optional[str] = None
-    categoria: Optional[str] = Field(None, pattern="^(celular|accesorio)$")
+    categoria: Optional[CategoriaEnum] = None
     marca: Optional[str] = None
     modelo: Optional[str] = None
     capacidad: Optional[str] = None
-    condicion: Optional[str] = None
+    condicion: Optional[CondicionEnum] = None
     precio: Optional[Decimal] = None
     moneda: Optional[str] = None
     garantia_meses: Optional[int] = None
@@ -103,10 +149,10 @@ class OrderItemUpdate(BaseModel):
 
 class OrderCreate(BaseModel):
     profile_slug: str
-    canal: str = Field(..., pattern="^(whatsapp|facebook|instagram)$")
+    canal: CanalEnum
     customer_name: str
     customer_phone: str
-    metodo_pago: str = Field(..., pattern="^(efectivo|transferencia|tarjeta|financiamiento)$")
+    metodo_pago: MetodoPagoEnum
     items: List[OrderItemCreate]
     
     @field_validator('customer_phone')
@@ -147,14 +193,14 @@ class OrderListResponse(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
-    estado: str = Field(..., pattern="^(pendiente|por_entregar|completada|cancelada)$")
+    estado: EstadoOrdenEnum
 
 
 class OrderUpdate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
-    canal: Optional[str] = Field(None, pattern="^(whatsapp|facebook|instagram)$")
-    metodo_pago: Optional[str] = Field(None, pattern="^(efectivo|transferencia|tarjeta|financiamiento)$")
+    canal: Optional[CanalEnum] = None
+    metodo_pago: Optional[MetodoPagoEnum] = None
     items: Optional[List[OrderItemUpdate]] = None
 
 
@@ -163,7 +209,7 @@ class FAQEntryBase(BaseModel):
     ejemplo_pregunta_cliente: Optional[str] = None
     respuesta: str
     categoria: str
-    nivel_seriedad: str = "normal"
+    nivel_seriedad: NivelSeriedadEnum = NivelSeriedadEnum.NORMAL
     activa: bool = True
     created_by: Optional[str] = None
 
@@ -201,5 +247,152 @@ class FAQEntryResponse(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
         from_attributes = True
+
+
+# Pagination schema
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response schema"""
+    items: List[T]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+# Customer schemas
+class CustomerStats(BaseModel):
+    """Customer statistics schema"""
+    customer_phone: str
+    customer_name: str
+    total_orders: int
+    total_spent: Decimal
+    average_order: Decimal
+    first_order_date: datetime
+    last_order_date: datetime
+
+
+class CustomerHistory(CustomerStats):
+    """Customer history with order list"""
+    orders: List[OrderListResponse]
+
+
+# Advanced search schemas
+class OrderSearchParams(BaseModel):
+    """Advanced order search parameters"""
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    amount_min: Optional[Decimal] = None
+    amount_max: Optional[Decimal] = None
+    customer_query: Optional[str] = None  # Search in name or phone
+    product_id: Optional[int] = None
+    estado: Optional[EstadoOrdenEnum] = None
+
+
+# Dashboard/Analytics schemas
+class DashboardStats(BaseModel):
+    """Dashboard KPIs"""
+    active_products: int
+    total_products: int
+    low_stock_count: int  # Products with stock < 10
+    out_of_stock_count: int  # Products with stock = 0
+    total_inventory_value: Decimal
+    pending_orders: int
+    total_orders_today: int
+    total_revenue_today: Decimal
+    total_revenue_month: Decimal
+    total_revenue_last_month: Decimal
+
+
+class TopProduct(BaseModel):
+    """Top selling product"""
+    product_id: int
+    product_name: str
+    units_sold: int
+    total_revenue: Decimal
+
+
+class SalesReport(BaseModel):
+    """Sales analytics report"""
+    period_start: date
+    period_end: date
+    total_orders: int
+    total_revenue: Decimal
+    average_order_value: Decimal
+    top_products: List[TopProduct]
+
+
+class InventoryAlert(BaseModel):
+    """Inventory stock alert"""
+    product_id: int
+    product_name: str
+    sku: str
+    current_stock: int
+    category: str
+    alert_level: str  # "critical", "low", "out_of_stock"
+
+
+# Authentication schemas
+class Token(BaseModel):
+    """JWT token response"""
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    """Data contained in JWT token"""
+    username: Optional[str] = None
+
+
+class UserBase(BaseModel):
+    """Base user schema"""
+    username: str
+    email: str
+    full_name: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    """Schema for creating a new user"""
+    password: str
+    
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str):
+        if len(value) < 6:
+            raise ValueError("Password must be at least 6 characters long")
+        return value
+    
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str):
+        if len(value) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if not value.isalnum():
+            raise ValueError("Username must contain only alphanumeric characters")
+        return value
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating user information"""
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserResponse(UserBase):
+    """Schema for user responses"""
+    id: int
+    is_active: bool
+    is_superuser: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class UserInDB(UserResponse):
+    """User schema as stored in database"""
+    hashed_password: str

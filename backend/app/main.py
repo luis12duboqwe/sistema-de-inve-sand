@@ -1,35 +1,52 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db, get_db
-from app.routers import profiles, products, orders, faq
+from app.database import init_db, get_db, check_db_connection
+from app.routers import profiles, products, orders, faq, customers, reports, auth_router
 from app.models import Profile, Product, Stock
+from app.config import settings
 from sqlalchemy.orm import Session
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_db()
+    yield
+    # Shutdown (if needed in the future)
+
 
 app = FastAPI(
     title="Sistema de Inventario API",
     description="API REST para gestión de inventario de celulares y accesorios",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
+app.include_router(customers.router)
+app.include_router(reports.router)
 
 @app.get("/")
 def read_root():
+    """
+    Root endpoint with API information.
+    
+    Returns:
+        Basic API information and documentation link
+    """
     return {
         "message": "Sistema de Inventario API",
         "version": "1.0.0",
@@ -148,9 +165,27 @@ def initialize_sample_data(db: Session = Depends(get_db)):
 @app.get("/api/health", tags=["Health"])
 def health_check():
     """
-    Verifica el estado de salud de la API.
+    Verifica el estado de salud de la API y la base de datos.
     
     Returns:
-        - status: Estado del servicio (healthy)
+        - status: Estado del servicio (healthy/unhealthy)
+        - database: Estado de la conexión a la base de datos
+        
+    Raises:
+        - 503: Si la base de datos no está disponible
     """
-    return {"status": "healthy"}
+    db_healthy = check_db_connection()
+    
+    if not db_healthy:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "database": "disconnected"
+            }
+        )
+    
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }

@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal
+from datetime import datetime, date
+import math
 from app.database import get_db
 from app.models import Order, OrderItem, Product, Profile, Stock
 from app.schemas import (
@@ -10,35 +12,58 @@ from app.schemas import (
     OrderListResponse,
     ProductResponse,
     OrderStatusUpdate,
-    OrderUpdate
+    OrderUpdate,
+    OrderSearchParams,
+    PaginatedResponse
 )
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
+def _serialize_product_for_order(product: Product) -> dict:
+    """
+    Helper function to serialize a Product for order item responses.
+    
+    Args:
+        - product: Product model instance
+        
+    Returns:
+        Dictionary with product data for OrderItemResponse
+    """
+    return {
+        "id": product.id,
+        "nombre": product.nombre,
+        "categoria": product.categoria,
+        "marca": product.marca,
+        "modelo": product.modelo,
+        "capacidad": product.capacidad,
+        "condicion": product.condicion,
+        "precio": product.precio,
+        "moneda": product.moneda,
+        "garantia_meses": product.garantia_meses,
+        "stock_disponible": product.stock.cantidad_disponible if product.stock else 0
+    }
+
+
 def _serialize_order(order: Order) -> OrderResponse:
+    """
+    Helper function to serialize an Order model to OrderResponse schema.
+    
+    Args:
+        - order: Order model instance
+        
+    Returns:
+        OrderResponse with complete items and product details
+    """
     items_response = []
     for item in order.items:
-        product = item.product
         items_response.append({
             "id": item.id,
             "product_id": item.product_id,
             "cantidad": item.cantidad,
             "precio_unitario": item.precio_unitario,
             "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            ) if product else None
+            "product": ProductResponse(**_serialize_product_for_order(item.product)) if item.product else None
         })
 
     return OrderResponse(
@@ -54,19 +79,23 @@ def _serialize_order(order: Order) -> OrderResponse:
         items=items_response
     )
 
-@router.get("", response_model=List[OrderListResponse])
+@router.get("", response_model=PaginatedResponse[OrderListResponse])
 def list_orders(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista todas las órdenes del sistema.
+    Lista órdenes del sistema con paginación.
     
     Args:
         - profile_slug: Filtro opcional por perfil
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de órdenes ordenadas por fecha de creación (más recientes primero)
+        Respuesta paginada con lista de órdenes ordenadas por fecha de creación (más recientes primero)
         
     Raises:
         - 404: Si el profile_slug especificado no existe
@@ -82,8 +111,102 @@ def list_orders(
             )
         query = query.filter(Order.profile_id == profile.id)
     
-    orders = query.order_by(Order.created_at.desc()).all()
-    return orders
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
+
+
+@router.post("/search", response_model=PaginatedResponse[OrderListResponse])
+def search_orders(
+    search_params: OrderSearchParams,
+    profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
+    db: Session = Depends(get_db)
+):
+    """
+    Búsqueda avanzada de órdenes con múltiples filtros y paginación.
+    
+    Permite filtrar por:
+    - Rango de fechas
+    - Rango de montos
+    - Cliente (nombre o teléfono)
+    - Producto incluido en la orden
+    - Estado de la orden
+    
+    Args:
+        - search_params: Parámetros de búsqueda
+        - profile_slug: Filtro opcional por perfil
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
+        
+    Returns:
+        Respuesta paginada con órdenes que coinciden con los criterios
+    """
+    query = db.query(Order)
+    
+    # Filter by profile
+    if profile_slug:
+        profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
+        if not profile:
+            raise HTTPException(
+                status_code=404,
+                detail=f"El perfil con slug '{profile_slug}' no fue encontrado"
+            )
+        query = query.filter(Order.profile_id == profile.id)
+    
+    # Filter by date range
+    if search_params.date_from:
+        date_from_dt = datetime.combine(search_params.date_from, datetime.min.time())
+        query = query.filter(Order.created_at >= date_from_dt)
+    
+    if search_params.date_to:
+        date_to_dt = datetime.combine(search_params.date_to, datetime.max.time())
+        query = query.filter(Order.created_at <= date_to_dt)
+    
+    # Filter by amount range
+    if search_params.amount_min is not None:
+        query = query.filter(Order.total >= search_params.amount_min)
+    
+    if search_params.amount_max is not None:
+        query = query.filter(Order.total <= search_params.amount_max)
+    
+    # Filter by customer (name or phone)
+    if search_params.customer_query:
+        customer_pattern = f"%{search_params.customer_query}%"
+        query = query.filter(
+            (Order.customer_name.ilike(customer_pattern)) |
+            (Order.customer_phone.ilike(customer_pattern))
+        )
+    
+    # Filter by estado
+    if search_params.estado:
+        query = query.filter(Order.estado == search_params.estado.value)
+    
+    # Product filter requires special handling (join with order_items)
+    if search_params.product_id:
+        query = query.join(OrderItem).filter(OrderItem.product_id == search_params.product_id)
+    
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    return PaginatedResponse(
+        items=orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
+
 
 @router.post("", response_model=OrderResponse, status_code=201)
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
@@ -338,39 +461,47 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
     
-    items_response = []
-    for item in order.items:
-        product = item.product
-        items_response.append({
-            "id": item.id,
-            "product_id": item.product_id,
-            "cantidad": item.cantidad,
-            "precio_unitario": item.precio_unitario,
-            "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            )
-        })
+    return _serialize_order(order)
+
+
+@router.delete("/{order_id}", status_code=204)
+def delete_order(order_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina una orden del sistema y repone el stock de los productos.
     
-    return OrderResponse(
-        id=order.id,
-        profile_id=order.profile_id,
-        customer_name=order.customer_name,
-        customer_phone=order.customer_phone,
-        canal=order.canal,
-        metodo_pago=order.metodo_pago,
-        total=order.total,
-        estado=order.estado,
-        created_at=order.created_at,
-        items=items_response
-    )
+    Esta operación:
+    1. Encuentra la orden y sus items
+    2. Repone el stock de cada producto
+    3. Elimina la orden (los items se eliminan en cascada)
+    
+    Args:
+        - order_id: ID de la orden a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si la orden no existe
+        - 500: Si ocurre un error al eliminar
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La orden con ID {order_id} no fue encontrada"
+        )
+    
+    try:
+        # Reponer stock antes de eliminar
+        for item in order.items:
+            stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+            if stock:
+                stock.cantidad_disponible += item.cantidad
+        
+        # Eliminar orden (items se eliminan en cascada)
+        db.delete(order)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar orden: {str(e)}")
