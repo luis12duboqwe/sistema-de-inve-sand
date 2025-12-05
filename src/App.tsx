@@ -567,6 +567,8 @@ export default function App() {
               <NotificationCenter
                 products={products ?? []}
                 profiles={profiles ?? []}
+                orders={orders ?? []}
+                onOpenOptimization={() => setShowOptimizationDialog(true)}
               />
               
               <Button

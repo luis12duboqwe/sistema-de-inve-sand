@@ -152,6 +152,13 @@ A next-generation inventory management system for mobile phones and accessories 
 - **Progression**: Open dashboard → View executive summary with key metrics → Explore 5 analysis dimensions (Pricing, Inventory, Customer, Product Mix, Operations) → Review AI-generated insights for each dimension with data visualizations → See specific recommendations with projected impact → Click actions to implement changes → Track optimization score over time
 - **Success criteria**: Analysis completes within 15 seconds, insights are specific with quantified impact estimates, recommendations prioritized by potential value, visualizations clearly support insights, insights refresh based on latest data
 
+### Optimization Score Alert System
+- **Functionality**: Automatically monitor optimization score and trigger notifications when it drops below configurable threshold, with historical tracking and trend analysis
+- **Purpose**: Proactively alert business owners to declining operational efficiency before it significantly impacts revenue
+- **Trigger**: System monitors optimization score continuously and generates alerts when threshold breach detected
+- **Progression**: Score calculated periodically → Compared against user-defined threshold → Alert generated if below threshold → Notification appears in notification center → User views alert details → Clicks to open optimization insights → Reviews specific issues → Takes corrective action
+- **Success criteria**: Alerts trigger within 1 minute of score drop, configurable threshold (default 70), alerts include specific score value and trend direction, dismissible notifications persist until threshold regained, settings accessible from notification settings dialog
+
 ## Edge Case Handling
 - **Backend Connection Failure**: Settings dialog shows clear error state, app continues using local storage until connection succeeds
 - **API URL Misconfiguration**: Test connection button validates endpoint before saving, prevents breaking changes
