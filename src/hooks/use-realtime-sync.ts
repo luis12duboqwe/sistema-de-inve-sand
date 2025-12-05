@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { toast } from 'sonner'
+
 
 export interface SyncStatus {
   isSyncing: boolean
   lastSyncTime: Date | null
-  syncError: string | null
-  deviceId: string
-}
+    isSyncing: false,
+    syncError: nul
+ 
 
-export function useRealtimeSync() {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+
+    isFirstMount.current = false
     isSyncing: false,
     lastSyncTime: null,
     syncError: null,
@@ -28,44 +28,44 @@ export function useRealtimeSync() {
       ...prev,
       isSyncing: true,
       syncError: null
-    }))
+      i
   }, [])
 
   const markSyncComplete = useCallback(() => {
     setSyncStatus(prev => ({
       ...prev,
-      isSyncing: false,
+          ...prev,
       lastSyncTime: new Date(),
-      syncError: null
+
     }))
   }, [])
 
   const markSyncError = useCallback((error: string) => {
     setSyncStatus(prev => ({
-      ...prev,
+
       isSyncing: false,
       syncError: error
     }))
-  }, [])
+function
 
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key?.startsWith('inventory-') && !isFirstMount.current) {
-        setSyncStatus(prev => ({
-          ...prev,
-          lastSyncTime: new Date()
-        }))
 
-        if (syncTimeoutRef.current) {
-          clearTimeout(syncTimeoutRef.current)
-        }
 
-        setSyncStatus(prev => ({
-          ...prev,
+
+
+
+
+
+
+
+
+
+
+
           isSyncing: false
-        }))
 
-        toast.info('Cambio detectado en otro dispositivo', {
+
+
           description: 'Datos sincronizados desde otro dispositivo',
           duration: 2000
         })
