@@ -6,12 +6,54 @@ import type {
   Product,
   Order
 } from './types'
+import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
 
+// Caché en memoria para evitar múltiples llamadas a KV
+let cachedApiUrl: string | null = null
+let cacheTimestamp = 0
+const CACHE_DURATION = 60000 // 60 segundos
+
 async function getApiUrl(): Promise<string> {
-  const url = await window.spark.kv.get<string>('settings_api_url')
-  return url || DEFAULT_API_URL
+  const now = Date.now()
+  
+  // Si tenemos un valor en caché válido, usarlo
+  if (cachedApiUrl && (now - cacheTimestamp) < CACHE_DURATION) {
+    return cachedApiUrl
+  }
+  
+  try {
+    // Primero intentar desde localStorage (más rápido)
+    const localStorageKey = 'spark-kv-settings_api_url'
+    const localValue = localStorage.getItem(localStorageKey)
+    if (localValue) {
+      try {
+        cachedApiUrl = JSON.parse(localValue) as string
+        cacheTimestamp = now
+        return cachedApiUrl
+      } catch {
+        // Si falla el parse, continuar con el método normal
+      }
+    }
+    
+    // Si no está en localStorage, usar KV (con fallback automático)
+    const kv = getKV()
+    const url = await kv.get<string>('settings_api_url')
+    cachedApiUrl = url || DEFAULT_API_URL
+    cacheTimestamp = now
+    return cachedApiUrl
+  } catch (error) {
+    console.warn('Error getting API URL, using cached or default:', error)
+    return cachedApiUrl || DEFAULT_API_URL
+  }
+}
+
+// Función para actualizar la URL del API y limpiar el caché
+export function updateApiUrl(newUrl: string): void {
+  cachedApiUrl = newUrl
+  cacheTimestamp = Date.now()
+  localStorage.setItem('spark-kv-settings_api_url', JSON.stringify(newUrl))
 }
 
 interface ApiProductResponse {
@@ -54,38 +96,71 @@ interface ApiOrderResponse {
 class ApiClient {
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retries = 3
   ): Promise<T> {
-    try {
-      const apiBaseUrl = await getApiUrl()
-      const url = `${apiBaseUrl}${endpoint}`
-      
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      })
+    let lastError: Error | null = null
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const apiBaseUrl = await getApiUrl()
+        const url = `${apiBaseUrl}${endpoint}`
+        
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...options.headers,
+          },
+        })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
-        throw new Error(errorData.detail || `API Error: ${response.status}`)
-      }
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+          throw new Error(errorData.detail || `API Error: ${response.status}`)
+        }
 
-      return response.json()
-    } catch (error) {
-      console.error(`API request failed for ${endpoint}:`, error)
-      if (error instanceof Error) {
-        throw error
+        // Si es 204 No Content, devolver objeto vacío en lugar de parsear JSON
+        if (response.status === 204) {
+          return {} as T
+        }
+
+        return response.json()
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error')
+        
+        // Si es un error de red (Failed to fetch), reintentamos
+        if (lastError.message.includes('Failed to fetch') && attempt < retries - 1) {
+          console.warn(`API request failed for ${endpoint} (attempt ${attempt + 1}/${retries}), retrying...`)
+          // Espera progresiva: 500ms, 1000ms, 1500ms
+          await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 500))
+          continue
+        }
+        
+        // Para otros errores o último intento, lanzamos el error
+        console.error(`API request failed for ${endpoint}:`, lastError)
+        
+        // Mensaje de error más descriptivo
+        if (lastError.message.includes('Failed to fetch')) {
+          const apiBaseUrl = await getApiUrl()
+          throw new Error(
+            `No se puede conectar al backend en ${apiBaseUrl}. ` +
+            `Verifica que el servidor esté corriendo. ` +
+            `Puedes inicializarlo con: bash /workspaces/spark-template/run-backend-direct.sh`
+          )
+        }
+        
+        throw lastError
       }
-      throw new Error(`Request failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+    
+    throw lastError || new Error('Request failed after retries')
   }
 
   async listProfiles(): Promise<Profile[]> {
     try {
-      return this.request<Profile[]>('/profiles')
+      const response = await this.request<{ items: Profile[]; total: number }>('/profiles?per_page=100')
+      // El backend devuelve { items: [], total, page, per_page, pages }
+      return response.items || []
     } catch (error) {
       console.error('Error listing profiles from API:', error)
       throw new Error(`Failed to list profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -126,11 +201,14 @@ class ApiClient {
       if (profileSlug) params.append('profile_slug', profileSlug)
       if (search) params.append('search', search)
       if (includeInactive) params.append('include_inactive', 'true')
+      params.append('per_page', '100') // Límite máximo del backend
 
       const query = params.toString()
-      const endpoint = query ? `/products?${query}` : '/products'
+      const endpoint = query ? `/products?${query}` : '/products?per_page=100'
       
-      return this.request<ProductWithStock[]>(endpoint)
+      const response = await this.request<{ items: ProductWithStock[]; total: number }>(endpoint)
+      // El backend devuelve { items: [], total, page, per_page, pages }
+      return response.items || []
     } catch (error) {
       console.error('Error fetching products from API:', error)
       throw new Error(`Failed to fetch products: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -183,6 +261,33 @@ class ApiClient {
     }
   }
 
+  async deleteProduct(productId: number): Promise<void> {
+    try {
+      await this.request(`/products/${productId}`, {
+        method: 'DELETE',
+      })
+    } catch (error) {
+      console.error('Error deleting product via API:', error)
+      throw new Error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteOrder(orderId: number): Promise<void> {
+    try {
+      const apiBaseUrl = await getApiUrl()
+      const fullUrl = `${apiBaseUrl}/orders/${orderId}`
+      console.log(`🗑️ Eliminando orden ${orderId} via API...`)
+      console.log(`📡 DELETE URL: ${fullUrl}`)
+      await this.request(`/orders/${orderId}`, {
+        method: 'DELETE',
+      })
+      console.log(`✅ Orden ${orderId} eliminada exitosamente`)
+    } catch (error) {
+      console.error('Error deleting order via API:', error)
+      throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
     try {
       const productsToCreate = productsData.map(p => ({
@@ -215,17 +320,20 @@ class ApiClient {
     try {
       const params = new URLSearchParams()
       if (profileSlug) params.append('profile_slug', profileSlug)
+      params.append('per_page', '100') // Límite máximo del backend
 
       const query = params.toString()
-      const endpoint = query ? `/orders?${query}` : '/orders'
+      const endpoint = query ? `/orders?${query}` : '/orders?per_page=100'
       
-      const apiOrders = await this.request<ApiOrderResponse[]>(endpoint)
+      const response = await this.request<{ items: ApiOrderResponse[]; total: number }>(endpoint)
+      // El backend devuelve { items: [], total, page, per_page, pages }
+      const apiOrders = response.items || []
       
       return apiOrders.map(order => ({
         ...order,
         customer_name: String(order.customer_name || ''),
         customer_phone: String(order.customer_phone || ''),
-        items: order.items.map(item => {
+        items: (order.items || []).map(item => {
           const product = item.product
           return {
             id: item.id,

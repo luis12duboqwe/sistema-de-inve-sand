@@ -8,6 +8,7 @@ import type {
   OrderWithItems,
   CreateOrderRequest
 } from './types'
+import { getKV } from './kvStorage'
 
 const STORAGE_KEYS = {
   PROFILES: 'inventory-profiles',
@@ -20,17 +21,20 @@ const STORAGE_KEYS = {
 export class InventoryService {
   private async loadProfiles(): Promise<Profile[]> {
     try {
-      const data = await window.spark.kv.get<Profile[]>(STORAGE_KEYS.PROFILES)
+      const kv = getKV()
+      const data = await kv.get<Profile[]>(STORAGE_KEYS.PROFILES)
       return data || []
     } catch (error) {
-      console.error('Error loading profiles:', error)
-      throw new Error(`Failed to load profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Error loading profiles from KV, returning empty array:', error)
+      // No lanzar error, simplemente retornar array vacío para permitir inicialización
+      return []
     }
   }
 
   private async setProfiles(profiles: Profile[]): Promise<void> {
     try {
-      await window.spark.kv.set(STORAGE_KEYS.PROFILES, profiles)
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.PROFILES, profiles)
     } catch (error) {
       console.error('Error saving profiles:', error)
       throw new Error(`Failed to save profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -39,7 +43,8 @@ export class InventoryService {
 
   private async loadProducts(): Promise<Product[]> {
     try {
-      const data = await window.spark.kv.get<Product[]>(STORAGE_KEYS.PRODUCTS)
+      const kv = getKV()
+      const data = await kv.get<Product[]>(STORAGE_KEYS.PRODUCTS)
       return data || []
     } catch (error) {
       console.error('Error loading products:', error)
@@ -49,7 +54,8 @@ export class InventoryService {
 
   private async setProducts(products: Product[]): Promise<void> {
     try {
-      await window.spark.kv.set(STORAGE_KEYS.PRODUCTS, products)
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.PRODUCTS, products)
     } catch (error) {
       console.error('Error saving products:', error)
       throw new Error(`Failed to save products: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -58,7 +64,8 @@ export class InventoryService {
 
   private async getStock(): Promise<Stock[]> {
     try {
-      const data = await window.spark.kv.get<Stock[]>(STORAGE_KEYS.STOCK)
+      const kv = getKV()
+      const data = await kv.get<Stock[]>(STORAGE_KEYS.STOCK)
       return data || []
     } catch (error) {
       console.error('Error loading stock:', error)
@@ -68,7 +75,8 @@ export class InventoryService {
 
   private async setStock(stock: Stock[]): Promise<void> {
     try {
-      await window.spark.kv.set(STORAGE_KEYS.STOCK, stock)
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.STOCK, stock)
     } catch (error) {
       console.error('Error saving stock:', error)
       throw new Error(`Failed to save stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -77,7 +85,8 @@ export class InventoryService {
 
   private async loadOrders(): Promise<Order[]> {
     try {
-      const data = await window.spark.kv.get<Order[]>(STORAGE_KEYS.ORDERS)
+      const kv = getKV()
+      const data = await kv.get<Order[]>(STORAGE_KEYS.ORDERS)
       return data || []
     } catch (error) {
       console.error('Error loading orders:', error)
@@ -87,7 +96,8 @@ export class InventoryService {
 
   private async setOrders(orders: Order[]): Promise<void> {
     try {
-      await window.spark.kv.set(STORAGE_KEYS.ORDERS, orders)
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.ORDERS, orders)
     } catch (error) {
       console.error('Error saving orders:', error)
       throw new Error(`Failed to save orders: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -96,7 +106,8 @@ export class InventoryService {
 
   private async getOrderItems(): Promise<OrderItem[]> {
     try {
-      const data = await window.spark.kv.get<OrderItem[]>(STORAGE_KEYS.ORDER_ITEMS)
+      const kv = getKV()
+      const data = await kv.get<OrderItem[]>(STORAGE_KEYS.ORDER_ITEMS)
       return data || []
     } catch (error) {
       console.error('Error loading order items:', error)
@@ -106,7 +117,8 @@ export class InventoryService {
 
   private async setOrderItems(items: OrderItem[]): Promise<void> {
     try {
-      await window.spark.kv.set(STORAGE_KEYS.ORDER_ITEMS, items)
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.ORDER_ITEMS, items)
     } catch (error) {
       console.error('Error saving order items:', error)
       throw new Error(`Failed to save order items: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -634,6 +646,80 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteProduct(productId: number): Promise<void> {
+    try {
+      const [products, stock, orderItems] = await Promise.all([
+        this.loadProducts(),
+        this.getStock(),
+        this.getOrderItems()
+      ])
+
+      // Verificar si el producto está en alguna orden
+      const isInOrder = orderItems.some(item => item.product_id === productId)
+      if (isInOrder) {
+        throw new Error('No se puede eliminar el producto porque está referenciado en órdenes existentes')
+      }
+
+      // Eliminar producto y su stock
+      const updatedProducts = products.filter(p => p.id !== productId)
+      const updatedStock = stock.filter(s => s.product_id !== productId)
+
+      await Promise.all([
+        this.setProducts(updatedProducts),
+        this.setStock(updatedStock)
+      ])
+    } catch (error) {
+      console.error('Error deleting product:', error)
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteOrder(orderId: number): Promise<void> {
+    try {
+      const [orders, orderItems, stock] = await Promise.all([
+        this.loadOrders(),
+        this.getOrderItems(),
+        this.getStock()
+      ])
+
+      // Encontrar la orden
+      const order = orders.find(o => o.id === orderId)
+      if (!order) {
+        throw new Error('Orden no encontrada')
+      }
+
+      // Reponer stock de los productos
+      const itemsToRestore = orderItems.filter(item => item.order_id === orderId)
+      const updatedStock = [...stock]
+      
+      for (const item of itemsToRestore) {
+        const stockItem = updatedStock.find(s => s.product_id === item.product_id)
+        if (stockItem) {
+          stockItem.cantidad_disponible += item.cantidad
+        }
+      }
+
+      // Eliminar orden y sus items
+      const updatedOrders = orders.filter(o => o.id !== orderId)
+      const updatedOrderItems = orderItems.filter(item => item.order_id !== orderId)
+
+      await Promise.all([
+        this.setOrders(updatedOrders),
+        this.setOrderItems(updatedOrderItems),
+        this.setStock(updatedStock)
+      ])
+    } catch (error) {
+      console.error('Error deleting order:', error)
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

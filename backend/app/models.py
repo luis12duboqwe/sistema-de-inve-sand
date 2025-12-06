@@ -50,7 +50,7 @@ class Product(Base):
 
     profile = relationship("Profile", back_populates="products")
     stock = relationship("Stock", back_populates="product", uselist=False, cascade="all, delete-orphan")
-    order_items = relationship("OrderItem", back_populates="product")
+    order_items = relationship("OrderItem", back_populates="product", passive_deletes='all')
     
     __table_args__ = (
         Index('idx_product_active_categoria', 'activo', 'categoria'),

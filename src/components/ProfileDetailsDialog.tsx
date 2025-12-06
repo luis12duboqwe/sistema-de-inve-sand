@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { Profile } from '@/lib/types'
@@ -34,7 +34,7 @@ export function ProfileDetailsDialog({
             </div>
             <div className="flex-1">
               <DialogTitle className="text-2xl">{profile.name}</DialogTitle>
-              <p className="text-sm text-muted-foreground font-mono">{profile.slug}</p>
+              <DialogDescription className="font-mono">{profile.slug}</DialogDescription>
             </div>
             {profile.active ? (
               <Badge className="bg-accent text-accent-foreground">Activo</Badge>

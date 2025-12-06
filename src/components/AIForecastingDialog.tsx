@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -113,6 +113,9 @@ export function AIForecastingDialog({
             <Sparkle size={28} className="text-primary" weight="duotone" />
             Pronóstico de Ventas con IA
           </DialogTitle>
+          <DialogDescription>
+            Análisis predictivo de demanda y alertas de reabastecimiento.
+          </DialogDescription>
         </DialogHeader>
 
         {isLoading ? (

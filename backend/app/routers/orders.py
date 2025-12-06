@@ -32,6 +32,8 @@ def _serialize_product_for_order(product: Product) -> dict:
     """
     return {
         "id": product.id,
+        "profile_id": product.profile_id,
+        "sku": product.sku,
         "nombre": product.nombre,
         "categoria": product.categoria,
         "marca": product.marca,
@@ -41,6 +43,7 @@ def _serialize_product_for_order(product: Product) -> dict:
         "precio": product.precio,
         "moneda": product.moneda,
         "garantia_meses": product.garantia_meses,
+        "activo": product.activo,
         "stock_disponible": product.stock.cantidad_disponible if product.stock else 0
     }
 
@@ -79,7 +82,7 @@ def _serialize_order(order: Order) -> OrderResponse:
         items=items_response
     )
 
-@router.get("", response_model=PaginatedResponse[OrderListResponse])
+@router.get("", response_model=PaginatedResponse[OrderResponse])
 def list_orders(
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
     page: int = Query(1, ge=1, description="Número de página"),
@@ -115,8 +118,11 @@ def list_orders(
     offset = (page - 1) * per_page
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
     
+    # Serializar órdenes con items completos
+    serialized_orders = [_serialize_order(order) for order in orders]
+    
     return PaginatedResponse(
-        items=orders,
+        items=serialized_orders,
         total=total,
         page=page,
         per_page=per_page,
@@ -124,7 +130,7 @@ def list_orders(
     )
 
 
-@router.post("/search", response_model=PaginatedResponse[OrderListResponse])
+@router.post("/search", response_model=PaginatedResponse[OrderResponse])
 def search_orders(
     search_params: OrderSearchParams,
     profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil"),
@@ -199,8 +205,11 @@ def search_orders(
     offset = (page - 1) * per_page
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
     
+    # Serializar órdenes con items completos
+    serialized_orders = [_serialize_order(order) for order in orders]
+    
     return PaginatedResponse(
-        items=orders,
+        items=serialized_orders,
         total=total,
         page=page,
         per_page=per_page,
@@ -484,24 +493,33 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
         - 404: Si la orden no existe
         - 500: Si ocurre un error al eliminar
     """
+    print(f"🗑️ [DELETE ORDER] Iniciando eliminación de orden {order_id}")
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
+        print(f"❌ [DELETE ORDER] Orden {order_id} no encontrada")
         raise HTTPException(
             status_code=404,
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
+    
+    print(f"✅ [DELETE ORDER] Orden {order_id} encontrada, tiene {len(order.items)} items")
     
     try:
         # Reponer stock antes de eliminar
         for item in order.items:
             stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
             if stock:
+                old_stock = stock.cantidad_disponible
                 stock.cantidad_disponible += item.cantidad
+                print(f"📦 [DELETE ORDER] Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
         
         # Eliminar orden (items se eliminan en cascada)
+        print(f"🗑️ [DELETE ORDER] Eliminando orden {order_id} de la base de datos...")
         db.delete(order)
         db.commit()
+        print(f"✅ [DELETE ORDER] Orden {order_id} eliminada exitosamente")
         return None
     except Exception as e:
+        print(f"❌ [DELETE ORDER] Error al eliminar orden {order_id}: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar orden: {str(e)}")

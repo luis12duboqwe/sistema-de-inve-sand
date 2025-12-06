@@ -5,6 +5,7 @@ import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown } f
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
+import { useMemo } from 'react'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -25,13 +26,13 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
 
   const totalRevenue = orders
     .filter(o => o.estado === 'completada')
-    .reduce((sum, order) => sum + order.total, 0)
+    .reduce((sum, order) => sum + Number(order.total), 0)
 
   const inventoryValue = products
     .filter(p => p.activo)
-    .reduce((sum, product) => sum + (product.precio * product.stock_disponible), 0)
+    .reduce((sum, product) => sum + (Number(product.precio) * product.stock_disponible), 0)
 
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
+  const last7Days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i)
     const dayOrders = orders.filter(o => {
       const orderDate = new Date(o.created_at)
@@ -40,34 +41,36 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
     return {
       date: format(date, 'dd/MM'),
       ordenes: dayOrders.length,
-      ventas: dayOrders.filter(o => o.estado === 'completada').reduce((sum, o) => sum + o.total, 0)
+      ventas: dayOrders.filter(o => o.estado === 'completada').reduce((sum, o) => sum + Number(o.total), 0)
     }
-  })
+  }), [orders])
 
-  const ordersByStatus = [
+  const ordersByStatus = useMemo(() => [
     { name: 'Pendiente', value: pendingOrders, color: '#f59e0b' },
     { name: 'Por Entregar', value: readyToDeliverOrders, color: '#3b82f6' },
     { name: 'Completada', value: completedOrders, color: '#10b981' },
     { name: 'Cancelada', value: orders.filter(o => o.estado === 'cancelada').length, color: '#ef4444' },
-  ].filter(s => s.value > 0)
+  ].filter(s => s.value > 0), [pendingOrders, readyToDeliverOrders, completedOrders, orders])
 
-  const productSales = orders
-    .filter(o => o.estado === 'completada')
-    .flatMap(o => o.items)
-    .filter(item => item.product?.nombre)
-    .reduce((acc, item) => {
-      const key = item.product!.nombre
-      if (!acc[key]) {
-        acc[key] = { nombre: key, cantidad: 0, ingresos: 0 }
-      }
-      acc[key].cantidad += item.cantidad
-      acc[key].ingresos += item.cantidad * item.precio_unitario
-      return acc
-    }, {} as Record<string, { nombre: string; cantidad: number; ingresos: number }>)
+  const topProducts = useMemo(() => {
+    const productSales = orders
+      .filter(o => o.estado === 'completada')
+      .flatMap(o => o.items)
+      .filter(item => item.product?.nombre)
+      .reduce((acc, item) => {
+        const key = item.product!.nombre
+        if (!acc[key]) {
+          acc[key] = { nombre: key, cantidad: 0, ingresos: 0 }
+        }
+        acc[key].cantidad += item.cantidad
+        acc[key].ingresos += item.cantidad * Number(item.precio_unitario)
+        return acc
+      }, {} as Record<string, { nombre: string; cantidad: number; ingresos: number }>)
 
-  const topProducts = Object.values(productSales)
-    .sort((a, b) => b.ingresos - a.ingresos)
-    .slice(0, 5)
+    return Object.values(productSales)
+      .sort((a, b) => b.ingresos - a.ingresos)
+      .slice(0, 5)
+  }, [orders])
 
   const stats = [
     {

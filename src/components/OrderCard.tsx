@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/select'
 import type { OrderWithItems, Order } from '@/lib/types'
 import { format } from 'date-fns'
-import { PencilSimple, User, FilePdf } from '@phosphor-icons/react'
+import { PencilSimple, User, FilePdf, Trash } from '@phosphor-icons/react'
 
 interface OrderCardProps {
   order: OrderWithItems
@@ -18,9 +18,10 @@ interface OrderCardProps {
   onEdit?: (order: OrderWithItems) => void
   onViewCustomerHistory?: (customerPhone: string) => void
   onExportPDF?: (order: OrderWithItems) => void
+  onDelete?: (order: OrderWithItems) => void
 }
 
-export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory, onExportPDF }: OrderCardProps) {
+export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory, onExportPDF, onDelete }: OrderCardProps) {
   const getStatusBadgeColor = (estado: Order['estado']) => {
     const colors: Record<Order['estado'], string> = {
       pendiente: 'bg-yellow-500 text-white',
@@ -158,6 +159,19 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  console.log('🗑️ Click en botón eliminar orden, onDelete:', typeof onDelete)
+                  onDelete(order)
+                }}
+                className="hover:text-destructive"
+              >
+                <Trash size={16} />
+              </Button>
+            )}
             {onExportPDF && (
               <Button
                 variant="outline"

@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useKV } from './use-kv'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import { calculateOptimizationScore } from '@/lib/optimizationAnalytics'
 
@@ -146,8 +146,8 @@ export function useOptimizationAlerts(
     profile?.id,
     settings?.enabled,
     settings?.threshold,
-    settings?.checkIntervalMinutes,
-    checkOptimizationScore
+    settings?.checkIntervalMinutes
+    // checkOptimizationScore removed to prevent infinite loop
   ])
 
   const updateSettings = (newSettings: Partial<OptimizationAlertSettings>) => {

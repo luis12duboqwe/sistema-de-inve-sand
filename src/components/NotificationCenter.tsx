@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Bell, Warning, Package, X, CheckCircle, TrendDown, Lightbulb } from '@phosphor-icons/react'
 import type { ProductWithStock, Profile, OrderWithItems } from '@/lib/types'
-import { useKV } from '@github/spark/hooks'
+import { useKV } from '@/hooks/use-kv'
 
 interface Notification {
   id: string

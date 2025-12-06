@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -96,6 +96,9 @@ export function NewProfileDialog({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Crear Nuevo Perfil</DialogTitle>
+          <DialogDescription>
+            Crea un nuevo perfil para organizar tus productos y órdenes.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

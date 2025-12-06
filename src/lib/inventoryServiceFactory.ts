@@ -1,5 +1,6 @@
 import { inventoryService as localService } from './inventoryService'
 import { apiClient } from './apiClient'
+import { getKV } from './kvStorage'
 import type {
   Profile,
   Product,
@@ -12,7 +13,8 @@ import type {
 } from './types'
 
 async function getUseApiSetting(): Promise<boolean> {
-  const useApi = await window.spark.kv.get<boolean>('settings_use_api')
+  const kv = getKV()
+  const useApi = await kv.get<boolean>('settings_use_api')
   return useApi ?? false
 }
 
@@ -80,6 +82,9 @@ export interface IInventoryService {
     productId: number,
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock>
+
+  deleteProduct(productId: number): Promise<void>
+  deleteOrder(orderId: number): Promise<void>
 
   bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]>
 }
@@ -181,6 +186,14 @@ class LocalServiceWrapper implements IInventoryService {
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
     return this.service.updateProduct(productId, updates)
+  }
+
+  async deleteProduct(productId: number): Promise<void> {
+    return this.service.deleteProduct(productId)
+  }
+
+  async deleteOrder(orderId: number): Promise<void> {
+    return this.service.deleteOrder(orderId)
   }
 
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
@@ -388,6 +401,26 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
+  async deleteProduct(productId: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteProduct(productId)
+    } catch (error) {
+      console.error('Error deleting product (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteOrder(orderId: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteOrder(orderId)
+    } catch (error) {
+      console.error('Error deleting order (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
     try {
       const service = await this.getService()
@@ -495,6 +528,14 @@ class ApiInventoryService implements IInventoryService {
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
     return apiClient.updateProduct(productId, updates)
+  }
+
+  async deleteProduct(productId: number): Promise<void> {
+    return apiClient.deleteProduct(productId)
+  }
+
+  async deleteOrder(orderId: number): Promise<void> {
+    return apiClient.deleteOrder(orderId)
   }
 
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {

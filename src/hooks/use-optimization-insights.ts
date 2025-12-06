@@ -143,7 +143,8 @@ Devuelve SOLO un objeto JSON válido con el formato:
     if (autoGenerate && profileProducts.length > 0 && !analysis) {
       generateAnalysis()
     }
-  }, [autoGenerate, profileProducts.length, analysis, generateAnalysis])
+  }, [autoGenerate, profileProducts.length, analysis])
+  // generateAnalysis removed from dependencies to prevent infinite loop
 
   return {
     analysis,

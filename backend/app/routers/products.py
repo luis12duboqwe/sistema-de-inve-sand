@@ -23,6 +23,8 @@ def _serialize_product(product: Product) -> ProductResponse:
     """
     return ProductResponse(
         id=product.id,
+        profile_id=product.profile_id,
+        sku=product.sku,
         nombre=product.nombre,
         categoria=product.categoria,
         marca=product.marca,
@@ -32,6 +34,7 @@ def _serialize_product(product: Product) -> ProductResponse:
         precio=product.precio,
         moneda=product.moneda,
         garantia_meses=product.garantia_meses,
+        activo=product.activo,
         stock_disponible=product.stock.cantidad_disponible if product.stock else 0
     )
 
@@ -314,17 +317,38 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
             detail=f"El producto con ID {product_id} no fue encontrado"
         )
     
+    # Verificar si el producto está en alguna orden activa (pendiente o por entregar)
+    from app.models import OrderItem, Order
+    active_order_items = db.query(OrderItem).join(Order).filter(
+        OrderItem.product_id == product_id,
+        Order.estado.in_(['pendiente', 'por_entregar'])
+    ).count()
+    
+    if active_order_items > 0:
+        # Obtener información de las órdenes activas
+        active_order_ids = db.query(Order.id, Order.estado).join(OrderItem).filter(
+            OrderItem.product_id == product_id,
+            Order.estado.in_(['pendiente', 'por_entregar'])
+        ).distinct().all()
+        order_info = [f"#{oid} ({estado})" for oid, estado in active_order_ids]
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el producto porque está en {active_order_items} orden(es) activa(s): {', '.join(order_info)}"
+        )
+    
+    # Si solo está en órdenes completadas/canceladas, eliminar las referencias primero
+    all_order_items = db.query(OrderItem).filter(OrderItem.product_id == product_id).all()
+    for item in all_order_items:
+        db.delete(item)
+    
     try:
+        # Eliminar el stock asociado primero
+        if product.stock:
+            db.delete(product.stock)
+        # Luego eliminar el producto
         db.delete(product)
         db.commit()
         return None
     except Exception as e:
         db.rollback()
-        # Check if it's a foreign key constraint error
-        error_msg = str(e)
-        if "FOREIGN KEY constraint failed" in error_msg or "foreign key" in error_msg.lower():
-            raise HTTPException(
-                status_code=400,
-                detail=f"No se puede eliminar el producto porque está referenciado en órdenes existentes"
-            )
         raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { getKV } from '../lib/kvStorage'
 
 export interface SyncEvent {
   key: string
@@ -14,12 +15,19 @@ export function useSyncDetection(
 ) {
   const lastValuesRef = useRef<Map<string, any>>(new Map())
   const isFirstLoadRef = useRef(true)
+  const onSyncRef = useRef(onSync)
+
+  // Actualizar la referencia cuando cambie onSync
+  useEffect(() => {
+    onSyncRef.current = onSync
+  }, [onSync])
 
   useEffect(() => {
     const checkForChanges = async () => {
+      const kv = getKV()
       for (const key of keys) {
         try {
-          const currentValue = await spark.kv.get(key)
+          const currentValue = await kv.get(key)
           const lastValue = lastValuesRef.current.get(key)
 
           if (!isFirstLoadRef.current && currentValue !== lastValue) {
@@ -31,7 +39,7 @@ export function useSyncDetection(
               source: 'remote'
             }
 
-            onSync?.(event)
+            onSyncRef.current?.(event)
           }
 
           lastValuesRef.current.set(key, currentValue)
@@ -61,5 +69,5 @@ export function useSyncDetection(
       clearInterval(interval)
       window.removeEventListener('storage', handleStorageChange)
     }
-  }, [keys, onSync])
+  }, [keys])
 }

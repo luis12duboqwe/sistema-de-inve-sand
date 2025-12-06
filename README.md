@@ -8,6 +8,38 @@ Un sistema completo de gestión de inventario de celulares y accesorios diseñad
 
 **🔄 SINCRONIZACIÓN MULTI-DISPOSITIVO**: Ver [REALTIME_SYNC.md](./REALTIME_SYNC.md) para documentación completa.
 
+## 🧪 Probar el Sistema
+
+### Inicio Rápido
+
+**Linux/Mac:**
+```bash
+# Dar permisos de ejecución (solo primera vez)
+chmod +x test-system.sh start-backend.sh start-frontend.sh
+
+# Ejecutar pruebas completas del sistema
+./test-system.sh
+
+# O iniciar manualmente:
+./start-backend.sh   # Terminal 1 - Backend en puerto 8000
+./start-frontend.sh  # Terminal 2 - Frontend en puerto 5173
+```
+
+**Windows:**
+```cmd
+start-backend.bat   # Terminal 1 - Backend en puerto 8000
+start-frontend.bat  # Terminal 2 - Frontend en puerto 5173
+```
+
+### Pruebas Automatizadas
+
+```bash
+# Backend debe estar ejecutándose primero
+python3 test-backend.py
+```
+
+📖 **Guía completa de pruebas**: Ver [TESTING_GUIDE.md](./TESTING_GUIDE.md)
+
 ## 🏗️ Arquitectura
 
 El sistema soporta **dos modos de backend**:

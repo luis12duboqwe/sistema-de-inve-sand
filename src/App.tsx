@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useState, useEffect, useCallback } from 'react'
+import { useKV } from '@/hooks/use-kv'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
@@ -38,13 +38,14 @@ import { AIForecastingDialog } from '@/components/AIForecastingDialog'
 import { ForecastingWidget } from '@/components/ForecastingWidget'
 import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDialog'
 import { SyncIndicator } from '@/components/SyncIndicator'
+import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
+import { initializeDefaultData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
 import { useForecasting } from '@/hooks/use-forecasting'
 import { useRealtimeSync } from '@/hooks/use-realtime-sync'
-import { useSyncDetection } from '@/hooks/use-sync-detection'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
@@ -52,6 +53,7 @@ import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
 import { motion } from 'framer-motion'
 
 export default function App() {
+  const [backendConnected, setBackendConnected] = useState(false)
   const { isInitialized, isLoading } = useInitializeData()
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
   const [orders, setOrders] = useKV<OrderWithItems[]>('inventory-orders', [])
@@ -100,18 +102,8 @@ export default function App() {
 
   const { syncStatus, markSyncStart, markSyncComplete } = useRealtimeSync()
 
-  useSyncDetection(
-    ['inventory-products', 'inventory-orders', 'inventory-profiles'],
-    (event) => {
-      if (event.key === 'inventory-products') {
-        setProducts(event.newValue || [])
-      } else if (event.key === 'inventory-orders') {
-        setOrders(event.newValue || [])
-      } else if (event.key === 'inventory-profiles') {
-        setProfiles(event.newValue || [])
-      }
-    }
-  )
+  // useSyncDetection removed - useKV already handles cross-tab sync via storage events
+  // No need to manually update state, useKV automatically syncs between tabs
 
   const currentProfile = selectedProfile !== 'all' 
     ? (profiles ?? []).find(p => p.slug === selectedProfile) || null
@@ -137,6 +129,12 @@ export default function App() {
       if (!isInitialized) return
       
       try {
+        console.log('🔄 Cargando datos iniciales...')
+        console.log('📊 useAPI:', useAPI, 'apiUrl:', apiUrl)
+        
+        // Inicializar datos por defecto si no existen
+        await initializeDefaultData()
+        
         const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
         const [loadedProducts, loadedOrders, loadedProfiles] = await Promise.all([
           currentService.getProducts(),
@@ -144,12 +142,19 @@ export default function App() {
           currentService.getProfiles()
         ])
         
+        console.log('✅ Datos cargados:', {
+          productos: loadedProducts.length,
+          ordenes: loadedOrders.length,
+          perfiles: loadedProfiles.length
+        })
+        
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
         setDataLoaded(true)
       } catch (error) {
-        console.error('Error loading data:', error)
+        console.error('❌ Error loading data:', error)
+        toast.error(`Error al cargar datos: ${error instanceof Error ? error.message : 'Error desconocido'}`)
         setDataLoaded(true)
       }
     }
@@ -519,6 +524,11 @@ export default function App() {
     }
   }
 
+  // Verificar conexión del backend primero
+  if (!backendConnected) {
+    return <BackendConnectionCheck onSuccess={() => setBackendConnected(true)} />
+  }
+
   if (isLoading || !dataLoaded) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -870,6 +880,21 @@ export default function App() {
                         setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
                         toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
                       }}
+                      onDelete={async (p) => {
+                        if (!confirm(`¿Estás seguro de eliminar "${p.nombre}"?\n\nEsta acción no se puede deshacer.`)) {
+                          return
+                        }
+                        
+                        try {
+                          await service.deleteProduct(p.id)
+                          setProducts(current => (current ?? []).filter(pr => pr.id !== p.id))
+                          toast.success('Producto eliminado exitosamente')
+                        } catch (error) {
+                          console.error('Error deleting product:', error)
+                          const message = error instanceof Error ? error.message : 'Error desconocido'
+                          toast.error(`Error al eliminar producto: ${message}`)
+                        }
+                      }}
                     />
                   </div>
                 ))}
@@ -1081,6 +1106,24 @@ export default function App() {
                           generateOrderPDF(order, profile)
                         }
                       }}
+                      onDelete={async (order) => {
+                        console.log('🗑️ Intentando eliminar orden:', order.id)
+                        if (!confirm(`¿Estás seguro de eliminar la orden #${order.id}?\n\nEsta acción no se puede deshacer y se repondrá el stock de los productos.`)) {
+                          console.log('❌ Eliminación cancelada por el usuario')
+                          return
+                        }
+                        try {
+                          console.log('📡 Llamando a service.deleteOrder...')
+                          await service.deleteOrder(order.id)
+                          console.log('✅ Orden eliminada del backend, actualizando estado local...')
+                          setOrders(current => (current ?? []).filter(o => o.id !== order.id))
+                          toast.success('Orden eliminada exitosamente')
+                        } catch (error) {
+                          const message = error instanceof Error ? error.message : 'Error desconocido'
+                          console.error('❌ Error al eliminar orden:', error)
+                          toast.error(`Error al eliminar orden: ${message}`)
+                        }
+                      }}
                     />
                   </div>
                 ))}
@@ -1131,7 +1174,7 @@ export default function App() {
                       .slice(0, 1)
                       .map(profile => (
                         <ProfileConfigPrompt
-                          key={profile.id}
+                          key={`prompt-${profile.id}`}
                           profile={profile}
                           onConfigure={setProfileWithSettings}
                         />
@@ -1141,9 +1184,9 @@ export default function App() {
                 )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {(profiles ?? []).map(profile => (
+                  {(profiles ?? []).filter(p => p && p.id).map(profile => (
                     <ProfileCard
-                      key={profile.id}
+                      key={`card-${profile.id}`}
                       profile={profile}
                       productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
                       orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
@@ -1164,11 +1207,30 @@ export default function App() {
         onOpenChange={setShowNewProductDialog}
         profiles={activeProfiles}
         onSubmit={async (newProduct, stock) => {
-          const productWithStock = { ...newProduct, activo: true, stock_disponible: stock }
-          const created = await service.createProduct(productWithStock)
-          setProducts(current => [...(current ?? []), created])
-          toast.success('Producto creado exitosamente')
-          setShowNewProductDialog(false)
+          try {
+            console.log('📦 Creando producto:', { newProduct, stock })
+            
+            const productWithStock = { ...newProduct, activo: true, stock_disponible: stock }
+            const created = await service.createProduct(productWithStock)
+            
+            console.log('✅ Producto creado en backend:', created)
+            
+            // Pequeña pausa para asegurar que el backend procesó la petición
+            await new Promise(resolve => setTimeout(resolve, 300))
+            
+            // Recargar todos los productos desde el backend para asegurar sincronización
+            console.log('🔄 Recargando productos desde el backend...')
+            const updatedProducts = await service.getProducts()
+            console.log('✅ Productos recargados:', updatedProducts.length, 'productos')
+            
+            setProducts(updatedProducts)
+            
+            toast.success(`Producto creado: ${newProduct.nombre}`)
+            setShowNewProductDialog(false)
+          } catch (error) {
+            console.error('❌ Error al crear producto:', error)
+            toast.error(`Error al crear producto: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          }
         }}
       />
 
@@ -1194,14 +1256,22 @@ export default function App() {
         onOpenChange={setShowNewProfileDialog}
         onSubmit={async (name, slug) => {
           try {
+            console.log('Creating profile:', { name, slug })
             const created = await service.createProfile({ name, slug, active: true })
-            setProfiles(current => [...(current ?? []), created])
+            console.log('Profile created:', created)
+            
+            // Actualizar estado de forma segura
+            setProfiles(current => {
+              const updated = [...(current ?? []), created]
+              console.log('Updated profiles list:', updated)
+              return updated
+            })
+            
             toast.success('Perfil creado exitosamente')
             setShowNewProfileDialog(false)
           } catch (error) {
             console.error('Error creating profile:', error)
             toast.error(error instanceof Error ? error.message : 'Error al crear perfil')
-            throw error
           }
         }}
       />

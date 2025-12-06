@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useKV } from './use-kv'
 import { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import { generateAIForecasts, generateRestockAlerts, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
 
@@ -50,7 +50,8 @@ export function useForecasting(
         generateForecastData()
       }
     }
-  }, [autoRefresh, profile, products.length, lastUpdated, generateForecastData])
+  }, [autoRefresh, profile, products.length, lastUpdated])
+  // generateForecastData removed from dependencies to prevent infinite loop
 
   const getCriticalAlerts = useCallback(() => {
     return (alerts ?? []).filter((a) => a.urgency === 'critical' || a.urgency === 'high')

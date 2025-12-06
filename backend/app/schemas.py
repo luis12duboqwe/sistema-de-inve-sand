@@ -111,6 +111,8 @@ class StockUpdate(BaseModel):
 
 class ProductResponse(BaseModel):
     id: int
+    profile_id: int
+    sku: str
     nombre: str
     categoria: str
     marca: str
@@ -120,6 +122,7 @@ class ProductResponse(BaseModel):
     precio: Decimal
     moneda: str
     garantia_meses: int
+    activo: bool
     stock_disponible: int
 
     class Config:

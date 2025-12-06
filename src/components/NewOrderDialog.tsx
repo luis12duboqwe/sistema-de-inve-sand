@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter
@@ -146,6 +147,9 @@ export function NewOrderDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nueva Orden</DialogTitle>
+          <DialogDescription>
+            Crea una nueva orden seleccionando perfil, productos y datos del cliente.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

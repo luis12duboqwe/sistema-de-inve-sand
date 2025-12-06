@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useKV } from '@github/spark/hooks'
+import { useKV } from './use-kv'
 import type { KeyboardShortcut, ShortcutBinding } from '@/lib/keyboardShortcuts'
 import { loadShortcutPreferences } from '@/lib/keyboardShortcuts'
 

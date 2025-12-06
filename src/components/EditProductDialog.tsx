@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter
@@ -90,6 +91,9 @@ export function EditProductDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Producto</DialogTitle>
+          <DialogDescription>
+            Modifica los detalles del producto y su stock disponible.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
@@ -76,9 +76,9 @@ export function OptimizationInsightsDialog({
                 <DialogTitle className="text-2xl font-bold">
                   Insights de Optimización
                 </DialogTitle>
-                <p className="text-sm text-muted-foreground mt-1">
+                <DialogDescription className="mt-1">
                   Análisis multidimensional impulsado por IA
-                </p>
+                </DialogDescription>
               </div>
             </div>
             <div className="flex items-center gap-2">

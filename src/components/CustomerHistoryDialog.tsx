@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,6 +74,9 @@ export function CustomerHistoryDialog({
             <User size={24} />
             Historial del Cliente
           </DialogTitle>
+          <DialogDescription>
+            Revisa las órdenes anteriores de {customerName} ({customerPhone})
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 mt-4">

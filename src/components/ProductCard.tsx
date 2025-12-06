@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple, Power } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power, Trash } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 import { motion } from 'framer-motion'
 
@@ -9,9 +9,10 @@ interface ProductCardProps {
   product: ProductWithStock
   onEdit?: (product: ProductWithStock) => void
   onToggleActive?: (product: ProductWithStock) => void
+  onDelete?: (product: ProductWithStock) => void
 }
 
-export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProps) {
+export function ProductCard({ product, onEdit, onToggleActive, onDelete }: ProductCardProps) {
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
     if (stock < 5) return 'bg-destructive text-destructive-foreground'
@@ -79,6 +80,7 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
                 size="icon"
                 onClick={() => onEdit(product)}
                 className="h-8 w-8 hover:scale-110 transition-transform"
+                title="Editar producto"
               >
                 <PencilSimple size={18} />
               </Button>
@@ -89,8 +91,20 @@ export function ProductCard({ product, onEdit, onToggleActive }: ProductCardProp
                 size="icon"
                 onClick={() => onToggleActive(product)}
                 className="h-8 w-8 hover:scale-110 transition-transform"
+                title={product.activo ? 'Desactivar producto' : 'Activar producto'}
               >
                 <Power size={18} className={product.activo ? 'text-accent' : 'text-muted-foreground'} />
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onDelete(product)}
+                className="h-8 w-8 hover:scale-110 transition-transform hover:text-destructive"
+                title="Eliminar producto"
+              >
+                <Trash size={18} />
               </Button>
             )}
           </div>
