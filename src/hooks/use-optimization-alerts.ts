@@ -127,7 +127,7 @@ export function useOptimizationAlerts(
       const alertId = `opt-${profileId}-${Math.floor(now / (60 * 60 * 1000))}`
       setAlerts(current => (current ?? []).filter(a => a.id !== alertId))
     }
-  }, [settings?.enabled, profileProducts, profileOrders, lastCheckTimestamp, profile?.id, profile?.name, settings?.checkIntervalMinutes, settings?.threshold, scoreHistory, setScoreHistory, setLastCheckTimestamp, setAlerts])
+  }, [settings?.enabled, profileProducts, profileOrders, lastCheckTimestamp, profile?.id, profile?.name, settings?.checkIntervalMinutes, settings?.threshold, scoreHistory, setScoreHistory, setLastCheckTimestamp, setAlerts, alerts])
 
   useEffect(() => {
     if (!(settings?.enabled)) return
