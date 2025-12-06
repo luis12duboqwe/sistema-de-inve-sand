@@ -205,7 +205,8 @@ interface ProductMixInsightSummary {
 
 interface OperationalInsightSummary {
   type: string
-  description: string
+  reasoning: string
+  action: string
 }
 
 function generateCustomerSummary(insights: CustomerInsightSummary[]): string {
