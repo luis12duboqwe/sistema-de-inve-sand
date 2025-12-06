@@ -183,9 +183,10 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
         return 'Sin stock disponible'
       case 'low_stock':
         return `Stock bajo: ${notif.currentStock} unidades`
-      case 'optimization_score':
+      case 'optimization_score': {
         const trendText = notif.trend === 'declining' ? '📉 Bajando' : notif.trend === 'improving' ? '📈 Mejorando' : '→ Estable'
         return `Score de optimización: ${notif.score}/100 ${trendText}`
+      }
       default:
         return 'Actualización de stock'
     }
