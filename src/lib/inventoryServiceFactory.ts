@@ -502,7 +502,7 @@ class ApiInventoryService implements IInventoryService {
   }
 }
 
-export function inventoryServiceFactory(useAPI: boolean, apiUrl: string): IInventoryService {
+export function inventoryServiceFactory(_useAPI: boolean, _apiUrl: string): IInventoryService {
   return new UnifiedInventoryService()
 }
 

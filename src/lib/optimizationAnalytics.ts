@@ -523,7 +523,7 @@ export function analyzeOperations(
     })
   }
 
-  const completedOrders = orders.filter(o => o.estado === 'completada')
+  const _completedOrders = orders.filter(o => o.estado === 'completada') // Prefix with _ to indicate intentionally unused
   const cancelledOrders = orders.filter(o => o.estado === 'cancelada')
   if (cancelledOrders.length > 0) {
     const cancellationRate = (cancelledOrders.length / orders.length) * 100

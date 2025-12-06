@@ -46,10 +46,10 @@ import { useForecasting } from '@/hooks/use-forecasting'
 import { useRealtimeSync } from '@/hooks/use-realtime-sync'
 import { useSyncDetection } from '@/hooks/use-sync-detection'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
-import { generateOrderPDF, generateProductReportPDF } from '@/lib/pdfExport'
+import { generateOrderPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
 import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 
 export default function App() {
   const { isInitialized, isLoading } = useInitializeData()
@@ -86,8 +86,8 @@ export default function App() {
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
   const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
   const [viewingProfile, setViewingProfile] = useState<Profile | null>(null)
-  const [useAPI, setUseAPI] = useKV<boolean>('settings_use_api', false)
-  const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
+  const [useAPI] = useKV<boolean>('settings_use_api', false)
+  const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
@@ -118,8 +118,6 @@ export default function App() {
     : (profiles ?? [])[0] || null
 
   const {
-    forecasts,
-    alerts,
     summary: forecastingSummary,
     lastUpdated: forecastingLastUpdated,
     isGenerating: isForecastingGenerating,
@@ -938,7 +936,6 @@ export default function App() {
                       : (profiles ?? [])[0]
                     
                     if (currentProfile) {
-                      const reportData = generateReportData(orders ?? [], products ?? [])
                       setShowReportsDialog(true)
                     } else {
                       toast.error('Selecciona un perfil primero')

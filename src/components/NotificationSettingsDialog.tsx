@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -54,13 +53,6 @@ export function NotificationSettingsDialog({
     notificationMethod: 'in-app',
     criticalOnly: false
   })
-
-  const [profileThresholds, setProfileThresholds] = useState<Record<number, number>>(
-    profiles.reduce((acc, profile) => ({
-      ...acc,
-      [profile.id]: profile.settings?.lowStockThreshold || 5
-    }), {})
-  )
 
   const updateSetting = <K extends keyof NotificationSettings>(
     key: K,

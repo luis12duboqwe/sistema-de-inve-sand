@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
-declare const GITHUB_RUNTIME_PERMANENT_NAME: string
-declare const BASE_KV_SERVICE_URL: string
+declare const _GITHUB_RUNTIME_PERMANENT_NAME: string
+declare const _BASE_KV_SERVICE_URL: string
 
 interface SparkKV {
   get: <T>(key: string) => Promise<T | undefined>

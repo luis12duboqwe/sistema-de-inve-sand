@@ -6,7 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { CheckCircle, Warning, Info, Pulse, Wrench, X } from '@phosphor-icons/react'
-import type { HealthCheckResult, HealthCheckIssue } from '@/lib/healthCheck'
+import type { HealthCheckResult } from '@/lib/healthCheck'
 
 interface HealthCheckDialogProps {
   open: boolean

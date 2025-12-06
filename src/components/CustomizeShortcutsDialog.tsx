@@ -8,14 +8,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { Keyboard, ArrowCounterClockwise, PencilSimple, Check, X, Warning } from '@phosphor-icons/react'
 import {
   DEFAULT_SHORTCUTS,
   CATEGORY_LABELS,
-  formatShortcut,
   checkShortcutConflict,
   loadShortcutPreferences,
   initializeShortcutPreferences,

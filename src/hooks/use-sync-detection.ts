@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { toast } from 'sonner'
 
 export interface SyncEvent {
   key: string

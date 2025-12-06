@@ -116,7 +116,7 @@ function ChartTooltipContent<TValue extends number | string | Array<number | str
   color,
   nameKey,
   labelKey,
-  ...props
+  ..._ // renamed from props since it's not used
 }: Omit<ComponentProps<typeof RechartsPrimitive.Tooltip<TValue, TName>>, 'content'> &
   ComponentProps<"div"> & {
     payload?: any[]

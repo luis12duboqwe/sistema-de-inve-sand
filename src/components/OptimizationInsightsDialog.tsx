@@ -9,7 +9,6 @@ import { motion } from 'framer-motion'
 import { 
   Sparkle, 
   TrendUp, 
-  TrendDown, 
   CurrencyDollar, 
   Package, 
   Users, 
@@ -18,8 +17,7 @@ import {
   ArrowRight,
   Check,
   Warning,
-  Gear,
-  X
+  Gear
 } from '@phosphor-icons/react'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import { useOptimizationInsights } from '@/hooks/use-optimization-insights'

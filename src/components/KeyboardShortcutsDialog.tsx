@@ -8,8 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Keyboard, Package, ShoppingCart, UserCircle, MagnifyingGlass, Gear, Wrench } from '@phosphor-icons/react'
+import { Keyboard, Package, ShoppingCart, MagnifyingGlass, Gear, Wrench } from '@phosphor-icons/react'
 import { Separator } from '@/components/ui/separator'
 import { CustomizeShortcutsDialog } from './CustomizeShortcutsDialog'
 import { formatShortcut, loadShortcutPreferences, DEFAULT_SHORTCUTS, type ShortcutBinding } from '@/lib/keyboardShortcuts'

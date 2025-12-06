@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,13 +35,7 @@ export function AIForecastingDialog({
   const [insights, setInsights] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState('summary')
 
-  useEffect(() => {
-    if (open) {
-      generateForecasts()
-    }
-  }, [open])
-
-  const generateForecasts = async () => {
+  const generateForecasts = useCallback(async () => {
     setIsLoading(true)
     try {
       const { forecasts: newForecasts, summary: newSummary } = await generateAIForecasts(
@@ -64,7 +58,13 @@ export function AIForecastingDialog({
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [products, orders, profile])
+
+  useEffect(() => {
+    if (open) {
+      generateForecasts()
+    }
+  }, [open, generateForecasts])
 
   const getTrendIcon = (trend: 'increasing' | 'stable' | 'decreasing') => {
     if (trend === 'increasing') return <TrendUp size={16} className="text-success" weight="bold" />

@@ -42,12 +42,6 @@ export function LowStockAlert({ products, profile, onProductClick }: LowStockAle
     return null
   }
 
-  const getSeverityColor = () => {
-    if (outOfStockProducts.length > 0) return 'destructive'
-    if (criticalStockProducts.length > 0) return 'warning'
-    return 'info'
-  }
-
   const getSeverityBg = () => {
     if (outOfStockProducts.length > 0) return 'border-destructive/50 bg-destructive/5'
     if (criticalStockProducts.length > 0) return 'border-yellow-500/50 bg-yellow-500/5'

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import { calculateOptimizationScore } from '@/lib/optimizationAnalytics'
@@ -61,7 +61,7 @@ export function useOptimizationAlerts(
     !profile || o.profile_id === profile.id
   )
 
-  const checkOptimizationScore = () => {
+  const checkOptimizationScore = useCallback(() => {
     if (!(settings?.enabled)) return
     if (profileProducts.length === 0) return
 
@@ -127,7 +127,7 @@ export function useOptimizationAlerts(
       const alertId = `opt-${profileId}-${Math.floor(now / (60 * 60 * 1000))}`
       setAlerts(current => (current ?? []).filter(a => a.id !== alertId))
     }
-  }
+  }, [settings?.enabled, profileProducts, profileOrders, lastCheckTimestamp, profile?.id, profile?.name, settings?.checkIntervalMinutes, settings?.threshold, scoreHistory, setScoreHistory, setLastCheckTimestamp, setAlerts, alerts])
 
   useEffect(() => {
     if (!(settings?.enabled)) return
@@ -146,7 +146,8 @@ export function useOptimizationAlerts(
     profile?.id,
     settings?.enabled,
     settings?.threshold,
-    settings?.checkIntervalMinutes
+    settings?.checkIntervalMinutes,
+    checkOptimizationScore
   ])
 
   const updateSettings = (newSettings: Partial<OptimizationAlertSettings>) => {

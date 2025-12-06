@@ -54,11 +54,11 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
   const [notifications, setNotifications] = useKV<Notification[]>('notifications', [])
   const [dismissedIds, setDismissedIds] = useKV<string[]>('dismissed-notifications', [])
   const [open, setOpen] = useState(false)
-  const [optimizationAlertEnabled, setOptimizationAlertEnabled] = useKV<boolean>(
+  const [optimizationAlertEnabled] = useKV<boolean>(
     'optimization-alerts-enabled',
     true
   )
-  const [optimizationThreshold, setOptimizationThreshold] = useKV<number>(
+  const [optimizationThreshold] = useKV<number>(
     'optimization-threshold',
     70
   )
@@ -152,7 +152,7 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
     }
 
     setNotifications(newNotifications)
-  }, [products, profiles, orders, dismissedIds, optimizationAlertEnabled, optimizationThreshold, setNotifications])
+  }, [products, profiles, orders, dismissedIds, optimizationAlertEnabled, optimizationThreshold, setNotifications, lastOptimizationCheck, lastOptimizationScore, setLastOptimizationCheck, setLastOptimizationScore])
 
   const activeNotifications = (notifications ?? []).filter(n => !(dismissedIds ?? []).includes(n.id))
 
@@ -183,9 +183,10 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
         return 'Sin stock disponible'
       case 'low_stock':
         return `Stock bajo: ${notif.currentStock} unidades`
-      case 'optimization_score':
+      case 'optimization_score': {
         const trendText = notif.trend === 'declining' ? '📉 Bajando' : notif.trend === 'improving' ? '📈 Mejorando' : '→ Estable'
         return `Score de optimización: ${notif.score}/100 ${trendText}`
+      }
       default:
         return 'Actualización de stock'
     }
