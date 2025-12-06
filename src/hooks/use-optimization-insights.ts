@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import type { OptimizationAnalysis } from '@/lib/optimizationAnalytics'
 import {
@@ -28,7 +28,7 @@ export function useOptimizationInsights(
     !profile || o.profile_id === profile.id
   )
 
-  const generateAnalysis = async () => {
+  const generateAnalysis = useCallback(async () => {
     if (isGenerating) return
     
     setIsGenerating(true)
@@ -137,13 +137,13 @@ Devuelve SOLO un objeto JSON válido con el formato:
     } finally {
       setIsGenerating(false)
     }
-  }
+  }, [isGenerating, profileProducts, profileOrders])
 
   useEffect(() => {
     if (autoGenerate && profileProducts.length > 0 && !analysis) {
       generateAnalysis()
     }
-  }, [autoGenerate, profileProducts.length])
+  }, [autoGenerate, profileProducts.length, analysis, generateAnalysis])
 
   return {
     analysis,
@@ -154,7 +154,17 @@ Devuelve SOLO un objeto JSON válido con el formato:
   }
 }
 
-function generatePricingSummary(insights: any[]): string {
+interface PricingInsightSummary {
+  type: string
+  potentialImpact: number
+}
+
+interface InventoryInsightSummary {
+  type: string
+  impact: number
+}
+
+function generatePricingSummary(insights: PricingInsightSummary[]): string {
   if (insights.length === 0) return 'Sin oportunidades de optimización de precios detectadas.'
   
   const underpriced = insights.filter(i => i.type === 'underpriced').length
@@ -170,7 +180,7 @@ function generatePricingSummary(insights: any[]): string {
   return `Oportunidades mixtas: ${underpriced} productos pueden aumentar precio, ${overpriced} requieren reducción para optimizar rotación.`
 }
 
-function generateInventorySummary(insights: any[]): string {
+function generateInventorySummary(insights: InventoryInsightSummary[]): string {
   if (insights.length === 0) return 'Niveles de inventario están balanceados.'
   
   const overstock = insights.filter(i => i.type === 'overstock').length
@@ -185,7 +195,20 @@ function generateInventorySummary(insights: any[]): string {
   return parts.length > 0 ? parts.join(', ') + '. Optimización requerida para mejorar capital de trabajo.' : 'Niveles de inventario están balanceados.'
 }
 
-function generateCustomerSummary(insights: any[]): string {
+interface CustomerInsightSummary {
+  type: string
+}
+
+interface ProductMixInsightSummary {
+  type: string
+}
+
+interface OperationalInsightSummary {
+  type: string
+  description: string
+}
+
+function generateCustomerSummary(insights: CustomerInsightSummary[]): string {
   if (insights.length === 0) return 'Datos insuficientes para análisis de clientes.'
   
   const highValue = insights.filter(i => i.type === 'high_value').length
@@ -200,7 +223,7 @@ function generateCustomerSummary(insights: any[]): string {
   return `Base de clientes saludable con ${highValue} compradores de alto valor.`
 }
 
-function generateProductMixSummary(insights: any[]): string {
+function generateProductMixSummary(insights: ProductMixInsightSummary[]): string {
   if (insights.length === 0) return 'Mix de productos requiere más datos históricos para análisis.'
   
   const bestSellers = insights.filter(i => i.type === 'best_seller')
@@ -212,7 +235,7 @@ function generateProductMixSummary(insights: any[]): string {
   return 'Diversifica el catálogo para reducir dependencia en pocos productos.'
 }
 
-function generateOperationsSummary(insights: any[]): string {
+function generateOperationsSummary(insights: OperationalInsightSummary[]): string {
   if (insights.length === 0) return 'Operaciones funcionando eficientemente.'
   
   const processInsights = insights.filter(i => i.type === 'process').length

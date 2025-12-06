@@ -152,7 +152,7 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
     }
 
     setNotifications(newNotifications)
-  }, [products, profiles, orders, dismissedIds, optimizationAlertEnabled, optimizationThreshold, setNotifications])
+  }, [products, profiles, orders, dismissedIds, optimizationAlertEnabled, optimizationThreshold, setNotifications, lastOptimizationCheck, lastOptimizationScore, setLastOptimizationCheck, setLastOptimizationScore])
 
   const activeNotifications = (notifications ?? []).filter(n => !(dismissedIds ?? []).includes(n.id))
 
