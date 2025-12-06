@@ -49,7 +49,7 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
       } else {
         throw new Error('Connection failed')
       }
-    } catch (error) {
+    } catch (_error) {
       setConnectionStatus('error')
       toast.error('No se pudo conectar con el backend')
     } finally {
@@ -73,7 +73,7 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
     try {
       await apiClient.initializeData()
       toast.success('Base de datos inicializada con datos de prueba')
-    } catch (error) {
+    } catch (_error) {
       toast.error('Error al inicializar base de datos')
     }
   }

@@ -55,13 +55,6 @@ export function NotificationSettingsDialog({
     criticalOnly: false
   })
 
-  const [profileThresholds, setProfileThresholds] = useState<Record<number, number>>(
-    profiles.reduce((acc, profile) => ({
-      ...acc,
-      [profile.id]: profile.settings?.lowStockThreshold || 5
-    }), {})
-  )
-
   const updateSetting = <K extends keyof NotificationSettings>(
     key: K,
     value: NotificationSettings[K]

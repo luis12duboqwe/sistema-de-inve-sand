@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useKV } from '@github/spark/hooks'
 import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
 import { calculateOptimizationScore } from '@/lib/optimizationAnalytics'

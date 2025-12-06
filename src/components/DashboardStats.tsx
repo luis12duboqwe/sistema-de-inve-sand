@@ -1,9 +1,9 @@
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import type { ProductWithStock, OrderWithItems } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, TrendUp, Money, TrendDown } from '@phosphor-icons/react'
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { format, subDays, startOfDay, isSameDay } from 'date-fns'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown } from '@phosphor-icons/react'
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
 
 interface DashboardStatsProps {
