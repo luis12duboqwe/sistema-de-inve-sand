@@ -12,7 +12,7 @@ function generateDeviceId(): string {
   const stored = localStorage.getItem('stellar-device-id')
   if (stored) return stored
 
-  const id = `device-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  const id = `device-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
   localStorage.setItem('stellar-device-id', id)
   return id
 }
