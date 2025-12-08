@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -17,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import type { Profile, Product } from '@/lib/types'
+import { apiClient } from '@/lib/apiClient'
+import type { Profile, Product, Supplier } from '@/lib/types'
 import { toast } from 'sonner'
 
 // Datos predeterminados para celulares
@@ -98,10 +100,36 @@ export function NewProductDialog({
   const [precio, setPrecio] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('12')
   const [stockInicial, setStockInicial] = useState('1')
+  const [supplierId, setSupplierId] = useState<number | undefined>(undefined)
+  const [imeis, setImeis] = useState<string[]>([''])
+  const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
 
   const selectedProfile = profiles.find(p => p.id === profileId)
   const currency = selectedProfile?.settings?.currency || 'HNL'
+
+  // Cargar proveedores cuando se selecciona un perfil
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      if (profileId && open) {
+        try {
+          const response = await apiClient.request('/suppliers', {
+            params: { profile_id: profileId, include_inactive: false }
+          })
+          
+          if (response && response.items) {
+            setSuppliers(response.items)
+          }
+        } catch (err) {
+          console.error('Error loading suppliers:', err)
+          setSuppliers([])
+        }
+      }
+    }
+    
+    loadSuppliers()
+  }, [profileId, open])
 
   // Auto-generar SKU cuando cambian marca, modelo, capacidad o color
   useEffect(() => {
@@ -153,11 +181,11 @@ export function NewProductDialog({
   }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
 
   const resetForm = () => {
-    setProfileId(0)
+    setProfileId(undefined)
     setSku('')
     setNombre('')
     setCategoria('celular')
-    setMarca('')
+    setMarca('Samsung')
     setMarcaOtra('')
     setModelo('')
     setModeloOtro('')
@@ -167,6 +195,36 @@ export function NewProductDialog({
     setPrecio('')
     setGarantiaMeses('12')
     setStockInicial('1')
+    setSupplierId(undefined)
+    setImeis([''])
+    setGarantiaCondiciones('')
+  }
+
+  // Sincronizar la cantidad de campos IMEI con el stock
+  useEffect(() => {
+    const stockNum = parseInt(stockInicial) || 1
+    setImeis(prev => {
+      const newImeis = [...prev]
+      // Ajustar el tamaño del array según el stock
+      if (newImeis.length < stockNum) {
+        // Agregar campos vacíos
+        while (newImeis.length < stockNum) {
+          newImeis.push('')
+        }
+      } else if (newImeis.length > stockNum) {
+        // Reducir campos
+        return newImeis.slice(0, stockNum)
+      }
+      return newImeis
+    })
+  }, [stockInicial])
+
+  const handleImeiChange = (index: number, value: string) => {
+    setImeis(prev => {
+      const newImeis = [...prev]
+      newImeis[index] = value
+      return newImeis
+    })
   }
 
   const handleSubmit = async () => {
@@ -208,6 +266,7 @@ export function NewProductDialog({
       await onSubmit(
         {
           profile_id: profileId,
+          supplier_id: supplierId,
           sku,
           nombre,
           categoria,
@@ -217,7 +276,9 @@ export function NewProductDialog({
           condicion,
           precio: parseFloat(precio),
           moneda: currency,
-          garantia_meses: parseInt(garantiaMeses)
+          garantia_meses: parseInt(garantiaMeses),
+          garantia_condiciones: garantiaCondiciones.trim() || undefined,
+          imeis: imeis.filter(i => i.trim()).length > 0 ? imeis.filter(i => i.trim()) : undefined
         },
         parseInt(stockInicial)
       )
@@ -464,6 +525,73 @@ export function NewProductDialog({
                 onChange={e => setGarantiaMeses(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Campos nuevos: Proveedor e IMEI */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="supplier">Proveedor (Opcional)</Label>
+              <Select 
+                value={supplierId?.toString() || 'none'} 
+                onValueChange={(v) => setSupplierId(v === 'none' ? undefined : parseInt(v))}
+              >
+                <SelectTrigger id="supplier">
+                  <SelectValue placeholder="Sin proveedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin proveedor</SelectItem>
+                  {suppliers.map(supplier => (
+                    <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                      {supplier.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Para gestionar reclamos y devoluciones
+              </p>
+            </div>
+
+            {categoria === 'celular' && (
+              <div className="space-y-2">
+                <Label>IMEI (Opcional)</Label>
+                <div className="space-y-2">
+                  {imeis.map((imei, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Input
+                        placeholder={`IMEI ${index + 1} (123456789012345)`}
+                        value={imei}
+                        onChange={e => handleImeiChange(index, e.target.value)}
+                        maxLength={15}
+                      />
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        Unidad {index + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ingresa el IMEI único de cada unidad ({imeis.length} unidad{imeis.length > 1 ? 'es' : ''})
+                </p>
+              </div>
+            )}
+
+            {supplierId && (
+              <div className="space-y-2">
+                <Label htmlFor="garantia-condiciones">Condiciones de Garantía (Opcional)</Label>
+                <Textarea
+                  id="garantia-condiciones"
+                  value={garantiaCondiciones}
+                  onChange={e => setGarantiaCondiciones(e.target.value)}
+                  placeholder="Ej: Garantía de fábrica. Cubre defectos de manufactura. No cubre daños físicos ni líquidos."
+                  rows={3}
+                  className="resize-none"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Detalles de la garantía proporcionada por el proveedor
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

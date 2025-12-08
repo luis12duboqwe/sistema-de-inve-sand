@@ -50,6 +50,7 @@ export function NewOrderDialog({
   const [metodoPago, setMetodoPago] = useState<CreateOrderRequest['metodo_pago']>('efectivo')
   const [items, setItems] = useState<OrderItemForm[]>([{ product_id: 0, cantidad: 1 }])
   const [notas, setNotas] = useState('')
+  const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const availableProducts = products.filter(p => 
@@ -124,7 +125,8 @@ export function NewOrderDialog({
         customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
         items: validItems,
-        notas: notas.trim() || undefined
+        notes: notas.trim() || undefined,
+        delivery_date: deliveryDate || undefined
       })
 
       setProfileSlug('')
@@ -134,6 +136,7 @@ export function NewOrderDialog({
       setMetodoPago('efectivo')
       setItems([{ product_id: 0, cantidad: 1 }])
       setNotas('')
+      setDeliveryDate('')
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating order:', error)
@@ -292,6 +295,16 @@ export function NewOrderDialog({
               onChange={e => setNotas(e.target.value)}
               placeholder="Instrucciones especiales, comentarios, etc..."
               rows={3}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="delivery-date">Fecha de Entrega (opcional)</Label>
+            <Input
+              id="delivery-date"
+              type="datetime-local"
+              value={deliveryDate}
+              onChange={e => setDeliveryDate(e.target.value)}
             />
           </div>
 

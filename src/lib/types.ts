@@ -23,6 +23,7 @@ export interface Profile {
 export interface Product {
   id: number
   profile_id: number
+  supplier_id?: number
   sku: string
   nombre: string
   categoria: 'celular' | 'accesorio'
@@ -33,7 +34,10 @@ export interface Product {
   precio: number
   moneda: string
   garantia_meses: number
+  garantia_condiciones?: string  // Condiciones de garantía del proveedor
   activo: boolean
+  imei?: string  // DEPRECATED: Usar imeis[] para nuevos productos
+  imeis?: string[]  // Array de IMEIs para productos con múltiples unidades
 }
 
 export interface Stock {
@@ -52,6 +56,8 @@ export interface Order {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
+  notes?: string  // Notas adicionales de la orden
+  delivery_date?: string  // Fecha de entrega programada
   notas?: string
   updated_at?: string
 }
@@ -83,6 +89,8 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
   }[]
+  notes?: string  // Notas adicionales de la orden
+  delivery_date?: string  // Fecha de entrega programada
   notas?: string
 }
 
@@ -133,4 +141,57 @@ export interface ReportData {
     orders: number
   }>
   profitMargin: number
+}
+
+export interface StockTransfer {
+  id: number
+  product_id: number
+  from_profile_id: number
+  to_profile_id: number
+  cantidad: number
+  notas?: string
+  estado: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
+  confirmed_at?: string
+  confirmed_by?: string
+  rejection_reason?: string
+  created_at: string
+  created_by?: string
+  product_nombre?: string
+  product_sku?: string
+  from_profile_name?: string
+  to_profile_name?: string
+}
+
+export interface CreateStockTransferRequest {
+  product_id: number
+  from_profile_slug: string
+  to_profile_slug: string
+  cantidad: number
+  notas?: string
+  created_by?: string
+}
+
+export interface StockHistory {
+  id: number
+  product_id: number
+  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'ajuste' | 'devolucion'
+  cantidad: number  // Positivo para entrada, negativo para salida
+  stock_anterior: number
+  stock_nuevo: number
+  referencia_id?: number
+  referencia_tipo?: 'order' | 'transfer' | 'adjustment'
+  notas?: string
+  usuario?: string
+  created_at: string
+}
+
+export interface StockHistoryStats {
+  product_id: number
+  product_name: string
+  period_days: number
+  total_movements: number
+  movements_by_type: Record<string, number>
+  total_entrada: number
+  total_salida: number
+  stock_actual: number
 }

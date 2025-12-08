@@ -15,6 +15,7 @@ import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 import { NewProfileDialog } from '@/components/NewProfileDialog'
 import { EditProductDialog } from '@/components/EditProductDialog'
+import { TransferStockDialog } from '@/components/TransferStockDialog'
 import { EditProfileDialog } from '@/components/EditProfileDialog'
 import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
@@ -39,6 +40,7 @@ import { ForecastingWidget } from '@/components/ForecastingWidget'
 import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDialog'
 import { SyncIndicator } from '@/components/SyncIndicator'
 import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
+import { StockHistoryDialog } from '@/components/StockHistoryDialog'
 import { initializeDefaultData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -65,6 +67,8 @@ export default function App() {
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
+  const [orderDateFrom, setOrderDateFrom] = useState<string>('')
+  const [orderDateTo, setOrderDateTo] = useState<string>('')
   const [activeTab, setActiveTab] = useState('products')
   const [showNewProductDialog, setShowNewProductDialog] = useState(false)
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false)
@@ -84,6 +88,8 @@ export default function App() {
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
+  const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
+  const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
   const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
@@ -409,6 +415,8 @@ export default function App() {
       action: () => {
         setSearchTerm('')
         setCustomerSearchTerm('')
+        setOrderDateFrom('')
+        setOrderDateTo('')
       },
       description: 'Limpiar búsqueda',
       category: 'search'
@@ -488,6 +496,21 @@ export default function App() {
         const customerName = String(o.customer_name ?? '').toLowerCase()
         const customerPhone = String(o.customer_phone ?? '').toLowerCase()
         return customerName.includes(term) || customerPhone.includes(term)
+      }
+
+      // Filtro por fecha desde
+      if (orderDateFrom) {
+        const orderDate = new Date(o.created_at)
+        const fromDate = new Date(orderDateFrom)
+        if (orderDate < fromDate) return false
+      }
+
+      // Filtro por fecha hasta
+      if (orderDateTo) {
+        const orderDate = new Date(o.created_at)
+        const toDate = new Date(orderDateTo)
+        toDate.setHours(23, 59, 59, 999) // Incluir todo el día
+        if (orderDate > toDate) return false
       }
       
       return true
@@ -875,6 +898,8 @@ export default function App() {
                     <ProductCard
                       product={product}
                       onEdit={setEditingProduct}
+                      onTransfer={setTransferringProduct}
+                      onViewHistory={setViewingProductHistory}
                       onToggleActive={async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
                         setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
@@ -941,6 +966,23 @@ export default function App() {
                     <SelectItem value="cancelada">Cancelada</SelectItem>
                   </SelectContent>
                 </Select>
+
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={orderDateFrom}
+                    onChange={(e) => setOrderDateFrom(e.target.value)}
+                    placeholder="Desde"
+                    className="w-full sm:w-[140px]"
+                  />
+                  <Input
+                    type="date"
+                    value={orderDateTo}
+                    onChange={(e) => setOrderDateTo(e.target.value)}
+                    placeholder="Hasta"
+                    className="w-full sm:w-[140px]"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 w-full sm:w-auto">
@@ -1290,6 +1332,22 @@ export default function App() {
         />
       )}
 
+      {transferringProduct && currentProfile && (
+        <TransferStockDialog
+          open={true}
+          product={transferringProduct}
+          currentProfile={currentProfile}
+          profiles={profiles ?? []}
+          onOpenChange={(open) => !open && setTransferringProduct(null)}
+          onTransferComplete={async () => {
+            // Recargar productos después de la transferencia
+            const updatedProducts = await service.getProducts()
+            setProducts(updatedProducts)
+            setTransferringProduct(null)
+          }}
+        />
+      )}
+
       {editingProfile && (
         <EditProfileDialog
           open={true}
@@ -1477,6 +1535,14 @@ export default function App() {
         open={showSyncSettings}
         onOpenChange={setShowSyncSettings}
       />
+
+      {viewingProductHistory && (
+        <StockHistoryDialog
+          open={!!viewingProductHistory}
+          onOpenChange={(open) => !open && setViewingProductHistory(null)}
+          product={viewingProductHistory}
+        />
+      )}
     </div>
   )
 }

@@ -19,11 +19,17 @@ def _serialize_product(product: Product) -> ProductResponse:
         - product: Product model instance
         
     Returns:
-        ProductResponse with stock_disponible
+        ProductResponse with stock_disponible and imeis
     """
+    # Obtener IMEIs del producto
+    imeis_list = []
+    if hasattr(product, 'imeis') and product.imeis:
+        imeis_list = [imei_obj.imei for imei_obj in product.imeis if not imei_obj.vendido]
+    
     return ProductResponse(
         id=product.id,
         profile_id=product.profile_id,
+        supplier_id=product.supplier_id,
         sku=product.sku,
         nombre=product.nombre,
         categoria=product.categoria,
@@ -34,7 +40,10 @@ def _serialize_product(product: Product) -> ProductResponse:
         precio=product.precio,
         moneda=product.moneda,
         garantia_meses=product.garantia_meses,
+        garantia_condiciones=product.garantia_condiciones,
         activo=product.activo,
+        imei=imeis_list[0] if imeis_list else None,  # Primer IMEI por compatibilidad
+        imeis=imeis_list if imeis_list else None,
         stock_disponible=product.stock.cantidad_disponible if product.stock else 0
     )
 
@@ -140,12 +149,40 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         product_data = product.model_dump(by_alias=True)
         cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
+        # Extraer IMEIs si existen
+        imeis = product_data.pop("imeis", None)
+        
+        # Eliminar el campo imei obsoleto (usar imeis en su lugar)
+        product_data.pop("imei", None)
+        
         db_product = Product(**product_data)
         db.add(db_product)
         db.flush()
         
+        # Crear registro de stock
         db_stock = Stock(product_id=db_product.id, cantidad_disponible=cantidad_inicial)
         db.add(db_stock)
+        
+        # Si hay IMEIs, crear registros en ProductIMEI
+        if imeis and len(imeis) > 0:
+            from app.models import ProductIMEI
+            for imei_value in imeis:
+                if imei_value and imei_value.strip():
+                    # Verificar que el IMEI no exista
+                    existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == imei_value.strip()).first()
+                    if existing_imei:
+                        db.rollback()
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"El IMEI '{imei_value.strip()}' ya está registrado en otro producto"
+                        )
+                    
+                    db_imei = ProductIMEI(
+                        product_id=db_product.id,
+                        imei=imei_value.strip(),
+                        vendido=False
+                    )
+                    db.add(db_imei)
         
         db.commit()
         db.refresh(db_product)

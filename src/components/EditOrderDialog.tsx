@@ -37,7 +37,8 @@ interface EditOrderDialogProps {
       product_id: number
       cantidad: number
     }[]
-    notas?: string
+    notes?: string
+    delivery_date?: string
   }) => Promise<void>
 }
 
@@ -58,6 +59,9 @@ export function EditOrderDialog({
   const [canal, setCanal] = useState<OrderWithItems['canal']>(order.canal)
   const [metodoPago, setMetodoPago] = useState<OrderWithItems['metodo_pago']>(order.metodo_pago)
   const [notas, setNotas] = useState(order.notas || '')
+  const [deliveryDate, setDeliveryDate] = useState(
+    order.delivery_date ? new Date(order.delivery_date).toISOString().slice(0, 16) : ''
+  )
   const [items, setItems] = useState<OrderItemForm[]>(
     order.items.map(item => ({
       product_id: item.product_id,
@@ -73,6 +77,9 @@ export function EditOrderDialog({
       setCanal(order.canal)
       setMetodoPago(order.metodo_pago)
       setNotas(order.notas || '')
+      setDeliveryDate(
+        order.delivery_date ? new Date(order.delivery_date).toISOString().slice(0, 16) : ''
+      )
       setItems(
         order.items.map(item => ({
           product_id: item.product_id,
@@ -159,7 +166,8 @@ export function EditOrderDialog({
         canal,
         metodo_pago: metodoPago,
         items: validItems,
-        notas: notas.trim() || undefined
+        notes: notas.trim() || undefined,
+        delivery_date: deliveryDate || undefined
       })
       onOpenChange(false)
     } catch (error) {
@@ -306,6 +314,16 @@ export function EditOrderDialog({
               onChange={e => setNotas(e.target.value)}
               placeholder="Instrucciones especiales, comentarios, etc..."
               rows={3}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit-delivery-date">Fecha de Entrega (opcional)</Label>
+            <Input
+              id="edit-delivery-date"
+              type="datetime-local"
+              value={deliveryDate}
+              onChange={e => setDeliveryDate(e.target.value)}
             />
           </div>
 

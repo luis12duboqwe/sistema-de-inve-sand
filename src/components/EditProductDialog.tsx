@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -40,6 +41,7 @@ export function EditProductDialog({
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [precio, setPrecio] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('')
+  const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [stock, setStock] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -53,6 +55,7 @@ export function EditProductDialog({
       setCondicion(product.condicion)
       setPrecio(product.precio.toString())
       setGarantiaMeses(product.garantia_meses.toString())
+      setGarantiaCondiciones(product.garantia_condiciones || '')
       setStock(product.stock_disponible.toString())
     }
   }, [product])
@@ -72,7 +75,8 @@ export function EditProductDialog({
         capacidad,
         condicion,
         precio: parseFloat(precio),
-        garantia_meses: parseInt(garantiaMeses)
+        garantia_meses: parseInt(garantiaMeses),
+        garantia_condiciones: garantiaCondiciones.trim() || undefined
       }
 
       const newStockValue = parseInt(stock)
@@ -193,6 +197,20 @@ export function EditProductDialog({
                 onChange={e => setGarantiaMeses(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="garantiaCondiciones">Condiciones de Garantía</Label>
+            <Textarea
+              id="garantiaCondiciones"
+              placeholder="Especifica las condiciones de la garantía del producto..."
+              value={garantiaCondiciones}
+              onChange={e => setGarantiaCondiciones(e.target.value)}
+              rows={3}
+            />
+            <p className="text-sm text-muted-foreground">
+              Condiciones y términos aplicables a la garantía del producto
+            </p>
           </div>
 
           <div className="space-y-2">

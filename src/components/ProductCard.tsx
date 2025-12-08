@@ -1,7 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple, Power, Trash } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 import { motion } from 'framer-motion'
 
@@ -10,9 +10,11 @@ interface ProductCardProps {
   onEdit?: (product: ProductWithStock) => void
   onToggleActive?: (product: ProductWithStock) => void
   onDelete?: (product: ProductWithStock) => void
+  onTransfer?: (product: ProductWithStock) => void
+  onViewHistory?: (product: ProductWithStock) => void
 }
 
-export function ProductCard({ product, onEdit, onToggleActive, onDelete }: ProductCardProps) {
+export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTransfer, onViewHistory }: ProductCardProps) {
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
     if (stock < 5) return 'bg-destructive text-destructive-foreground'
@@ -85,6 +87,28 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete }: Produ
                 <PencilSimple size={18} />
               </Button>
             )}
+            {onTransfer && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onTransfer(product)}
+                className="h-8 w-8 hover:scale-110 transition-transform"
+                title="Transferir stock a otro perfil"
+              >
+                <ArrowsLeftRight size={18} />
+              </Button>
+            )}
+            {onViewHistory && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onViewHistory(product)}
+                className="h-8 w-8 hover:scale-110 transition-transform"
+                title="Ver historial de stock"
+              >
+                <ClockCounterClockwise size={18} />
+              </Button>
+            )}
             {onToggleActive && (
               <Button
                 variant="ghost"
@@ -127,6 +151,18 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete }: Produ
             <span className="text-muted-foreground">Condición:</span>
             <p className="font-medium">{getConditionText(product.condicion)}</p>
           </div>
+          {product.imeis && product.imeis.length > 0 && (
+            <div className="col-span-2">
+              <span className="text-muted-foreground">IMEIs disponibles:</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {product.imeis.map((imei, idx) => (
+                  <Badge key={idx} variant="secondary" className="text-xs font-mono">
+                    {imei}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between pt-2 border-t">

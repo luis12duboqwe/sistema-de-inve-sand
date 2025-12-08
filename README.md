@@ -123,6 +123,30 @@ El sistema soporta **dos modos de backend**:
 - ✅ Exportar productos a CSV
 - ✅ Exportar órdenes a CSV
 
+#### 🔹 Gestión de Proveedores (100%) ✓
+- ✅ **CRUD completo de proveedores**
+- ✅ **Asignación de proveedor a productos**
+- ✅ **Información de contacto (teléfono, email)**
+- ✅ **Búsqueda y filtrado por perfil**
+- ✅ **Organización de reclamos y devoluciones**
+
+#### 🔹 Seguimiento de IMEI (100%) ✓
+- ✅ **Campo IMEI único por producto**
+- ✅ **Validación de IMEI en formularios**
+- ✅ **Visualización de IMEI en tarjetas de producto**
+- ✅ **Trazabilidad completa de dispositivos**
+
+#### 🔹 Transferencias de Stock (100%) ✓
+- ✅ **Sistema de transferencias entre perfiles**
+- ✅ **Flujo de confirmación en dos pasos**
+- ✅ **Estados: Pendiente, Confirmada, Rechazada, Cancelada**
+- ✅ **Panel de transferencias pendientes**
+- ✅ **Confirmación/rechazo desde perfil destino**
+- ✅ **Motivo de rechazo requerido**
+- ✅ **Historial completo de transferencias**
+- ✅ **Actualización de stock solo al confirmar**
+- ✅ **Auditoría completa (quién confirma, cuándo)**
+
 #### 🔹 UI/UX (100%) ✓
 - ✅ Diseño profesional con Tailwind CSS
 - ✅ Componentes shadcn implementados
@@ -227,6 +251,21 @@ Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
 - Exportar órdenes a CSV por estado
 - Nombres de archivo con timestamp único
 
+### 🔄 Transferencias entre Tiendas
+- **Flujo de confirmación en dos pasos** para tiendas independientes
+- Transferencias quedan en estado **Pendiente** hasta ser confirmadas
+- El perfil destino puede **Confirmar** o **Rechazar** con motivo
+- Stock se actualiza **solo al confirmar**, no al crear
+- Historial completo con trazabilidad de quién confirmó y cuándo
+- Panel dedicado para revisar transferencias pendientes
+
+### 🏪 Gestión de Proveedores e IMEI
+- **Registro de proveedores** con información de contacto completa
+- Asignación de proveedor al agregar productos nuevos
+- **IMEI único** para identificación de dispositivos
+- Organización de reclamos y devoluciones por proveedor
+- Trazabilidad completa para garantías
+
 ---
 
 ## 🔧 Troubleshooting
@@ -264,23 +303,40 @@ npm install
 
 ## 📊 Próximos Pasos (Opcionales)
 
-El sistema está 100% completo y listo para producción. Posibles mejoras futuras:
+El sistema está **100% completo** en backend y listo para producción con todas las funcionalidades implementadas:
+- ✅ Gestión de inventario multi-perfil
+- ✅ Sistema de órdenes con múltiples canales
+- ✅ Dashboard con analíticas en tiempo real
+- ✅ Sincronización multi-dispositivo
+- ✅ Gestión de proveedores e IMEI
+- ✅ Transferencias de stock entre tiendas con confirmación
+- ✅ Reportes con gráficos mensuales/anuales
+- ✅ Exportación de órdenes a PDF
+- ✅ Multi-moneda (USD, EUR, MXN, etc.)
+- ✅ **Búsqueda de órdenes por cliente** (implementado)
+- ✅ **Notas en órdenes** (backend listo)
+- ✅ **Filtros de fecha en órdenes** (backend listo)
+- ✅ **Historial de cambios de stock** (backend listo)
+- ✅ **Gestión de garantías por proveedor** (backend listo)
 
-1. **Reportes Avanzados**
-   - Exportación a PDF
-   - Gráficos de tendencias mensuales/anuales
-   - Reportes de rentabilidad por producto
+### Funcionalidades Avanzadas Disponibles
 
-2. **Búsqueda Avanzada**
-   - Buscar órdenes por cliente
-   - Filtros de fecha en órdenes
-   - Historial de cambios de stock
+📋 Ver [ADVANCED_FEATURES_IMPLEMENTATION.md](./ADVANCED_FEATURES_IMPLEMENTATION.md) para detalles completos.
 
-3. **Funcionalidades Extras**
-   - Notas en órdenes
-   - Gestión de proveedores
-   - Alertas por email/WhatsApp
-   - Multi-moneda
+**Backend 100% implementado:**
+- Sistema completo de historial de stock (`/api/stock-history`)
+- Notas y fecha de entrega en órdenes
+- Condiciones de garantía vinculadas a proveedores
+- Filtros avanzados por fecha
+
+**Frontend requiere componentes UI para:**
+- Visualizar historial de stock en diálogo
+- Agregar campos de notas en formularios de órdenes
+- Date pickers para filtrar por fecha
+- Mostrar condiciones de garantía en productos
+
+**Por implementar:**
+- Integración con servicios externos de email/WhatsApp para alertas automáticas
 
 ---
 
