@@ -158,13 +158,18 @@ def insert_sample_data():
         ]
         
         products = []
+        stock_distributions = []
         for product_data in products_data:
-            stock_distribution = product_data.pop("stock_distribution")
+            stock_distribution = product_data.get("stock_distribution", [])
+            stock_distributions.append(stock_distribution)
+
+            # Evitar mutar products_data: copiar sin stock_distribution
+            product_fields = {k: v for k, v in product_data.items() if k != "stock_distribution"}
             
             # Producto global (profile_id puede ser NULL en V2.0, pero mantenemos compatibilidad)
             product = Product(
                 profile_id=profile.id,  # Temporal por compatibilidad
-                **product_data,
+                **product_fields,
                 moneda="HNL",
                 activo=True
             )
@@ -177,7 +182,7 @@ def insert_sample_data():
         # ========== 5. CREAR STOCK POR UBICACIÓN ==========
         print("\n[5/5] Distribuyendo stock por ubicación...")
         for i, product in enumerate(products):
-            stock_dist = products_data[i]["stock_distribution"]
+            stock_dist = stock_distributions[i]
             total_stock = 0
             
             for j, location in enumerate(locations):
