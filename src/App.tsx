@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -6,29 +6,30 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, UserCircle, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, OrderWithItems, ProfileSettings, AdvancedSearchFilters } from '@/lib/types'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot } from '@phosphor-icons/react'
+import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
-import { ProfileCard } from '@/components/ProfileCard'
+// import { ProfileCard } from '@/components/ProfileCard' // DEPRECATED V1.0
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
-import { NewProfileDialog } from '@/components/NewProfileDialog'
+// import { NewProfileDialog } from '@/components/NewProfileDialog' // DEPRECATED V1.0
 import { EditProductDialog } from '@/components/EditProductDialog'
-import { TransferStockDialog } from '@/components/TransferStockDialog'
-import { EditProfileDialog } from '@/components/EditProfileDialog'
+// V1.0 LEGACY: TransferStockDialog no usado - reemplazado por StockByLocationDialog
+// import { TransferStockDialog } from '@/components/TransferStockDialog'
+// import { EditProfileDialog } from '@/components/EditProfileDialog' // DEPRECATED V1.0
 import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { ImportProductsDialog } from '@/components/ImportProductsDialog'
-import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog'
-import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog'
-import { ProfileSetupGuide } from '@/components/ProfileSetupGuide'
+// import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog' // DEPRECATED V1.0
+// import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog' // DEPRECATED V1.0
+// import { ProfileSetupGuide } from '@/components/ProfileSetupGuide' // DEPRECATED V1.0
 import { DashboardStats } from '@/components/DashboardStats'
 import { HealthCheckDialog } from '@/components/HealthCheckDialog'
 import { LowStockAlert } from '@/components/LowStockAlert'
-import { ProfileConfigPrompt } from '@/components/ProfileConfigPrompt'
-import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary'
+// import { ProfileConfigPrompt } from '@/components/ProfileConfigPrompt' // DEPRECATED V1.0
+// import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary' // DEPRECATED V1.0
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { NotificationSettingsDialog } from '@/components/NotificationSettingsDialog'
 import { LowStockReportDialog } from '@/components/LowStockReportDialog'
@@ -41,6 +42,8 @@ import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDia
 import { SyncIndicator } from '@/components/SyncIndicator'
 import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
 import { StockHistoryDialog } from '@/components/StockHistoryDialog'
+import { LocationsList } from '@/components/LocationsList'
+import { SalesProfilesList } from '@/components/SalesProfilesList'
 import { initializeDefaultData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -60,8 +63,11 @@ export default function App() {
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
   const [orders, setOrders] = useKV<OrderWithItems[]>('inventory-orders', [])
   const [profiles, setProfiles] = useKV<Profile[]>('inventory-profiles', [])
+  const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  const [selectedProfile, setSelectedProfile] = useState<string>('all')
+  // V2.0: Renamed for clarity - this filters views by sales channel, not business segment
+  const [selectedSalesChannel, setSelectedSalesChannel] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
@@ -72,7 +78,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('products')
   const [showNewProductDialog, setShowNewProductDialog] = useState(false)
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false)
-  const [showNewProfileDialog, setShowNewProfileDialog] = useState(false)
+  // V1.0 LEGACY: const [showNewProfileDialog, setShowNewProfileDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
@@ -88,12 +94,13 @@ export default function App() {
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
-  const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
+  // V1.0 LEGACY: Variables no usadas - comentadas
+  // const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+  // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
-  const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
-  const [viewingProfile, setViewingProfile] = useState<Profile | null>(null)
+  // const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
+  // const [viewingProfile, setViewingProfile] = useState<Profile | null>(null)
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
@@ -111,8 +118,9 @@ export default function App() {
   // useSyncDetection removed - useKV already handles cross-tab sync via storage events
   // No need to manually update state, useKV automatically syncs between tabs
 
-  const currentProfile = selectedProfile !== 'all' 
-    ? (profiles ?? []).find(p => p.slug === selectedProfile) || null
+  // V2.0: For features that need a specific sales channel (reports, forecasting)
+  const currentProfile = selectedSalesChannel !== 'all' 
+    ? (profiles ?? []).find(p => p.slug === selectedSalesChannel) || null
     : (profiles ?? [])[0] || null
 
   const {
@@ -142,21 +150,27 @@ export default function App() {
         await initializeDefaultData()
         
         const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-        const [loadedProducts, loadedOrders, loadedProfiles] = await Promise.all([
+        const [loadedProducts, loadedOrders, loadedProfiles, loadedSalesProfiles, loadedLocations] = await Promise.all([
           currentService.getProducts(),
           currentService.getOrders(),
-          currentService.getProfiles()
+          currentService.getProfiles(),
+          currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
+          currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
         
         console.log('✅ Datos cargados:', {
           productos: loadedProducts.length,
           ordenes: loadedOrders.length,
-          perfiles: loadedProfiles.length
+          perfiles: loadedProfiles.length,
+          salesProfiles: loadedSalesProfiles.length,
+          locations: loadedLocations.length
         })
         
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
+        setSalesProfiles(loadedSalesProfiles)
+        setLocations(loadedLocations)
         setDataLoaded(true)
       } catch (error) {
         console.error('❌ Error loading data:', error)
@@ -166,7 +180,7 @@ export default function App() {
     }
 
     loadData()
-  }, [isInitialized, useAPI, apiUrl, setProducts, setOrders, setProfiles])
+  }, [isInitialized, useAPI, apiUrl, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
 
   const handleBulkDeleteProducts = async () => {
     if (selectedProducts.size === 0) return
@@ -373,7 +387,7 @@ export default function App() {
       action: () => {
         if (activeTab === 'products') setShowNewProductDialog(true)
         else if (activeTab === 'orders') setShowNewOrderDialog(true)
-        else if (activeTab === 'profiles') setShowNewProfileDialog(true)
+        // V1.0 LEGACY: profiles tab removed
       },
       description: 'Crear nuevo elemento',
       category: 'actions'
@@ -460,12 +474,8 @@ export default function App() {
     }
   }
 
+  // V2.0: Products are ALWAYS global - never filter by profile
   const filteredProducts = (products ?? []).filter(p => {
-    if (selectedProfile !== 'all') {
-      const profile = (profiles ?? []).find(pr => pr.slug === selectedProfile)
-      if (!profile || p.profile_id !== profile.id) return false
-    }
-    
     if (!showInactive && !p.activo) return false
     
     if (categoryFilter && categoryFilter !== 'all' && p.categoria !== categoryFilter) return false
@@ -484,9 +494,17 @@ export default function App() {
 
   const filteredOrders = (() => {
     let filtered = (orders ?? []).filter(o => {
-      if (selectedProfile !== 'all') {
-        const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
-        if (!profile || o.profile_id !== profile.id) return false
+      // V2.0: Filter by sales channel if selected
+      if (selectedSalesChannel !== 'all') {
+        const salesProfile = (salesProfiles ?? []).find(sp => sp.slug === selectedSalesChannel)
+        if (salesProfile) {
+          if (o.sales_profile_id !== salesProfile.id) return false
+        } else {
+          // LEGACY fallback: use V1 profiles if sales profiles no existen
+          const legacyProfile = (profiles ?? []).find(p => p.slug === selectedSalesChannel)
+          if (!legacyProfile) return false
+          if (o.profile_id !== legacyProfile.id && o.sales_profile_id !== legacyProfile.id) return false
+        }
       }
       
       if (orderStatusFilter && orderStatusFilter !== 'all' && o.estado !== orderStatusFilter) return false
@@ -524,6 +542,8 @@ export default function App() {
   })()
 
   const activeProfiles = (profiles ?? []).filter(p => p.active)
+  const activeSalesProfiles = (salesProfiles ?? []).filter(sp => sp.active)
+  const channelOptions = activeSalesProfiles.length ? activeSalesProfiles : activeProfiles
 
   const handleTabChange = (value: string) => {
     setActiveTab(value)
@@ -532,20 +552,21 @@ export default function App() {
     setSelectedOrders(new Set())
   }
 
-  const handleUpdateProfileSettings = async (profileId: number, settings: ProfileSettings) => {
-    try {
-      const updatedProfile = (profiles ?? []).find(p => p.id === profileId)
-      if (!updatedProfile) return
+  // V1.0 LEGACY: Función no usada - comentada
+  // const handleUpdateProfileSettings = async (profileId: number, settings: ProfileSettings) => {
+  //   try {
+  //     const updatedProfile = (profiles ?? []).find(p => p.id === profileId)
+  //     if (!updatedProfile) return
 
-      const profileWithNewSettings = { ...updatedProfile, settings }
-      setProfiles(current => (current ?? []).map(p => p.id === profileId ? profileWithNewSettings : p))
-      toast.success('Configuración guardada exitosamente')
-      setProfileWithSettings(null)
-    } catch (error) {
-      console.error('Error updating profile settings:', error)
-      toast.error('Error al guardar configuración')
-    }
-  }
+  //     const profileWithNewSettings = { ...updatedProfile, settings }
+  //     setProfiles(current => (current ?? []).map(p => p.id === profileId ? profileWithNewSettings : p))
+  //     toast.success('Configuración guardada exitosamente')
+  //     setProfileWithSettings(null)
+  //   } catch (error) {
+  //     console.error('Error updating profile settings:', error)
+  //     toast.error('Error al guardar configuración')
+  //   }
+  // }
 
   // Verificar conexión del backend primero
   if (!backendConnected) {
@@ -695,7 +716,7 @@ export default function App() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-3 max-w-md mb-6">
+          <TabsList className="grid w-full grid-cols-4 max-w-3xl mb-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package size={18} />
               <span className="hidden sm:inline">Productos</span>
@@ -704,9 +725,13 @@ export default function App() {
               <ShoppingCart size={18} />
               <span className="hidden sm:inline">Órdenes</span>
             </TabsTrigger>
-            <TabsTrigger value="profiles" className="flex items-center gap-2">
-              <UserCircle size={18} />
-              <span className="hidden sm:inline">Perfiles</span>
+            <TabsTrigger value="locations" className="flex items-center gap-2">
+              <MapPin size={18} />
+              <span className="hidden sm:inline">Ubicaciones</span>
+            </TabsTrigger>
+            <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
+              <Robot size={18} />
+              <span className="hidden sm:inline">Canales de Venta</span>
             </TabsTrigger>
           </TabsList>
 
@@ -731,8 +756,9 @@ export default function App() {
               </div>
             </div>
             
-            {selectedProfile !== 'all' && (() => {
-              const profile = (profiles ?? []).find(p => p.slug === selectedProfile)
+            {/* V2.0 TODO: LowStockAlert should filter by LOCATION not sales channel */}
+            {selectedSalesChannel !== 'all' && (() => {
+              const profile = (profiles ?? []).find(p => p.slug === selectedSalesChannel)
               return profile ? (
                 <LowStockAlert
                   products={products ?? []}
@@ -753,20 +779,6 @@ export default function App() {
                     className="pl-10"
                   />
                 </div>
-                
-                <Select value={selectedProfile} onValueChange={setSelectedProfile}>
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue placeholder="Perfil" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los perfiles</SelectItem>
-                    {activeProfiles.map(profile => (
-                      <SelectItem key={profile.id} value={profile.slug}>
-                        {profile.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
 
                 <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                   <SelectTrigger className="w-full sm:w-[180px]">
@@ -898,7 +910,8 @@ export default function App() {
                     <ProductCard
                       product={product}
                       onEdit={setEditingProduct}
-                      onTransfer={setTransferringProduct}
+                      // V1.0 LEGACY: onTransfer deshabilitado - usar StockByLocationDialog
+                      // onTransfer={setTransferringProduct}
                       onViewHistory={setViewingProductHistory}
                       onToggleActive={async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
@@ -940,13 +953,14 @@ export default function App() {
                   />
                 </div>
 
-                <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+                {/* V2.0: Sales Channel selector - filters orders/reports by channel */}
+                <Select value={selectedSalesChannel} onValueChange={setSelectedSalesChannel}>
                   <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue placeholder="Perfil" />
+                    <SelectValue placeholder="Canal de Ventas" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos los perfiles</SelectItem>
-                    {activeProfiles.map(profile => (
+                    <SelectItem value="all">Todos los canales</SelectItem>
+                    {channelOptions.map(profile => (
                       <SelectItem key={profile.id} value={profile.slug}>
                         {profile.name}
                       </SelectItem>
@@ -998,8 +1012,8 @@ export default function App() {
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    const currentProfile = selectedProfile !== 'all' 
-                      ? (profiles ?? []).find(p => p.slug === selectedProfile)
+                    const currentProfile = selectedSalesChannel !== 'all' 
+                      ? (profiles ?? []).find(p => p.slug === selectedSalesChannel)
                       : (profiles ?? [])[0]
                     
                     if (currentProfile) {
@@ -1173,73 +1187,12 @@ export default function App() {
             )}
           </TabsContent>
 
-          <TabsContent value="profiles" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-bold text-card-foreground">Perfiles de Negocio</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Gestiona múltiples negocios o líneas de productos
-                </p>
-              </div>
-              <Button onClick={() => setShowNewProfileDialog(true)}>
-                <Plus size={18} className="mr-2" />
-                Nuevo Perfil
-              </Button>
-            </div>
+          <TabsContent value="locations" className="space-y-6">
+            <LocationsList />
+          </TabsContent>
 
-            {(profiles ?? []).length === 0 ? (
-              <div className="text-center py-12">
-                <UserCircle size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
-                <h3 className="text-lg font-semibold text-card-foreground mb-2">
-                  No hay perfiles
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Crea tu primer perfil de negocio
-                </p>
-                <Button onClick={() => setShowNewProfileDialog(true)}>
-                  <Plus size={18} className="mr-2" />
-                  Crear Perfil
-                </Button>
-              </div>
-            ) : (
-              <>
-                <ProfilesConfigSummary profiles={profiles ?? []} />
-                
-                {(profiles ?? []).length === 1 && (
-                  <ProfileSetupGuide />
-                )}
-                
-                {(profiles ?? []).some(p => !p.settings || Object.keys(p.settings).length === 0) && (
-                  <div className="space-y-4">
-                    {(profiles ?? [])
-                      .filter(p => !p.settings || Object.keys(p.settings).length === 0)
-                      .slice(0, 1)
-                      .map(profile => (
-                        <ProfileConfigPrompt
-                          key={`prompt-${profile.id}`}
-                          profile={profile}
-                          onConfigure={setProfileWithSettings}
-                        />
-                      ))
-                    }
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {(profiles ?? []).filter(p => p && p.id).map(profile => (
-                    <ProfileCard
-                      key={`card-${profile.id}`}
-                      profile={profile}
-                      productCount={(products ?? []).filter(p => p.profile_id === profile.id && p.activo).length}
-                      orderCount={(orders ?? []).filter(o => o.profile_id === profile.id).length}
-                      onEdit={setEditingProfile}
-                      onSettings={setProfileWithSettings}
-                      onClick={setViewingProfile}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
+          <TabsContent value="sales-profiles" className="space-y-6">
+            <SalesProfilesList />
           </TabsContent>
         </Tabs>
       </main>
@@ -1280,6 +1233,8 @@ export default function App() {
         open={showNewOrderDialog}
         onOpenChange={setShowNewOrderDialog}
         profiles={activeProfiles}
+        salesProfiles={activeSalesProfiles}
+        locations={locations.filter(l => l.activo)}
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
           const created = await service.createOrder(newOrder)
@@ -1293,6 +1248,7 @@ export default function App() {
         }}
       />
 
+      {/* DEPRECATED V1.0 - Profile Business Units
       <NewProfileDialog
         open={showNewProfileDialog}
         onOpenChange={setShowNewProfileDialog}
@@ -1317,6 +1273,7 @@ export default function App() {
           }
         }}
       />
+      */}
 
       {editingProduct && (
         <EditProductDialog
@@ -1332,6 +1289,10 @@ export default function App() {
         />
       )}
 
+      {/* V1.0 LEGACY - TransferStockDialog comentado - usa transfers entre profiles (incorrecto)
+          V2.0 usa StockByLocationDialog para transfers entre locations físicas */}
+      {/* V1.0 LEGACY - TransferStockDialog comentado - usa transfers entre profiles (incorrecto)
+          V2.0 usa StockByLocationDialog para transfers entre locations físicas
       {transferringProduct && currentProfile && (
         <TransferStockDialog
           open={true}
@@ -1347,7 +1308,9 @@ export default function App() {
           }}
         />
       )}
+      */}
 
+      {/* DEPRECATED V1.0 - Edit Profile Business Units
       {editingProfile && (
         <EditProfileDialog
           open={true}
@@ -1361,6 +1324,7 @@ export default function App() {
           }}
         />
       )}
+      */}
 
       {editingOrder && (
         <EditOrderDialog
@@ -1396,10 +1360,10 @@ export default function App() {
       <ImportProductsDialog
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
-        profiles={activeProfiles}
         onImport={handleImportProducts}
       />
 
+      {/* DEPRECATED V1.0 - Profile Settings
       {profileWithSettings && (
         <ProfileSettingsDialog
           open={true}
@@ -1408,7 +1372,9 @@ export default function App() {
           onSubmit={handleUpdateProfileSettings}
         />
       )}
+      */}
 
+      {/* DEPRECATED V1.0 - Profile Details
       {viewingProfile && (
         <ProfileDetailsDialog
           open={true}
@@ -1420,6 +1386,7 @@ export default function App() {
           onSettings={setProfileWithSettings}
         />
       )}
+      */}
 
       <HealthCheckDialog
         open={showHealthCheckDialog}
@@ -1473,8 +1440,8 @@ export default function App() {
       />
 
       {showReportsDialog && (() => {
-        const currentProfile = selectedProfile !== 'all' 
-          ? (profiles ?? []).find(p => p.slug === selectedProfile)
+        const currentProfile = selectedSalesChannel !== 'all' 
+          ? (profiles ?? []).find(p => p.slug === selectedSalesChannel)
           : (profiles ?? [])[0]
         
         if (!currentProfile) return null

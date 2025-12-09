@@ -86,7 +86,6 @@ export function NewProductDialog({
   profiles,
   onSubmit
 }: NewProductDialogProps) {
-  const [profileId, setProfileId] = useState<number>(0)
   const [sku, setSku] = useState('')
   const [nombre, setNombre] = useState('')
   const [categoria, setCategoria] = useState<'celular' | 'accesorio'>('celular')
@@ -106,16 +105,16 @@ export function NewProductDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
 
-  const selectedProfile = profiles.find(p => p.id === profileId)
-  const currency = selectedProfile?.settings?.currency || 'HNL'
+  // Moneda global (TODO: mover a configuración global)
+  const currency = 'HNL'
 
-  // Cargar proveedores cuando se selecciona un perfil
+  // Cargar proveedores globalmente
   useEffect(() => {
     const loadSuppliers = async () => {
-      if (profileId && open) {
+      if (open) {
         try {
           const response = await apiClient.request('/suppliers', {
-            params: { profile_id: profileId, include_inactive: false }
+            params: { include_inactive: false }
           })
           
           if (response && response.items) {
@@ -129,7 +128,7 @@ export function NewProductDialog({
     }
     
     loadSuppliers()
-  }, [profileId, open])
+  }, [open])
 
   // Auto-generar SKU cuando cambian marca, modelo, capacidad o color
   useEffect(() => {
@@ -181,7 +180,6 @@ export function NewProductDialog({
   }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
 
   const resetForm = () => {
-    setProfileId(undefined)
     setSku('')
     setNombre('')
     setCategoria('celular')
@@ -228,11 +226,6 @@ export function NewProductDialog({
   }
 
   const handleSubmit = async () => {
-    if (!profileId) {
-      toast.error('Por favor selecciona un perfil')
-      return
-    }
-    
     if (!sku.trim()) {
       toast.error('Por favor ingresa el SKU del producto')
       return
@@ -265,7 +258,7 @@ export function NewProductDialog({
     try {
       await onSubmit(
         {
-          profile_id: profileId,
+          profile_id: profiles[0]?.id || 1, // Legacy: usar primer perfil para compatibilidad backend
           supplier_id: supplierId,
           sku,
           nombre,
@@ -304,22 +297,6 @@ export function NewProductDialog({
 
         <div className="space-y-4 py-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="profile">Perfil *</Label>
-              <Select value={profileId.toString()} onValueChange={(v) => setProfileId(parseInt(v))}>
-                <SelectTrigger id="profile">
-                  <SelectValue placeholder="Seleccionar perfil" />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles.map(profile => (
-                    <SelectItem key={profile.id} value={profile.id.toString()}>
-                      {profile.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
               <Select value={categoria} onValueChange={(v) => setCategoria(v as typeof categoria)}>

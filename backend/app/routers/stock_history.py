@@ -56,6 +56,47 @@ def get_product_stock_history(
     return history
 
 
+@router.get("/location/{location_id}", response_model=List[StockHistoryResponse])
+def get_location_stock_history(
+    location_id: int,
+    limit: int = Query(100, ge=1, le=1000),
+    tipo_cambio: Optional[str] = None,
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener historial de cambios de stock para una ubicación específica (V2.0)
+    
+    - **location_id**: ID de la ubicación (tienda/bodega)
+    - **limit**: Número máximo de registros (default: 100)
+    - **tipo_cambio**: Filtrar por tipo de cambio (opcional)
+    - **days**: Número de días hacia atrás (default: 30)
+    """
+    # Verificar que la ubicación existe
+    from app.models import Location
+    location = db.query(Location).filter(Location.id == location_id).first()
+    if not location:
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada")
+    
+    # Calcular fecha desde
+    date_from = datetime.now() - timedelta(days=days)
+    
+    # Construir query por ubicación
+    query = db.query(StockHistory).filter(
+        StockHistory.location_id == location_id,
+        StockHistory.created_at >= date_from
+    )
+    
+    # Aplicar filtro de tipo si se proporciona
+    if tipo_cambio:
+        query = query.filter(StockHistory.tipo_cambio == tipo_cambio)
+    
+    # Ordenar y limitar
+    history = query.order_by(StockHistory.created_at.desc()).limit(limit).all()
+    
+    return history
+
+
 @router.get("/profile/{profile_id}", response_model=List[StockHistoryResponse])
 def get_profile_stock_history(
     profile_id: int,
@@ -65,9 +106,11 @@ def get_profile_stock_history(
     db: Session = Depends(get_db)
 ):
     """
-    Obtener historial de cambios de stock para todos los productos de un perfil
+    LEGACY: Obtener historial de cambios de stock para todos los productos de un perfil V1.0
     
-    - **profile_id**: ID del perfil
+    DEPRECADO: Usar /location/{location_id} para V2.0
+    
+    - **profile_id**: ID del perfil legacy
     - **limit**: Número máximo de registros (default: 100)
     - **tipo_cambio**: Filtrar por tipo de cambio (opcional)
     - **days**: Número de días hacia atrás (default: 30)
@@ -75,7 +118,7 @@ def get_profile_stock_history(
     # Calcular fecha desde
     date_from = datetime.now() - timedelta(days=days)
     
-    # Construir query
+    # Construir query - Solo productos que AÚN tienen profile_id
     query = db.query(StockHistory).join(
         Product, StockHistory.product_id == Product.id
     ).filter(

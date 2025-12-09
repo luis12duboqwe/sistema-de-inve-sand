@@ -1,9 +1,11 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise, MapPin } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { StockByLocationDialog } from './StockByLocationDialog'
 
 interface ProductCardProps {
   product: ProductWithStock
@@ -15,6 +17,8 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTransfer, onViewHistory }: ProductCardProps) {
+  const [showStockDialog, setShowStockDialog] = useState(false)
+  
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
     if (stock < 5) return 'bg-destructive text-destructive-foreground'
@@ -176,11 +180,31 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
               </p>
             )}
           </div>
-          <Badge variant="outline" className="text-xs">
-            {product.categoria === 'celular' ? 'Celular' : 'Accesorio'}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowStockDialog(true)}
+              className="gap-1"
+            >
+              <MapPin className="w-4 h-4" />
+              Ver por Ubicación
+            </Button>
+            <Badge variant="outline" className="text-xs">
+              {product.categoria === 'celular' ? 'Celular' : 'Accesorio'}
+            </Badge>
+          </div>
         </div>
       </div>
+      
+      {/* Diálogo de stock por ubicación */}
+      <StockByLocationDialog
+        open={showStockDialog}
+        onOpenChange={setShowStockDialog}
+        productId={product.id}
+        productName={product.nombre}
+        editable={false}
+      />
     </Card>
   )
 }

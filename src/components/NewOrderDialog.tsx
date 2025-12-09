@@ -18,8 +18,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, CreateOrderRequest } from '@/lib/types'
+import { Plus, Trash, Robot, MapPin } from '@phosphor-icons/react'
+import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location } from '@/lib/types'
 import { toast } from 'sonner'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 
@@ -27,6 +27,8 @@ interface NewOrderDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   profiles: Profile[]
+  salesProfiles: SalesProfile[]
+  locations: Location[]
   products: ProductWithStock[]
   onSubmit: (order: CreateOrderRequest) => Promise<void>
 }
@@ -40,10 +42,14 @@ export function NewOrderDialog({
   open,
   onOpenChange,
   profiles,
+  salesProfiles,
+  locations,
   products,
   onSubmit
 }: NewOrderDialogProps) {
-  const [profileSlug, setProfileSlug] = useState('')
+  // V2.0: Sistema único con múltiples canales de venta y ubicaciones
+  const [salesProfileSlug, setSalesProfileSlug] = useState('')
+  const [sourceLocationId, setSourceLocationId] = useState<number | null>(null)
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
@@ -53,15 +59,17 @@ export function NewOrderDialog({
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const availableProducts = products.filter(p => 
-    !profileSlug || profiles.find(pr => pr.slug === profileSlug)?.id === p.profile_id
-  )
-
+  // Establecer valores por defecto al abrir
   useEffect(() => {
-    if (profileSlug) {
-      setItems([{ product_id: 0, cantidad: 1 }])
-    }
-  }, [profileSlug])
+    if (!open) return
+    const defaultSalesProfile = salesProfiles.find(sp => sp.active) || salesProfiles[0]
+    const defaultLocation = locations.find(l => l.activo) || locations[0]
+    setSalesProfileSlug(defaultSalesProfile?.slug ?? '')
+    setSourceLocationId(defaultLocation?.id ?? null)
+  }, [open, salesProfiles, locations])
+
+  // Todos los productos están disponibles globalmente (sin filtro por perfil)
+  const availableProducts = products
 
   const handleAddItem = () => {
     setItems([...items, { product_id: 0, cantidad: 1 }])
@@ -86,8 +94,14 @@ export function NewOrderDialog({
   }
 
   const handleSubmit = async () => {
-    if (!profileSlug) {
-      toast.error('Por favor selecciona un perfil')
+    // Validación V2.0
+    if (!salesProfileSlug) {
+      toast.error('Por favor selecciona un canal de venta')
+      return
+    }
+    
+    if (!sourceLocationId) {
+      toast.error('Por favor selecciona una ubicación origen')
       return
     }
     
@@ -108,10 +122,23 @@ export function NewOrderDialog({
       return
     }
 
+    // Validación de stock en ubicación específica usando datos ya cargados
     for (const item of validItems) {
       const product = products.find(p => p.id === item.product_id)
-      if (product && item.cantidad > product.stock_disponible) {
-        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${product.stock_disponible}`)
+      if (!product) {
+        toast.error('Producto seleccionado no encontrado')
+        return
+      }
+
+      if (!product.stock_items) {
+        console.warn('Stock por ubicación no presente en producto, se omite validación por ubicación')
+        continue
+      }
+
+      const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
+      if (!stockInLocation || stockInLocation.cantidad_disponible < item.cantidad) {
+        const location = locations.find(l => l.id === sourceLocationId)
+        toast.error(`Stock insuficiente para ${product.nombre} en ${location?.nombre}. Disponible: ${stockInLocation?.cantidad_disponible || 0}`)
         return
       }
     }
@@ -119,7 +146,9 @@ export function NewOrderDialog({
     setIsSubmitting(true)
     try {
       await onSubmit({
-        profile_slug: profileSlug,
+        profile_slug: profiles[0]?.slug || undefined, // Legacy compatibility para backend
+        sales_profile_slug: salesProfileSlug,
+        source_location_id: sourceLocationId!,
         canal,
         customer_name: customerName,
         customer_phone: phoneValidation.phone,
@@ -129,7 +158,9 @@ export function NewOrderDialog({
         delivery_date: deliveryDate || undefined
       })
 
-      setProfileSlug('')
+      // Reset form
+      setSalesProfileSlug('')
+      setSourceLocationId(null)
       setCustomerName('')
       setCustomerPhone('')
       setCanal('whatsapp')
@@ -156,20 +187,52 @@ export function NewOrderDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Perfil de Venta y Ubicación */}
           <div className="space-y-2">
-            <Label htmlFor="profile">Perfil</Label>
-            <Select value={profileSlug} onValueChange={setProfileSlug}>
-              <SelectTrigger id="profile">
-                <SelectValue placeholder="Seleccionar perfil" />
+            <Label htmlFor="sales-profile" className="flex items-center gap-2">
+              <Robot className="w-4 h-4" />
+              Canal de Venta *
+            </Label>
+            <Select value={salesProfileSlug} onValueChange={setSalesProfileSlug}>
+              <SelectTrigger id="sales-profile">
+                <SelectValue placeholder="Seleccionar canal de venta" />
               </SelectTrigger>
               <SelectContent>
-                {profiles.map(profile => (
+                {salesProfiles.map(profile => (
                   <SelectItem key={profile.id} value={profile.slug}>
-                    {profile.name}
+                    {profile.name} ({profile.tipo})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              Quién realiza la venta (bot, vendedor, sistema)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="location" className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              Ubicación Origen del Stock *
+            </Label>
+            <Select 
+              value={sourceLocationId?.toString() || ''} 
+              onValueChange={(v) => setSourceLocationId(parseInt(v))}
+            >
+              <SelectTrigger id="location">
+                <SelectValue placeholder="Seleccionar ubicación" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map(location => (
+                  <SelectItem key={location.id} value={location.id.toString()}>
+                    {location.nombre} ({location.tipo})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              De qué tienda/bodega se tomará el stock
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

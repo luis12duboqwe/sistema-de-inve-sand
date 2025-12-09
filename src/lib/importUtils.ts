@@ -97,14 +97,15 @@ function validateProductRow(
       garantia_meses: garantia,
       stock_disponible: stock,
       activo: true,
-      profile_id: profileId ? parseInt(profileId) : 0
+      // V2.0: null = global product, number = legacy tracking
+      profile_id: profileId ? parseInt(profileId) : undefined
     }
   }
 }
 
 export function parseCSV(
   csvContent: string,
-  profileId?: string
+  profileId?: string | null
 ): ImportResult {
   const lines = csvContent.split('\n').filter(line => line.trim())
   
@@ -135,7 +136,7 @@ export function parseCSV(
       row[header] = values[index] || ''
     })
     
-    const validation = validateProductRow(row, i + 1, profileId)
+    const validation = validateProductRow(row, i + 1, profileId || undefined)
     
     if (validation.valid && validation.product) {
       products.push(validation.product)
@@ -158,8 +159,9 @@ export function parseCSV(
   }
 }
 
-export function parseProductsCSV(csvContent: string, profileId: number) {
-  return parseCSV(csvContent, profileId.toString())
+export function parseProductsCSV(csvContent: string, profileId: number | null) {
+  // V2.0: profileId can be null for global products
+  return parseCSV(csvContent, profileId?.toString() || null)
 }
 
 export function downloadCSVTemplate() {

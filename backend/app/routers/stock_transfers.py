@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import StockTransfer, Product, Profile, Stock
+from app.models import StockTransfer, Product, Location, Stock, StockHistory
 from app.schemas import (
     StockTransferCreate, 
     StockTransferResponse, 
@@ -18,12 +18,14 @@ router = APIRouter(prefix="/api/stock-transfers", tags=["stock-transfers"])
 
 
 def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
-    """Serializa una transferencia de stock con información adicional"""
+    """Serializa una transferencia de stock con información adicional de ubicaciones V2.0"""
     return StockTransferResponse(
         id=transfer.id,
         product_id=transfer.product_id,
-        from_profile_id=transfer.from_profile_id,
-        to_profile_id=transfer.to_profile_id,
+        from_location_id=transfer.from_location_id,
+        to_location_id=transfer.to_location_id,
+        from_profile_id=transfer.from_profile_id,  # Legacy, puede ser None
+        to_profile_id=transfer.to_profile_id,  # Legacy, puede ser None
         cantidad=transfer.cantidad,
         notas=transfer.notas,
         estado=transfer.estado,
@@ -34,6 +36,9 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
         created_by=transfer.created_by,
         product_nombre=transfer.product.nombre if transfer.product else None,
         product_sku=transfer.product.sku if transfer.product else None,
+        from_location_name=transfer.from_location.nombre if transfer.from_location else None,
+        to_location_name=transfer.to_location.nombre if transfer.to_location else None,
+        # Legacy V1
         from_profile_name=transfer.from_profile.name if transfer.from_profile else None,
         to_profile_name=transfer.to_profile.name if transfer.to_profile else None
     )
@@ -45,79 +50,90 @@ def create_transfer(
     db: Session = Depends(get_db)
 ):
     """
-    Crea una nueva transferencia de stock entre perfiles.
+    Crea una nueva transferencia de stock entre ubicaciones físicas (V2.0).
+    
+    La transferencia se crea en estado PENDIENTE y debe ser confirmada para mover el stock.
     
     Validaciones:
     - El producto debe existir
-    - Los perfiles de origen y destino deben existir y ser diferentes
-    - Debe haber stock suficiente en el perfil de origen
-    - El producto debe pertenecer al perfil de origen
+    - Las ubicaciones de origen y destino deben existir, estar activas y ser diferentes
+    - Debe haber stock suficiente en la ubicación de origen
     
-    La transferencia:
-    - Reduce el stock del perfil de origen
-    - Aumenta el stock del perfil de destino (creando el producto si no existe)
-    - Registra la transferencia para trazabilidad
+    Args:
+        transfer: Datos de la transferencia (product_id, from_location_id, to_location_id, cantidad)
+    
+    Returns:
+        Transferencia creada en estado PENDIENTE
+        
+    Raises:
+        - 404: Si el producto o ubicaciones no existen
+        - 400: Si las ubicaciones son iguales o no hay stock suficiente
     """
-    # Validar perfiles
-    from_profile = db.query(Profile).filter(
-        Profile.slug == transfer.from_profile_slug
+    # Validar ubicaciones
+    from_location = db.query(Location).filter(
+        Location.id == transfer.from_location_id,
+        Location.activo == True
     ).first()
     
-    if not from_profile:
+    if not from_location:
         raise HTTPException(
             status_code=404,
-            detail=f"Perfil de origen '{transfer.from_profile_slug}' no encontrado"
+            detail=f"Ubicación de origen con ID {transfer.from_location_id} no encontrada o inactiva"
         )
     
-    to_profile = db.query(Profile).filter(
-        Profile.slug == transfer.to_profile_slug
+    to_location = db.query(Location).filter(
+        Location.id == transfer.to_location_id,
+        Location.activo == True
     ).first()
     
-    if not to_profile:
+    if not to_location:
         raise HTTPException(
             status_code=404,
-            detail=f"Perfil de destino '{transfer.to_profile_slug}' no encontrado"
+            detail=f"Ubicación de destino con ID {transfer.to_location_id} no encontrada o inactiva"
         )
     
-    if from_profile.id == to_profile.id:
+    if from_location.id == to_location.id:
         raise HTTPException(
             status_code=400,
-            detail="No se puede transferir stock al mismo perfil"
+            detail="No se puede transferir stock a la misma ubicación"
         )
     
     # Validar producto
-    source_product = db.query(Product).filter(
+    product = db.query(Product).filter(
         Product.id == transfer.product_id,
-        Product.profile_id == from_profile.id
+        Product.activo == True
     ).first()
     
-    if not source_product:
+    if not product:
         raise HTTPException(
             status_code=404,
-            detail=f"Producto con ID {transfer.product_id} no encontrado en el perfil '{from_profile.name}'"
+            detail=f"Producto con ID {transfer.product_id} no encontrado o inactivo"
         )
     
-    # Validar stock disponible
-    if not source_product.stock:
+    # Validar stock en ubicación de origen
+    source_stock = db.query(Stock).filter(
+        Stock.product_id == transfer.product_id,
+        Stock.location_id == transfer.from_location_id
+    ).first()
+    
+    if not source_stock:
         raise HTTPException(
             status_code=400,
-            detail=f"El producto '{source_product.nombre}' no tiene registro de stock"
+            detail=f"El producto '{product.nombre}' no tiene stock en '{from_location.nombre}'"
         )
     
-    if source_product.stock.cantidad_disponible < transfer.cantidad:
+    if source_stock.cantidad_disponible < transfer.cantidad:
         raise HTTPException(
             status_code=400,
-            detail=f"Stock insuficiente. Disponible: {source_product.stock.cantidad_disponible}, Solicitado: {transfer.cantidad}"
+            detail=f"Stock insuficiente en '{from_location.nombre}'. Disponible: {source_stock.cantidad_disponible}, Solicitado: {transfer.cantidad}"
         )
     
-    # IMPORTANTE: NO mover el stock aún, solo crear la transferencia pendiente
+    # Crear la transferencia en estado PENDIENTE
     # El stock se moverá cuando se confirme la transferencia
-    
-    # Registrar la transferencia en estado PENDIENTE
     db_transfer = StockTransfer(
-        product_id=source_product.id,
-        from_profile_id=from_profile.id,
-        to_profile_id=to_profile.id,
+        product_id=product.id,
+        from_location_id=from_location.id,
+        to_location_id=to_location.id,
         cantidad=transfer.cantidad,
         notas=transfer.notas,
         estado="pendiente",
@@ -139,7 +155,7 @@ def create_transfer(
 
 @router.get("", response_model=PaginatedResponse[StockTransferResponse])
 def list_transfers(
-    profile_slug: Optional[str] = Query(None, description="Filtrar por perfil (origen o destino)"),
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación (origen o destino)"),
     product_id: Optional[int] = Query(None, description="Filtrar por ID de producto"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
@@ -148,26 +164,22 @@ def list_transfers(
     """
     Lista las transferencias de stock con filtros opcionales.
     
+    V2.0: Transferencias entre ubicaciones físicas (tiendas/bodegas).
+    
     Parámetros:
-    - profile_slug: Filtrar transferencias donde el perfil sea origen o destino
+    - location_id: Filtrar transferencias donde la ubicación sea origen o destino
     - product_id: Filtrar transferencias de un producto específico
     - page: Número de página para paginación
     - per_page: Cantidad de resultados por página
     """
     query = db.query(StockTransfer)
     
-    # Filtro por perfil
-    if profile_slug:
-        profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
-        if not profile:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Perfil '{profile_slug}' no encontrado"
-            )
+    # Filtro por ubicación (V2.0)
+    if location_id:
         query = query.filter(
             or_(
-                StockTransfer.from_profile_id == profile.id,
-                StockTransfer.to_profile_id == profile.id
+                StockTransfer.from_location_id == location_id,
+                StockTransfer.to_location_id == location_id
             )
         )
     
@@ -221,17 +233,18 @@ def confirm_transfer(
     db: Session = Depends(get_db)
 ):
     """
-    Confirma una transferencia pendiente y mueve el stock.
+    Confirma una transferencia pendiente y mueve el stock entre ubicaciones (V2.0).
     
     Solo se puede confirmar si:
     - La transferencia está en estado "pendiente"
-    - Hay stock suficiente en el perfil de origen
+    - Hay stock suficiente en la ubicación de origen
     
     Al confirmar:
-    - Reduce stock del perfil de origen
-    - Aumenta stock del perfil de destino (crea producto si no existe)
+    - Reduce stock de la ubicación de origen
+    - Aumenta stock de la ubicación de destino (crea registro si no existe)
     - Actualiza estado a "confirmada"
     - Registra fecha y usuario de confirmación
+    - Crea entradas en StockHistory para trazabilidad
     """
     transfer = db.query(StockTransfer).filter(
         StockTransfer.id == transfer_id
@@ -249,68 +262,106 @@ def confirm_transfer(
             detail=f"La transferencia ya está en estado '{transfer.estado}'. Solo se pueden confirmar transferencias pendientes."
         )
     
-    # Validar que aún hay stock suficiente
-    source_product = db.query(Product).filter(
-        Product.id == transfer.product_id
+    # Validar que el producto existe
+    product = db.query(Product).filter(
+        Product.id == transfer.product_id,
+        Product.activo == True
     ).first()
     
-    if not source_product or not source_product.stock:
+    if not product:
         raise HTTPException(
             status_code=404,
-            detail="Producto de origen no encontrado o sin stock"
+            detail="Producto no encontrado o inactivo"
         )
     
-    if source_product.stock.cantidad_disponible < transfer.cantidad:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Stock insuficiente para confirmar. Disponible: {source_product.stock.cantidad_disponible}, Necesario: {transfer.cantidad}"
-        )
-    
-    # Buscar o crear producto en el perfil de destino
-    dest_product = db.query(Product).filter(
-        Product.sku == source_product.sku,
-        Product.profile_id == transfer.to_profile_id
+    # Validar stock en ubicación de origen
+    source_stock = db.query(Stock).filter(
+        Stock.product_id == transfer.product_id,
+        Stock.location_id == transfer.from_location_id
     ).first()
     
-    if not dest_product:
-        # Crear producto en el perfil de destino
-        dest_product = Product(
-            profile_id=transfer.to_profile_id,
-            supplier_id=source_product.supplier_id,
-            sku=source_product.sku,
-            nombre=source_product.nombre,
-            categoria=source_product.categoria,
-            marca=source_product.marca,
-            modelo=source_product.modelo,
-            capacidad=source_product.capacidad,
-            condicion=source_product.condicion,
-            precio=source_product.precio,
-            moneda=source_product.moneda,
-            garantia_meses=source_product.garantia_meses,
-            activo=source_product.activo
+    if not source_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="Stock de origen no encontrado"
         )
-        db.add(dest_product)
-        db.flush()
-        
-        # Crear stock para el nuevo producto
+    
+    if source_stock.cantidad_disponible < transfer.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock insuficiente para confirmar. Disponible: {source_stock.cantidad_disponible}, Necesario: {transfer.cantidad}"
+        )
+    
+    # Buscar o crear stock en ubicación de destino
+    dest_stock = db.query(Stock).filter(
+        Stock.product_id == transfer.product_id,
+        Stock.location_id == transfer.to_location_id
+    ).first()
+    
+    stock_anterior_origen = source_stock.cantidad_disponible
+    stock_anterior_destino = dest_stock.cantidad_disponible if dest_stock else 0
+    
+    if not dest_stock:
+        # Crear registro de stock en ubicación de destino
         dest_stock = Stock(
-            product_id=dest_product.id,
+            product_id=product.id,
+            location_id=transfer.to_location_id,
             cantidad_disponible=0
         )
         db.add(dest_stock)
         db.flush()
     
-    # Actualizar stocks
-    source_product.stock.cantidad_disponible -= transfer.cantidad
+    # Actualizar stocks atómicamente
+    source_stock.cantidad_disponible -= transfer.cantidad
+    dest_stock.cantidad_disponible += transfer.cantidad
     
-    if not dest_product.stock:
-        dest_stock = Stock(
-            product_id=dest_product.id,
-            cantidad_disponible=transfer.cantidad
+    # Validación de seguridad post-operación
+    if source_stock.cantidad_disponible < 0:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error crítico: Stock negativo detectado en ubicación de origen ({source_stock.cantidad_disponible}). Posible race condition."
         )
-        db.add(dest_stock)
-    else:
-        dest_product.stock.cantidad_disponible += transfer.cantidad
+    
+    # Registrar en historial de stock (trazabilidad)
+    history_salida = StockHistory(
+        product_id=product.id,
+        location_id=transfer.from_location_id,
+        tipo_cambio='transferencia_salida',
+        cantidad=-transfer.cantidad,
+        stock_anterior=stock_anterior_origen,
+        stock_nuevo=source_stock.cantidad_disponible,
+        referencia_id=transfer.id,
+        referencia_tipo='transfer',
+        notas=f"Transferencia a {transfer.to_location.nombre}: {transfer.notas or ''}",
+        usuario=confirm_data.confirmed_by
+    )
+    db.add(history_salida)
+    
+    history_entrada = StockHistory(
+        product_id=product.id,
+        location_id=transfer.to_location_id,
+        tipo_cambio='transferencia_entrada',
+        cantidad=transfer.cantidad,
+        stock_anterior=stock_anterior_destino,
+        stock_nuevo=dest_stock.cantidad_disponible,
+        referencia_id=transfer.id,
+        referencia_tipo='transfer',
+        notas=f"Transferencia desde {transfer.from_location.nombre}: {transfer.notas or ''}",
+        usuario=confirm_data.confirmed_by
+    )
+    db.add(history_entrada)
+    
+    # V2.0: Mover IMEIs automáticamente a la nueva ubicación
+    from app.models import ProductIMEI
+    imeis_to_move = db.query(ProductIMEI).filter(
+        ProductIMEI.product_id == transfer.product_id,
+        ProductIMEI.location_id == transfer.from_location_id,
+        ProductIMEI.vendido == False
+    ).limit(transfer.cantidad).all()
+    
+    for imei in imeis_to_move:
+        imei.location_id = transfer.to_location_id
     
     # Actualizar estado de la transferencia
     transfer.estado = "confirmada"
@@ -363,6 +414,22 @@ def reject_transfer(
     transfer.confirmed_by = reject_data.rejected_by
     transfer.rejection_reason = reject_data.rejection_reason
     
+    # V2.0: Registrar rechazo en historial para trazabilidad
+    from app.models import StockHistory
+    history_rechazo = StockHistory(
+        product_id=transfer.product_id,
+        location_id=transfer.from_location_id,
+        tipo_cambio='transferencia_rechazada',
+        cantidad=0,  # No se mueve stock
+        stock_anterior=0,
+        stock_nuevo=0,
+        referencia_id=transfer.id,
+        referencia_tipo='transfer_rejected',
+        notas=f"Transferencia rechazada por {reject_data.rejected_by}: {reject_data.rejection_reason or 'Sin motivo especificado'}",
+        usuario=reject_data.rejected_by
+    )
+    db.add(history_rechazo)
+    
     try:
         db.commit()
         db.refresh(transfer)
@@ -402,6 +469,22 @@ def cancel_transfer(
         )
     
     transfer.estado = "cancelada"
+    
+    # V2.0: Registrar cancelación en historial para trazabilidad
+    from app.models import StockHistory
+    history_cancelacion = StockHistory(
+        product_id=transfer.product_id,
+        location_id=transfer.from_location_id,
+        tipo_cambio='transferencia_cancelada',
+        cantidad=0,  # No se mueve stock
+        stock_anterior=0,
+        stock_nuevo=0,
+        referencia_id=transfer.id,
+        referencia_tipo='transfer_cancelled',
+        notas=f"Transferencia cancelada: {transfer.notas or 'Sin motivo especificado'}",
+        usuario=transfer.created_by or 'sistema'
+    )
+    db.add(history_cancelacion)
     
     try:
         db.commit()

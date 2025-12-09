@@ -8,9 +8,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import type { OrderWithItems, Order } from '@/lib/types'
+import type { OrderWithItems, Order, SalesProfile, Location } from '@/lib/types'
 import { format } from 'date-fns'
-import { PencilSimple, User, FilePdf, Trash } from '@phosphor-icons/react'
+import { PencilSimple, User, FilePdf, Trash, Robot, MapPin } from '@phosphor-icons/react'
+import { useState, useEffect } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 interface OrderCardProps {
   order: OrderWithItems
@@ -22,6 +25,42 @@ interface OrderCardProps {
 }
 
 export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory, onExportPDF, onDelete }: OrderCardProps) {
+  const [salesProfile, setSalesProfile] = useState<SalesProfile | null>(null)
+  const [sourceLocation, setSourceLocation] = useState<Location | null>(null)
+
+  useEffect(() => {
+    if (order.sales_profile_id) {
+      loadSalesProfile(order.sales_profile_id)
+    }
+    if (order.source_location_id) {
+      loadSourceLocation(order.source_location_id)
+    }
+  }, [order.sales_profile_id, order.source_location_id])
+
+  const loadSalesProfile = async (id: number) => {
+    try {
+      const response = await fetch(`${API_URL}/sales-profiles/${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSalesProfile(data)
+      }
+    } catch (error) {
+      console.error('Error loading sales profile:', error)
+    }
+  }
+
+  const loadSourceLocation = async (id: number) => {
+    try {
+      const response = await fetch(`${API_URL}/locations/${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSourceLocation(data)
+      }
+    } catch (error) {
+      console.error('Error loading location:', error)
+    }
+  }
+
   const getStatusBadgeColor = (estado: Order['estado']) => {
     const colors: Record<Order['estado'], string> = {
       pendiente: 'bg-yellow-500 text-white',
@@ -118,6 +157,34 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
             <span className="text-muted-foreground">Método de Pago:</span>
             <p className="font-medium">{getPaymentText(order.metodo_pago)}</p>
           </div>
+          
+          {/* V2.0: Sales Profile */}
+          {salesProfile && (
+            <div>
+              <span className="text-muted-foreground">Perfil de Venta:</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Robot size={14} className="text-primary" />
+                <p className="font-medium">{salesProfile.nombre}</p>
+                <Badge variant="outline" className="text-xs capitalize">
+                  {salesProfile.tipo.replace('_', ' ')}
+                </Badge>
+              </div>
+            </div>
+          )}
+          
+          {/* V2.0: Source Location */}
+          {sourceLocation && (
+            <div>
+              <span className="text-muted-foreground">Origen del Stock:</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <MapPin size={14} className="text-primary" />
+                <p className="font-medium">{sourceLocation.nombre}</p>
+                <Badge variant="outline" className="text-xs capitalize">
+                  {sourceLocation.tipo}
+                </Badge>
+              </div>
+            </div>
+          )}
         </div>
 
         {order.notas && (

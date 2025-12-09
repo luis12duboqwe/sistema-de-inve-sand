@@ -2,8 +2,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, get_db, check_db_connection
-from app.routers import profiles, products, orders, faq, customers, reports, auth_router, stock_transfers, suppliers, stock_history
-from app.models import Profile, Product, Stock
+from app.routers import (
+    profiles, products, orders, faq, customers, reports, 
+    auth_router, stock_transfers, suppliers, stock_history,
+    locations, sales_profiles
+)
+from app.models import Profile, Product, Stock, Location
 from app.config import settings
 from sqlalchemy.orm import Session
 
@@ -18,8 +22,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Sistema de Inventario API",
-    description="API REST para gestión de inventario de celulares y accesorios",
-    version="1.0.0",
+    description="API REST para gestión de inventario de celulares y accesorios con ubicaciones físicas y perfiles de venta",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -32,6 +36,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(locations.router)
+app.include_router(sales_profiles.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
@@ -81,6 +87,19 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         )
         db.add(profile)
         db.flush()
+
+        # V2.0: crear ubicación por defecto para asignar stock inicial
+        default_location = db.query(Location).filter(Location.nombre == "Tienda Principal").first()
+        if not default_location:
+            default_location = Location(
+                nombre="Tienda Principal",
+                tipo="tienda",
+                direccion="",
+                telefono=None,
+                activo=True
+            )
+            db.add(default_location)
+            db.flush()
         
         products_data = [
             {
@@ -147,6 +166,7 @@ def initialize_sample_data(db: Session = Depends(get_db)):
             
             stock = Stock(
                 product_id=product.id,
+                location_id=default_location.id,
                 cantidad_disponible=stock_qty
             )
             db.add(stock)
@@ -158,6 +178,11 @@ def initialize_sample_data(db: Session = Depends(get_db)):
             "profile": {
                 "name": profile.name,
                 "slug": profile.slug
+            },
+            "location": {
+                "nombre": default_location.nombre,
+                "id": default_location.id,
+                "tipo": default_location.tipo
             },
             "products_created": len(products_data)
         }

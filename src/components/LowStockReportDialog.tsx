@@ -36,6 +36,9 @@ export function LowStockReportDialog({
   profiles,
   onProductClick
 }: LowStockReportDialogProps) {
+  // V2.0: Stock alerts should be by LOCATION not profile
+  // TODO: Refactor to use locations from API instead of profiles
+  // For now, showing all products globally as interim solution
   const [selectedProfile, setSelectedProfile] = useState<string>('all')
   const [severityFilter, setSeverityFilter] = useState<'all' | 'out' | 'critical' | 'low'>('all')
 
@@ -51,8 +54,9 @@ export function LowStockReportDialog({
 
     activeProfiles.forEach(profile => {
       const threshold = profile.settings?.lowStockThreshold || 5
+      // V2.0 INTERIM: Products are global - this should check stock by location
       const profileProducts = products.filter(
-        p => p.profile_id === profile.id && p.activo
+        p => p.activo
       )
 
       const lowStockProducts = profileProducts.filter(

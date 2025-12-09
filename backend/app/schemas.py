@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Generic, TypeVar
 from datetime import datetime, date
 from decimal import Decimal
@@ -57,9 +57,108 @@ class EstadoTransferenciaEnum(str, Enum):
     CANCELADA = "cancelada"
 
 
+class TipoUbicacionEnum(str, Enum):
+    """Tipos de ubicación física"""
+    TIENDA = "tienda"
+    BODEGA = "bodega"
+    OFICINA = "oficina"
+
+
+class TipoSalesProfileEnum(str, Enum):
+    """Tipos de perfil de venta"""
+    BOT_IA = "bot_ia"
+    VENDEDOR_HUMANO = "vendedor_humano"
+    SISTEMA_AUTOMATICO = "sistema_automatico"
+
+
+# ============= LOCATION SCHEMAS =============
+class LocationBase(BaseModel):
+    nombre: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
+    tipo: TipoUbicacionEnum
+    direccion: Optional[str] = None
+    telefono: Optional[str] = None
+    activo: bool = True
+
+
+class LocationCreate(LocationBase):
+    pass
+
+
+class LocationUpdate(BaseModel):
+    nombre: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
+    tipo: Optional[TipoUbicacionEnum] = None
+    direccion: Optional[str] = None
+    telefono: Optional[str] = None
+    activo: Optional[bool] = None
+
+
+class LocationResponse(LocationBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============= SALES PROFILE SCHEMAS =============
+class SalesProfileBase(BaseModel):
+    name: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
+    slug: str = Field(..., min_length=1, description="Slug no puede estar vacío")
+    tipo: TipoSalesProfileEnum
+    canales: Optional[List[str]] = None  # ["whatsapp", "facebook", "instagram"]
+    active: bool = True
+    configuracion: Optional[dict] = None
+
+
+class SalesProfileCreate(SalesProfileBase):
+    pass
+
+
+class SalesProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
+    slug: Optional[str] = Field(None, min_length=1, description="Slug no puede estar vacío si se proporciona")
+    tipo: Optional[TipoSalesProfileEnum] = None
+    canales: Optional[List[str]] = None
+    active: Optional[bool] = None
+    configuracion: Optional[dict] = None
+
+
+class SalesProfileResponse(SalesProfileBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============= STOCK BY LOCATION SCHEMAS =============
+class StockByLocationBase(BaseModel):
+    product_id: int
+    location_id: int
+    cantidad_disponible: int = Field(0, ge=0)
+
+
+class StockByLocationCreate(StockByLocationBase):
+    pass
+
+
+class StockByLocationUpdate(BaseModel):
+    cantidad_disponible: int = Field(..., ge=0)
+
+
+class StockByLocationResponse(StockByLocationBase):
+    id: int
+    location: Optional[LocationResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ProfileBase(BaseModel):
-    name: str
-    slug: str
+    name: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
+    slug: str = Field(..., min_length=1, description="Slug no puede estar vacío")
     active: bool = True
 
 class ProfileCreate(ProfileBase):
@@ -73,13 +172,14 @@ class ProfileResponse(ProfileBase):
 
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
+    slug: Optional[str] = Field(None, min_length=1, description="Slug no puede estar vacío si se proporciona")
     active: Optional[bool] = None
 
 
 # Supplier Schemas
 class SupplierBase(BaseModel):
-    nombre: str
+    nombre: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
     contacto: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
@@ -89,11 +189,11 @@ class SupplierBase(BaseModel):
 
 
 class SupplierCreate(SupplierBase):
-    profile_id: int
+    profile_id: Optional[int] = None  # V2.0: Deprecated, proveedores son globales
 
 
 class SupplierUpdate(BaseModel):
-    nombre: Optional[str] = None
+    nombre: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
     contacto: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
@@ -104,7 +204,7 @@ class SupplierUpdate(BaseModel):
 
 class SupplierResponse(SupplierBase):
     id: int
-    profile_id: int
+    profile_id: Optional[int] = None  # V2.0: Deprecated, proveedores son globales
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -112,26 +212,43 @@ class SupplierResponse(SupplierBase):
         from_attributes = True
 
 
+# ============= IMEI SCHEMAS =============
+class IMEIWithLocation(BaseModel):
+    """Schema para IMEIs con ubicación asignada - V2.0"""
+    imei: str
+    location_id: int
+
+
+# ============= PRODUCT SCHEMAS =============
 class ProductBase(BaseModel):
-    profile_id: int
+    profile_id: Optional[int] = None  # V2.0: Opcional, productos son globales
     supplier_id: Optional[int] = None
-    sku: str
-    nombre: str
+    sku: str = Field(..., min_length=1, description="SKU no puede estar vacío")
+    nombre: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
     categoria: CategoriaEnum
-    marca: str
-    modelo: str
+    marca: str = Field(..., min_length=1, description="Marca no puede estar vacía")
+    modelo: str = Field(..., min_length=1, description="Modelo no puede estar vacío")
     capacidad: Optional[str] = None
     condicion: CondicionEnum
-    precio: Decimal
+    precio: Decimal = Field(..., gt=0, description="Precio debe ser mayor a 0")
     moneda: str = "HNL"
-    garantia_meses: int = 0
+    garantia_meses: int = Field(0, ge=0, description="Garantía en meses debe ser >= 0")
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool = True
-    imei: Optional[str] = None  # DEPRECATED: Usar imeis para nuevos productos
-    imeis: Optional[List[str]] = None  # Array de IMEIs para múltiples unidades
+    imei: Optional[str] = None  # DEPRECATED: Usar imeis_con_ubicacion para nuevos productos V2.0
+    imeis: Optional[List[str]] = None  # DEPRECATED: Usar imeis_con_ubicacion para V2.0
+    
+    @field_validator('precio')
+    @classmethod
+    def validate_precio_positivo(cls, v):
+        if v <= 0:
+            raise ValueError('El precio debe ser mayor a 0')
+        return v
 
 class ProductCreate(ProductBase):
     cantidad_inicial: int = Field(0, alias="stock_inicial")
+    initial_location_id: Optional[int] = None  # V2.0: Ubicación inicial del stock
+    imeis_con_ubicacion: Optional[List[IMEIWithLocation]] = None  # V2.0: IMEIs con ubicación asignada
 
     model_config = {
         "populate_by_name": True
@@ -139,6 +256,7 @@ class ProductCreate(ProductBase):
 
 
 class ProductUpdate(BaseModel):
+    sku: Optional[str] = None
     nombre: Optional[str] = None
     categoria: Optional[CategoriaEnum] = None
     marca: Optional[str] = None
@@ -163,7 +281,7 @@ class StockUpdate(BaseModel):
 
 class ProductResponse(BaseModel):
     id: int
-    profile_id: int
+    profile_id: Optional[int] = None  # V2.0: Opcional
     supplier_id: Optional[int]
     sku: str
     nombre: str
@@ -184,9 +302,16 @@ class ProductResponse(BaseModel):
         from_attributes = True
 
 class OrderItemCreate(BaseModel):
-    product_id: int
-    cantidad: int = Field(..., gt=0)
+    product_id: int = Field(..., gt=0)
+    cantidad: int = Field(..., gt=0, description="Cantidad debe ser mayor a 0")
     es_regalo_promocion: bool = False
+    
+    @field_validator('cantidad')
+    @classmethod
+    def validate_cantidad_positiva(cls, v):
+        if v <= 0:
+            raise ValueError('La cantidad debe ser mayor a 0')
+        return v
 
 class OrderItemResponse(BaseModel):
     id: int
@@ -201,17 +326,33 @@ class OrderItemResponse(BaseModel):
 
 
 class OrderItemUpdate(BaseModel):
-    product_id: int
-    cantidad: int = Field(..., gt=0)
+    product_id: int = Field(..., gt=0)
+    cantidad: int = Field(..., gt=0, description="Cantidad debe ser mayor a 0")
     es_regalo_promocion: bool = False
+    
+    @field_validator('cantidad')
+    @classmethod
+    def validate_cantidad_positiva(cls, v):
+        if v <= 0:
+            raise ValueError('La cantidad debe ser mayor a 0')
+        return v
+    
+    @field_validator('product_id')
+    @classmethod
+    def validate_product_id_positivo(cls, v):
+        if v <= 0:
+            raise ValueError('El product_id debe ser mayor a 0')
+        return v
 
 class OrderCreate(BaseModel):
-    profile_slug: str
+    profile_slug: Optional[str] = None  # LEGACY: Compatibilidad con V1, usar sales_profile_slug en su lugar
+    sales_profile_slug: Optional[str] = None  # V2.0: Slug del perfil de venta (bot/vendedor)
+    source_location_id: int = Field(..., description="V2.0: ID de la ubicación de donde sale el stock (OBLIGATORIO)")
     canal: CanalEnum
-    customer_name: str
+    customer_name: str = Field(..., min_length=1, description="Nombre del cliente no puede estar vacío")
     customer_phone: str
     metodo_pago: MetodoPagoEnum
-    items: List[OrderItemCreate]
+    items: List[OrderItemCreate] = Field(..., min_length=1, description="Debe contener al menos un producto")
     notes: Optional[str] = None  # Notas adicionales de la orden
     delivery_date: Optional[datetime] = None  # Fecha de entrega programada
     
@@ -221,10 +362,25 @@ class OrderCreate(BaseModel):
         if v is None:
             raise ValueError('customer_phone cannot be None')
         return str(v).strip()
+    
+    @field_validator('source_location_id')
+    @classmethod
+    def validate_location_required(cls, v):
+        if v is None or v <= 0:
+            raise ValueError('source_location_id es obligatorio y debe ser mayor a 0 en V2.0')
+        return v
+
+    @model_validator(mode='after')
+    def validate_at_least_one_slug(self):
+        if not self.sales_profile_slug and not self.profile_slug:
+            raise ValueError('Debe proporcionar sales_profile_slug (V2.0) o profile_slug (legacy)')
+        return self
 
 class OrderResponse(BaseModel):
     id: int
-    profile_id: int
+    profile_id: Optional[int] = None  # LEGACY: ID del perfil antiguo (V1)
+    sales_profile_id: Optional[int] = None  # V2.0: ID del perfil de venta (bot/vendedor)
+    source_location_id: Optional[int] = None  # V2.0: ID de la ubicación origen del stock
     customer_name: str
     customer_phone: str
     canal: str
@@ -241,7 +397,9 @@ class OrderResponse(BaseModel):
 
 class OrderListResponse(BaseModel):
     id: int
-    profile_id: int
+    profile_id: Optional[int] = None  # LEGACY
+    sales_profile_id: Optional[int] = None  # V2.0
+    source_location_id: Optional[int] = None  # V2.0
     customer_name: str
     customer_phone: str
     canal: str
@@ -265,9 +423,16 @@ class OrderUpdate(BaseModel):
     customer_phone: Optional[str] = None
     canal: Optional[CanalEnum] = None
     metodo_pago: Optional[MetodoPagoEnum] = None
-    items: Optional[List[OrderItemUpdate]] = None
+    items: Optional[List[OrderItemUpdate]] = Field(None, min_length=1, description="Si se proporciona, debe contener al menos un producto")
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
+    
+    @field_validator('items')
+    @classmethod
+    def validate_items_not_empty(cls, v):
+        if v is not None and len(v) == 0:
+            raise ValueError('Si proporciona items, la lista debe contener al menos un producto')
+        return v
 
 
 class FAQEntryBase(BaseModel):
@@ -494,21 +659,30 @@ class UserInDB(UserResponse):
 
 # Stock Transfer Schemas
 class StockTransferCreate(BaseModel):
-    """Schema para crear una transferencia de stock"""
+    """Schema para crear una transferencia de stock entre ubicaciones (V2.0)"""
     product_id: int
-    from_profile_slug: str
-    to_profile_slug: str
+    from_location_id: int = Field(..., description="ID de ubicación origen")
+    to_location_id: int = Field(..., description="ID de ubicación destino")
     cantidad: int = Field(..., gt=0, description="Cantidad a transferir")
     notas: Optional[str] = None
     created_by: Optional[str] = None
+    
+    @field_validator('to_location_id')
+    @classmethod
+    def validate_different_locations(cls, v, info):
+        if 'from_location_id' in info.data and v == info.data['from_location_id']:
+            raise ValueError('Las ubicaciones de origen y destino deben ser diferentes')
+        return v
 
 
 class StockTransferResponse(BaseModel):
-    """Schema para la respuesta de una transferencia de stock"""
+    """Schema para la respuesta de una transferencia de stock (V2.0)"""
     id: int
     product_id: int
-    from_profile_id: int
-    to_profile_id: int
+    from_location_id: int
+    to_location_id: int
+    from_profile_id: Optional[int] = None  # Legacy V1, puede ser None
+    to_profile_id: Optional[int] = None  # Legacy V1, puede ser None
     cantidad: int
     notas: Optional[str]
     estado: str
@@ -518,9 +692,12 @@ class StockTransferResponse(BaseModel):
     created_at: datetime
     created_by: Optional[str]
     
-    # Información adicional del producto
+    # Información adicional del producto y ubicaciones
     product_nombre: Optional[str] = None
     product_sku: Optional[str] = None
+    from_location_name: Optional[str] = None
+    to_location_name: Optional[str] = None
+    # Legacy (compatibilidad V1)
     from_profile_name: Optional[str] = None
     to_profile_name: Optional[str] = None
     

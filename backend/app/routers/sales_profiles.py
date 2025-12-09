@@ -1,0 +1,229 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from app import models, schemas
+from app.database import get_db
+import json
+
+router = APIRouter(prefix="/api/sales-profiles", tags=["sales_profiles"])
+
+
+@router.get("", response_model=List[schemas.SalesProfileResponse])
+def get_sales_profiles(
+    skip: int = 0,
+    limit: int = 100,
+    active: Optional[bool] = None,
+    tipo: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Obtener todos los perfiles de venta (vendedores, bots, etc.)"""
+    query = db.query(models.SalesProfile)
+    
+    if active is not None:
+        query = query.filter(models.SalesProfile.active == active)
+    
+    if tipo:
+        query = query.filter(models.SalesProfile.tipo == tipo)
+    
+    profiles = query.order_by(models.SalesProfile.name).offset(skip).limit(limit).all()
+    
+    # Convertir canales de JSON string a lista
+    for profile in profiles:
+        if profile.canales:
+            try:
+                profile.canales = json.loads(profile.canales)
+            except:
+                profile.canales = []
+        else:
+            profile.canales = []
+        
+        if profile.configuracion:
+            try:
+                profile.configuracion = json.loads(profile.configuracion)
+            except:
+                profile.configuracion = {}
+        else:
+            profile.configuracion = {}
+    
+    return profiles
+
+
+@router.get("/{profile_id}", response_model=schemas.SalesProfileResponse)
+def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
+    """Obtener un perfil de venta específico"""
+    profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    # Convertir JSON strings a objetos
+    if profile.canales:
+        try:
+            profile.canales = json.loads(profile.canales)
+        except:
+            profile.canales = []
+    else:
+        profile.canales = []
+    
+    if profile.configuracion:
+        try:
+            profile.configuracion = json.loads(profile.configuracion)
+        except:
+            profile.configuracion = {}
+    else:
+        profile.configuracion = {}
+    
+    return profile
+
+
+@router.get("/slug/{slug}", response_model=schemas.SalesProfileResponse)
+def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
+    """Obtener un perfil de venta por su slug"""
+    profile = db.query(models.SalesProfile).filter(models.SalesProfile.slug == slug).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    # Convertir JSON strings a objetos
+    if profile.canales:
+        try:
+            profile.canales = json.loads(profile.canales)
+        except:
+            profile.canales = []
+    else:
+        profile.canales = []
+    
+    if profile.configuracion:
+        try:
+            profile.configuracion = json.loads(profile.configuracion)
+        except:
+            profile.configuracion = {}
+    else:
+        profile.configuracion = {}
+    
+    return profile
+
+
+@router.post("", response_model=schemas.SalesProfileResponse, status_code=201)
+def create_sales_profile(
+    profile: schemas.SalesProfileCreate,
+    db: Session = Depends(get_db)
+):
+    """Crear un nuevo perfil de venta"""
+    # Verificar que el slug sea único
+    existing = db.query(models.SalesProfile).filter(models.SalesProfile.slug == profile.slug).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya existe un perfil con ese slug")
+    
+    # Convertir listas y dicts a JSON strings
+    profile_data = profile.model_dump()
+    if profile_data.get('canales'):
+        profile_data['canales'] = json.dumps(profile_data['canales'])
+    if profile_data.get('configuracion'):
+        profile_data['configuracion'] = json.dumps(profile_data['configuracion'])
+    
+    db_profile = models.SalesProfile(**profile_data)
+    db.add(db_profile)
+    db.commit()
+    db.refresh(db_profile)
+    
+    # Convertir de vuelta para la respuesta
+    if db_profile.canales:
+        db_profile.canales = json.loads(db_profile.canales)
+    else:
+        db_profile.canales = []
+    
+    if db_profile.configuracion:
+        db_profile.configuracion = json.loads(db_profile.configuracion)
+    else:
+        db_profile.configuracion = {}
+    
+    return db_profile
+
+
+@router.put("/{profile_id}", response_model=schemas.SalesProfileResponse)
+def update_sales_profile(
+    profile_id: int,
+    profile: schemas.SalesProfileUpdate,
+    db: Session = Depends(get_db)
+):
+    """Actualizar un perfil de venta existente"""
+    db_profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    update_data = profile.model_dump(exclude_unset=True)
+    
+    # Validar slug único si se está actualizando
+    if 'slug' in update_data and update_data['slug'] != db_profile.slug:
+        existing = db.query(models.SalesProfile).filter(
+            models.SalesProfile.slug == update_data['slug'],
+            models.SalesProfile.id != profile_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya existe otro perfil con el slug '{update_data['slug']}'"
+            )
+    
+    # Convertir listas y dicts a JSON strings
+    if 'canales' in update_data and update_data['canales'] is not None:
+        update_data['canales'] = json.dumps(update_data['canales'])
+    if 'configuracion' in update_data and update_data['configuracion'] is not None:
+        update_data['configuracion'] = json.dumps(update_data['configuracion'])
+    
+    for field, value in update_data.items():
+        setattr(db_profile, field, value)
+    
+    db.commit()
+    db.refresh(db_profile)
+    
+    # Convertir de vuelta para la respuesta
+    if db_profile.canales:
+        db_profile.canales = json.loads(db_profile.canales)
+    else:
+        db_profile.canales = []
+    
+    if db_profile.configuracion:
+        db_profile.configuracion = json.loads(db_profile.configuracion)
+    else:
+        db_profile.configuracion = {}
+    
+    return db_profile
+
+
+@router.delete("/{profile_id}", status_code=204)
+def delete_sales_profile(profile_id: int, db: Session = Depends(get_db)):
+    """Eliminar un perfil de venta"""
+    db_profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    # Verificar que no tenga órdenes
+    order_count = db.query(models.Order).filter(models.Order.sales_profile_id == profile_id).count()
+    if order_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el perfil porque tiene {order_count} órdenes asociadas"
+        )
+    
+    db.delete(db_profile)
+    db.commit()
+    return None
+
+
+@router.get("/{profile_id}/orders")
+def get_sales_profile_orders(
+    profile_id: int,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """Obtener todas las órdenes de un perfil de venta"""
+    profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    orders = db.query(models.Order).filter(
+        models.Order.sales_profile_id == profile_id
+    ).order_by(models.Order.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return orders

@@ -1,11 +1,14 @@
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import type { ProductWithStock, OrderWithItems } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown } from '@phosphor-icons/react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { ProductWithStock, OrderWithItems, Location, SalesProfile } from '@/lib/types'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot } from '@phosphor-icons/react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -14,6 +17,38 @@ interface DashboardStatsProps {
 }
 
 export function DashboardStats({ products, orders, onViewLowStockReport }: DashboardStatsProps) {
+  const [locations, setLocations] = useState<Location[]>([])
+  const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
+
+  useEffect(() => {
+    loadLocations()
+    loadSalesProfiles()
+  }, [])
+
+  const loadLocations = async () => {
+    try {
+      const response = await fetch(`${API_URL}/locations/`)
+      if (response.ok) {
+        const data = await response.json()
+        setLocations(data)
+      }
+    } catch (error) {
+      console.error('Error loading locations:', error)
+    }
+  }
+
+  const loadSalesProfiles = async () => {
+    try {
+      const response = await fetch(`${API_URL}/sales-profiles/`)
+      if (response.ok) {
+        const data = await response.json()
+        setSalesProfiles(data)
+      }
+    } catch (error) {
+      console.error('Error loading sales profiles:', error)
+    }
+  }
+
   const activeProducts = products.filter(p => p.activo).length
   const lowStockProducts = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
   const outOfStockProducts = products.filter(p => p.activo && p.stock_disponible === 0).length
@@ -72,6 +107,40 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
       .slice(0, 5)
   }, [orders])
 
+  // V2.0: Stats by location
+  const statsByLocation = useMemo(() => {
+    return locations.map(location => {
+      const locationOrders = orders.filter(o => o.source_location_id === location.id)
+      const completedLocationOrders = locationOrders.filter(o => o.estado === 'completada')
+      const revenue = completedLocationOrders.reduce((sum, o) => sum + Number(o.total), 0)
+      
+      return {
+        nombre: location.nombre,
+        tipo: location.tipo,
+        ordenes: locationOrders.length,
+        completadas: completedLocationOrders.length,
+        ingresos: revenue
+      }
+    }).filter(s => s.ordenes > 0)
+  }, [locations, orders])
+
+  // V2.0: Stats by sales profile
+  const statsByProfile = useMemo(() => {
+    return salesProfiles.map(profile => {
+      const profileOrders = orders.filter(o => o.sales_profile_id === profile.id)
+      const completedProfileOrders = profileOrders.filter(o => o.estado === 'completada')
+      const revenue = completedProfileOrders.reduce((sum, o) => sum + Number(o.total), 0)
+      
+      return {
+        nombre: profile.nombre,
+        tipo: profile.tipo,
+        ordenes: profileOrders.length,
+        completadas: completedProfileOrders.length,
+        ingresos: revenue
+      }
+    }).filter(s => s.ordenes > 0)
+  }, [salesProfiles, orders])
+
   const stats = [
     {
       title: 'Productos Activos',
@@ -109,7 +178,24 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="general">
+            <ChartLineUp className="mr-2 h-4 w-4" />
+            General
+          </TabsTrigger>
+          <TabsTrigger value="ubicaciones">
+            <MapPin className="mr-2 h-4 w-4" />
+            Por Ubicación
+          </TabsTrigger>
+          <TabsTrigger value="perfiles">
+            <Robot className="mr-2 h-4 w-4" />
+            Por Perfil de Venta
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="space-y-6 mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => (
           <motion.div
             key={stat.title}
@@ -280,10 +366,175 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
           </Card>
         </motion.div>
       )}
+        </TabsContent>
+
+        <TabsContent value="ubicaciones" className="space-y-6 mt-6">
+          {statsByLocation.length > 0 ? (
+            <>
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Ventas por Ubicación</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={statsByLocation}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.005 250)" />
+                    <XAxis 
+                      dataKey="nombre" 
+                      stroke="oklch(0.50 0.01 250)" 
+                      fontSize={12}
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                    />
+                    <YAxis stroke="oklch(0.50 0.01 250)" fontSize={12} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'oklch(1 0 0)', 
+                        border: '1px solid oklch(0.90 0.005 250)',
+                        borderRadius: '0.5rem'
+                      }}
+                      formatter={(value: number, name: string) => {
+                        if (name === 'ingresos') return [`L ${value.toFixed(2)}`, 'Ingresos']
+                        if (name === 'completadas') return [value, 'Completadas']
+                        return [value, 'Órdenes']
+                      }}
+                    />
+                    <Bar dataKey="ingresos" fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {statsByLocation.map((stat, index) => (
+                  <motion.div
+                    key={stat.nombre}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1, duration: 0.3 }}
+                  >
+                    <Card className="p-6">
+                      <div className="flex items-start gap-3">
+                        <div className="p-3 rounded-lg bg-primary/10">
+                          <MapPin size={24} className="text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">{stat.nombre}</p>
+                          <p className="text-xs text-muted-foreground capitalize mb-2">{stat.tipo}</p>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Órdenes:</span>
+                              <span className="font-medium">{stat.ordenes}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Completadas:</span>
+                              <span className="font-medium">{stat.completadas}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Ingresos:</span>
+                              <span className="font-medium">L {stat.ingresos.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <Card className="p-12 text-center">
+              <MapPin size={48} className="mx-auto text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">
+                No hay órdenes con información de ubicación aún
+              </p>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="perfiles" className="space-y-6 mt-6">
+          {statsByProfile.length > 0 ? (
+            <>
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Ventas por Perfil de Venta</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={statsByProfile}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.005 250)" />
+                    <XAxis 
+                      dataKey="nombre" 
+                      stroke="oklch(0.50 0.01 250)" 
+                      fontSize={12}
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                    />
+                    <YAxis stroke="oklch(0.50 0.01 250)" fontSize={12} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'oklch(1 0 0)', 
+                        border: '1px solid oklch(0.90 0.005 250)',
+                        borderRadius: '0.5rem'
+                      }}
+                      formatter={(value: number, name: string) => {
+                        if (name === 'ingresos') return [`L ${value.toFixed(2)}`, 'Ingresos']
+                        if (name === 'completadas') return [value, 'Completadas']
+                        return [value, 'Órdenes']
+                      }}
+                    />
+                    <Bar dataKey="ingresos" fill="oklch(0.55 0.15 160)" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {statsByProfile.map((stat, index) => (
+                  <motion.div
+                    key={stat.nombre}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1, duration: 0.3 }}
+                  >
+                    <Card className="p-6">
+                      <div className="flex items-start gap-3">
+                        <div className="p-3 rounded-lg bg-accent/10">
+                          <Robot size={24} className="text-accent" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">{stat.nombre}</p>
+                          <p className="text-xs text-muted-foreground capitalize mb-2">
+                            {stat.tipo.replace('_', ' ')}
+                          </p>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Órdenes:</span>
+                              <span className="font-medium">{stat.ordenes}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Completadas:</span>
+                              <span className="font-medium">{stat.completadas}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Ingresos:</span>
+                              <span className="font-medium">L {stat.ingresos.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <Card className="p-12 text-center">
+              <Robot size={48} className="mx-auto text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">
+                No hay órdenes con información de perfil de venta aún
+              </p>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
-
 
 
 

@@ -111,8 +111,10 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
     
     if (optimizationAlertEnabled && hoursSinceLastCheck >= 1) {
       profiles.filter(p => p.active).forEach(profile => {
-        const profileProducts = products.filter(p => p.profile_id === profile.id)
-        const profileOrders = orders.filter(o => o.profile_id === profile.id)
+        // V2.0: Products are global, no profile filter needed
+        const profileProducts = products.filter(p => p.activo)
+        // V2.0: Orders filter by sales_profile_id (sales channel)
+        const profileOrders = orders.filter(o => o.sales_profile_id === profile.id)
         
         if (profileProducts.length > 0) {
           const currentScore = calculateSimpleOptimizationScore(profileProducts, profileOrders)

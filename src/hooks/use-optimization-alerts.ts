@@ -54,11 +54,10 @@ export function useOptimizationAlerts(
     0
   )
 
-  const profileProducts = products.filter(p => 
-    !profile || p.profile_id === profile.id
-  )
+  // V2.0: Products are global, Orders filter by sales_profile_id
+  const profileProducts = products.filter(p => p.activo)
   const profileOrders = orders.filter(o => 
-    !profile || o.profile_id === profile.id
+    !profile || o.sales_profile_id === profile.id
   )
 
   const checkOptimizationScore = useCallback(() => {

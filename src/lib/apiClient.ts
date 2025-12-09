@@ -4,7 +4,9 @@ import type {
   OrderWithItems,
   CreateOrderRequest,
   Product,
-  Order
+  Order,
+  SalesProfile,
+  Location
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -75,7 +77,9 @@ interface ApiProductResponse {
 
 interface ApiOrderResponse {
   id: number
-  profile_id: number
+  profile_id?: number
+  sales_profile_id?: number
+  source_location_id?: number
   customer_name: string
   customer_phone: string
   canal: 'whatsapp' | 'facebook' | 'instagram'
@@ -164,6 +168,93 @@ class ApiClient {
     } catch (error) {
       console.error('Error listing profiles from API:', error)
       throw new Error(`Failed to list profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listSalesProfiles(): Promise<SalesProfile[]> {
+    try {
+      const response = await this.request<SalesProfile[]>('/sales-profiles?active=true')
+      return response || []
+    } catch (error) {
+      console.error('Error listing sales profiles from API:', error)
+      throw new Error(`Failed to list sales profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createSalesProfile(payload: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at' | 'active'> & { active?: boolean }): Promise<SalesProfile> {
+    try {
+      return this.request<SalesProfile>('/sales-profiles', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch (error) {
+      console.error('Error creating sales profile via API:', error)
+      throw new Error(`Failed to create sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile> {
+    try {
+      return this.request<SalesProfile>(`/sales-profiles/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      })
+    } catch (error) {
+      console.error('Error updating sales profile via API:', error)
+      throw new Error(`Failed to update sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSalesProfile(id: number): Promise<void> {
+    try {
+      await this.request<void>(`/sales-profiles/${id}`, { method: 'DELETE' })
+    } catch (error) {
+      console.error('Error deleting sales profile via API:', error)
+      throw new Error(`Failed to delete sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listLocations(activeOnly = false): Promise<Location[]> {
+    try {
+      const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
+      const response = await this.request<Location[]>(endpoint)
+      return response || []
+    } catch (error) {
+      console.error('Error listing locations from API:', error)
+      throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createLocation(payload: Omit<Location, 'id' | 'created_at' | 'updated_at' | 'activo'> & { activo?: boolean }): Promise<Location> {
+    try {
+      return this.request<Location>('/locations', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch (error) {
+      console.error('Error creating location via API:', error)
+      throw new Error(`Failed to create location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateLocation(id: number, updates: Partial<Location>): Promise<Location> {
+    try {
+      return this.request<Location>(`/locations/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      })
+    } catch (error) {
+      console.error('Error updating location via API:', error)
+      throw new Error(`Failed to update location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteLocation(id: number): Promise<void> {
+    try {
+      await this.request<void>(`/locations/${id}`, { method: 'DELETE' })
+    } catch (error) {
+      console.error('Error deleting location via API:', error)
+      throw new Error(`Failed to delete location: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -316,10 +407,10 @@ class ApiClient {
     }
   }
 
-  async fetchOrders(profileSlug?: string): Promise<OrderWithItems[]> {
+  async fetchOrders(salesProfileSlug?: string): Promise<OrderWithItems[]> {
     try {
       const params = new URLSearchParams()
-      if (profileSlug) params.append('profile_slug', profileSlug)
+      if (salesProfileSlug) params.append('sales_profile_slug', salesProfileSlug)
       params.append('per_page', '100') // Límite máximo del backend
 
       const query = params.toString()
@@ -371,6 +462,14 @@ class ApiClient {
       const sanitizedRequest = {
         ...request,
         customer_phone: String(request.customer_phone || '').trim()
+      }
+
+      if (!sanitizedRequest.source_location_id) {
+        throw new Error('source_location_id es obligatorio para crear órdenes (V2.0)')
+      }
+
+      if (!sanitizedRequest.sales_profile_slug && !sanitizedRequest.profile_slug) {
+        throw new Error('Debe proporcionar sales_profile_slug (V2.0) o profile_slug (legacy)')
       }
       
       const apiOrder = await this.request<ApiOrderResponse>('/orders', {

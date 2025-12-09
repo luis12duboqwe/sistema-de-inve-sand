@@ -1,14 +1,52 @@
-# 📦 Sistema de Inventario para Chatbots de Ventas
+# 📦 Sistema de Inventario Multi-Ubicación para Ventas Online
 
-## 🎯 Progreso del Proyecto: **100%** ✅
+## 🎯 Versión 2.0 - Sistema Completamente Rediseñado ✅
 
-Un sistema completo de gestión de inventario de celulares y accesorios diseñado para integrarse con chatbots de ventas en WhatsApp, Facebook e Instagram.
+Un sistema avanzado de gestión de inventario diseñado para **múltiples ubicaciones físicas** y **múltiples canales de venta** online (WhatsApp, Facebook, Instagram).
 
-**🆕 NOVEDAD**: Ahora con **sincronización en tiempo real multi-dispositivo** - trabaja desde cualquier dispositivo y mantén todo sincronizado automáticamente.
+### 🆕 NUEVA ARQUITECTURA V2.0
 
-**🔄 SINCRONIZACIÓN MULTI-DISPOSITIVO**: Ver [REALTIME_SYNC.md](./REALTIME_SYNC.md) para documentación completa.
+**Sistema de Ubicaciones y Perfiles de Venta Independientes:**
+- 📍 **Ubicaciones Físicas**: Tiendas, bodegas, oficinas con stock individual
+- 🤖 **Perfiles de Venta**: Bots de IA, vendedores humanos que ven TODO el inventario
+- 📊 **Stock por Ubicación**: Control preciso de inventario en cada tienda/bodega
+- 🌐 **Productos Globales**: Catálogo único visible para todos los vendedores
+- 🔄 **Trazabilidad Completa**: Sabes quién vendió y de dónde salió el stock
 
-## 🧪 Probar el Sistema
+### 🚀 Características Principales V2.0
+
+#### 📍 Gestión de Ubicaciones
+- Crear tiendas, bodegas y oficinas
+- Stock independiente por ubicación
+- Transferencias entre ubicaciones
+- Reportes por ubicación
+
+#### 🤖 Perfiles de Venta (Vendedores/Bots)
+- Hasta 10+ perfiles vendiendo simultáneamente
+- Cada perfil maneja WhatsApp, Facebook, Instagram
+- Todos ven el inventario completo
+- Reportes de ventas por perfil
+
+#### 📦 Inventario Inteligente
+- Productos globales (no atados a ubicaciones)
+- Stock distribuido en múltiples ubicaciones
+- Vista consolidada del inventario total
+- Alertas de stock bajo por ubicación
+
+#### 🛒 Órdenes con Trazabilidad
+- Registro de qué perfil vendió
+- Registro de qué ubicación proveyó el stock
+- Historial completo de movimientos
+- Reportes por vendedor y por tienda
+
+## 📚 Documentación Nueva Arquitectura
+
+- **[INICIO_RAPIDO.md](./INICIO_RAPIDO.md)** - Guía de inicio en 3 pasos
+- **[NUEVO_SISTEMA_UBICACIONES.md](./NUEVO_SISTEMA_UBICACIONES.md)** - Documentación completa
+- **[RESUMEN_VISUAL.md](./RESUMEN_VISUAL.md)** - Diagramas y flujos
+- **[api-examples-nuevo-sistema.json](./api-examples-nuevo-sistema.json)** - Ejemplos de API
+
+## 🧪 Inicio Rápido
 
 ### Inicio Rápido
 
@@ -59,126 +97,19 @@ El sistema soporta **dos modos de backend**:
 - ✅ Indicadores de stock en tiempo real
 - ✅ Tarjetas de producto con detalles completos
 - ✅ Badges de estado de stock (disponible/bajo/agotado)
-- ✅ Formulario para agregar nuevos productos
-- ✅ Formulario para editar productos existentes
-- ✅ Actualización de stock desde UI de edición
-- ✅ Activar/desactivar productos desde UI
-- ✅ Filtro para mostrar/ocultar productos inactivos
-- ✅ Indicador visual para productos inactivos
-- ✅ Animaciones sutiles en tarjetas
-- ✅ Alerta visual para stock bajo
-- ✅ Validación mejorada de formularios
 
-#### 🔹 Gestión de Órdenes (100%) ✓
-- ✅ Creación de órdenes con múltiples productos
-- ✅ Validación de stock antes de crear orden
-- ✅ Actualización automática de inventario
-- ✅ Información de cliente (nombre, teléfono)
-- ✅ Selección de canal (WhatsApp/Facebook/Instagram)
-- ✅ Método de pago (efectivo/transferencia/tarjeta/financiamiento)
-- ✅ Cálculo automático de totales
-- ✅ Visualización de historial de órdenes
-- ✅ Actualización de estado de órdenes
-- ✅ Filtrado por estado
-- ✅ Exportación a CSV
+### 1. Configurar Backend
 
-#### 🔹 Multi-Perfil (100%) ✓
-- ✅ Soporte para múltiples perfiles de negocio
-- ✅ Filtrado de productos por perfil
-- ✅ Filtrado de órdenes por perfil
-- ✅ Selector de perfil en header
-- ✅ Interfaz para crear nuevos perfiles
-- ✅ **Interfaz para editar perfiles existentes**
-- ✅ **Activar/desactivar perfiles**
-- ✅ Visualización de perfiles con estadísticas
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # En Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python init_db.py  # Crea la base de datos con datos de ejemplo
+python -m uvicorn app.main:app --reload --port 8000
+```
 
-#### 🔹 Persistencia de Datos (100%) ✓
-- ✅ Arquitectura dual de backend (Local + API)
-- ✅ Cliente HTTP para FastAPI
-- ✅ Diálogo de configuración con test de conexión
-- ✅ Cambio dinámico entre backends
-- ✅ Almacenamiento persistente usando spark.kv
-- ✅ Datos iniciales de demostración
-- ✅ Actualización atómica de stock
-- ✅ Prevención de condiciones de carrera
-
-#### 🔹 Backend FastAPI (100%) ✓
-- ✅ API REST completa con FastAPI
-- ✅ Base de datos SQLite con SQLAlchemy
-- ✅ Schemas Pydantic para validación
-- ✅ Transacciones atómicas
-- ✅ CORS habilitado
-- ✅ Documentación Swagger automática
-- ✅ Script de inicialización de datos
-- 👉 Ver `backend/README.md` para más detalles
-
-#### 🔹 Reportes y Analíticas (100%) ✓
-- ✅ **Dashboard con métricas principales**
-- ✅ **Gráfico de ventas últimos 7 días**
-- ✅ **Gráfico de distribución de órdenes por estado**
-- ✅ **Top 5 productos más vendidos**
-- ✅ **Alertas de inventario (stock bajo/agotado)**
-- ✅ **Indicadores de ingresos totales**
-- ✅ **Indicadores de valor del inventario**
-- ✅ Exportar productos a CSV
-- ✅ Exportar órdenes a CSV
-
-#### 🔹 Gestión de Proveedores (100%) ✓
-- ✅ **CRUD completo de proveedores**
-- ✅ **Asignación de proveedor a productos**
-- ✅ **Información de contacto (teléfono, email)**
-- ✅ **Búsqueda y filtrado por perfil**
-- ✅ **Organización de reclamos y devoluciones**
-
-#### 🔹 Seguimiento de IMEI (100%) ✓
-- ✅ **Campo IMEI único por producto**
-- ✅ **Validación de IMEI en formularios**
-- ✅ **Visualización de IMEI en tarjetas de producto**
-- ✅ **Trazabilidad completa de dispositivos**
-
-#### 🔹 Transferencias de Stock (100%) ✓
-- ✅ **Sistema de transferencias entre perfiles**
-- ✅ **Flujo de confirmación en dos pasos**
-- ✅ **Estados: Pendiente, Confirmada, Rechazada, Cancelada**
-- ✅ **Panel de transferencias pendientes**
-- ✅ **Confirmación/rechazo desde perfil destino**
-- ✅ **Motivo de rechazo requerido**
-- ✅ **Historial completo de transferencias**
-- ✅ **Actualización de stock solo al confirmar**
-- ✅ **Auditoría completa (quién confirma, cuándo)**
-
-#### 🔹 UI/UX (100%) ✓
-- ✅ Diseño profesional con Tailwind CSS
-- ✅ Componentes shadcn implementados
-- ✅ Tema de colores azul profesional
-- ✅ Tipografía Inter
-- ✅ Responsive design
-- ✅ Estados de carga
-- ✅ Notificaciones toast (sonner)
-- ✅ Animaciones sutiles con framer-motion
-- ✅ Estados vacíos mejorados con CTA
-- ✅ Transiciones suaves en listas
-- ✅ Validación visual de formularios
-- ✅ Atajos de teclado
-- ✅ **Gráficos interactivos con recharts**
-
-#### 🔹 Sincronización Multi-Dispositivo (100%) ✓
-- ✅ Sincronización automática en tiempo real
-- ✅ Indicador de estado de sincronización
-- ✅ Detección de cambios remotos
-- ✅ Notificaciones de actualización
-- ✅ Identificación única por dispositivo
-- ✅ Configuración de intervalo de sincronización
-- ✅ Resolución automática de conflictos
-- ✅ Panel de configuración de sincronización
-- ✅ Limpiar datos de sincronización
-- ✅ Documentación completa
-
----
-
-## 🚀 Inicio Rápido
-
-### Modo Local (Recomendado para comenzar)
+### 2. Configurar Frontend
 
 ```bash
 npm install
@@ -187,9 +118,96 @@ npm run dev
 
 La aplicación estará disponible en http://localhost:5173
 
-### Modo API (Para producción)
+### 3. Configurar el Sistema
 
-Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
+1. **Crear Ubicaciones** (Tiendas/Bodegas):
+   - Ve a "Ubicaciones" en el menú
+   - Crea tus tiendas y bodega
+   - Ejemplo: "Tienda Centro", "Bodega Principal"
+
+2. **Crear Perfiles de Venta** (Bots/Vendedores):
+   - Ve a "Perfiles de Venta"
+   - Crea perfiles para cada bot o vendedor
+   - Configura canales (WhatsApp, Facebook, Instagram)
+
+3. **Agregar Productos con Stock por Ubicación**:
+   - Crea productos en el catálogo global
+   - Asigna stock específico a cada ubicación
+   - Ejemplo: iPhone 15 → 5 en Tienda Centro, 10 en Bodega
+
+## 📱 Funcionalidades Principales
+
+### 📍 Gestión de Ubicaciones
+- ✅ Crear tiendas, bodegas, oficinas
+- ✅ Asignar stock por ubicación
+- ✅ Ver inventario consolidado y por ubicación
+- ✅ Transferencias entre ubicaciones
+- ✅ Reportes de stock por ubicación
+- ✅ Activar/desactivar ubicaciones
+
+### 🤖 Perfiles de Venta (Vendedores/Bots)
+- ✅ Crear perfiles para bots de IA o vendedores humanos
+- ✅ Configurar canales: WhatsApp, Facebook, Instagram
+- ✅ Todos los perfiles ven inventario completo
+- ✅ Seguimiento de ventas por perfil
+- ✅ Configuración personalizada por perfil
+- ✅ Reportes de rendimiento por vendedor/bot
+
+### 📦 Gestión de Productos
+- ✅ Catálogo global de productos
+- ✅ Stock distribuido por ubicaciones
+- ✅ Vista de stock total consolidado
+- ✅ Vista de stock por ubicación individual
+- ✅ Alertas de stock bajo por ubicación
+- ✅ Seguimiento de IMEI único
+- ✅ Asignación de proveedores
+- ✅ Activar/desactivar productos
+- ✅ Imágenes de productos
+- ✅ Filtros y búsqueda avanzada
+
+### 🛒 Gestión de Órdenes con Trazabilidad
+- ✅ Registro de qué perfil realizó la venta
+- ✅ Registro de qué ubicación proveyó el stock
+- ✅ Validación automática de stock disponible
+- ✅ Actualización automática de inventario
+- ✅ Múltiples productos por orden
+- ✅ Estados: Pendiente, Pagada, Enviada, Completada, Cancelada
+- ✅ Métodos de pago múltiples
+- ✅ Historial completo por vendedor
+- ✅ Historial completo por ubicación
+- ✅ Exportación a CSV
+
+### 🔄 Transferencias de Stock Entre Ubicaciones
+- ✅ Transferir stock entre tiendas/bodegas
+- ✅ Flujo de confirmación en dos pasos
+- ✅ Estados: Pendiente, Confirmada, Rechazada
+- ✅ Validación de stock disponible
+- ✅ Auditoría completa de movimientos
+- ✅ Historial de transferencias
+
+### 📊 Reportes y Analíticas
+- ✅ Dashboard con métricas principales
+- ✅ Ventas por perfil de venta
+- ✅ Ventas por ubicación (tienda)
+- ✅ Inventario por ubicación
+- ✅ Top productos más vendidos
+- ✅ Gráficos de ventas últimos 7 días
+- ✅ Distribución de órdenes por estado
+- ✅ Alertas de stock bajo por ubicación
+- ✅ Valor total del inventario
+- ✅ Ingresos totales
+
+### 🔹 Gestión de Proveedores
+- ✅ CRUD completo de proveedores
+- ✅ Asignación a productos
+- ✅ Información de contacto
+- ✅ Organización de reclamos/devoluciones
+
+### 🔹 Sincronización Multi-Dispositivo (Legacy)
+- ✅ Sincronización automática en tiempo real
+- ✅ Indicador de estado de sincronización
+- ✅ Notificaciones de actualización
+- ✅ Resolución de conflictos
 
 ---
 
@@ -211,77 +229,147 @@ Ver [INTEGRATION.md](./INTEGRATION.md) para configurar el backend FastAPI.
 - **FastAPI** - Framework API
 - **SQLAlchemy** - ORM
 - **SQLite** - Base de datos
-- **Pydantic** - Validación de datos
+- **Pydantic** - Validación de schemas
 - **Python 3.11+**
+
+## 🏗️ Arquitectura V2.0
+
+### Sistema de Ubicaciones y Perfiles de Venta
+
+**Antes (V1):** Perfiles = Tiendas independientes con inventario aislado  
+**Ahora (V2):** Ubicaciones (físicas) + Perfiles de Venta (vendedores/bots)
+
+#### Tablas Principales:
+- **Location**: Tiendas, bodegas, oficinas (tipo: tienda/bodega/oficina)
+- **SalesProfile**: Vendedores, bots de IA (tipo: bot_ia/vendedor_humano/sistema_automatico)
+- **Product**: Catálogo global (no atado a ubicaciones)
+- **Stock**: Producto + Ubicación + Cantidad
+- **Order**: Venta con `sales_profile_id` (quién vendió) + `source_location_id` (de dónde salió)
+
+#### Flujo de Negocio:
+1. **Crear Ubicaciones**: Tienda Centro, Tienda Norte, Bodega Principal
+2. **Crear Perfiles de Venta**: Bot WhatsApp 1, Bot Facebook, Vendedor María
+3. **Agregar Productos**: iPhone 15 (catálogo global)
+4. **Asignar Stock por Ubicación**: iPhone 15 → 5 en Tienda Centro, 10 en Bodega
+5. **Venta**: Bot WhatsApp 1 vende → Stock se descuenta de ubicación elegida
+6. **Reportes**: Ventas por bot, Stock por tienda
+
+## 📡 API Endpoints V2.0
+
+### Ubicaciones
+- `GET /api/locations` - Listar ubicaciones
+- `POST /api/locations` - Crear ubicación
+- `GET /api/locations/{id}/stock` - Stock en ubicación
+- `PUT /api/locations/{id}` - Actualizar
+- `DELETE /api/locations/{id}` - Eliminar
+
+### Perfiles de Venta
+- `GET /api/sales-profiles` - Listar perfiles
+- `POST /api/sales-profiles` - Crear perfil
+- `GET /api/sales-profiles/{id}/orders` - Órdenes del perfil
+
+### Productos (Stock por Ubicación)
+- `GET /api/products/{id}/stock/by-location` - Stock por ubicación
+- `POST /api/products/{id}/stock/location/{location_id}` - Actualizar stock en ubicación
+- `GET /api/products/{id}/stock/total` - Stock total consolidado
+
+👉 Ver `api-examples-nuevo-sistema.json` para ejemplos completos.
 
 ---
 
 ## 📚 Documentación
 
-- [INTEGRATION.md](./INTEGRATION.md) - Guía de integración Frontend + Backend
-- [backend/README.md](./backend/README.md) - Documentación del API
-- [backend/N8N_INTEGRATION.md](./backend/N8N_INTEGRATION.md) - Integración con n8n
+### Documentación V2.0 (Nueva Arquitectura)
+- **[INICIO_RAPIDO.md](./INICIO_RAPIDO.md)** - Guía de inicio 3 pasos
+- **[NUEVO_SISTEMA_UBICACIONES.md](./NUEVO_SISTEMA_UBICACIONES.md)** - Documentación técnica completa
+- **[RESUMEN_VISUAL.md](./RESUMEN_VISUAL.md)** - Diagramas antes/después
+- **[api-examples-nuevo-sistema.json](./api-examples-nuevo-sistema.json)** - Ejemplos API
+
+### Documentación Legacy (V1)
+- [INTEGRATION.md](./INTEGRATION.md) - Integración Frontend + Backend V1
+- [MULTI_PROFILE_GUIDE.md](./MULTI_PROFILE_GUIDE.md) - Sistema multi-perfil V1
+- [STOCK_TRANSFER_GUIDE.md](./STOCK_TRANSFER_GUIDE.md) - Transferencias V1
+- [REALTIME_SYNC.md](./REALTIME_SYNC.md) - Sincronización multi-dispositivo
+
+### Guías Técnicas
+- [backend/README.md](./backend/README.md) - Documentación backend FastAPI
+- [backend/N8N_INTEGRATION.md](./backend/N8N_INTEGRATION.md) - Integración n8n
+- [TESTING_GUIDE.md](./TESTING_GUIDE.md) - Guía de pruebas
 - [PRD.md](./PRD.md) - Especificaciones del producto
 
 ---
 
-## 🎉 Funcionalidades Destacadas
-
-### 📊 Dashboard Analytics
-- Visualización de métricas clave en tiempo real
-- Gráficos de ventas de los últimos 7 días
-- Distribución de órdenes por estado
-- Top 5 productos más vendidos
-- Alertas automáticas de inventario bajo
-
-### 🔄 Backend Dual
-- Modo local con Spark KV para desarrollo rápido
-- Modo API con FastAPI para producción
-- Cambio entre modos sin perder datos
-- Indicador visual del backend activo
-
-### ⌨️ Atajos de Teclado
-- `Ctrl + N` - Crear nuevo elemento en pestaña activa
-- `Ctrl + K` - Enfocar búsqueda
-- `Ctrl + ,` - Abrir configuración
-- `Shift + ?` - Mostrar atajos de teclado
-
-### 📤 Exportación de Datos
-- Exportar productos a CSV con filtros aplicados
-- Exportar órdenes a CSV por estado
-- Nombres de archivo con timestamp único
-
-### 🔄 Transferencias entre Tiendas
-- **Flujo de confirmación en dos pasos** para tiendas independientes
-- Transferencias quedan en estado **Pendiente** hasta ser confirmadas
-- El perfil destino puede **Confirmar** o **Rechazar** con motivo
-- Stock se actualiza **solo al confirmar**, no al crear
-- Historial completo con trazabilidad de quién confirmó y cuándo
-- Panel dedicado para revisar transferencias pendientes
-
-### 🏪 Gestión de Proveedores e IMEI
-- **Registro de proveedores** con información de contacto completa
-- Asignación de proveedor al agregar productos nuevos
-- **IMEI único** para identificación de dispositivos
-- Organización de reclamos y devoluciones por proveedor
-- Trazabilidad completa para garantías
+## ⌨️ Atajos de Teclado
+- `Ctrl + N` - Crear nuevo
+- `Ctrl + K` - Buscar
+- `Ctrl + ,` - Configuración
 
 ---
 
 ## 🔧 Troubleshooting
 
-### Error: "Cannot find module vite/dist/node/chunks/dist.js"
-
-This is a **node_modules corruption issue**, not a code issue. It happens when Vite's installation is incomplete.
-
-**Quick Fix:**
+### Backend no conecta
 ```bash
-rm -rf node_modules package-lock.json
-npm cache clean --force
-npm install
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
+# Debe mostrar: Application startup complete
 ```
 
-👉 See [FIX_VITE_ERROR.md](./FIX_VITE_ERROR.md) for detailed troubleshooting steps.
+### Error en migraciones
+```bash
+cd backend
+python -c "from app.database import engine; from sqlalchemy import inspect; print(inspect(engine).get_table_names())"
+# Debe incluir: location, sales_profile, stock, product, order
+```
+
+### Frontend muestra datos viejos
+- Limpiar cache: `Ctrl + Shift + R`
+- Verificar API URL en configuración
+- Revisar consola del navegador (errores CORS)
+
+---
+
+## 🎯 Estado del Proyecto
+
+**Backend V2.0:** ✅ 95% Completo
+- ✅ Modelos de datos (Location, SalesProfile, Stock)
+- ✅ Routers CRUD completos
+- ✅ Migraciones ejecutadas
+- ✅ Stock por ubicación funcional
+- ⏳ **Pendiente**: Actualizar `orders.py` con `sales_profile_id` y `source_location_id`
+
+**Frontend V2.0:** ⏳ Pendiente
+- ❌ UI para ubicaciones
+- ❌ UI para perfiles de venta
+- ❌ Stock por ubicación en productos
+- ❌ Selector de perfil/ubicación en órdenes
+
+**Documentación:** ✅ Actualizada
+
+## 🔜 Próximos Pasos
+
+1. **Backend**: Actualizar `orders.py` router con nuevos campos
+2. **Frontend**: Componentes para Ubicaciones y Perfiles de Venta
+3. **Frontend**: Formulario de productos con stock por ubicación
+4. **Frontend**: Formulario de órdenes con selección de perfil/ubicación
+5. **Testing**: Pruebas end-to-end
+
+---
+
+### 🏪 Features Legacy (V1)
+- Gestión de proveedores con contactos
+- Seguimiento de IMEI único por producto
+- Transferencias entre perfiles (V1, ahora usa ubicaciones)
+- Sincronización multi-dispositivo
+- Dashboard con analíticas
+- Exportación CSV
+
+---
+
+## 📄 License
+
+MIT License, Copyright GitHub, Inc.
+
 
 ### Other Common Issues
 

@@ -121,6 +121,19 @@ def update_profile(profile_id: int, updates: ProfileUpdate, db: Session = Depend
             detail=f"El perfil con ID {profile_id} no fue encontrado"
         )
 
+    # Validar slug único si se está actualizando
+    if updates.slug is not None and updates.slug != profile.slug:
+        existing = db.query(Profile).filter(
+            Profile.slug == updates.slug,
+            Profile.id != profile_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya existe otro perfil con el slug '{updates.slug}'"
+            )
+        profile.slug = updates.slug
+
     if updates.name is not None:
         profile.name = updates.name
     if updates.active is not None:

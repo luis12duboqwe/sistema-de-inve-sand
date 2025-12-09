@@ -202,6 +202,14 @@ export class InventoryService {
         this.getOrderItems()
       ])
 
+      if (!request.source_location_id) {
+        throw new Error('source_location_id is required in V2.0')
+      }
+
+      if (!request.profile_slug) {
+        throw new Error('Local mode requires profile_slug (legacy) until SalesProfiles are supported locally')
+      }
+
       const profile = profiles.find(p => p.slug === request.profile_slug)
       if (!profile) {
         throw new Error(`Profile with slug "${request.profile_slug}" not found`)
@@ -251,6 +259,7 @@ export class InventoryService {
       const newOrder: Order = {
         id: newOrderId,
         profile_id: profile.id,
+        source_location_id: request.source_location_id,
         customer_name: request.customer_name,
         customer_phone: phoneAsString,
         canal: request.canal,
@@ -284,7 +293,7 @@ export class InventoryService {
     }
   }
 
-  async fetchOrders(profileSlug?: string): Promise<OrderWithItems[]> {
+  async fetchOrders(salesProfileSlug?: string): Promise<OrderWithItems[]> {
     try {
       const [orders, orderItems, products, profiles] = await Promise.all([
         this.loadOrders(),
@@ -295,12 +304,7 @@ export class InventoryService {
 
       let filtered = orders
 
-      if (profileSlug) {
-        const profile = profiles.find(p => p.slug === profileSlug)
-        if (profile) {
-          filtered = filtered.filter(o => o.profile_id === profile.id)
-        }
-      }
+      // Nota: modo local aún no soporta SalesProfiles; se ignora salesProfileSlug
 
       const ordersWithItems: OrderWithItems[] = filtered.map(order => {
         const items = orderItems

@@ -33,6 +33,8 @@ def create_supplier(
     """
     Crea un nuevo proveedor.
     
+    V2.0: Los proveedores son globales del negocio, no pertenecen a un perfil específico.
+    
     Args:
         - supplier: Datos del proveedor a crear
         - db: Sesión de base de datos
@@ -40,16 +42,10 @@ def create_supplier(
     Returns:
         Proveedor creado
     """
-    # Validar que el perfil exista
-    profile = db.query(Profile).filter(Profile.id == supplier.profile_id).first()
-    if not profile:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Perfil con ID {supplier.profile_id} no encontrado"
-        )
-    
+    # Crear proveedor directamente (sin validación de profile)
+    # V2.0: profile_id ahora es nullable, proveedores son globales
     db_supplier = Supplier(
-        profile_id=supplier.profile_id,
+        profile_id=supplier.profile_id,  # V2.0: Nullable, proveedores globales no necesitan profile
         nombre=supplier.nombre,
         contacto=supplier.contacto,
         telefono=supplier.telefono,
@@ -66,9 +62,8 @@ def create_supplier(
     return _serialize_supplier(db_supplier)
 
 
-@router.get("", response_model=PaginatedResponse[SupplierResponse])
+@router.get("", response_model=dict)
 def list_suppliers(
-    profile_id: Optional[int] = Query(None, description="Filtrar por ID de perfil"),
     include_inactive: bool = Query(False, description="Incluir proveedores inactivos"),
     search: Optional[str] = Query(None, description="Buscar por nombre"),
     page: int = Query(1, ge=1, description="Número de página"),
@@ -78,18 +73,15 @@ def list_suppliers(
     """
     Lista proveedores con filtros opcionales.
     
+    V2.0: Los proveedores son globales y visibles para todo el negocio.
+    
     Parámetros:
-    - profile_id: Filtrar por perfil
     - include_inactive: Incluir proveedores inactivos
     - search: Buscar por nombre
     - page: Número de página
     - per_page: Resultados por página
     """
     query = db.query(Supplier)
-    
-    # Filtro por perfil
-    if profile_id:
-        query = query.filter(Supplier.profile_id == profile_id)
     
     # Filtro por búsqueda
     if search:
@@ -173,7 +165,7 @@ def delete_supplier(
     """
     Elimina un proveedor.
     
-    Nota: Los productos asociados al proveedor tendrán su supplier_id establecido a NULL.
+    Advertencia: Si el proveedor tiene productos asociados, su supplier_id será establecido a NULL.
     """
     supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
     
@@ -181,6 +173,15 @@ def delete_supplier(
         raise HTTPException(
             status_code=404,
             detail=f"Proveedor con ID {supplier_id} no encontrado"
+        )
+    
+    # Verificar si tiene productos asociados y advertir
+    from app.models import Product
+    product_count = db.query(Product).filter(Product.supplier_id == supplier_id).count()
+    if product_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el proveedor porque tiene {product_count} productos asociados. Desactívelo usando 'activo=false' en su lugar."
         )
     
     db.delete(supplier)

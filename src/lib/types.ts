@@ -20,24 +20,60 @@ export interface Profile {
   settings?: ProfileSettings
 }
 
+// V2.0: Ubicaciones físicas (tiendas, bodegas)
+export interface Location {
+  id: number
+  nombre: string
+  tipo: 'tienda' | 'bodega' | 'oficina'
+  direccion?: string
+  telefono?: string
+  activo: boolean
+  created_at: string
+  updated_at?: string
+}
+
+// V2.0: Perfiles de venta (bots, vendedores)
+export interface SalesProfile {
+  id: number
+  name: string
+  slug: string
+  tipo: 'bot_ia' | 'vendedor_humano' | 'sistema_automatico'
+  canales: ('whatsapp' | 'facebook' | 'instagram')[]
+  configuracion?: Record<string, any>
+  active: boolean
+  created_at: string
+  updated_at?: string
+}
+
+// V2.0: Stock por ubicación
+export interface StockByLocation {
+  id: number
+  product_id: number
+  location_id: number
+  cantidad_disponible: number
+  location?: Location
+}
+
 export interface Product {
   id: number
-  profile_id: number
+  profile_id?: number  // V2.0: Opcional, productos son globales (solo compatibilidad V1)
   supplier_id?: number
   sku: string
   nombre: string
   categoria: 'celular' | 'accesorio'
   marca: string
   modelo: string
-  capacidad: string
-  condicion: 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'
+  capacidad?: string
+  condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
   moneda: string
   garantia_meses: number
-  garantia_condiciones?: string  // Condiciones de garantía del proveedor
+  garantia_condiciones?: string
   activo: boolean
-  imei?: string  // DEPRECATED: Usar imeis[] para nuevos productos
-  imeis?: string[]  // Array de IMEIs para productos con múltiples unidades
+  imei?: string  // DEPRECATED: Usar imeis[]
+  imeis?: string[]
+  stock_disponible?: number  // Total consolidado de todas las ubicaciones
+  stock_items?: StockByLocation[]  // V2.0: Stock por ubicación
 }
 
 export interface Stock {
@@ -48,7 +84,9 @@ export interface Stock {
 
 export interface Order {
   id: number
-  profile_id: number
+  profile_id?: number  // LEGACY V1
+  sales_profile_id?: number  // V2.0: ID del perfil de venta
+  source_location_id?: number  // V2.0: ID de la ubicación origen
   customer_name: string
   customer_phone: string
   canal: 'whatsapp' | 'facebook' | 'instagram'
@@ -56,10 +94,12 @@ export interface Order {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
-  notes?: string  // Notas adicionales de la orden
-  delivery_date?: string  // Fecha de entrega programada
+  notes?: string
+  delivery_date?: string
   notas?: string
   updated_at?: string
+  sales_profile?: SalesProfile  // V2.0: Perfil de venta expandido
+  source_location?: Location  // V2.0: Ubicación origen expandida
 }
 
 export interface OrderItem {
@@ -80,7 +120,9 @@ export interface OrderWithItems extends Order {
 }
 
 export interface CreateOrderRequest {
-  profile_slug: string
+  profile_slug?: string  // LEGACY V1 (opcional)
+  sales_profile_slug?: string  // V2.0: Slug del perfil de venta
+  source_location_id: number  // V2.0: ID de ubicación origen (obligatorio)
   canal: 'whatsapp' | 'facebook' | 'instagram'
   customer_name: string
   customer_phone: string
@@ -89,14 +131,14 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
   }[]
-  notes?: string  // Notas adicionales de la orden
-  delivery_date?: string  // Fecha de entrega programada
+  notes?: string
+  delivery_date?: string
   notas?: string
 }
 
 export interface Supplier {
   id: number
-  profile_id: number
+  profile_id?: number
   nombre: string
   contacto: string
   telefono: string
@@ -146,8 +188,10 @@ export interface ReportData {
 export interface StockTransfer {
   id: number
   product_id: number
-  from_profile_id: number
-  to_profile_id: number
+  from_location_id: number  // V2.0: Ubicación origen
+  to_location_id: number  // V2.0: Ubicación destino
+  from_profile_id?: number  // Legacy V1, puede ser null
+  to_profile_id?: number  // Legacy V1, puede ser null
   cantidad: number
   notas?: string
   estado: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
@@ -158,14 +202,16 @@ export interface StockTransfer {
   created_by?: string
   product_nombre?: string
   product_sku?: string
-  from_profile_name?: string
-  to_profile_name?: string
+  from_location_name?: string  // V2.0: Nombre de ubicación origen
+  to_location_name?: string  // V2.0: Nombre de ubicación destino
+  from_profile_name?: string  // Legacy V1
+  to_profile_name?: string  // Legacy V1
 }
 
 export interface CreateStockTransferRequest {
   product_id: number
-  from_profile_slug: string
-  to_profile_slug: string
+  from_location_id: number  // V2.0: ID de ubicación origen
+  to_location_id: number  // V2.0: ID de ubicación destino
   cantidad: number
   notas?: string
   created_by?: string
