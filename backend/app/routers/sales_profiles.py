@@ -27,25 +27,23 @@ def get_sales_profiles(
     
     profiles = query.order_by(models.SalesProfile.name).offset(skip).limit(limit).all()
     
-    # Convertir canales de JSON string a lista
+    # Convertir a diccionarios para evitar modificar los objetos de SQLAlchemy
+    result = []
     for profile in profiles:
-        if profile.canales:
-            try:
-                profile.canales = json.loads(profile.canales)
-            except:
-                profile.canales = []
-        else:
-            profile.canales = []
-        
-        if profile.configuracion:
-            try:
-                profile.configuracion = json.loads(profile.configuracion)
-            except:
-                profile.configuracion = {}
-        else:
-            profile.configuracion = {}
+        profile_dict = {
+            "id": profile.id,
+            "name": profile.name,
+            "slug": profile.slug,
+            "tipo": profile.tipo,
+            "active": profile.active,
+            "created_at": profile.created_at,
+            "updated_at": profile.updated_at,
+            "canales": json.loads(profile.canales) if profile.canales else [],
+            "configuracion": json.loads(profile.configuracion) if profile.configuracion else {}
+        }
+        result.append(profile_dict)
     
-    return profiles
+    return result
 
 
 @router.get("/{profile_id}", response_model=schemas.SalesProfileResponse)

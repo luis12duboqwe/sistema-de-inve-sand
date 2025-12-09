@@ -97,17 +97,17 @@ def list_suppliers(
     
     # Paginación
     total = query.count()
-    total_pages = (total + per_page - 1) // per_page
+    pages = (total + per_page - 1) // per_page
     
     suppliers = query.offset((page - 1) * per_page).limit(per_page).all()
     
-    return PaginatedResponse(
-        items=[_serialize_supplier(s) for s in suppliers],
-        total=total,
-        page=page,
-        per_page=per_page,
-        total_pages=total_pages
-    )
+    return {
+        "items": [_serialize_supplier(s) for s in suppliers],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": pages
+    }
 
 
 @router.get("/{supplier_id}", response_model=SupplierResponse)

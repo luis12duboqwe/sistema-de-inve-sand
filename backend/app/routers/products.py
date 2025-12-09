@@ -705,13 +705,11 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         for imei in imeis:
             db.delete(imei)
         
-        # Eliminar el stock asociado primero
-        if product.stock:
-            db.delete(product.stock)
-        # Eliminar todos los stocks por ubicación
+        # V2.0: Eliminar todos los stocks por ubicación
         if hasattr(product, 'stock_items') and product.stock_items:
             for stock_item in product.stock_items:
                 db.delete(stock_item)
+        
         # Luego eliminar el producto
         db.delete(product)
         db.commit()

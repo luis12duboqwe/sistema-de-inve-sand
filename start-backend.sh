@@ -1,5 +1,5 @@
 #!/bin/bash
-# Backend start script - Instala pip y dependencias si es necesario
+# Backend start script - Usa entorno virtual
 
 set -e
 
@@ -18,36 +18,40 @@ fi
 echo "✅ Python $(python3 --version | cut -d' ' -f2) encontrado"
 echo ""
 
-# INSTALAR PIP PRIMERO SI NO EXISTE
-echo "📦 Verificando pip..."
-if ! python3 -m pip --version &> /dev/null 2>&1; then
-    echo "   pip no encontrado, instalando..."
-    
-    # Intentar ensurepip
-    if python3 -m ensurepip --default-pip 2>/dev/null; then
-        echo "   ✅ pip instalado"
-    elif command -v apt-get &> /dev/null; then
-        echo "   Usando apt-get para instalar python3-pip..."
-        sudo apt-get update > /dev/null 2>&1
-        sudo apt-get install -y python3-pip > /dev/null 2>&1
-        echo "   ✅ pip instalado"
-    else
-        echo "   ❌ No se pudo instalar pip"
-        exit 1
-    fi
-else
-    echo "   ✅ pip disponible"
+# Verificar si existe el entorno virtual
+if [ ! -d "venv" ]; then
+    echo "❌ Error: Entorno virtual no encontrado"
+    echo ""
+    echo "Por favor ejecuta primero:"
+    echo "  ./setup-complete.sh"
+    echo ""
+    echo "O manualmente:"
+    echo "  cd backend"
+    echo "  python3 -m venv venv"
+    echo "  source venv/bin/activate"
+    echo "  pip install -r requirements.txt"
+    exit 1
 fi
 
+echo "📦 Activando entorno virtual..."
+source venv/bin/activate
+
+# Verificar que las dependencias estén instaladas
+if ! python3 -c "import fastapi" 2>/dev/null; then
+    echo "⚠️  Dependencias no instaladas, instalando..."
+    pip install --upgrade pip
+    pip install -r requirements.txt
+fi
+
+echo "✅ Dependencias listas"
 echo ""
 
-# Instalar FastAPI y deps si faltan
-echo "📦 Verificando dependencias Python..."
-if ! python3 -c "import fastapi" 2>/dev/null; then
-    echo "   Instalando FastAPI, uvicorn, SQLAlchemy..."
-    python3 -m pip install -q fastapi uvicorn sqlalchemy pydantic 2>/dev/null || {
-        python3 -m pip install fastapi uvicorn sqlalchemy pydantic
-    }
+# Verificar base de datos
+if [ ! -f "inventory.db" ]; then
+    echo "📊 Base de datos no existe, inicializando con datos de prueba..."
+    python3 init_db.py --with-data
+    echo ""
+fi
     echo "   ✅ Dependencias instaladas"
 else
     echo "   ✅ FastAPI ya disponible"

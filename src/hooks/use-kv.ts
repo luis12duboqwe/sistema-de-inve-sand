@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getKV } from '@/lib/kvStorage'
 
 /**
@@ -17,6 +17,12 @@ export function useKV<T>(
 ): [T, (value: SetStateAction<T>) => void] {
   const [value, setValue] = useState<T>(defaultValue)
   const [isInitialized, setIsInitialized] = useState(false)
+  const valueRef = useRef<T>(defaultValue)
+
+  // Actualizar ref cuando value cambia
+  useEffect(() => {
+    valueRef.current = value
+  }, [value])
 
   // Cargar valor inicial
   useEffect(() => {
@@ -26,6 +32,7 @@ export function useKV<T>(
         const storedValue = await kv.get<T>(key)
         if (storedValue !== undefined) {
           setValue(storedValue)
+          valueRef.current = storedValue
         }
         setIsInitialized(true)
       } catch (error) {
@@ -38,23 +45,25 @@ export function useKV<T>(
   }, [key])
 
   // Función para actualizar el valor (acepta valor directo o función)
+  // No depende de 'value' para evitar loops infinitos
   const updateValue = useCallback(
     async (newValue: SetStateAction<T>) => {
       try {
-        // Si es una función, ejecutarla con el valor actual
+        // Si es una función, ejecutarla con el valor actual desde ref
         const valueToSet = typeof newValue === 'function' 
-          ? (newValue as (prevValue: T) => T)(value)
+          ? (newValue as (prevValue: T) => T)(valueRef.current)
           : newValue
         
         const kv = getKV()
         await kv.set(key, valueToSet)
         setValue(valueToSet)
+        valueRef.current = valueToSet
       } catch (error) {
         console.error(`Error saving KV key "${key}":`, error)
         throw error
       }
     },
-    [key, value]
+    [key]
   )
 
   // Escuchar cambios en localStorage (para sincronización entre tabs)

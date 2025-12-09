@@ -119,6 +119,20 @@ echo ""
 echo "3️⃣  VERIFICANDO DEPENDENCIAS"
 echo "---------------------------"
 
+# Verificar python3-venv
+info "Verificando python3-venv..."
+if dpkg -l | grep -q python3.*-venv; then
+    pass_test "python3-venv instalado"
+else
+    warn "python3-venv no encontrado - instalando..."
+    sudo apt update && sudo apt install -y python3.11-venv python3-full
+    if [ $? -eq 0 ]; then
+        pass_test "python3-venv instalado exitosamente"
+    else
+        fail_test "Instalación de python3-venv falló"
+    fi
+fi
+
 # Verificar node_modules
 if [ -d "node_modules" ]; then
     pass_test "node_modules instalado"
@@ -135,6 +149,23 @@ fi
 # Verificar dependencias Python
 if [ -d "backend/venv" ] || [ -d "backend/.venv" ]; then
     pass_test "Entorno virtual Python existe"
+    # Verificar si tiene las dependencias instaladas
+    if [ -f "backend/venv/bin/uvicorn" ] || [ -f "backend/.venv/bin/uvicorn" ]; then
+        pass_test "Dependencias Python instaladas"
+    else
+        warn "Instalando dependencias Python..."
+        cd backend
+        source venv/bin/activate 2>/dev/null || source .venv/bin/activate
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        if [ $? -eq 0 ]; then
+            pass_test "Dependencias Python instaladas"
+        else
+            fail_test "Instalación de dependencias Python falló"
+        fi
+        deactivate
+        cd ..
+    fi
 else
     warn "Entorno virtual no encontrado - creando..."
     cd backend
@@ -142,6 +173,9 @@ else
     if [ $? -eq 0 ]; then
         pass_test "Entorno virtual creado"
         source venv/bin/activate
+        info "Actualizando pip..."
+        pip install --upgrade pip
+        info "Instalando dependencias..."
         pip install -r requirements.txt
         if [ $? -eq 0 ]; then
             pass_test "Dependencias Python instaladas"
@@ -151,6 +185,7 @@ else
         deactivate
     else
         fail_test "Creación de entorno virtual falló"
+        warn "Intenta ejecutar: sudo apt install -y python3.11-venv python3-full"
     fi
     cd ..
 fi
@@ -173,12 +208,25 @@ else
     warn "tailwind.config.js no encontrado"
 fi
 
-# Verificar base de datos
+# Verificar e inicializar base de datos
 if [ -f "backend/inventory.db" ]; then
     pass_test "Base de datos SQLite existe"
 else
-    warn "Base de datos no inicializada"
-    info "Ejecuta: cd backend && python3 init_db.py"
+    warn "Base de datos no inicializada - inicializando con datos de prueba..."
+    cd backend
+    if [ -d "venv" ]; then
+        source venv/bin/activate
+        python3 init_db.py --with-data
+        if [ $? -eq 0 ]; then
+            pass_test "Base de datos inicializada con datos de prueba"
+        else
+            fail_test "Inicialización de base de datos falló"
+        fi
+        deactivate
+    else
+        warn "Entorno virtual no encontrado. Ejecuta primero: cd backend && python3 -m venv venv"
+    fi
+    cd ..
 fi
 
 echo ""

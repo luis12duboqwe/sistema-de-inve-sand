@@ -1,5 +1,28 @@
 # 📦 Sistema de Inventario Multi-Ubicación para Ventas Online
 
+## 🚀 INICIO RÁPIDO (3 Comandos)
+
+```bash
+# 1. Menú interactivo (RECOMENDADO)
+chmod +x inicio.sh && ./inicio.sh
+
+# 2. O todo en uno directamente
+chmod +x start-all.sh && ./start-all.sh
+
+# 3. O configurar + iniciar manualmente
+chmod +x setup-complete.sh && ./setup-complete.sh
+./start-backend.sh    # Terminal 1
+./start-frontend.sh   # Terminal 2
+```
+
+**URLs después de iniciar:**
+- 🖥️ **Frontend:** http://localhost:5173
+- 🔧 **Backend:** http://localhost:8000/docs
+
+**📖 [Ver Guía Completa](COMO_LEVANTAR_SISTEMA.md)**
+
+---
+
 ## 🎯 Versión 2.0 - Sistema Completamente Rediseñado ✅
 
 Un sistema avanzado de gestión de inventario diseñado para **múltiples ubicaciones físicas** y **múltiples canales de venta** online (WhatsApp, Facebook, Instagram).

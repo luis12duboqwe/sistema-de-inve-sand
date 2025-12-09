@@ -6,9 +6,8 @@ import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, Ma
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
-import { useMemo, useState, useEffect } from 'react'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+import { useMemo, useState, useEffect, useCallback, memo } from 'react'
+import { apiClient } from '@/lib/apiClient'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -16,38 +15,39 @@ interface DashboardStatsProps {
   onViewLowStockReport?: () => void
 }
 
-export function DashboardStats({ products, orders, onViewLowStockReport }: DashboardStatsProps) {
+function DashboardStatsComponent({ products, orders, onViewLowStockReport }: DashboardStatsProps) {
   const [locations, setLocations] = useState<Location[]>([])
   const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
+  const [apiError, setApiError] = useState<string | null>(null)
+
+  const loadLocations = useCallback(async () => {
+    try {
+      const data = await apiClient.listLocations()
+      setLocations(data)
+      setApiError(null)
+    } catch (error) {
+      console.error('Error loading locations:', error)
+      // Si hay error, simplemente no mostramos datos de ubicaciones
+      setLocations([])
+    }
+  }, [])
+
+  const loadSalesProfiles = useCallback(async () => {
+    try {
+      const data = await apiClient.listSalesProfiles()
+      setSalesProfiles(data)
+      setApiError(null)
+    } catch (error) {
+      console.error('Error loading sales profiles:', error)
+      // Si hay error, simplemente no mostramos datos de perfiles
+      setSalesProfiles([])
+    }
+  }, [])
 
   useEffect(() => {
     loadLocations()
     loadSalesProfiles()
-  }, [])
-
-  const loadLocations = async () => {
-    try {
-      const response = await fetch(`${API_URL}/locations/`)
-      if (response.ok) {
-        const data = await response.json()
-        setLocations(data)
-      }
-    } catch (error) {
-      console.error('Error loading locations:', error)
-    }
-  }
-
-  const loadSalesProfiles = async () => {
-    try {
-      const response = await fetch(`${API_URL}/sales-profiles/`)
-      if (response.ok) {
-        const data = await response.json()
-        setSalesProfiles(data)
-      }
-    } catch (error) {
-      console.error('Error loading sales profiles:', error)
-    }
-  }
+  }, [loadLocations, loadSalesProfiles])
 
   const activeProducts = products.filter(p => p.activo).length
   const lowStockProducts = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
@@ -178,6 +178,33 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
 
   return (
     <div className="space-y-6">
+      {/* Advertencia de bloqueador de anuncios */}
+      {apiError === 'bloqueador' && (
+        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
+          <div className="p-4">
+            <div className="flex items-start gap-3">
+              <WarningCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-yellow-900 dark:text-yellow-100">
+                  ⚠️ Bloqueador de Anuncios Detectado
+                </h3>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
+                  Tu bloqueador de anuncios está bloqueando las peticiones al backend.
+                  Las estadísticas por ubicación y perfil no están disponibles.
+                </p>
+                <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                  <strong>Solución:</strong>
+                  <ul className="list-disc list-inside ml-2 mt-1">
+                    <li>Desactiva el bloqueador para <code className="bg-yellow-100 dark:bg-yellow-900 px-1 rounded">localhost:5173</code></li>
+                    <li>O agrega <code className="bg-yellow-100 dark:bg-yellow-900 px-1 rounded">localhost</code> a la lista blanca</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+      
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="general">
@@ -535,6 +562,9 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
     </div>
   )
 }
+
+// Envolver con memo para evitar re-renders innecesarios
+export const DashboardStats = memo(DashboardStatsComponent)
 
 
 
