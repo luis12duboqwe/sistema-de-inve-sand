@@ -132,7 +132,7 @@ export function DashboardStats({ products, orders, onViewLowStockReport }: Dashb
       const revenue = completedProfileOrders.reduce((sum, o) => sum + Number(o.total), 0)
       
       return {
-        nombre: profile.nombre,
+        nombre: profile.name,
         tipo: profile.tipo,
         ordenes: profileOrders.length,
         completadas: completedProfileOrders.length,

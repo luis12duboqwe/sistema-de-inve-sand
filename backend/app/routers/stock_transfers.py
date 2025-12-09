@@ -286,10 +286,11 @@ def confirm_transfer(
             detail="Stock de origen no encontrado"
         )
     
+    # VALIDACIÓN CRÍTICA PREVIA: Verificar stock suficiente ANTES de decrementar
     if source_stock.cantidad_disponible < transfer.cantidad:
         raise HTTPException(
             status_code=400,
-            detail=f"Stock insuficiente para confirmar. Disponible: {source_stock.cantidad_disponible}, Necesario: {transfer.cantidad}"
+            detail=f"Stock insuficiente para confirmar. Disponible: {source_stock.cantidad_disponible}, Necesario: {transfer.cantidad}. No se puede procesar la transferencia."
         )
     
     # Buscar o crear stock en ubicación de destino
@@ -315,12 +316,12 @@ def confirm_transfer(
     source_stock.cantidad_disponible -= transfer.cantidad
     dest_stock.cantidad_disponible += transfer.cantidad
     
-    # Validación de seguridad post-operación
+    # VALIDACIÓN CRÍTICA POST: Verificar que el stock no quedó negativo (seguridad adicional contra race conditions)
     if source_stock.cantidad_disponible < 0:
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail=f"Error crítico: Stock negativo detectado en ubicación de origen ({source_stock.cantidad_disponible}). Posible race condition."
+            detail=f"Error crítico: Stock negativo detectado en ubicación de origen ({source_stock.cantidad_disponible}). Posible race condition o corrupción de datos. Operación revertida."
         )
     
     # Registrar en historial de stock (trazabilidad)

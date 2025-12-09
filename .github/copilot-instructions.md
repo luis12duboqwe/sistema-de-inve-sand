@@ -98,9 +98,10 @@ Order {
 - `src/hooks/` - Custom hooks (use-kv, use-forecasting, use-health-check, etc.)
 
 **Critical Services:**
-- `src/lib/inventoryServiceFactory.ts` - Main data access layer
-- `src/lib/kvStorage.ts` - Spark KV abstraction with localStorage fallback
-- `src/lib/apiClient.ts` - REST client with error handling
+- `src/lib/inventoryServiceFactory.ts` - Main data access layer (returns factory based on `settings_use_api`)
+- `src/lib/kvStorage.ts` - Spark KV abstraction with localStorage fallback (prefix: `spark-kv-`)
+- `src/lib/apiClient.ts` - REST client with error handling and URL caching
+- `src/hooks/use-kv.ts` - Custom hook replacing `@github/spark/hooks` with localStorage sync
 
 ## Developer Workflows
 
@@ -146,7 +147,7 @@ npm run dev  # Vite dev server on port 5173
 ```bash
 cd backend
 source venv/bin/activate
-python3 test-backend.py  # Automated integration tests
+python3 test-backend.py  # Currently a placeholder - manual testing via Swagger recommended
 ```
 
 **Frontend:**
@@ -155,9 +156,9 @@ python3 test-backend.py  # Automated integration tests
 - Use `TESTING_GUIDE.md` checklist
 
 **API Documentation:**
-- Swagger UI: `http://localhost:8000/docs`
+- Swagger UI: `http://localhost:8000/docs` (interactive testing)
 - ReDoc: `http://localhost:8000/redoc`
-- Examples: `api-examples-nuevo-sistema.json`
+- Examples: `api-examples-nuevo-sistema.json` (cURL commands)
 
 ### Common Patterns
 
@@ -174,10 +175,11 @@ python3 test-backend.py  # Automated integration tests
 **Adding New UI Feature:**
 1. Create dialog component in `src/components/[Feature]Dialog.tsx`
 2. Use Radix UI primitives (Dialog, Select, Input from `ui/`)
-3. Access data via `inventoryServiceFactory.getService()`
+3. Access data directly from `apiClient` (components call API directly, not via factory)
 4. Update state with `setProducts()`, `setOrders()`, etc. (from `useKV` hook in `App.tsx`)
-5. Show toast notifications with `toast()` from `sonner`
+5. Show toast notifications with `toast()` from `sonner` (success/error pattern)
 6. Add keyboard shortcut via `useKeyboardShortcuts` if applicable
+7. Wrap async operations in try-catch, show `toast.error()` on failure
 
 **Data Persistence Pattern:**
 ```typescript
@@ -188,6 +190,21 @@ const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', 
 const service = await inventoryServiceFactory.getService()
 const newProduct = await service.createProduct({...})
 setProducts(prev => [...prev, newProduct])  // Triggers KV save
+```
+
+**UI Component Pattern:**
+```typescript
+// Dialog with API call and state update
+const handleSubmit = async () => {
+  try {
+    const newProduct = await apiClient.createProduct(formData)
+    onSuccess(newProduct)  // Parent updates state
+    toast.success('Producto creado exitosamente')
+    setOpen(false)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Error desconocido')
+  }
+}
 ```
 
 ## Project-Specific Conventions
@@ -229,6 +246,33 @@ try {
   console.error('API Error:', error)
   throw error  // Let component handle with toast
 }
+```
+
+### Backend Transaction Pattern
+```python
+# Critical for stock-modifying operations (orders, transfers)
+# Example from stock_transfers.py
+from sqlalchemy.orm import Session
+
+@router.post("/api/stock-transfers")
+def create_transfer(transfer: StockTransferCreate, db: Session = Depends(get_db)):
+    try:
+        # All operations in same transaction
+        new_transfer = StockTransfer(**transfer.dict())
+        db.add(new_transfer)
+        
+        # Update stock at both locations atomically
+        stock_from = db.query(Stock).filter(...).first()
+        stock_to = db.query(Stock).filter(...).first()
+        stock_from.cantidad -= transfer.cantidad
+        stock_to.cantidad += transfer.cantidad
+        
+        db.commit()  # Atomic commit
+        db.refresh(new_transfer)
+        return _serialize_transfer(new_transfer)
+    except Exception as e:
+        db.rollback()  # Automatic rollback on error
+        raise HTTPException(status_code=400, detail=str(e))
 ```
 
 ### Advanced Features (Implemented)

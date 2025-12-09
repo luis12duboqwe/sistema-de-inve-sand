@@ -2,10 +2,19 @@ import { useState, useEffect, useCallback } from 'react'
 import { getKV } from '@/lib/kvStorage'
 
 /**
+ * Tipo para la función de actualización que puede recibir un valor o una función
+ */
+type SetStateAction<T> = T | ((prevValue: T) => T)
+
+/**
  * Hook personalizado que reemplaza useKV de @github/spark/hooks
  * Usa nuestra capa de abstracción kvStorage con fallback a localStorage
+ * Soporta el mismo patrón que useState: acepta valores directos o funciones de actualización
  */
-export function useKV<T>(key: string, defaultValue: T): [T, (value: T) => void] {
+export function useKV<T>(
+  key: string, 
+  defaultValue: T
+): [T, (value: SetStateAction<T>) => void] {
   const [value, setValue] = useState<T>(defaultValue)
   const [isInitialized, setIsInitialized] = useState(false)
 
@@ -28,19 +37,24 @@ export function useKV<T>(key: string, defaultValue: T): [T, (value: T) => void] 
     loadValue()
   }, [key])
 
-  // Función para actualizar el valor
+  // Función para actualizar el valor (acepta valor directo o función)
   const updateValue = useCallback(
-    async (newValue: T) => {
+    async (newValue: SetStateAction<T>) => {
       try {
+        // Si es una función, ejecutarla con el valor actual
+        const valueToSet = typeof newValue === 'function' 
+          ? (newValue as (prevValue: T) => T)(value)
+          : newValue
+        
         const kv = getKV()
-        await kv.set(key, newValue)
-        setValue(newValue)
+        await kv.set(key, valueToSet)
+        setValue(valueToSet)
       } catch (error) {
         console.error(`Error saving KV key "${key}":`, error)
         throw error
       }
     },
-    [key]
+    [key, value]
   )
 
   // Escuchar cambios en localStorage (para sincronización entre tabs)

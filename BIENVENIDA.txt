@@ -1,0 +1,81 @@
+╔══════════════════════════════════════════════════════════╗
+║    SISTEMA DE INVENTARIO MULTI-UBICACIÓN V2.0            ║
+║    Gestión de Stock para Múltiples Ubicaciones           ║
+║    y Canales de Venta Online                             ║
+╚══════════════════════════════════════════════════════════╝
+
+📚 ARCHIVOS DE INICIO RECOMENDADOS:
+
+1. START.md
+   └─ Guía de inicio más clara y rápida
+   └─ Lee este primero
+
+2. INSTRUCCIONES.sh
+   └─ Pasos exactos (comentarios, no para ejecutar)
+   └─ Copia y pega los comandos en tu terminal
+
+3. QUICK_START_FINAL.md
+   └─ Documentación completa
+   └─ Contiene todos los detalles
+
+4. SETUP_MANUAL.md
+   └─ Si los scripts automáticos fallan
+   └─ Instrucciones paso-a-paso
+
+════════════════════════════════════════════════════════════
+
+⚡ INICIO RÁPIDO (3 COMANDOS):
+
+$ bash setup.sh                 # 1. Setup (espera a que termine)
+$ ./start-backend.sh            # 2. Backend (Terminal 1)
+$ ./start-frontend.sh           # 3. Frontend (Terminal 2)
+
+Luego abre: http://localhost:5173
+
+════════════════════════════════════════════════════════════
+
+✅ ESTADO DEL SISTEMA:
+
+Backend:     FastAPI 0.115.0 ✓
+Frontend:    React + TypeScript ✓
+Database:    SQLite V2.0 ✓
+Scripts:     Optimizados para Codespace ✓
+Docs:        Completadas ✓
+
+════════════════════════════════════════════════════════════
+
+📋 REQUISITOS:
+
+✓ Python 3.11+
+✓ Node.js 18+
+✓ npm 9+
+
+════════════════════════════════════════════════════════════
+
+🎯 PROBLEMAS CONOCIDOS:
+
+• python3 -m venv no funciona en Codespace
+  └─ SOLUCIÓN: Usa bash setup.sh (instala directamente)
+
+• npm install toma 1-2 minutos
+  └─ SOLUCIÓN: Normal, espera a que termine
+
+• CORS error cuando conectas frontend
+  └─ SOLUCIÓN: Asegúrate que backend está corriendo
+
+════════════════════════════════════════════════════════════
+
+📖 DOCUMENTACIÓN DETALLADA:
+
+.github/copilot-instructions.md    - Arquitectura técnica
+NUEVO_SISTEMA_UBICACIONES.md       - V2.0 design detallado
+api-examples-nuevo-sistema.json    - Ejemplos de API
+INTEGRATION.md                      - Modo Local vs API
+
+════════════════════════════════════════════════════════════
+
+¿LISTO? 🚀
+
+Lee START.md y sigue los 3 pasos.
+
+Happy Inventory Managing! 📦

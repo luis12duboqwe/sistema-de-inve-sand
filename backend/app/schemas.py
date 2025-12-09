@@ -230,9 +230,9 @@ class ProductBase(BaseModel):
     modelo: str = Field(..., min_length=1, description="Modelo no puede estar vacío")
     capacidad: Optional[str] = None
     condicion: CondicionEnum
-    precio: Decimal = Field(..., gt=0, description="Precio debe ser mayor a 0")
+    precio: Decimal = Field(..., gt=0, le=1000000, description="Precio debe ser mayor a 0 y menor a 1,000,000")
     moneda: str = "HNL"
-    garantia_meses: int = Field(0, ge=0, description="Garantía en meses debe ser >= 0")
+    garantia_meses: int = Field(0, ge=0, le=120, description="Garantía en meses debe ser entre 0 y 120 (10 años)")
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool = True
     imei: Optional[str] = None  # DEPRECATED: Usar imeis_con_ubicacion para nuevos productos V2.0
@@ -243,12 +243,23 @@ class ProductBase(BaseModel):
     def validate_precio_positivo(cls, v):
         if v <= 0:
             raise ValueError('El precio debe ser mayor a 0')
+        if v > 1000000:
+            raise ValueError('El precio máximo permitido es 1,000,000. Verifique el valor ingresado.')
         return v
 
 class ProductCreate(ProductBase):
-    cantidad_inicial: int = Field(0, alias="stock_inicial")
+    cantidad_inicial: int = Field(0, ge=0, le=100000, alias="stock_inicial", description="Stock inicial (máximo 100,000 unidades)")
     initial_location_id: Optional[int] = None  # V2.0: Ubicación inicial del stock
     imeis_con_ubicacion: Optional[List[IMEIWithLocation]] = None  # V2.0: IMEIs con ubicación asignada
+    
+    @field_validator('cantidad_inicial')
+    @classmethod
+    def validate_stock_inicial(cls, v):
+        if v < 0:
+            raise ValueError('El stock inicial no puede ser negativo')
+        if v > 100000:
+            raise ValueError('El stock inicial máximo permitido es 100,000 unidades. Verifique el valor.')
+        return v
 
     model_config = {
         "populate_by_name": True
@@ -293,6 +304,7 @@ class ProductResponse(BaseModel):
     precio: Decimal
     moneda: str
     garantia_meses: int
+    garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool
     imei: Optional[str]  # Mantener por compatibilidad
     imeis: Optional[List[str]] = None  # Array de IMEIs disponibles
@@ -303,7 +315,7 @@ class ProductResponse(BaseModel):
 
 class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
-    cantidad: int = Field(..., gt=0, description="Cantidad debe ser mayor a 0")
+    cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
     es_regalo_promocion: bool = False
     
     @field_validator('cantidad')
@@ -311,6 +323,8 @@ class OrderItemCreate(BaseModel):
     def validate_cantidad_positiva(cls, v):
         if v <= 0:
             raise ValueError('La cantidad debe ser mayor a 0')
+        if v > 1000:
+            raise ValueError('La cantidad máxima permitida por item es 1000. Si necesita más, divida en múltiples órdenes.')
         return v
 
 class OrderItemResponse(BaseModel):
@@ -327,7 +341,7 @@ class OrderItemResponse(BaseModel):
 
 class OrderItemUpdate(BaseModel):
     product_id: int = Field(..., gt=0)
-    cantidad: int = Field(..., gt=0, description="Cantidad debe ser mayor a 0")
+    cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
     es_regalo_promocion: bool = False
     
     @field_validator('cantidad')
@@ -335,6 +349,8 @@ class OrderItemUpdate(BaseModel):
     def validate_cantidad_positiva(cls, v):
         if v <= 0:
             raise ValueError('La cantidad debe ser mayor a 0')
+        if v > 1000:
+            raise ValueError('La cantidad máxima permitida por item es 1000. Si necesita más, divida en múltiples órdenes.')
         return v
     
     @field_validator('product_id')
@@ -663,7 +679,7 @@ class StockTransferCreate(BaseModel):
     product_id: int
     from_location_id: int = Field(..., description="ID de ubicación origen")
     to_location_id: int = Field(..., description="ID de ubicación destino")
-    cantidad: int = Field(..., gt=0, description="Cantidad a transferir")
+    cantidad: int = Field(..., gt=0, le=10000, description="Cantidad a transferir (máxima 10,000 unidades por transferencia)")
     notas: Optional[str] = None
     created_by: Optional[str] = None
     

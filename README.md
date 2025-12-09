@@ -48,17 +48,16 @@ Un sistema avanzado de gestión de inventario diseñado para **múltiples ubicac
 
 ## 🧪 Inicio Rápido
 
-### Inicio Rápido
+### ⚡ Opción 1: Script Automático (Recomendado)
 
 **Linux/Mac:**
 ```bash
-# Dar permisos de ejecución (solo primera vez)
-chmod +x test-system.sh start-backend.sh start-frontend.sh
+# IMPORTANTE: Primero dar permisos de ejecución (solo primera vez)
+python3 fix_permissions.py
+# o
+bash fix-permissions.sh
 
-# Ejecutar pruebas completas del sistema
-./test-system.sh
-
-# O iniciar manualmente:
+# Luego iniciar:
 ./start-backend.sh   # Terminal 1 - Backend en puerto 8000
 ./start-frontend.sh  # Terminal 2 - Frontend en puerto 5173
 ```
@@ -69,11 +68,57 @@ start-backend.bat   # Terminal 1 - Backend en puerto 8000
 start-frontend.bat  # Terminal 2 - Frontend en puerto 5173
 ```
 
-### Pruebas Automatizadas
+> ⚠️ **Nota**: Si ves "Permission denied", ejecuta `python3 fix_permissions.py` primero.
+> Ver [PERMISSIONS_FIX.md](./PERMISSIONS_FIX.md) para más detalles.
+
+### ⚙️ Opción 2: Configuración Manual
+
+**Linux/Mac:**
+```bash
+# Backend
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # En Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python init_db.py --with-data
+python -m uvicorn app.main:app --reload --port 8000
+
+# Frontend (en otra terminal)
+npm install
+npm run dev
+```
+
+**Windows:**
+```cmd
+REM Backend
+cd backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python init_db.py --with-data
+python -m uvicorn app.main:app --reload --port 8000
+
+REM Frontend (en otra terminal)
+npm install
+npm run dev
+```
+
+### 📱 URLs de Acceso
+
+Después de iniciar (espera 30 segundos a que se compile):
+
+- **Frontend**: http://localhost:5173 ← Abre aquí
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs (interactivo)
+- **ReDoc**: http://localhost:8000/redoc
+
+### 🧪 Pruebas del Sistema
+
+Verificar que todo esté configurado correctamente:
 
 ```bash
-# Backend debe estar ejecutándose primero
-python3 test-backend.py
+# Requiere que el backend esté ejecutándose
+./test-system.sh
 ```
 
 📖 **Guía completa de pruebas**: Ver [TESTING_GUIDE.md](./TESTING_GUIDE.md)

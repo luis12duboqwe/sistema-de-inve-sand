@@ -465,7 +465,7 @@ export default function App() {
   const handleImportProducts = async (productsData: Partial<ProductWithStock>[]) => {
     try {
       const importedProducts = await service.bulkCreateProducts(productsData)
-      setProducts(current => [...(current ?? []), ...importedProducts])
+      setProducts((current: ProductWithStock[]) => [...(current ?? []), ...importedProducts])
       toast.success(`${importedProducts.length} productos importados exitosamente`)
     } catch (error) {
       console.error('Error importing products:', error)
@@ -915,7 +915,7 @@ export default function App() {
                       onViewHistory={setViewingProductHistory}
                       onToggleActive={async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
-                        setProducts(current => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
+                        setProducts((current: ProductWithStock[]) => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
                         toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
                       }}
                       onDelete={async (p) => {
@@ -925,7 +925,7 @@ export default function App() {
                         
                         try {
                           await service.deleteProduct(p.id)
-                          setProducts(current => (current ?? []).filter(pr => pr.id !== p.id))
+                          setProducts((current: ProductWithStock[]) => (current ?? []).filter(pr => pr.id !== p.id))
                           toast.success('Producto eliminado exitosamente')
                         } catch (error) {
                           console.error('Error deleting product:', error)
@@ -1148,7 +1148,7 @@ export default function App() {
                       order={order}
                       onStatusChange={async (orderId, newStatus) => {
                         const updated = await service.updateOrderStatus(orderId, newStatus)
-                        setOrders(current => (current ?? []).map(o => o.id === updated.id ? updated : o))
+                        setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
                       }}
                       onEdit={setEditingOrder}
@@ -1172,7 +1172,7 @@ export default function App() {
                           console.log('📡 Llamando a service.deleteOrder...')
                           await service.deleteOrder(order.id)
                           console.log('✅ Orden eliminada del backend, actualizando estado local...')
-                          setOrders(current => (current ?? []).filter(o => o.id !== order.id))
+                          setOrders((current: OrderWithItems[]) => (current ?? []).filter(o => o.id !== order.id))
                           toast.success('Orden eliminada exitosamente')
                         } catch (error) {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
@@ -1201,12 +1201,13 @@ export default function App() {
         open={showNewProductDialog}
         onOpenChange={setShowNewProductDialog}
         profiles={activeProfiles}
-        onSubmit={async (newProduct, stock) => {
+        locations={locations.filter(l => l.activo)}
+        onSubmit={async (newProduct, stock, locationId) => {
           try {
-            console.log('📦 Creando producto:', { newProduct, stock })
+            console.log('📦 Creando producto V2.0:', { newProduct, stock, locationId })
             
             const productWithStock = { ...newProduct, activo: true, stock_disponible: stock }
-            const created = await service.createProduct(productWithStock)
+            const created = await service.createProduct(productWithStock, locationId)
             
             console.log('✅ Producto creado en backend:', created)
             
@@ -1238,7 +1239,7 @@ export default function App() {
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
           const created = await service.createOrder(newOrder)
-          setOrders(current => [created, ...(current ?? [])])
+          setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
           
           const updatedProducts = await service.getProducts()
           setProducts(updatedProducts)
@@ -1282,7 +1283,7 @@ export default function App() {
           onOpenChange={(open) => !open && setEditingProduct(null)}
           onSubmit={async (productId, updates) => {
             const savedProduct = await service.updateProduct(productId, updates)
-            setProducts(current => (current ?? []).map(p => p.id === savedProduct.id ? savedProduct : p))
+            setProducts((current: ProductWithStock[]) => (current ?? []).map(p => p.id === savedProduct.id ? savedProduct : p))
             toast.success('Producto actualizado exitosamente')
             setEditingProduct(null)
           }}
@@ -1334,7 +1335,7 @@ export default function App() {
           onOpenChange={(open) => !open && setEditingOrder(null)}
           onSubmit={async (orderId, updates) => {
             const savedOrder = await service.updateOrder(orderId, updates)
-            setOrders(current => (current ?? []).map(o => o.id === savedOrder.id ? savedOrder : o))
+            setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === savedOrder.id ? savedOrder : o))
             
             const updatedProducts = await service.getProducts()
             setProducts(updatedProducts)

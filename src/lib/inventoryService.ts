@@ -585,9 +585,10 @@ export class InventoryService {
     }
   }
 
-  async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
+  async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
     try {
       const { stock_disponible, ...productData } = product
+      // V2.0: locationId se ignora en modo local, solo aplicable en modo API
       return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
     } catch (error) {
       console.error('Error creating product:', error)

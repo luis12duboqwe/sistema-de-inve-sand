@@ -88,7 +88,7 @@ export interface IInventoryService {
     initialStock: number
   ): Promise<Product | ProductWithStock>
   
-  createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock>
+  createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock>
   
   updateStock(productId: number, cantidad: number): Promise<void>
   
@@ -253,8 +253,8 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.addProduct(product, initialStock)
   }
 
-  async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
-    return this.service.createProduct(product)
+  async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
+    return this.service.createProduct(product, locationId)
   }
 
   async updateStock(productId: number, cantidad: number): Promise<void> {
@@ -552,10 +552,12 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
+  async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
     try {
       const { stock_disponible, ...productData } = product
-      return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
+      // V2.0: locationId se pasa al servicio apropiado
+      const service = await this.getService()
+      return service.createProduct(product, locationId)
     } catch (error) {
       console.error('Error creating product (unified):', error)
       throw new Error(`Failed to create product: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -709,14 +711,15 @@ class ApiInventoryService implements IInventoryService {
 
   async addProduct(
     product: Omit<Product, 'id'>,
-    initialStock: number
+    initialStock: number,
+    locationId?: number
   ): Promise<ProductWithStock> {
-    return apiClient.createProduct(product as Omit<Product, 'id' | 'activo'>, initialStock)
+    return apiClient.createProduct(product as Omit<Product, 'id' | 'activo'>, initialStock, locationId)
   }
 
-  async createProduct(product: Omit<ProductWithStock, 'id'>): Promise<ProductWithStock> {
+  async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
     const { stock_disponible, ...productData } = product
-    return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible)
+    return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible, locationId)
   }
 
   async updateStock(productId: number, cantidad: number): Promise<void> {

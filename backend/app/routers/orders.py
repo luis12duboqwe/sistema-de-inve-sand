@@ -283,11 +283,11 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                 detail="Debe proporcionar sales_profile_slug (V2.0) o profile_slug (legacy)"
             )
         
-        # V2.0: Validar ubicación de origen del stock (opcional)
-        if not order.source_location_id:
+        # V2.0: Validar ubicación de origen del stock (OBLIGATORIO)
+        if not order.source_location_id or order.source_location_id <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="source_location_id es obligatorio en V2.0"
+                detail="source_location_id es obligatorio en V2.0 y debe ser un ID válido (mayor a 0)"
             )
 
         source_location = db.query(Location).filter(
@@ -297,7 +297,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         if not source_location:
             raise HTTPException(
                 status_code=404,
-                detail=f"La ubicación con ID {order.source_location_id} no fue encontrada o está inactiva"
+                detail=f"La ubicación con ID {order.source_location_id} no fue encontrada o está inactiva. Verifique que la ubicación existe y está activa antes de crear la orden."
             )
         
         if not order.items:
@@ -342,7 +342,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                 location_name = source_location.nombre if source_location else "la ubicación"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Stock insuficiente para '{product.nombre}' en {location_name}. Disponible: {stock.cantidad_disponible}, Solicitado: {item.cantidad}"
+                    detail=f"Stock insuficiente para '{product.nombre}' (SKU: {product.sku}) en {location_name}. Disponible: {stock.cantidad_disponible}, Solicitado: {item.cantidad}. Por favor, ajuste la cantidad o seleccione otra ubicación con stock disponible."
                 )
             
             precio_unitario = Decimal(str(product.precio))
@@ -562,8 +562,8 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                         stock_anterior=stock.cantidad_disponible - item.cantidad,
                         stock_nuevo=stock.cantidad_disponible,
                         referencia_id=order.id,
-                        referencia_tipo="order",
-                        notas=f"Cancelación de orden #{order.id}",
+                        referencia_tipo="order_update",
+                        notas=f"Actualización de orden #{order.id} - Items removidos/modificados",
                         usuario="Sistema"
                     )
                     db.add(stock_history)
@@ -617,6 +617,7 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                 db.add(new_item)
 
                 # Decrementar stock (ya validado arriba)
+                stock_anterior = stock.cantidad_disponible
                 stock.cantidad_disponible -= item_update.cantidad
                 
                 # VALIDACIÓN POST-OPERACIÓN: Detectar race conditions
@@ -627,8 +628,23 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                         detail=f"Error crítico: Stock negativo detectado ({stock.cantidad_disponible}). Posible race condition."
                     )
                 
+                # TRAZABILIDAD: Registrar cambio de stock en historial
+                from app.models import ProductIMEI, StockHistory
+                stock_history = StockHistory(
+                    product_id=item_update.product_id,
+                    location_id=order.source_location_id,
+                    tipo_cambio='venta',
+                    cantidad=-item_update.cantidad,  # Negativo = salida de stock
+                    stock_anterior=stock_anterior,
+                    stock_nuevo=stock.cantidad_disponible,
+                    referencia_id=order.id,
+                    referencia_tipo='order_update',
+                    notas=f"Actualización de orden #{order.id} - Item añadido/modificado",
+                    usuario='sistema'
+                )
+                db.add(stock_history)
+                
                 # V2.0: Marcar IMEIs como vendidos (para la cantidad total del item actualizado)
-                from app.models import ProductIMEI
                 imeis_disponibles = db.query(ProductIMEI).filter(
                     ProductIMEI.product_id == item_update.product_id,
                     ProductIMEI.location_id == order.source_location_id,

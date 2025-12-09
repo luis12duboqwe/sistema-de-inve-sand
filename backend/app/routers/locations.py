@@ -43,11 +43,15 @@ def create_location(
     db: Session = Depends(get_db)
 ):
     """Crear una nueva ubicación"""
-    db_location = models.Location(**location.model_dump())
-    db.add(db_location)
-    db.commit()
-    db.refresh(db_location)
-    return db_location
+    try:
+        db_location = models.Location(**location.model_dump())
+        db.add(db_location)
+        db.commit()
+        db.refresh(db_location)
+        return db_location
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear ubicación: {str(e)}")
 
 
 @router.put("/{location_id}", response_model=schemas.LocationResponse)
@@ -61,13 +65,17 @@ def update_location(
     if not db_location:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada")
     
-    update_data = location.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_location, field, value)
-    
-    db.commit()
-    db.refresh(db_location)
-    return db_location
+    try:
+        update_data = location.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_location, field, value)
+        
+        db.commit()
+        db.refresh(db_location)
+        return db_location
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar ubicación: {str(e)}")
 
 
 @router.delete("/{location_id}", status_code=204)
@@ -109,9 +117,13 @@ def delete_location(location_id: int, db: Session = Depends(get_db)):
             detail=f"No se puede eliminar la ubicación porque tiene {transfer_count} transferencias de stock. Use 'activo=false' para desactivarla."
         )
     
-    db.delete(db_location)
-    db.commit()
-    return None
+    try:
+        db.delete(db_location)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar ubicación: {str(e)}")
 
 
 @router.get("/{location_id}/stock", response_model=List[schemas.StockByLocationResponse])

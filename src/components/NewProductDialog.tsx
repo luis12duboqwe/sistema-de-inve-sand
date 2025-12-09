@@ -19,7 +19,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { apiClient } from '@/lib/apiClient'
-import type { Profile, Product, Supplier } from '@/lib/types'
+import type { Profile, Product, Supplier, Location } from '@/lib/types'
 import { toast } from 'sonner'
 
 // Datos predeterminados para celulares
@@ -77,13 +77,15 @@ interface NewProductDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   profiles: Profile[]
-  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number) => Promise<void>
+  locations?: Location[]  // V2.0: Ubicaciones disponibles
+  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<void>
 }
 
 export function NewProductDialog({
   open,
   onOpenChange,
   profiles,
+  locations: externalLocations,
   onSubmit
 }: NewProductDialogProps) {
   const [sku, setSku] = useState('')
@@ -104,31 +106,49 @@ export function NewProductDialog({
   const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  
+  // V2.0: Stock por ubicación
+  const [locations, setLocations] = useState<Location[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
 
   // Moneda global (TODO: mover a configuración global)
   const currency = 'HNL'
 
-  // Cargar proveedores globalmente
+  // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
-    const loadSuppliers = async () => {
+    const loadData = async () => {
       if (open) {
         try {
-          const response = await apiClient.request('/suppliers', {
-            params: { include_inactive: false }
-          })
+          // Cargar proveedores usando método público
+          const suppliersData = await apiClient.listSuppliers(false)
+          setSuppliers(suppliersData)
           
-          if (response && response.items) {
-            setSuppliers(response.items)
+          // Usar ubicaciones externas si se proporcionan, sino cargar
+          if (externalLocations && externalLocations.length > 0) {
+            setLocations(externalLocations)
+            if (!selectedLocationId) {
+              setSelectedLocationId(externalLocations[0].id)
+            }
+          } else {
+            // Cargar ubicaciones activas (V2.0) usando método público
+            const locationsData = await apiClient.listLocations(true)
+            setLocations(locationsData)
+            // Seleccionar la primera ubicación por defecto
+            if (locationsData.length > 0 && !selectedLocationId) {
+              setSelectedLocationId(locationsData[0].id)
+            }
           }
         } catch (err) {
-          console.error('Error loading suppliers:', err)
+          console.error('Error loading data:', err)
           setSuppliers([])
+          setLocations([])
         }
       }
     }
     
-    loadSuppliers()
-  }, [open])
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, externalLocations])
 
   // Auto-generar SKU cuando cambian marca, modelo, capacidad o color
   useEffect(() => {
@@ -196,6 +216,10 @@ export function NewProductDialog({
     setSupplierId(undefined)
     setImeis([''])
     setGarantiaCondiciones('')
+    // Resetear ubicación a la primera disponible
+    if (locations.length > 0) {
+      setSelectedLocationId(locations[0].id)
+    }
   }
 
   // Sincronizar la cantidad de campos IMEI con el stock
@@ -253,6 +277,12 @@ export function NewProductDialog({
       toast.error('Por favor ingresa un precio válido')
       return
     }
+    
+    // V2.0: Validar ubicación seleccionada
+    if (!selectedLocationId && locations.length > 0) {
+      toast.error('Por favor selecciona una ubicación para el stock inicial')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -273,7 +303,8 @@ export function NewProductDialog({
           garantia_condiciones: garantiaCondiciones.trim() || undefined,
           imeis: imeis.filter(i => i.trim()).length > 0 ? imeis.filter(i => i.trim()) : undefined
         },
-        parseInt(stockInicial)
+        parseInt(stockInicial),
+        selectedLocationId  // V2.0: Pasar ubicación seleccionada
       )
 
       resetForm()
@@ -473,6 +504,31 @@ export function NewProductDialog({
             </div>
           </div>
 
+          {/* V2.0: Selector de ubicación para stock inicial */}
+          {locations.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="location">Ubicación para Stock Inicial * (V2.0)</Label>
+              <Select 
+                value={selectedLocationId?.toString()} 
+                onValueChange={(v) => setSelectedLocationId(parseInt(v))}
+              >
+                <SelectTrigger id="location">
+                  <SelectValue placeholder="Seleccionar ubicación" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map(location => (
+                    <SelectItem key={location.id} value={location.id.toString()}>
+                      {location.nombre} ({location.tipo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                El stock inicial se asignará a esta ubicación (tienda o bodega)
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="precio">Precio ({currency}) *</Label>
@@ -485,11 +541,6 @@ export function NewProductDialog({
                 onChange={e => setPrecio(e.target.value)}
                 placeholder="15000"
               />
-              {selectedProfile?.settings && (
-                <p className="text-xs text-muted-foreground">
-                  Moneda: {currency}
-                </p>
-              )}
             </div>
 
             <div className="space-y-2">

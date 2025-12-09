@@ -5,7 +5,7 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location
+from app.models import Product, Profile, Stock, Location, Supplier
 from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
@@ -24,13 +24,13 @@ def _serialize_product(product: Product) -> ProductResponse:
     Returns:
         ProductResponse with stock_disponible (sum of all locations) and imeis
     """
-    # Obtener IMEIs del producto
+    # Obtener IMEIs del producto (solo no vendidos)
     imeis_list = []
     if hasattr(product, 'imeis') and product.imeis:
         imeis_list = [imei_obj.imei for imei_obj in product.imeis if not imei_obj.vendido]
-        if imeis_con_ubicacion and len(imeis_con_ubicacion) > 0:
-            from app.models import ProductIMEI
-            
+    
+    # Calcular stock total de todas las ubicaciones
+    total_stock = 0
     if hasattr(product, 'stock_items') and product.stock_items:
         total_stock = sum(stock.cantidad_disponible for stock in product.stock_items)
     elif hasattr(product, 'stock') and product.stock:
@@ -214,6 +214,22 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
                 cantidad_disponible=cantidad_inicial
             )
             db.add(db_stock)
+            
+            # TRAZABILIDAD: Registrar en historial de stock
+            from app.models import StockHistory
+            stock_history = StockHistory(
+                product_id=db_product.id,
+                location_id=initial_location_id,
+                tipo_cambio='ajuste',  # Creación inicial del producto
+                cantidad=cantidad_inicial,
+                stock_anterior=0,
+                stock_nuevo=cantidad_inicial,
+                referencia_id=db_product.id,
+                referencia_tipo='product_creation',
+                notas=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                usuario='sistema'
+            )
+            db.add(stock_history)
         
         # V2.0: Procesar IMEIs con ubicación
         if imeis_con_ubicacion and len(imeis_con_ubicacion) > 0:
@@ -439,6 +455,18 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
                 detail="La garantía en meses no puede ser negativa"
             )
         product.garantia_meses = updates.garantia_meses
+    if updates.garantia_condiciones is not None:
+        product.garantia_condiciones = updates.garantia_condiciones
+    if updates.supplier_id is not None:
+        # Validar que el supplier existe si se proporciona
+        if updates.supplier_id > 0:
+            supplier = db.query(Supplier).filter(Supplier.id == updates.supplier_id).first()
+            if not supplier:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"El proveedor con ID {updates.supplier_id} no fue encontrado"
+                )
+        product.supplier_id = updates.supplier_id
     if updates.activo is not None:
         product.activo = updates.activo
 

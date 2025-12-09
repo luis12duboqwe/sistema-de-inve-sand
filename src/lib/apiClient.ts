@@ -6,7 +6,8 @@ import type {
   Product,
   Order,
   SalesProfile,
-  Location
+  Location,
+  Supplier
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -217,11 +218,22 @@ class ApiClient {
   async listLocations(activeOnly = false): Promise<Location[]> {
     try {
       const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
-      const response = await this.request<Location[]>(endpoint)
-      return response || []
+      const response = await this.request<{ items: Location[] }>(endpoint)
+      return response?.items || []
     } catch (error) {
       console.error('Error listing locations from API:', error)
       throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listSuppliers(includeInactive = false): Promise<Supplier[]> {
+    try {
+      const endpoint = includeInactive ? '/suppliers?include_inactive=true' : '/suppliers?include_inactive=false'
+      const response = await this.request<{ items: Supplier[] }>(endpoint)
+      return response?.items || []
+    } catch (error) {
+      console.error('Error listing suppliers from API:', error)
+      throw new Error(`Failed to list suppliers: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -308,16 +320,24 @@ class ApiClient {
 
   async createProduct(
     product: Omit<Product, 'id' | 'activo'>,
-    initialStock: number
+    initialStock: number,
+    locationId?: number  // V2.0: ID de ubicación para stock inicial
   ): Promise<ProductWithStock> {
     try {
+      const body: any = {
+        ...product,
+        activo: true,
+        stock_inicial: initialStock,
+      }
+      
+      // V2.0: Agregar locationId si se proporciona
+      if (locationId) {
+        body.initial_location_id = locationId
+      }
+      
       return this.request<ProductWithStock>('/products', {
         method: 'POST',
-        body: JSON.stringify({
-          ...product,
-          activo: true,
-          stock_inicial: initialStock,
-        }),
+        body: JSON.stringify(body),
       })
     } catch (error) {
       console.error('Error creating product via API:', error)

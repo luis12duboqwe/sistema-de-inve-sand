@@ -108,35 +108,47 @@ def create_sales_profile(
     db: Session = Depends(get_db)
 ):
     """Crear un nuevo perfil de venta"""
-    # Verificar que el slug sea único
-    existing = db.query(models.SalesProfile).filter(models.SalesProfile.slug == profile.slug).first()
+    # Verificar que el slug sea único (case-insensitive para evitar duplicados tipo 'Bot-1' vs 'bot-1')
+    existing = db.query(models.SalesProfile).filter(
+        models.SalesProfile.slug.ilike(profile.slug)
+    ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Ya existe un perfil con ese slug")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ya existe un perfil con el slug '{profile.slug}' (la comparación ignora mayúsculas/minúsculas)"
+        )
     
-    # Convertir listas y dicts a JSON strings
-    profile_data = profile.model_dump()
-    if profile_data.get('canales'):
-        profile_data['canales'] = json.dumps(profile_data['canales'])
-    if profile_data.get('configuracion'):
-        profile_data['configuracion'] = json.dumps(profile_data['configuracion'])
-    
-    db_profile = models.SalesProfile(**profile_data)
-    db.add(db_profile)
-    db.commit()
-    db.refresh(db_profile)
-    
-    # Convertir de vuelta para la respuesta
-    if db_profile.canales:
-        db_profile.canales = json.loads(db_profile.canales)
-    else:
-        db_profile.canales = []
-    
-    if db_profile.configuracion:
-        db_profile.configuracion = json.loads(db_profile.configuracion)
-    else:
-        db_profile.configuracion = {}
-    
-    return db_profile
+    try:
+        # Convertir listas y dicts a JSON strings
+        profile_data = profile.model_dump()
+        if profile_data.get('canales'):
+            profile_data['canales'] = json.dumps(profile_data['canales'])
+        if profile_data.get('configuracion'):
+            profile_data['configuracion'] = json.dumps(profile_data['configuracion'])
+        
+        db_profile = models.SalesProfile(**profile_data)
+        db.add(db_profile)
+        db.commit()
+        db.refresh(db_profile)
+        
+        # Convertir de vuelta para la respuesta
+        if db_profile.canales:
+            db_profile.canales = json.loads(db_profile.canales)
+        else:
+            db_profile.canales = []
+        
+        if db_profile.configuracion:
+            db_profile.configuracion = json.loads(db_profile.configuracion)
+        else:
+            db_profile.configuracion = {}
+        
+        return db_profile
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear perfil de venta: {str(e)}")
 
 
 @router.put("/{profile_id}", response_model=schemas.SalesProfileResponse)
@@ -150,44 +162,51 @@ def update_sales_profile(
     if not db_profile:
         raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
     
-    update_data = profile.model_dump(exclude_unset=True)
+    try:
+        update_data = profile.model_dump(exclude_unset=True)
+        
+        # Validar slug único si se está actualizando (case-insensitive)
+        if 'slug' in update_data and update_data['slug'] != db_profile.slug:
+            existing = db.query(models.SalesProfile).filter(
+                models.SalesProfile.slug.ilike(update_data['slug']),
+                models.SalesProfile.id != profile_id
+            ).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Ya existe otro perfil con el slug '{update_data['slug']}' (la comparación ignora mayúsculas/minúsculas)"
+                )
+        
+        # Convertir listas y dicts a JSON strings
+        if 'canales' in update_data and update_data['canales'] is not None:
+            update_data['canales'] = json.dumps(update_data['canales'])
+        if 'configuracion' in update_data and update_data['configuracion'] is not None:
+            update_data['configuracion'] = json.dumps(update_data['configuracion'])
+        
+        for field, value in update_data.items():
+            setattr(db_profile, field, value)
+        
+        db.commit()
+        db.refresh(db_profile)
     
-    # Validar slug único si se está actualizando
-    if 'slug' in update_data and update_data['slug'] != db_profile.slug:
-        existing = db.query(models.SalesProfile).filter(
-            models.SalesProfile.slug == update_data['slug'],
-            models.SalesProfile.id != profile_id
-        ).first()
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Ya existe otro perfil con el slug '{update_data['slug']}'"
-            )
-    
-    # Convertir listas y dicts a JSON strings
-    if 'canales' in update_data and update_data['canales'] is not None:
-        update_data['canales'] = json.dumps(update_data['canales'])
-    if 'configuracion' in update_data and update_data['configuracion'] is not None:
-        update_data['configuracion'] = json.dumps(update_data['configuracion'])
-    
-    for field, value in update_data.items():
-        setattr(db_profile, field, value)
-    
-    db.commit()
-    db.refresh(db_profile)
-    
-    # Convertir de vuelta para la respuesta
-    if db_profile.canales:
-        db_profile.canales = json.loads(db_profile.canales)
-    else:
-        db_profile.canales = []
-    
-    if db_profile.configuracion:
-        db_profile.configuracion = json.loads(db_profile.configuracion)
-    else:
-        db_profile.configuracion = {}
-    
-    return db_profile
+        # Convertir de vuelta para la respuesta
+        if db_profile.canales:
+            db_profile.canales = json.loads(db_profile.canales)
+        else:
+            db_profile.canales = []
+        
+        if db_profile.configuracion:
+            db_profile.configuracion = json.loads(db_profile.configuracion)
+        else:
+            db_profile.configuracion = {}
+        
+        return db_profile
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar perfil de venta: {str(e)}")
 
 
 @router.delete("/{profile_id}", status_code=204)
@@ -202,12 +221,16 @@ def delete_sales_profile(profile_id: int, db: Session = Depends(get_db)):
     if order_count > 0:
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede eliminar el perfil porque tiene {order_count} órdenes asociadas"
+            detail=f"No se puede eliminar el perfil porque tiene {order_count} órdenes históricas asociadas. Use 'active=false' para desactivarlo en lugar de eliminarlo."
         )
     
-    db.delete(db_profile)
-    db.commit()
-    return None
+    try:
+        db.delete(db_profile)
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar perfil de venta: {str(e)}")
 
 
 @router.get("/{profile_id}/orders")
