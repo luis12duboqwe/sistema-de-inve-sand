@@ -12,8 +12,7 @@ import type { OrderWithItems, Order, SalesProfile, Location } from '@/lib/types'
 import { format } from 'date-fns'
 import { PencilSimple, User, FilePdf, Trash, Robot, MapPin } from '@phosphor-icons/react'
 import { useState, useEffect } from 'react'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+import { apiClient } from '@/lib/apiClient'
 
 interface OrderCardProps {
   order: OrderWithItems
@@ -39,11 +38,8 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
 
   const loadSalesProfile = async (id: number) => {
     try {
-      const response = await fetch(`${API_URL}/sales-profiles/${id}`)
-      if (response.ok) {
-        const data = await response.json()
-        setSalesProfile(data)
-      }
+      const data = await apiClient.getSalesProfile(id)
+      setSalesProfile(data)
     } catch (error) {
       console.error('Error loading sales profile:', error)
     }
@@ -51,11 +47,8 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
 
   const loadSourceLocation = async (id: number) => {
     try {
-      const response = await fetch(`${API_URL}/locations/${id}`)
-      if (response.ok) {
-        const data = await response.json()
-        setSourceLocation(data)
-      }
+      const data = await apiClient.getLocation(id)
+      setSourceLocation(data)
     } catch (error) {
       console.error('Error loading location:', error)
     }
@@ -235,6 +228,12 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                   onDelete(order)
                 }}
                 className="hover:text-destructive"
+                disabled={order.estado !== 'completada' && order.estado !== 'cancelada'}
+                title={
+                  order.estado === 'completada' || order.estado === 'cancelada'
+                    ? 'Eliminar orden'
+                    : 'Solo se pueden eliminar órdenes completadas o canceladas'
+                }
               >
                 <Trash size={16} />
               </Button>

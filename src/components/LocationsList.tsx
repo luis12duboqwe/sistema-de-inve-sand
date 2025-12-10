@@ -33,12 +33,12 @@ export function LocationsList() {
   const loadLocations = async () => {
     try {
       const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      const data = await service.getLocations?.()
-      if (!data) throw new Error('El servicio no soporta Locations en modo local aún')
-      setLocations(data)
+      const data = await service.getLocations()
+      console.log('✅ Ubicaciones cargadas:', data)
+      setLocations(data || [])
     } catch (error) {
-      toast.error('Error al cargar ubicaciones')
-      console.error(error)
+      console.error('❌ Error al cargar ubicaciones:', error)
+      setLocations([])
     } finally {
       setLoading(false)
     }
@@ -52,9 +52,8 @@ export function LocationsList() {
 
     try {
       const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.createLocation) throw new Error('Locations no disponibles en modo local; activa modo API')
-
-      await service.createLocation({
+      
+      const newLocation = await service.createLocation({
         nombre: nombre.trim(),
         tipo,
         direccion: direccion.trim() || undefined,
@@ -62,12 +61,17 @@ export function LocationsList() {
         activo: true,
       } as any)
 
-      toast.success('Ubicación creada exitosamente')
+      console.log('✅ Ubicación creada:', newLocation)
+      
+      toast.success('✅ Ubicación creada exitosamente')
       setIsCreateOpen(false)
       resetForm()
-      loadLocations()
+      
+      // Recargar la lista
+      await loadLocations()
     } catch (error) {
-      toast.error('Error al crear ubicación')
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      toast.error(`❌ Error al crear ubicación: ${message}`)
       console.error(error)
     }
   }
@@ -107,15 +111,29 @@ export function LocationsList() {
 
     try {
       const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.deleteLocation) throw new Error('Locations no disponibles en modo local; activa modo API')
-
+      
       await service.deleteLocation(id)
 
-      toast.success('Ubicación eliminada exitosamente')
-      loadLocations()
+      toast.success('✅ Ubicación eliminada exitosamente')
+      await loadLocations()
     } catch (error: any) {
-      toast.error(error.message || 'Error al eliminar ubicación')
-      console.error(error)
+      // Extraer mensaje de error del backend
+      const errorMessage = error.message || 'Error al eliminar ubicación'
+      
+      // Si el error menciona stock, mostrar mensaje más específico
+      if (errorMessage.includes('stock')) {
+        toast.error('⚠️ No se puede eliminar: Esta ubicación tiene productos con stock asignado. Primero transfiere o elimina el stock.', {
+          duration: 5000
+        })
+      } else if (errorMessage.includes('órdenes') || errorMessage.includes('orders')) {
+        toast.error('⚠️ No se puede eliminar: Esta ubicación tiene órdenes asociadas.', {
+          duration: 5000
+        })
+      } else {
+        toast.error(`❌ ${errorMessage}`)
+      }
+      
+      console.error('Error al eliminar ubicación:', error)
     }
   }
 
@@ -190,6 +208,11 @@ export function LocationsList() {
         <div>
           <h1 className="text-3xl font-bold">Ubicaciones</h1>
           <p className="text-gray-600 mt-1">Gestiona tus tiendas, bodegas y oficinas</p>
+          {!useAPI && (
+            <p className="text-sm text-blue-600 mt-2">
+              💾 Modo Local: Los datos se guardan en tu navegador
+            </p>
+          )}
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -716,7 +716,7 @@ export default function App() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-4 max-w-3xl mb-6">
+          <TabsList className="grid w-full grid-cols-5 max-w-4xl mb-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package size={18} />
               <span className="hidden sm:inline">Productos</span>
@@ -725,13 +725,17 @@ export default function App() {
               <ShoppingCart size={18} />
               <span className="hidden sm:inline">Órdenes</span>
             </TabsTrigger>
+            <TabsTrigger value="transfers" className="flex items-center gap-2">
+              <ArrowsLeftRight size={18} />
+              <span className="hidden sm:inline">Transferencias</span>
+            </TabsTrigger>
             <TabsTrigger value="locations" className="flex items-center gap-2">
               <MapPin size={18} />
               <span className="hidden sm:inline">Ubicaciones</span>
             </TabsTrigger>
             <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
               <Robot size={18} />
-              <span className="hidden sm:inline">Canales de Venta</span>
+              <span className="hidden sm:inline">Canales</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1147,9 +1151,16 @@ export default function App() {
                     <OrderCard
                       order={order}
                       onStatusChange={async (orderId, newStatus) => {
+                        console.log(`🔄 Cambiando estado de orden ${orderId} a: ${newStatus}`)
                         const updated = await service.updateOrderStatus(orderId, newStatus)
+                        console.log('✅ Orden actualizada:', updated)
                         setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
+                        
+                        // Recargar productos para reflejar cambios en stock
+                        console.log('🔄 Recargando productos después de cambio de estado...')
+                        const updatedProducts = await service.getProducts()
+                        setProducts(updatedProducts)
                       }}
                       onEdit={setEditingOrder}
                       onViewCustomerHistory={(phone) => {
@@ -1189,6 +1200,90 @@ export default function App() {
 
           <TabsContent value="locations" className="space-y-6">
             <LocationsList />
+          </TabsContent>
+
+          <TabsContent value="transfers" className="space-y-6">
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-bold">Transferencias de Stock</h2>
+                  <p className="text-muted-foreground">Transfiere inventario entre ubicaciones (tiendas/bodegas)</p>
+                </div>
+              </div>
+
+              {/* Instrucciones */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+                <h3 className="font-semibold text-blue-900 mb-2">ℹ️ Cómo hacer una transferencia:</h3>
+                <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
+                  <li>Ve a la pestaña <strong>"Productos"</strong></li>
+                  <li>Haz clic en un producto</li>
+                  <li>Selecciona <strong>"Gestionar Stock por Ubicación"</strong></li>
+                  <li>Usa el botón <strong>"Transferir"</strong> para mover stock entre ubicaciones</li>
+                </ol>
+              </div>
+
+              {/* Lista de productos con stock por ubicación */}
+              <div className="grid gap-4">
+                <h3 className="text-lg font-semibold">Productos con Stock en Múltiples Ubicaciones</h3>
+                {(products ?? []).filter(p => p.stock_items && p.stock_items.length > 0).length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <ArrowsLeftRight size={48} className="mx-auto mb-4 opacity-50" />
+                    <p>No hay productos con stock asignado a ubicaciones</p>
+                    <p className="text-sm mt-2">Agrega productos y asígnalos a ubicaciones para ver transferencias</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {(products ?? [])
+                      .filter(p => p.stock_items && p.stock_items.length > 0)
+                      .map(product => (
+                        <div key={product.id} className="rounded-lg border p-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h4 className="font-semibold">{product.nombre}</h4>
+                              <p className="text-sm text-muted-foreground">{product.sku}</p>
+                            </div>
+                            <Badge variant="outline">
+                              Total: {product.stock_disponible} unidades
+                            </Badge>
+                          </div>
+                          
+                          <div className="grid gap-2">
+                            <p className="text-sm font-medium">Stock por ubicación:</p>
+                            {product.stock_items?.map((stockItem: any) => {
+                              const location = locations.find(l => l.id === stockItem.location_id)
+                              return (
+                                <div key={stockItem.location_id} className="flex justify-between items-center text-sm bg-muted/50 p-2 rounded">
+                                  <span className="flex items-center gap-2">
+                                    <MapPin size={14} />
+                                    {location?.nombre || `Ubicación ${stockItem.location_id}`}
+                                    <Badge variant="secondary" className="text-xs">
+                                      {location?.tipo}
+                                    </Badge>
+                                  </span>
+                                  <span className="font-medium">{stockItem.cantidad} uds</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full mt-3"
+                            onClick={() => {
+                              setActiveTab('products')
+                              // Scroll to product (opcional - requeriría más código)
+                            }}
+                          >
+                            <ArrowsLeftRight size={16} className="mr-2" />
+                            Ver producto y transferir
+                          </Button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="sales-profiles" className="space-y-6">

@@ -755,7 +755,7 @@ def cancel_order(
     if order.estado == "cancelada":
         raise HTTPException(
             status_code=400,
-            detail="La orden ya está cancelada"
+            detail="La orden ya está cancelada. El stock ya fue devuelto anteriormente."
         )
     
     # Validar que no se cancele una orden completada (debe usar proceso de devolución)
@@ -768,8 +768,13 @@ def cancel_order(
     try:
         from app.models import StockHistory, ProductIMEI
         
+        print(f"🔄 Cancelando orden {order_id} - Estado actual: {order.estado}")
+        print(f"  📋 Orden tiene {len(order.items)} items")
+        
         # Procesar cada item de la orden
-        for item in order.items:
+        for idx, item in enumerate(order.items):
+            print(f"  🔢 Item {idx + 1}/{len(order.items)}: Producto {item.product_id}, Cantidad {item.cantidad}")
+            
             # 1. Devolver stock a la ubicación de origen
             if order.source_location_id:
                 stock = db.query(Stock).filter(
@@ -780,6 +785,8 @@ def cancel_order(
                 if stock:
                     stock_anterior = stock.cantidad_disponible
                     stock.cantidad_disponible += item.cantidad
+                    
+                    print(f"  📦 Producto {item.product_id}: Stock {stock_anterior} → {stock.cantidad_disponible} (+{item.cantidad})")
                     
                     # Registrar en historial
                     history = StockHistory(
@@ -807,10 +814,16 @@ def cancel_order(
                 imei_obj.vendido = False
                 imei_obj.order_id = None
         
-        # 3. Actualizar estado de la orden
+        # 3. Actualizar estado de la orden PRIMERO (para evitar doble procesamiento)
+        old_estado = order.estado
         order.estado = "cancelada"
         if reason:
             order.notes = (order.notes or '') + f" | CANCELADA: {reason}"
+        
+        # Flush para que el estado se actualice inmediatamente
+        db.flush()
+        
+        print(f"✅ Orden {order_id} cancelada: {old_estado} → cancelada")
         
         db.commit()
         db.refresh(order)
@@ -865,37 +878,43 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
         )
     
     print(f"✅ [DELETE ORDER] Orden {order_id} encontrada, tiene {len(order.items)} items")
+    print(f"  📊 Estado de la orden: {order.estado}")
     
     try:
-        # Reponer stock antes de eliminar
-        for item in order.items:
-            # V2.0: Devolver stock a la ubicación de origen
-            if order.source_location_id:
-                stock = db.query(Stock).filter(
-                    Stock.product_id == item.product_id,
-                    Stock.location_id == order.source_location_id
-                ).first()
-            else:
-                # Legacy: Sin ubicación específica
-                stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-            
-            if stock:
-                old_stock = stock.cantidad_disponible
-                stock.cantidad_disponible += item.cantidad
-                print(f"📦 [DELETE ORDER] Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
-            
-            # Liberar IMEIs asociados a esta orden
-            from app.models import ProductIMEI
-            imeis_vendidos = db.query(ProductIMEI).filter(
-                ProductIMEI.order_id == order.id,
-                ProductIMEI.product_id == item.product_id,
-                ProductIMEI.vendido == True
-            ).all()
-            
-            for imei_obj in imeis_vendidos:
-                imei_obj.vendido = False
-                imei_obj.order_id = None
-                print(f"🔓 [DELETE ORDER] IMEI {imei_obj.imei} liberado")
+        # Solo devolver stock si la orden NO está cancelada (las canceladas ya devolvieron el stock)
+        if order.estado != "cancelada":
+            print(f"  ♻️ Devolviendo stock (orden en estado '{order.estado}')")
+            # Reponer stock antes de eliminar
+            for item in order.items:
+                # V2.0: Devolver stock a la ubicación de origen
+                if order.source_location_id:
+                    stock = db.query(Stock).filter(
+                        Stock.product_id == item.product_id,
+                        Stock.location_id == order.source_location_id
+                    ).first()
+                else:
+                    # Legacy: Sin ubicación específica
+                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+                
+                if stock:
+                    old_stock = stock.cantidad_disponible
+                    stock.cantidad_disponible += item.cantidad
+                    print(f"    📦 Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
+                
+                # Liberar IMEIs asociados a esta orden
+                from app.models import ProductIMEI
+                imeis_vendidos = db.query(ProductIMEI).filter(
+                    ProductIMEI.order_id == order.id,
+                    ProductIMEI.product_id == item.product_id,
+                    ProductIMEI.vendido == True
+                ).all()
+                
+                for imei_obj in imeis_vendidos:
+                    imei_obj.vendido = False
+                    imei_obj.order_id = None
+                    print(f"    🔓 IMEI {imei_obj.imei} liberado")
+        else:
+            print(f"  ⏭️  Orden ya cancelada - stock ya fue devuelto, no se vuelve a devolver")
         
         # Eliminar orden (items se eliminan en cascada)
         print(f"🗑️ [DELETE ORDER] Eliminando orden {order_id} de la base de datos...")

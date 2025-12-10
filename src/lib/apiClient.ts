@@ -218,11 +218,31 @@ class ApiClient {
   async listLocations(activeOnly = false): Promise<Location[]> {
     try {
       const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
-      const response = await this.request<{ items: Location[] }>(endpoint)
-      return response?.items || []
+      const response = await this.request<Location[]>(endpoint)
+      console.log('📍 API listLocations response:', response)
+      // El backend retorna directamente un array, no { items: [] }
+      return Array.isArray(response) ? response : []
     } catch (error) {
       console.error('Error listing locations from API:', error)
       throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getLocation(id: number): Promise<Location> {
+    try {
+      return await this.request<Location>(`/locations/${id}`)
+    } catch (error) {
+      console.error('Error getting location from API:', error)
+      throw new Error(`Failed to get location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getSalesProfile(id: number): Promise<SalesProfile> {
+    try {
+      return await this.request<SalesProfile>(`/sales-profiles/${id}`)
+    } catch (error) {
+      console.error('Error getting sales profile from API:', error)
+      throw new Error(`Failed to get sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -383,6 +403,15 @@ class ApiClient {
     }
   }
 
+  async getStockByLocation(productId: number): Promise<{ items: any[] }> {
+    try {
+      return await this.request(`/products/${productId}/stock/by-location`)
+    } catch (error) {
+      console.error('Error fetching stock by location:', error)
+      throw new Error(`Failed to fetch stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async deleteOrder(orderId: number): Promise<void> {
     try {
       const apiBaseUrl = await getApiUrl()
@@ -537,6 +566,11 @@ class ApiClient {
     estado: Order['estado']
   ): Promise<Order> {
     try {
+      // Si se quiere cancelar, usar el endpoint especial que libera stock
+      if (estado === 'cancelada') {
+        return await this.cancelOrder(orderId)
+      }
+      
       return this.request<Order>(`/orders/${orderId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ estado }),
@@ -544,6 +578,17 @@ class ApiClient {
     } catch (error) {
       console.error('Error updating order status via API:', error)
       throw new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async cancelOrder(orderId: number): Promise<Order> {
+    try {
+      return this.request<Order>(`/orders/${orderId}/cancel`, {
+        method: 'POST',
+      })
+    } catch (error) {
+      console.error('Error canceling order via API:', error)
+      throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

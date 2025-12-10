@@ -6,7 +6,10 @@ import type {
   OrderItem,
   ProductWithStock,
   OrderWithItems,
-  CreateOrderRequest
+  CreateOrderRequest,
+  Location,
+  SalesProfile,
+  Supplier
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -15,7 +18,10 @@ const STORAGE_KEYS = {
   PRODUCTS: 'inventory-products',
   STOCK: 'inventory-stock',
   ORDERS: 'inventory-orders',
-  ORDER_ITEMS: 'inventory-order-items'
+  ORDER_ITEMS: 'inventory-order-items',
+  LOCATIONS: 'inventory-locations',          // V2.0
+  SALES_PROFILES: 'inventory-sales-profiles', // V2.0
+  SUPPLIERS: 'inventory-suppliers'            // V2.0
 }
 
 export class InventoryService {
@@ -783,6 +789,274 @@ export class InventoryService {
     } catch (error) {
       console.error('Error bulk creating products:', error)
       throw new Error(`Failed to bulk create products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // ============================================================================
+  // V2.0: LOCATIONS (Ubicaciones)
+  // ============================================================================
+
+  private async loadLocations(): Promise<Location[]> {
+    try {
+      const kv = getKV()
+      const data = await kv.get<Location[]>(STORAGE_KEYS.LOCATIONS)
+      console.log('📂 Cargando ubicaciones desde KV:', data?.length || 0, 'ubicaciones')
+      return data || []
+    } catch (error) {
+      console.error('❌ Error loading locations:', error)
+      return []
+    }
+  }
+
+  private async setLocations(locations: Location[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.LOCATIONS, locations)
+    } catch (error) {
+      console.error('Error saving locations:', error)
+      throw new Error(`Failed to save locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getLocations(): Promise<Location[]> {
+    return this.loadLocations()
+  }
+
+  async createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location> {
+    try {
+      const locations = await this.loadLocations()
+      const nextId = locations.length > 0 ? Math.max(...locations.map(l => l.id)) + 1 : 1
+      
+      const now = new Date().toISOString()
+      const newLocation: Location = {
+        ...location,
+        id: nextId,
+        created_at: now,
+        updated_at: now
+      }
+
+      const updatedLocations = [...locations, newLocation]
+      console.log('💾 Guardando ubicación en localStorage:', newLocation)
+      console.log('📍 Total ubicaciones:', updatedLocations.length)
+      
+      await this.setLocations(updatedLocations)
+      
+      // Verificar que se guardó
+      const saved = await this.loadLocations()
+      console.log('✅ Verificación - Ubicaciones guardadas:', saved.length)
+      
+      return newLocation
+    } catch (error) {
+      console.error('❌ Error creating location:', error)
+      throw new Error(`Failed to create location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateLocation(id: number, updates: Partial<Location>): Promise<Location> {
+    try {
+      const locations = await this.loadLocations()
+      const index = locations.findIndex(l => l.id === id)
+      
+      if (index === -1) {
+        throw new Error(`Location with ID ${id} not found`)
+      }
+
+      const updatedLocation: Location = {
+        ...locations[index],
+        ...updates,
+        id, // No permitir cambiar el ID
+        updated_at: new Date().toISOString()
+      }
+
+      locations[index] = updatedLocation
+      await this.setLocations(locations)
+      return updatedLocation
+    } catch (error) {
+      console.error('Error updating location:', error)
+      throw new Error(`Failed to update location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteLocation(id: number): Promise<void> {
+    try {
+      const locations = await this.loadLocations()
+      const filtered = locations.filter(l => l.id !== id)
+      await this.setLocations(filtered)
+    } catch (error) {
+      console.error('Error deleting location:', error)
+      throw new Error(`Failed to delete location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // ============================================================================
+  // V2.0: SALES PROFILES (Perfiles de Ventas)
+  // ============================================================================
+
+  private async loadSalesProfiles(): Promise<SalesProfile[]> {
+    try {
+      const kv = getKV()
+      const data = await kv.get<SalesProfile[]>(STORAGE_KEYS.SALES_PROFILES)
+      return data || []
+    } catch (error) {
+      console.error('Error loading sales profiles:', error)
+      return []
+    }
+  }
+
+  private async setSalesProfiles(profiles: SalesProfile[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.SALES_PROFILES, profiles)
+    } catch (error) {
+      console.error('Error saving sales profiles:', error)
+      throw new Error(`Failed to save sales profiles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getSalesProfiles(): Promise<SalesProfile[]> {
+    return this.loadSalesProfiles()
+  }
+
+  async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
+    try {
+      const profiles = await this.loadSalesProfiles()
+      const nextId = profiles.length > 0 ? Math.max(...profiles.map(p => p.id)) + 1 : 1
+      
+      const now = new Date().toISOString()
+      const newProfile: SalesProfile = {
+        ...profile,
+        id: nextId,
+        created_at: now,
+        updated_at: now
+      }
+
+      await this.setSalesProfiles([...profiles, newProfile])
+      return newProfile
+    } catch (error) {
+      console.error('Error creating sales profile:', error)
+      throw new Error(`Failed to create sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile> {
+    try {
+      const profiles = await this.loadSalesProfiles()
+      const index = profiles.findIndex(p => p.id === id)
+      
+      if (index === -1) {
+        throw new Error(`Sales profile with ID ${id} not found`)
+      }
+
+      const updatedProfile: SalesProfile = {
+        ...profiles[index],
+        ...updates,
+        id,
+        updated_at: new Date().toISOString()
+      }
+
+      profiles[index] = updatedProfile
+      await this.setSalesProfiles(profiles)
+      return updatedProfile
+    } catch (error) {
+      console.error('Error updating sales profile:', error)
+      throw new Error(`Failed to update sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSalesProfile(id: number): Promise<void> {
+    try {
+      const profiles = await this.loadSalesProfiles()
+      const filtered = profiles.filter(p => p.id !== id)
+      await this.setSalesProfiles(filtered)
+    } catch (error) {
+      console.error('Error deleting sales profile:', error)
+      throw new Error(`Failed to delete sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // ============================================================================
+  // V2.0: SUPPLIERS (Proveedores)
+  // ============================================================================
+
+  private async loadSuppliers(): Promise<Supplier[]> {
+    try {
+      const kv = getKV()
+      const data = await kv.get<Supplier[]>(STORAGE_KEYS.SUPPLIERS)
+      return data || []
+    } catch (error) {
+      console.error('Error loading suppliers:', error)
+      return []
+    }
+  }
+
+  private async setSuppliers(suppliers: Supplier[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.SUPPLIERS, suppliers)
+    } catch (error) {
+      console.error('Error saving suppliers:', error)
+      throw new Error(`Failed to save suppliers: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getSuppliers(): Promise<Supplier[]> {
+    return this.loadSuppliers()
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const nextId = suppliers.length > 0 ? Math.max(...suppliers.map(s => s.id)) + 1 : 1
+      
+      const now = new Date().toISOString()
+      const newSupplier: Supplier = {
+        ...supplier,
+        id: nextId,
+        created_at: now,
+        updated_at: now
+      }
+
+      await this.setSuppliers([...suppliers, newSupplier])
+      return newSupplier
+    } catch (error) {
+      console.error('Error creating supplier:', error)
+      throw new Error(`Failed to create supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const index = suppliers.findIndex(s => s.id === id)
+      
+      if (index === -1) {
+        throw new Error(`Supplier with ID ${id} not found`)
+      }
+
+      const updatedSupplier: Supplier = {
+        ...suppliers[index],
+        ...updates,
+        id,
+        updated_at: new Date().toISOString()
+      }
+
+      suppliers[index] = updatedSupplier
+      await this.setSuppliers(suppliers)
+      return updatedSupplier
+    } catch (error) {
+      console.error('Error updating supplier:', error)
+      throw new Error(`Failed to update supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const filtered = suppliers.filter(s => s.id !== id)
+      await this.setSuppliers(filtered)
+    } catch (error) {
+      console.error('Error deleting supplier:', error)
+      throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }

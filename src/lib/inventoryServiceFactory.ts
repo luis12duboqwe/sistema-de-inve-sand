@@ -49,17 +49,17 @@ export interface IInventoryService {
   
   getProfiles(): Promise<Profile[]>
 
-  listSalesProfiles?(): Promise<SalesProfile[]>
-  getSalesProfiles?(): Promise<SalesProfile[]>
-  createSalesProfile?(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile>
-  updateSalesProfile?(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile>
-  deleteSalesProfile?(id: number): Promise<void>
+  listSalesProfiles(): Promise<SalesProfile[]>
+  getSalesProfiles(): Promise<SalesProfile[]>
+  createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile>
+  updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile>
+  deleteSalesProfile(id: number): Promise<void>
 
-  listLocations?(): Promise<Location[]>
-  getLocations?(): Promise<Location[]>
-  createLocation?(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location>
-  updateLocation?(id: number, updates: Partial<Location>): Promise<Location>
-  deleteLocation?(id: number): Promise<void>
+  listLocations(): Promise<Location[]>
+  getLocations(): Promise<Location[]>
+  createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location>
+  updateLocation(id: number, updates: Partial<Location>): Promise<Location>
+  deleteLocation(id: number): Promise<void>
 
   updateProfile(profileId: number, updates: Partial<Profile>): Promise<Profile>
   
@@ -153,69 +153,43 @@ class LocalServiceWrapper implements IInventoryService {
   }
 
   async listSalesProfiles(): Promise<SalesProfile[]> {
-    // V2.0: Local mode aún no soporta SalesProfiles; se devuelve vacío hasta que se implemente.
-    return []
+    return this.service.getSalesProfiles()
   }
 
   async getSalesProfiles(): Promise<SalesProfile[]> {
-    return this.listSalesProfiles()
+    return this.service.getSalesProfiles()
   }
 
   async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
-    return apiClient.createSalesProfile(profile)
+    return this.service.createSalesProfile(profile)
   }
 
   async updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile> {
-    return apiClient.updateSalesProfile(id, updates)
+    return this.service.updateSalesProfile(id, updates)
   }
 
   async deleteSalesProfile(id: number): Promise<void> {
-    return apiClient.deleteSalesProfile(id)
-  }
-
-  async createSalesProfile(): Promise<SalesProfile> {
-    throw new Error('SalesProfiles no disponibles en modo local; activa modo API en Configuración')
-  }
-
-  async updateSalesProfile(): Promise<SalesProfile> {
-    throw new Error('SalesProfiles no disponibles en modo local; activa modo API en Configuración')
-  }
-
-  async deleteSalesProfile(): Promise<void> {
-    throw new Error('SalesProfiles no disponibles en modo local; activa modo API en Configuración')
+    return this.service.deleteSalesProfile(id)
   }
 
   async listLocations(): Promise<Location[]> {
-    // V2.0: Local mode no persiste locations; devolver vacío por ahora.
-    return []
+    return this.service.getLocations()
   }
 
   async getLocations(): Promise<Location[]> {
-    return this.listLocations()
+    return this.service.getLocations()
   }
 
   async createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location> {
-    return apiClient.createLocation(location)
+    return this.service.createLocation(location)
   }
 
   async updateLocation(id: number, updates: Partial<Location>): Promise<Location> {
-    return apiClient.updateLocation(id, updates)
+    return this.service.updateLocation(id, updates)
   }
 
   async deleteLocation(id: number): Promise<void> {
-    return apiClient.deleteLocation(id)
-  }
-
-  async createLocation(): Promise<Location> {
-    throw new Error('Locations no disponibles en modo local; activa modo API en Configuración')
-  }
-
-  async updateLocation(): Promise<Location> {
-    throw new Error('Locations no disponibles en modo local; activa modo API en Configuración')
-  }
-
-  async deleteLocation(): Promise<void> {
-    throw new Error('Locations no disponibles en modo local; activa modo API en Configuración')
+    return this.service.deleteLocation(id)
   }
 
   async updateProfile(profileId: number, updates: Partial<Profile>): Promise<Profile> {
@@ -411,7 +385,6 @@ class UnifiedInventoryService implements IInventoryService {
   async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
     try {
       const service = await this.getService()
-      if (!service.createSalesProfile) throw new Error('SalesProfiles no disponibles en este modo')
       return service.createSalesProfile(profile)
     } catch (error) {
       console.error('Error creating sales profile (unified):', error)
@@ -422,7 +395,6 @@ class UnifiedInventoryService implements IInventoryService {
   async updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile> {
     try {
       const service = await this.getService()
-      if (!service.updateSalesProfile) throw new Error('SalesProfiles no disponibles en este modo')
       return service.updateSalesProfile(id, updates)
     } catch (error) {
       console.error('Error updating sales profile (unified):', error)
@@ -433,7 +405,6 @@ class UnifiedInventoryService implements IInventoryService {
   async deleteSalesProfile(id: number): Promise<void> {
     try {
       const service = await this.getService()
-      if (!service.deleteSalesProfile) throw new Error('SalesProfiles no disponibles en este modo')
       return service.deleteSalesProfile(id)
     } catch (error) {
       console.error('Error deleting sales profile (unified):', error)
@@ -444,7 +415,7 @@ class UnifiedInventoryService implements IInventoryService {
   async listLocations(): Promise<Location[]> {
     try {
       const service = await this.getService()
-      return service.listLocations ? service.listLocations() : []
+      return service.listLocations()
     } catch (error) {
       console.error('Error listing locations (unified):', error)
       throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -463,7 +434,6 @@ class UnifiedInventoryService implements IInventoryService {
   async createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location> {
     try {
       const service = await this.getService()
-      if (!service.createLocation) throw new Error('Locations no disponibles en este modo')
       return service.createLocation(location)
     } catch (error) {
       console.error('Error creating location (unified):', error)
@@ -474,7 +444,6 @@ class UnifiedInventoryService implements IInventoryService {
   async updateLocation(id: number, updates: Partial<Location>): Promise<Location> {
     try {
       const service = await this.getService()
-      if (!service.updateLocation) throw new Error('Locations no disponibles en este modo')
       return service.updateLocation(id, updates)
     } catch (error) {
       console.error('Error updating location (unified):', error)
@@ -673,6 +642,30 @@ class ApiInventoryService implements IInventoryService {
 
   async getLocations(): Promise<Location[]> {
     return this.listLocations()
+  }
+
+  async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
+    return apiClient.createSalesProfile(profile)
+  }
+
+  async updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile> {
+    return apiClient.updateSalesProfile(id, updates)
+  }
+
+  async deleteSalesProfile(id: number): Promise<void> {
+    return apiClient.deleteSalesProfile(id)
+  }
+
+  async createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location> {
+    return apiClient.createLocation(location)
+  }
+
+  async updateLocation(id: number, updates: Partial<Location>): Promise<Location> {
+    return apiClient.updateLocation(id, updates)
+  }
+
+  async deleteLocation(id: number): Promise<void> {
+    return apiClient.deleteLocation(id)
   }
 
   async updateProfile(profileId: number, updates: Partial<Profile>): Promise<Profile> {

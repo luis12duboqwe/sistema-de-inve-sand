@@ -293,22 +293,23 @@ class StockUpdate(BaseModel):
 class ProductResponse(BaseModel):
     id: int
     profile_id: Optional[int] = None  # V2.0: Opcional
-    supplier_id: Optional[int]
+    supplier_id: Optional[int] = None
     sku: str
     nombre: str
     categoria: str
     marca: str
     modelo: str
-    capacidad: Optional[str]
+    capacidad: Optional[str] = None
     condicion: str
     precio: Decimal
     moneda: str
     garantia_meses: int
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool
-    imei: Optional[str]  # Mantener por compatibilidad
+    imei: Optional[str] = None  # Mantener por compatibilidad
     imeis: Optional[List[str]] = None  # Array de IMEIs disponibles
     stock_disponible: int
+    stock_items: Optional[List[StockByLocationResponse]] = None  # V2.0: Stock por ubicación
 
     class Config:
         from_attributes = True

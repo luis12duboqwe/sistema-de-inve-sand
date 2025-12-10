@@ -41,23 +41,15 @@ if ! python3 -c "import fastapi" 2>/dev/null; then
     echo "⚠️  Dependencias no instaladas, instalando..."
     pip install --upgrade pip
     pip install -r requirements.txt
+    echo "   ✅ Dependencias instaladas"
+else
+    echo "   ✅ FastAPI ya disponible"
 fi
 
 echo "✅ Dependencias listas"
 echo ""
 
 # Verificar base de datos
-if [ ! -f "inventory.db" ]; then
-    echo "📊 Base de datos no existe, inicializando con datos de prueba..."
-    python3 init_db.py --with-data
-    echo ""
-fi
-    echo "   ✅ Dependencias instaladas"
-else
-    echo "   ✅ FastAPI ya disponible"
-fi
-
-# BD
 echo "📊 Verificando base de datos..."
 if [ ! -f "inventory.db" ]; then
     echo "   Creando BD con V2.0..."

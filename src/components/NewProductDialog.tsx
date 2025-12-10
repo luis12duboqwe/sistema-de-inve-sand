@@ -280,7 +280,7 @@ export function NewProductDialog({
     
     // V2.0: Validar ubicación seleccionada
     if (!selectedLocationId && locations.length > 0) {
-      toast.error('Por favor selecciona una ubicación para el stock inicial')
+      toast.error('📍 Por favor selecciona una ubicación (tienda o bodega) para el stock inicial')
       return
     }
 
@@ -506,25 +506,37 @@ export function NewProductDialog({
 
           {/* V2.0: Selector de ubicación para stock inicial */}
           {locations.length > 0 && (
-            <div className="space-y-2">
-              <Label htmlFor="location">Ubicación para Stock Inicial * (V2.0)</Label>
+            <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+              <Label htmlFor="location" className="text-base font-semibold flex items-center gap-2">
+                <span className="text-blue-600">📍</span>
+                Ubicación para Stock Inicial *
+              </Label>
               <Select 
                 value={selectedLocationId?.toString()} 
                 onValueChange={(v) => setSelectedLocationId(parseInt(v))}
               >
-                <SelectTrigger id="location">
-                  <SelectValue placeholder="Seleccionar ubicación" />
+                <SelectTrigger id="location" className="bg-white">
+                  <SelectValue placeholder="Seleccionar tienda o bodega" />
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map(location => (
                     <SelectItem key={location.id} value={location.id.toString()}>
-                      {location.nombre} ({location.tipo})
+                      📍 {location.nombre} ({location.tipo === 'tienda' ? '🏪 Tienda' : location.tipo === 'bodega' ? '📦 Bodega' : '🏢 ' + location.tipo})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                El stock inicial se asignará a esta ubicación (tienda o bodega)
+              <p className="text-xs text-blue-600 font-medium">
+                💡 El stock inicial ({stockInicial || 0} unidades) se agregará a esta ubicación
+              </p>
+            </div>
+          )}
+
+          {/* Alerta si no hay ubicaciones */}
+          {locations.length === 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+              <p className="text-sm text-amber-800 font-medium">
+                ⚠️ No hay ubicaciones disponibles. Por favor crea primero una ubicación (tienda o bodega) en la pestaña de Ubicaciones.
               </p>
             </div>
           )}

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func
 from typing import List, Optional
 import math
@@ -22,7 +22,7 @@ def _serialize_product(product: Product) -> ProductResponse:
         - product: Product model instance
         
     Returns:
-        ProductResponse with stock_disponible (sum of all locations) and imeis
+        ProductResponse with stock_disponible (sum of all locations) and stock_items
     """
     # Obtener IMEIs del producto (solo no vendidos)
     imeis_list = []
@@ -31,8 +31,27 @@ def _serialize_product(product: Product) -> ProductResponse:
     
     # Calcular stock total de todas las ubicaciones
     total_stock = 0
+    stock_items_list = []
+    
     if hasattr(product, 'stock_items') and product.stock_items:
         total_stock = sum(stock.cantidad_disponible for stock in product.stock_items)
+        # Serializar stock_items para V2.0
+        for stock_item in product.stock_items:
+            stock_items_list.append(StockByLocationResponse(
+                id=stock_item.id,
+                product_id=stock_item.product_id,
+                location_id=stock_item.location_id,
+                cantidad_disponible=stock_item.cantidad_disponible,
+                location=LocationResponse(
+                    id=stock_item.location.id,
+                    nombre=stock_item.location.nombre,
+                    tipo=stock_item.location.tipo,
+                    direccion=stock_item.location.direccion,
+                    activo=stock_item.location.activo,
+                    created_at=stock_item.location.created_at,
+                    updated_at=stock_item.location.updated_at
+                ) if stock_item.location else None
+            ))
     elif hasattr(product, 'stock') and product.stock:
         # Compatibilidad con modelo antiguo
         total_stock = product.stock.cantidad_disponible if product.stock else 0
@@ -55,7 +74,8 @@ def _serialize_product(product: Product) -> ProductResponse:
         activo=product.activo,
         imei=imeis_list[0] if imeis_list else None,  # Primer IMEI por compatibilidad
         imeis=imeis_list if imeis_list else None,
-        stock_disponible=total_stock
+        stock_disponible=total_stock,
+        stock_items=stock_items_list if stock_items_list else None
     )
 
 @router.get("", response_model=PaginatedResponse[ProductResponse])
@@ -90,21 +110,20 @@ def list_products(
     Returns:
         Respuesta paginada con lista de productos
     """
-    # V2.0: incluir productos aunque no tengan stock (join externo) y agrupar por producto
-    query = db.query(Product).outerjoin(Stock).group_by(Product.id)
+    # V2.0: Eager loading de stock_items y location para incluir en response
+    query = db.query(Product).options(
+        joinedload(Product.stock_items).joinedload(Stock.location)
+    )
 
     # Filtro por ubicación específica (V2.0)
     if location_id:
-        query = query.filter(
+        query = query.join(Stock).filter(
             Stock.location_id == location_id,
             Stock.cantidad_disponible > 0
         )
     
     if not include_inactive:
-        query = query.filter(
-            Product.activo == True,
-            or_(Stock.cantidad_disponible.is_(None), Stock.cantidad_disponible > 0)
-        )
+        query = query.filter(Product.activo == True)
     
     if search:
         search_term = f"%{search}%"

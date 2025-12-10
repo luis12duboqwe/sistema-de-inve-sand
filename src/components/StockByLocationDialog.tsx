@@ -7,8 +7,7 @@ import { Badge } from './ui/badge'
 import { MapPin, Package, Pencil, Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { StockByLocation, Location, Product } from '@/lib/types'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+import { apiClient } from '@/lib/apiClient'
 
 interface StockByLocationDialogProps {
   open: boolean
@@ -42,9 +41,7 @@ export function StockByLocationDialog({
   const loadStockByLocation = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/products/${productId}/stock/by-location`)
-      if (!response.ok) throw new Error('Error al cargar stock')
-      const data = await response.json()
+      const data = await apiClient.getStockByLocation(productId)
       setStockItems(data.items || [])
     } catch (error) {
       console.error('Error:', error)
