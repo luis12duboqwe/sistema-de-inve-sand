@@ -51,6 +51,8 @@ export interface StockByLocation {
   product_id: number
   location_id: number
   cantidad_disponible: number
+  cantidad_reservada: number  // V2.0: Stock reservado en transferencias pendientes
+  stock_libre?: number  // Computed: cantidad_disponible - cantidad_reservada
   location?: Location
 }
 
@@ -64,7 +66,7 @@ export interface Product {
   marca: string
   modelo: string
   capacidad?: string
-  condicion: 'nuevo' | 'usado' | 'reacondicionado'
+  condicion: 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'
   precio: number
   moneda: string
   garantia_meses: number
@@ -113,6 +115,7 @@ export interface OrderItem {
 
 export interface ProductWithStock extends Product {
   stock_disponible: number
+  stock_items?: StockByLocation[]  // V2.0: Explícitamente incluir stock por ubicación
 }
 
 export interface OrderWithItems extends Order {
@@ -206,6 +209,8 @@ export interface StockTransfer {
   to_location_name?: string  // V2.0: Nombre de ubicación destino
   from_profile_name?: string  // Legacy V1
   to_profile_name?: string  // Legacy V1
+  // Helper para compatibilidad con componentes
+  product?: { id: number; nombre: string; sku: string }
 }
 
 export interface CreateStockTransferRequest {

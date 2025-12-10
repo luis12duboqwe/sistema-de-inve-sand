@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -145,12 +145,15 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-full sm:max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar size={24} />
             Historial de Stock - {product.nombre}
           </DialogTitle>
+          <DialogDescription>
+            Registro completo de todos los movimientos de inventario para este producto
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

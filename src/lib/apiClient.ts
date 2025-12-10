@@ -7,7 +7,9 @@ import type {
   Order,
   SalesProfile,
   Location,
-  Supplier
+  Supplier,
+  CreateStockTransferRequest,
+  StockTransfer
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -412,6 +414,18 @@ class ApiClient {
     }
   }
 
+  async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
+    try {
+      await this.request(`/products/${productId}/stock/location/${locationId}`, {
+        method: 'POST',
+        body: JSON.stringify({ cantidad })
+      })
+    } catch (error) {
+      console.error('Error updating stock by location:', error)
+      throw new Error(`Failed to update stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async deleteOrder(orderId: number): Promise<void> {
     try {
       const apiBaseUrl = await getApiUrl()
@@ -669,6 +683,99 @@ class ApiClient {
     } catch (error) {
       console.error('Error checking API health:', error)
       throw new Error(`Failed to check API health: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // V2.0: Stock Transfers between Locations
+  async createStockTransfer(transfer: CreateStockTransferRequest): Promise<StockTransfer> {
+    try {
+      return this.request('/stock-transfers', {
+        method: 'POST',
+        body: JSON.stringify(transfer)
+      })
+    } catch (error) {
+      console.error('Error creating stock transfer:', error)
+      throw new Error(`Failed to create transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listStockTransfers(filters?: {
+    product_id?: number
+    from_location_id?: number
+    to_location_id?: number
+    location_id?: number  // Buscar donde la ubicación es origen O destino
+    estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
+  }): Promise<StockTransfer[]> {
+    try {
+      const params = new URLSearchParams()
+      if (filters?.product_id) params.append('product_id', filters.product_id.toString())
+      if (filters?.location_id) params.append('location_id', filters.location_id.toString())
+      if (filters?.from_location_id) params.append('from_location_id', filters.from_location_id.toString())
+      if (filters?.to_location_id) params.append('to_location_id', filters.to_location_id.toString())
+      if (filters?.estado) params.append('estado', filters.estado)
+      
+      const queryString = params.toString()
+      const response: any = await this.request(`/stock-transfers${queryString ? '?' + queryString : ''}`)
+      
+      // Mapear respuesta paginada del backend
+      const items = response.items || response
+      
+      // Agregar helper product para facilitar uso en componentes
+      return items.map((t: any) => ({
+        ...t,
+        product: t.product_nombre ? {
+          id: t.product_id,
+          nombre: t.product_nombre,
+          sku: t.product_sku
+        } : undefined
+      }))
+    } catch (error) {
+      console.error('Error listing stock transfers:', error)
+      throw new Error(`Failed to list transfers: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getStockTransfer(id: number): Promise<StockTransfer> {
+    try {
+      return this.request(`/stock-transfers/${id}`)
+    } catch (error) {
+      console.error('Error getting stock transfer:', error)
+      throw new Error(`Failed to get transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async confirmStockTransfer(id: number, confirmed_by: string): Promise<StockTransfer> {
+    try {
+      return this.request(`/stock-transfers/${id}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ confirmed_by })
+      })
+    } catch (error) {
+      console.error('Error confirming stock transfer:', error)
+      throw new Error(`Failed to confirm transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async rejectStockTransfer(id: number, rejected_by: string, rejection_reason?: string): Promise<StockTransfer> {
+    try {
+      return this.request(`/stock-transfers/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ rejected_by, rejection_reason })
+      })
+    } catch (error) {
+      console.error('Error rejecting stock transfer:', error)
+      throw new Error(`Failed to reject transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async cancelStockTransfer(id: number): Promise<void> {
+    try {
+      await this.request(`/stock-transfers/${id}`, {
+        method: 'DELETE'
+      })
+    } catch (error) {
+      console.error('Error canceling stock transfer:', error)
+      throw new Error(`Failed to cancel transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }

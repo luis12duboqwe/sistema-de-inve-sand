@@ -65,18 +65,18 @@ export function OptimizationInsightsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-7xl h-[90vh] overflow-hidden flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                <Lightbulb size={24} className="text-primary-foreground" weight="duotone" />
+      <DialogContent className="w-full sm:max-w-7xl h-[90vh] max-h-[90vh] overflow-hidden flex flex-col p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b border-border flex-shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center flex-shrink-0">
+                <Lightbulb size={20} className="sm:size-6 text-primary-foreground" weight="duotone" />
               </div>
-              <div>
-                <DialogTitle className="text-2xl font-bold">
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-lg sm:text-2xl font-bold truncate">
                   Insights de Optimización
                 </DialogTitle>
-                <DialogDescription className="mt-1">
+                <DialogDescription className="mt-1 text-xs sm:text-sm truncate">
                   Análisis multidimensional impulsado por IA
                 </DialogDescription>
               </div>

@@ -1,31 +1,70 @@
-# ⚡ INICIO RÁPIDO - Sistema Multi-Ubicación
+# ⚡ INICIO RÁPIDO - Sistema Multi-Ubicación V2.0
 
-## 🚀 En 3 Pasos
+## 🚀 Iniciar el Sistema (2 Pasos)
 
-### PASO 1: Migrar Datos (5 minutos)
+### PASO 1: Iniciar Backend
 
 ```bash
-cd /workspaces/spark-template/backend
+cd backend
+source venv/bin/activate  # Si ya existe venv, sino: python3 -m venv venv
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+O usa el script:
+```bash
+./start-backend.sh
+```
+
+### PASO 2: Iniciar Frontend (en otra terminal)
+
+```bash
+npm run dev
+```
+
+O usa el script:
+```bash
+./start-frontend.sh
+```
+
+**URLs:**
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000/docs
+
+---
+
+## 📋 Primera Configuración (Solo si es tu primera vez)
+
+### A. Migrar Datos (Si vienes de V1.0)
+
+```bash
+cd backend
 python3 migrate_to_locations_model.py
 ```
 
 Este script automáticamente:
-- ✅ Convierte tus Profiles antiguos en Locations (tiendas)
+- ✅ Convierte Profiles antiguos en Locations (tiendas)
 - ✅ Crea una Bodega Central
 - ✅ Crea un SalesProfile por defecto
 - ✅ Migra todo el stock
 - ✅ Actualiza todas las órdenes
 
-### PASO 2: Iniciar Backend (1 minuto)
+### B. O Inicializar Base de Datos Nueva
 
 ```bash
-cd /workspaces/spark-template/backend
-python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd backend
+python3 init_db.py --with-data
 ```
 
-### PASO 3: Configurar tu Sistema (15 minutos)
+Esto crea:
+- 2 ubicaciones de ejemplo (Tienda 1, Bodega Central)
+- 1 perfil de venta (Bot WhatsApp)
+- Productos de ejemplo con stock
 
-#### A. Crear tus 3 tiendas + bodega
+---
+
+## 🏪 Configurar tu Sistema
+
+### 1. Crear Ubicaciones (desde la UI o API)
 
 ```bash
 # Usa el archivo de ejemplos
@@ -65,72 +104,103 @@ curl -X POST http://localhost:8000/api/sales-profiles \
 
 #### C. Ver que todo funciona
 
+**Desde la UI:**
+- Ve a la pestaña "Ubicaciones"
+- Click en "Nueva Ubicación"
+- Completa: Nombre, Tipo (tienda/bodega/oficina), Dirección
+- Repite para crear todas tus ubicaciones
+
+**Desde la API:**
 ```bash
-# Ver ubicaciones
-curl http://localhost:8000/api/locations
-
-# Ver perfiles de venta
-curl http://localhost:8000/api/sales-profiles
-
-# Ver productos (ahora globales)
-curl http://localhost:8000/api/products
+curl -X POST http://localhost:8000/api/locations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Tienda Centro",
+    "tipo": "tienda",
+    "direccion": "Calle Principal #123",
+    "activo": true
+  }'
 ```
+
+### 2. Crear Perfiles de Venta
+
+**Desde la UI:**
+- Ve a la pestaña "Perfiles de Venta"
+- Click en "Nuevo Perfil"
+- Completa: Nombre, Tipo (bot_ia/vendedor_humano), Canales
+- Repite para cada vendedor/bot
+
+**Desde la API:**
+```bash
+curl -X POST http://localhost:8000/api/sales-profiles \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Bot WhatsApp Tienda 1",
+    "slug": "bot-whatsapp-t1",
+    "tipo": "bot_ia",
+    "canales": ["whatsapp", "facebook"],
+    "active": true
+  }'
+```
+
+### 3. Agregar Productos
+
+**Desde la UI:**
+- Ve a la pestaña "Productos"
+- Click en "Agregar Producto"
+- Completa información del producto
+- Selecciona ubicación para stock inicial
+- El producto será visible para TODOS los perfiles de venta
 
 ---
 
 ## 📚 Documentación Completa
 
-- **Guía Completa:** `NUEVO_SISTEMA_UBICACIONES.md`
-- **Resumen Visual:** `RESUMEN_VISUAL.md`
-- **Ejemplos API:** `api-examples-nuevo-sistema.json`
-- **Script Migración:** `backend/migrate_to_locations_model.py`
+- **[NUEVO_SISTEMA_UBICACIONES.md](./NUEVO_SISTEMA_UBICACIONES.md)** - Arquitectura completa
+- **[SISTEMA_TRANSFERENCIAS_V2.md](./SISTEMA_TRANSFERENCIAS_V2.md)** - Transferencias con reservas
+- **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** - Guía de pruebas
+- **[api-examples-nuevo-sistema.json](./api-examples-nuevo-sistema.json)** - Ejemplos API
+- **[Backend README](./backend/README.md)** - Documentación backend
 
 ---
 
-## 🆘 Ayuda Rápida
+## 🆘 Solución de Problemas
 
-### ¿El backend no inicia?
+### Backend no inicia
 
 ```bash
-# Instalar dependencias
 cd backend
 pip3 install -r requirements.txt
-
-# Verificar que no haya errores
-python3 -c "from app import models, schemas; print('OK')"
+python3 -c "from app import models, schemas; print('✅ Módulos OK')"
 ```
 
-### ¿Error al migrar?
+### Error en migración
 
 ```bash
-# Hacer backup primero
-cp inventory.db inventory.db.backup
+# Hacer backup
+cp backend/inventory.db backend/inventory.db.backup
 
-# Ejecutar migración con logs
+# Ejecutar con logs
+cd backend
 python3 migrate_to_locations_model.py 2>&1 | tee migracion.log
 ```
 
-### ¿Cómo pruebo los endpoints?
+### Probar endpoints
 
-```bash
-# Abrir en navegador
-http://localhost:8000/docs
-
-# O usar curl
-curl http://localhost:8000/api/locations
-```
+Abre http://localhost:8000/docs en tu navegador para la documentación interactiva.
 
 ---
 
-## ✅ Checklist de Configuración
+## ✅ Checklist Post-Instalación
 
-- [ ] Migración ejecutada exitosamente
 - [ ] Backend corriendo en puerto 8000
-- [ ] 3 tiendas creadas
-- [ ] 1 bodega creada
-- [ ] 10 perfiles de venta creados
-- [ ] Productos visibles globalmente
-- [ ] Primera orden de prueba creada
+- [ ] Frontend corriendo en puerto 5173
+- [ ] Base de datos inicializada
+- [ ] Ubicaciones creadas (tiendas/bodegas)
+- [ ] Perfiles de venta configurados
+- [ ] Productos agregados con stock
+- [ ] Primera orden de prueba realizada
+- [ ] Transferencia de prueba ejecutada
 
 ---
 

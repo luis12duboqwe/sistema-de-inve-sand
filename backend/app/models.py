@@ -150,9 +150,11 @@ class Stock(Base):
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True)
     cantidad_disponible = Column(Integer, default=0, nullable=False)
+    cantidad_reservada = Column(Integer, default=0, nullable=False)  # V2.0: Stock reservado en transferencias pendientes
     # NOTA: SQLite no soporta CHECK constraints de forma consistente
     # Se debe validar cantidad_disponible >= 0 en la lógica de aplicación
     # Todas las operaciones deben verificar esto antes de commit
+    # Stock real disponible para venta = cantidad_disponible - cantidad_reservada
 
     product = relationship("Product", back_populates="stock_items")
     location = relationship("Location", back_populates="stock_items")

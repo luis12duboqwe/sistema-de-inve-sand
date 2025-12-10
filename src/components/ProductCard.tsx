@@ -97,7 +97,7 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
                 size="icon"
                 onClick={() => onTransfer(product)}
                 className="h-8 w-8 hover:scale-110 transition-transform"
-                title="Transferir stock a otro perfil"
+                title="Transferir stock entre ubicaciones"
               >
                 <ArrowsLeftRight size={18} />
               </Button>

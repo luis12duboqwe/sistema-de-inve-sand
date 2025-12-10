@@ -128,8 +128,15 @@ def create_transfer(
             detail=f"Stock insuficiente en '{from_location.nombre}'. Disponible: {source_stock.cantidad_disponible}, Solicitado: {transfer.cantidad}"
         )
     
+    # Verificar que hay stock disponible NO RESERVADO
+    stock_libre = source_stock.cantidad_disponible - source_stock.cantidad_reservada
+    if stock_libre < transfer.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock insuficiente en '{from_location.nombre}'. Libre: {stock_libre} (Total: {source_stock.cantidad_disponible}, Reservado: {source_stock.cantidad_reservada}), Solicitado: {transfer.cantidad}"
+        )
+    
     # Crear la transferencia en estado PENDIENTE
-    # El stock se moverá cuando se confirme la transferencia
     db_transfer = StockTransfer(
         product_id=product.id,
         from_location_id=from_location.id,
@@ -141,7 +148,29 @@ def create_transfer(
     )
     db.add(db_transfer)
     
+    # V2.0: RESERVAR el stock inmediatamente (stock en tránsito)
+    # El stock queda bloqueado en la ubicación de origen hasta que se confirme o rechace
+    stock_anterior = source_stock.cantidad_reservada
+    source_stock.cantidad_reservada += transfer.cantidad
+    
+    # Registrar en historial de stock (trazabilidad de reserva)
+    history_reserva = StockHistory(
+        product_id=product.id,
+        location_id=from_location.id,
+        tipo_cambio='transferencia_reserva',
+        cantidad=-transfer.cantidad,  # Negativo porque reduce disponibilidad
+        stock_anterior=source_stock.cantidad_disponible,
+        stock_nuevo=source_stock.cantidad_disponible - transfer.cantidad,  # Stock libre después de reserva
+        referencia_id=None,  # Se actualizará después del flush
+        referencia_tipo='transfer_pending',
+        notas=f"Stock reservado para transferencia a '{to_location.nombre}': {transfer.notas or 'Sin notas'}",
+        usuario=transfer.created_by
+    )
+    db.add(history_reserva)
+    
     try:
+        db.flush()  # Obtener el ID de la transferencia
+        history_reserva.referencia_id = db_transfer.id  # Actualizar referencia
         db.commit()
         db.refresh(db_transfer)
         return _serialize_transfer(db_transfer)
@@ -192,7 +221,7 @@ def list_transfers(
     
     # Paginación
     total = query.count()
-    total_pages = (total + per_page - 1) // per_page
+    pages = (total + per_page - 1) // per_page
     
     transfers = query.offset((page - 1) * per_page).limit(per_page).all()
     
@@ -201,7 +230,7 @@ def list_transfers(
         total=total,
         page=page,
         per_page=per_page,
-        total_pages=total_pages
+        pages=pages
     )
 
 
@@ -286,7 +315,14 @@ def confirm_transfer(
             detail="Stock de origen no encontrado"
         )
     
-    # VALIDACIÓN CRÍTICA PREVIA: Verificar stock suficiente ANTES de decrementar
+    # VALIDACIÓN CRÍTICA: Verificar que el stock esté reservado
+    if source_stock.cantidad_reservada < transfer.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock no reservado correctamente. Reservado: {source_stock.cantidad_reservada}, Necesario: {transfer.cantidad}. No se puede confirmar la transferencia."
+        )
+    
+    # Verificar stock disponible después de liberar la reserva
     if source_stock.cantidad_disponible < transfer.cantidad:
         raise HTTPException(
             status_code=400,
@@ -307,13 +343,18 @@ def confirm_transfer(
         dest_stock = Stock(
             product_id=product.id,
             location_id=transfer.to_location_id,
-            cantidad_disponible=0
+            cantidad_disponible=0,
+            cantidad_reservada=0
         )
         db.add(dest_stock)
         db.flush()
     
-    # Actualizar stocks atómicamente
+    # V2.0: Actualizar stocks atómicamente CON liberación de reserva
+    # 1. Reducir stock disponible en origen
     source_stock.cantidad_disponible -= transfer.cantidad
+    # 2. Liberar la reserva en origen
+    source_stock.cantidad_reservada -= transfer.cantidad
+    # 3. Aumentar stock disponible en destino
     dest_stock.cantidad_disponible += transfer.cantidad
     
     # VALIDACIÓN CRÍTICA POST: Verificar que el stock no quedó negativo (seguridad adicional contra race conditions)
@@ -409,24 +450,45 @@ def reject_transfer(
             detail=f"La transferencia ya está en estado '{transfer.estado}'. Solo se pueden rechazar transferencias pendientes."
         )
     
+    # V2.0: LIBERAR la reserva de stock al rechazar
+    source_stock = db.query(Stock).filter(
+        Stock.product_id == transfer.product_id,
+        Stock.location_id == transfer.from_location_id
+    ).first()
+    
+    if not source_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="Stock de origen no encontrado para liberar reserva"
+        )
+    
+    # Verificar que el stock esté reservado
+    if source_stock.cantidad_reservada < transfer.cantidad:
+        # Log de advertencia pero continuar (puede ser transferencia antigua sin reserva)
+        print(f"ADVERTENCIA: Reserva inconsistente al rechazar transferencia {transfer_id}. Reservado: {source_stock.cantidad_reservada}, Cantidad transferencia: {transfer.cantidad}")
+    
+    # Liberar la reserva
+    stock_reservado_anterior = source_stock.cantidad_reservada
+    source_stock.cantidad_reservada = max(0, source_stock.cantidad_reservada - transfer.cantidad)
+    
     # Actualizar estado de la transferencia
     transfer.estado = "rechazada"
     transfer.confirmed_at = datetime.utcnow()
     transfer.confirmed_by = reject_data.rejected_by
     transfer.rejection_reason = reject_data.rejection_reason
     
-    # V2.0: Registrar rechazo en historial para trazabilidad
+    # V2.0: Registrar rechazo y liberación de reserva en historial
     from app.models import StockHistory
     history_rechazo = StockHistory(
         product_id=transfer.product_id,
         location_id=transfer.from_location_id,
         tipo_cambio='transferencia_rechazada',
-        cantidad=0,  # No se mueve stock
-        stock_anterior=0,
-        stock_nuevo=0,
+        cantidad=transfer.cantidad,  # Positivo porque libera stock
+        stock_anterior=source_stock.cantidad_disponible - transfer.cantidad,
+        stock_nuevo=source_stock.cantidad_disponible,  # Stock libre después de liberar reserva
         referencia_id=transfer.id,
         referencia_tipo='transfer_rejected',
-        notas=f"Transferencia rechazada por {reject_data.rejected_by}: {reject_data.rejection_reason or 'Sin motivo especificado'}",
+        notas=f"Transferencia rechazada por {reject_data.rejected_by}: {reject_data.rejection_reason or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
         usuario=reject_data.rejected_by
     )
     db.add(history_rechazo)
@@ -469,20 +531,40 @@ def cancel_transfer(
             detail=f"Solo se pueden cancelar transferencias pendientes. Estado actual: '{transfer.estado}'"
         )
     
+    # V2.0: LIBERAR la reserva de stock al cancelar
+    source_stock = db.query(Stock).filter(
+        Stock.product_id == transfer.product_id,
+        Stock.location_id == transfer.from_location_id
+    ).first()
+    
+    if not source_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="Stock de origen no encontrado para liberar reserva"
+        )
+    
+    # Verificar que el stock esté reservado
+    if source_stock.cantidad_reservada < transfer.cantidad:
+        # Log de advertencia pero continuar (puede ser transferencia antigua sin reserva)
+        print(f"ADVERTENCIA: Reserva inconsistente al cancelar transferencia {transfer_id}. Reservado: {source_stock.cantidad_reservada}, Cantidad transferencia: {transfer.cantidad}")
+    
+    # Liberar la reserva
+    source_stock.cantidad_reservada = max(0, source_stock.cantidad_reservada - transfer.cantidad)
+    
     transfer.estado = "cancelada"
     
-    # V2.0: Registrar cancelación en historial para trazabilidad
+    # V2.0: Registrar cancelación y liberación de reserva en historial
     from app.models import StockHistory
     history_cancelacion = StockHistory(
         product_id=transfer.product_id,
         location_id=transfer.from_location_id,
         tipo_cambio='transferencia_cancelada',
-        cantidad=0,  # No se mueve stock
-        stock_anterior=0,
-        stock_nuevo=0,
+        cantidad=transfer.cantidad,  # Positivo porque libera stock
+        stock_anterior=source_stock.cantidad_disponible - transfer.cantidad,
+        stock_nuevo=source_stock.cantidad_disponible,  # Stock libre después de liberar reserva
         referencia_id=transfer.id,
         referencia_tipo='transfer_cancelled',
-        notas=f"Transferencia cancelada: {transfer.notas or 'Sin motivo especificado'}",
+        notas=f"Transferencia cancelada: {transfer.notas or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
         usuario=transfer.created_by or 'sistema'
     )
     db.add(history_cancelacion)

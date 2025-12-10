@@ -1,25 +1,21 @@
 # 📦 Sistema de Inventario Multi-Ubicación para Ventas Online
 
-## 🚀 INICIO RÁPIDO (3 Comandos)
+## 🚀 INICIO RÁPIDO (2 Comandos)
 
 ```bash
-# 1. Menú interactivo (RECOMENDADO)
-chmod +x inicio.sh && ./inicio.sh
-
-# 2. O todo en uno directamente
+# 1. Inicio automático (RECOMENDADO)
 chmod +x start-all.sh && ./start-all.sh
 
-# 3. O configurar + iniciar manualmente
-chmod +x setup-complete.sh && ./setup-complete.sh
-./start-backend.sh    # Terminal 1
-./start-frontend.sh   # Terminal 2
+# 2. O inicio manual en terminales separadas
+./start-backend.sh    # Terminal 1 - Backend
+./start-frontend.sh   # Terminal 2 - Frontend
 ```
 
 **URLs después de iniciar:**
 - 🖥️ **Frontend:** http://localhost:5173
-- 🔧 **Backend:** http://localhost:8000/docs
+- 🔧 **Backend API:** http://localhost:8000/docs
 
-**📖 [Ver Guía Completa](COMO_LEVANTAR_SISTEMA.md)**
+**📖 [Ver Guía Completa de Inicio](INICIO_RAPIDO.md) | [Arquitectura V2.0](NUEVO_SISTEMA_UBICACIONES.md)**
 
 ---
 
@@ -62,25 +58,27 @@ Un sistema avanzado de gestión de inventario diseñado para **múltiples ubicac
 - Historial completo de movimientos
 - Reportes por vendedor y por tienda
 
-## 📚 Documentación Nueva Arquitectura
+## 📚 Documentación V2.0
 
-- **[INICIO_RAPIDO.md](./INICIO_RAPIDO.md)** - Guía de inicio en 3 pasos
-- **[NUEVO_SISTEMA_UBICACIONES.md](./NUEVO_SISTEMA_UBICACIONES.md)** - Documentación completa
-- **[RESUMEN_VISUAL.md](./RESUMEN_VISUAL.md)** - Diagramas y flujos
+- **[INICIO_RAPIDO.md](./INICIO_RAPIDO.md)** - Guía de inicio paso a paso
+- **[NUEVO_SISTEMA_UBICACIONES.md](./NUEVO_SISTEMA_UBICACIONES.md)** - Arquitectura completa
+- **[SISTEMA_TRANSFERENCIAS_V2.md](./SISTEMA_TRANSFERENCIAS_V2.md)** - Sistema de transferencias con reservas
+- **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** - Guía de pruebas
+- **[INTEGRATION.md](./INTEGRATION.md)** - Integración frontend/backend
 - **[api-examples-nuevo-sistema.json](./api-examples-nuevo-sistema.json)** - Ejemplos de API
 
-## 🧪 Inicio Rápido
+## 🧪 Inicio del Sistema
 
 ### ⚡ Opción 1: Script Automático (Recomendado)
 
 **Linux/Mac:**
 ```bash
-# IMPORTANTE: Primero dar permisos de ejecución (solo primera vez)
-python3 fix_permissions.py
-# o
-bash fix-permissions.sh
+chmod +x start-all.sh
+./start-all.sh
+```
 
-# Luego iniciar:
+O por separado:
+```bash
 ./start-backend.sh   # Terminal 1 - Backend en puerto 8000
 ./start-frontend.sh  # Terminal 2 - Frontend en puerto 5173
 ```
@@ -91,71 +89,76 @@ start-backend.bat   # Terminal 1 - Backend en puerto 8000
 start-frontend.bat  # Terminal 2 - Frontend en puerto 5173
 ```
 
-> ⚠️ **Nota**: Si ves "Permission denied", ejecuta `python3 fix_permissions.py` primero.
-> Ver [PERMISSIONS_FIX.md](./PERMISSIONS_FIX.md) para más detalles.
-
 ### ⚙️ Opción 2: Configuración Manual
 
-**Linux/Mac:**
+**Backend:**
 ```bash
-# Backend
 cd backend
 python3 -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
-python init_db.py --with-data
-python -m uvicorn app.main:app --reload --port 8000
-
-# Frontend (en otra terminal)
-npm install
-npm run dev
+python3 init_db.py --with-data
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Windows:**
-```cmd
-REM Backend
-cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python init_db.py --with-data
-python -m uvicorn app.main:app --reload --port 8000
-
-REM Frontend (en otra terminal)
+**Frontend:**
+```bash
 npm install
 npm run dev
 ```
 
 ### 📱 URLs de Acceso
 
-Después de iniciar (espera 30 segundos a que se compile):
+Después de iniciar (espera ~30 segundos para compilación):
 
-- **Frontend**: http://localhost:5173 ← Abre aquí
-- **Backend API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs (interactivo)
-- **ReDoc**: http://localhost:8000/redoc
+- **🖥️ Frontend**: http://localhost:5173 
+- **🔧 Backend API**: http://localhost:8000/docs (Documentación interactiva)
+- **📚 ReDoc**: http://localhost:8000/redoc
 
-### 🧪 Pruebas del Sistema
-
-Verificar que todo esté configurado correctamente:
+### 🧪 Verificar el Sistema
 
 ```bash
-# Requiere que el backend esté ejecutándose
+chmod +x test-system.sh
 ./test-system.sh
 ```
 
-📖 **Guía completa de pruebas**: Ver [TESTING_GUIDE.md](./TESTING_GUIDE.md)
+📖 **Guía completa de pruebas**: [TESTING_GUIDE.md](./TESTING_GUIDE.md)
 
-## 🏗️ Arquitectura
+## 🏗️ Arquitectura V2.0
 
-El sistema soporta **dos modos de backend**:
+### Modo de Operación: Backend FastAPI + Frontend React
 
-- **Modo Local** (por defecto): Datos en Spark KV (almacenamiento del navegador) con sincronización automática
-- **Modo API**: Conectado a backend FastAPI con SQLite
+- **Backend**: FastAPI con SQLite para persistencia
+- **Frontend**: React + TypeScript + Vite + TailwindCSS
+- **Comunicación**: REST API con documentación automática (Swagger/OpenAPI)
 
-👉 Ver [INTEGRATION.md](./INTEGRATION.md) para guía completa de integración.
+### Estructura del Proyecto
 
-### ✅ Características Implementadas (100%)
+```
+spark-template/
+├── backend/              # API FastAPI
+│   ├── app/
+│   │   ├── main.py      # Aplicación principal
+│   │   ├── models.py    # Modelos SQLAlchemy
+│   │   ├── schemas.py   # Esquemas Pydantic
+│   │   └── routers/     # Endpoints API
+│   ├── init_db.py       # Inicialización DB
+│   └── requirements.txt # Dependencias Python
+│
+├── src/                  # Frontend React
+│   ├── App.tsx          # Componente principal
+│   ├── components/      # Componentes UI
+│   ├── lib/             # Servicios y utilidades
+│   └── hooks/           # Custom React hooks
+│
+└── Documentación
+    ├── README.md        # Este archivo
+    ├── INICIO_RAPIDO.md
+    ├── NUEVO_SISTEMA_UBICACIONES.md
+    └── SISTEMA_TRANSFERENCIAS_V2.md
+```
+
+### ✅ Características Principales
 
 #### 🔹 Gestión de Productos (100%) ✓
 - ✅ Visualización de catálogo de productos con filtros

@@ -3,7 +3,7 @@ import { Building, MapPin, Phone, Plus, Pencil, Trash, Package } from '@phosphor
 import { toast } from 'sonner'
 import { Location } from '@/lib/types'
 import { Button } from './ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -28,6 +28,7 @@ export function LocationsList() {
 
   useEffect(() => {
     loadLocations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useAPI, apiUrl])
 
   const loadLocations = async () => {
@@ -224,6 +225,9 @@ export function LocationsList() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Crear Nueva Ubicación</DialogTitle>
+              <DialogDescription>
+                Agrega una nueva ubicación física para gestionar tu inventario
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
@@ -366,6 +370,9 @@ export function LocationsList() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Ubicación</DialogTitle>
+            <DialogDescription>
+              Modifica los detalles de esta ubicación
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>

@@ -15,9 +15,8 @@ import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 // import { NewProfileDialog } from '@/components/NewProfileDialog' // DEPRECATED V1.0
 import { EditProductDialog } from '@/components/EditProductDialog'
-// V1.0 LEGACY: TransferStockDialog no usado - reemplazado por StockByLocationDialog
-// import { TransferStockDialog } from '@/components/TransferStockDialog'
-// import { EditProfileDialog } from '@/components/EditProfileDialog' // DEPRECATED V1.0
+import { TransferStockDialog } from '@/components/TransferStockDialog'
+import { TransferListDialog } from '@/components/TransferListDialog'
 import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
@@ -54,7 +53,7 @@ import { useRealtimeSync } from '@/hooks/use-realtime-sync'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
-import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
+import { inventoryServiceFactory, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { motion } from 'framer-motion'
 
 export default function App() {
@@ -94,8 +93,8 @@ export default function App() {
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
-  // V1.0 LEGACY: Variables no usadas - comentadas
-  // const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
+  const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
+  const [showTransferListDialog, setShowTransferListDialog] = useState(false)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
   // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -914,8 +913,7 @@ export default function App() {
                     <ProductCard
                       product={product}
                       onEdit={setEditingProduct}
-                      // V1.0 LEGACY: onTransfer deshabilitado - usar StockByLocationDialog
-                      // onTransfer={setTransferringProduct}
+                      onTransfer={setTransferringProduct}
                       onViewHistory={setViewingProductHistory}
                       onToggleActive={async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
@@ -1209,74 +1207,141 @@ export default function App() {
                   <h2 className="text-2xl font-bold">Transferencias de Stock</h2>
                   <p className="text-muted-foreground">Transfiere inventario entre ubicaciones (tiendas/bodegas)</p>
                 </div>
+                <Button
+                  variant="default"
+                  onClick={() => setShowTransferListDialog(true)}
+                  className="gap-2"
+                >
+                  <Package size={20} />
+                  Ver Transferencias
+                </Button>
               </div>
 
-              {/* Instrucciones */}
-              <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-                <h3 className="font-semibold text-blue-900 mb-2">ℹ️ Cómo hacer una transferencia:</h3>
-                <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
-                  <li>Ve a la pestaña <strong>"Productos"</strong></li>
-                  <li>Haz clic en un producto</li>
-                  <li>Selecciona <strong>"Gestionar Stock por Ubicación"</strong></li>
-                  <li>Usa el botón <strong>"Transferir"</strong> para mover stock entre ubicaciones</li>
-                </ol>
+              {/* Instrucciones mejoradas */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                    <ArrowsLeftRight size={20} weight="bold" />
+                    Cómo hacer una transferencia:
+                  </h3>
+                  <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
+                    <li>Ve a la pestaña <strong>"Productos"</strong></li>
+                    <li>Busca el producto que quieres transferir</li>
+                    <li>Haz clic en el botón <ArrowsLeftRight className="inline w-4 h-4 mx-1" /> <strong>Transferir</strong></li>
+                    <li>Selecciona ubicación origen y destino</li>
+                    <li>Ingresa la cantidad y confirma</li>
+                  </ol>
+                </div>
+
+                <div className="rounded-lg border border-green-200 bg-green-50/50 p-4">
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center gap-2">
+                    <MapPin size={20} weight="bold" />
+                    Gestión de stock por ubicación:
+                  </h3>
+                  <ul className="space-y-2 text-sm text-green-800">
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Cada producto puede tener stock en múltiples ubicaciones</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Las transferencias mueven inventario entre tiendas y bodegas</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>El stock total es la suma de todas las ubicaciones</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
 
               {/* Lista de productos con stock por ubicación */}
               <div className="grid gap-4">
-                <h3 className="text-lg font-semibold">Productos con Stock en Múltiples Ubicaciones</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">Productos con Inventario Multi-Ubicación</h3>
+                  <Badge variant="secondary">
+                    {(products ?? []).filter(p => p.stock_items && p.stock_items.length > 1).length} productos en múltiples ubicaciones
+                  </Badge>
+                </div>
+                
                 {(products ?? []).filter(p => p.stock_items && p.stock_items.length > 0).length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <ArrowsLeftRight size={48} className="mx-auto mb-4 opacity-50" />
-                    <p>No hay productos con stock asignado a ubicaciones</p>
-                    <p className="text-sm mt-2">Agrega productos y asígnalos a ubicaciones para ver transferencias</p>
+                  <div className="text-center py-12 text-muted-foreground border rounded-lg bg-muted/20">
+                    <ArrowsLeftRight size={48} className="mx-auto mb-4 opacity-50" weight="duotone" />
+                    <p className="font-medium">No hay productos con stock asignado a ubicaciones</p>
+                    <p className="text-sm mt-2">Agrega productos y asígnalos a ubicaciones en la pestaña <strong>Productos</strong></p>
                   </div>
                 ) : (
-                  <div className="grid gap-4">
+                  <div className="grid gap-3">
                     {(products ?? [])
                       .filter(p => p.stock_items && p.stock_items.length > 0)
+                      .sort((a, b) => (b.stock_items?.length || 0) - (a.stock_items?.length || 0)) // Ordenar por cantidad de ubicaciones
                       .map(product => (
-                        <div key={product.id} className="rounded-lg border p-4">
+                        <div key={product.id} className="rounded-lg border p-4 hover:shadow-md transition-shadow">
                           <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <h4 className="font-semibold">{product.nombre}</h4>
-                              <p className="text-sm text-muted-foreground">{product.sku}</p>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-semibold">{product.nombre}</h4>
+                                {(product.stock_items?.length || 0) > 1 && (
+                                  <Badge variant="default" className="text-xs">
+                                    {product.stock_items?.length} ubicaciones
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">SKU: {product.sku}</p>
                             </div>
-                            <Badge variant="outline">
-                              Total: {product.stock_disponible} unidades
-                            </Badge>
+                            <div className="text-right">
+                              <Badge variant="outline" className="text-base px-3 py-1">
+                                {product.stock_disponible} unidades
+                              </Badge>
+                              <p className="text-xs text-muted-foreground mt-1">Total</p>
+                            </div>
                           </div>
                           
-                          <div className="grid gap-2">
-                            <p className="text-sm font-medium">Stock por ubicación:</p>
-                            {product.stock_items?.map((stockItem: any) => {
-                              const location = locations.find(l => l.id === stockItem.location_id)
-                              return (
-                                <div key={stockItem.location_id} className="flex justify-between items-center text-sm bg-muted/50 p-2 rounded">
-                                  <span className="flex items-center gap-2">
-                                    <MapPin size={14} />
-                                    {location?.nombre || `Ubicación ${stockItem.location_id}`}
-                                    <Badge variant="secondary" className="text-xs">
-                                      {location?.tipo}
-                                    </Badge>
-                                  </span>
-                                  <span className="font-medium">{stockItem.cantidad} uds</span>
-                                </div>
-                              )
-                            })}
+                          <div className="grid gap-2 mb-3">
+                            <p className="text-sm font-medium flex items-center gap-1">
+                              <MapPin size={14} weight="fill" />
+                              Desglose por ubicación:
+                            </p>
+                            <div className="grid gap-1.5">
+                              {product.stock_items?.map((stockItem) => {
+                                const location = locations.find(l => l.id === stockItem.location_id)
+                                const stockLibre = stockItem.cantidad_disponible - (stockItem.cantidad_reservada || 0)
+                                return (
+                                  <div 
+                                    key={stockItem.location_id} 
+                                    className="flex justify-between items-center text-sm bg-muted/50 p-2.5 rounded hover:bg-muted transition-colors"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <MapPin size={14} weight="fill" className="text-primary" />
+                                      <span className="font-medium">{location?.nombre || `Ubicación ${stockItem.location_id}`}</span>
+                                      <Badge variant="secondary" className="text-xs capitalize">
+                                        {location?.tipo}
+                                      </Badge>
+                                    </span>
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <Badge variant={stockItem.cantidad_disponible > 0 ? 'default' : 'secondary'}>
+                                        {stockItem.cantidad_disponible} uds
+                                      </Badge>
+                                      {stockItem.cantidad_reservada > 0 && (
+                                        <span className="text-xs text-amber-600">
+                                          ({stockItem.cantidad_reservada} reservadas | {stockLibre} libres)
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
                           </div>
                           
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full mt-3"
-                            onClick={() => {
-                              setActiveTab('products')
-                              // Scroll to product (opcional - requeriría más código)
-                            }}
+                            className="w-full"
+                            onClick={() => setTransferringProduct(product)}
                           >
-                            <ArrowsLeftRight size={16} className="mr-2" />
-                            Ver producto y transferir
+                            <ArrowsLeftRight size={16} className="mr-2" weight="bold" />
+                            Transferir Stock
                           </Button>
                         </div>
                       ))}
@@ -1385,26 +1450,38 @@ export default function App() {
         />
       )}
 
-      {/* V1.0 LEGACY - TransferStockDialog comentado - usa transfers entre profiles (incorrecto)
-          V2.0 usa StockByLocationDialog para transfers entre locations físicas */}
-      {/* V1.0 LEGACY - TransferStockDialog comentado - usa transfers entre profiles (incorrecto)
-          V2.0 usa StockByLocationDialog para transfers entre locations físicas
-      {transferringProduct && currentProfile && (
+      {/* V2.0: TransferStockDialog para transferencias entre ubicaciones */}
+      {transferringProduct && (
         <TransferStockDialog
           open={true}
           product={transferringProduct}
-          currentProfile={currentProfile}
-          profiles={profiles ?? []}
           onOpenChange={(open) => !open && setTransferringProduct(null)}
           onTransferComplete={async () => {
             // Recargar productos después de la transferencia
-            const updatedProducts = await service.getProducts()
+            const updatedProducts = await inventoryServiceInstance.getProducts()
             setProducts(updatedProducts)
             setTransferringProduct(null)
+            toast.success('Transferencia creada - pendiente de confirmación')
+            // Abrir el diálogo de lista de transferencias
+            setShowTransferListDialog(true)
           }}
         />
       )}
-      */}
+
+      {/* V2.0: TransferListDialog para gestionar transferencias pendientes y completadas */}
+      {showTransferListDialog && (
+        <TransferListDialog
+          open={showTransferListDialog}
+          onOpenChange={setShowTransferListDialog}
+          locations={locations ?? []}
+          onTransferUpdated={async () => {
+            // Recargar productos cuando se confirme/rechace una transferencia
+            const updatedProducts = await inventoryServiceInstance.getProducts()
+            setProducts(updatedProducts)
+            toast.success('Stock actualizado')
+          }}
+        />
+      )}
 
       {/* DEPRECATED V1.0 - Edit Profile Business Units
       {editingProfile && (

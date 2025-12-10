@@ -3,7 +3,7 @@ import { Robot, User, Cpu, Plus, Pencil, Trash, WhatsappLogo, FacebookLogo, Inst
 import { toast } from 'sonner'
 import { SalesProfile } from '@/lib/types'
 import { Button } from './ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -29,6 +29,7 @@ export function SalesProfilesList() {
 
   useEffect(() => {
     loadProfiles()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useAPI, apiUrl])
 
   const loadProfiles = async () => {
@@ -256,6 +257,9 @@ export function SalesProfilesList() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Crear Nuevo Perfil de Venta</DialogTitle>
+              <DialogDescription>
+                Crea un bot, vendedor o sistema para gestionar ventas en diferentes canales
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
@@ -423,6 +427,9 @@ export function SalesProfilesList() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Perfil de Venta</DialogTitle>
+            <DialogDescription>
+              Modifica la configuración de este perfil de venta
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>

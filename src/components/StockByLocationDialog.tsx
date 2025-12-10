@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
@@ -70,21 +70,14 @@ export function StockByLocationDialog({
     }
 
     try {
-      const response = await fetch(`${API_URL}/products/${productId}/stock/location/${locationId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cantidad: editingQuantity })
-      })
-
-      if (!response.ok) throw new Error('Error al actualizar stock')
-
+      await apiClient.updateStockByLocation(productId, locationId, editingQuantity)
       toast.success('Stock actualizado exitosamente')
       setEditingLocationId(null)
       loadStockByLocation()
       onStockUpdated?.()
     } catch (error) {
       console.error('Error:', error)
-      toast.error('Error al actualizar stock')
+      toast.error(error instanceof Error ? error.message : 'Error al actualizar stock')
     }
   }
 
@@ -177,18 +170,24 @@ export function StockByLocationDialog({
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-end gap-1">
                           <Badge 
                             variant={stock.cantidad_disponible > 0 ? "default" : "secondary"}
                             className="text-base px-3 py-1"
                           >
                             {stock.cantidad_disponible} unidades
                           </Badge>
+                          {stock.cantidad_reservada > 0 && (
+                            <span className="text-xs text-amber-600">
+                              ({stock.cantidad_reservada} reservadas)
+                            </span>
+                          )}
                           {editable && (
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => handleStartEdit(stock.location_id, stock.cantidad_disponible)}
+                              className="mt-1"
                             >
                               <Pencil className="w-4 h-4" />
                             </Button>
@@ -221,12 +220,15 @@ export function StockByLocationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
             Stock por Ubicación: {productName}
           </DialogTitle>
+          <DialogDescription>
+            Visualiza y gestiona el inventario de este producto en cada ubicación
+          </DialogDescription>
         </DialogHeader>
         {content}
       </DialogContent>

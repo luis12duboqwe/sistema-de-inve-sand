@@ -173,3 +173,40 @@
   background-size: 1000px 100%;
   animation: shimmer 2s infinite;
 }
+
+/* Mejoras de responsividad para diálogos */
+@layer utilities {
+  /* Evitar overflow horizontal en móviles */
+  @media (max-width: 640px) {
+    [data-slot="dialog-content"] {
+      max-width: calc(100vw - 1rem) !important;
+      margin: 0.5rem;
+    }
+    
+    /* Asegurar que los botones sean accesibles */
+    [data-slot="dialog-footer"] button {
+      min-height: 44px; /* Tamaño mínimo táctil recomendado */
+      width: 100%;
+    }
+    
+    /* Mejorar espaciado en formularios */
+    [data-slot="dialog-content"] input,
+    [data-slot="dialog-content"] select,
+    [data-slot="dialog-content"] textarea {
+      font-size: 16px; /* Evitar zoom en iOS */
+    }
+  }
+  
+  /* Tablet y superior */
+  @media (min-width: 640px) {
+    [data-slot="dialog-footer"] button {
+      min-width: 100px;
+      width: auto;
+    }
+  }
+  
+  /* Asegurar scroll suave */
+  [data-slot="dialog-content"] {
+    overscroll-behavior: contain;
+  }
+}

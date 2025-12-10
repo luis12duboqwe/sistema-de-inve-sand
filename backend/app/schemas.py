@@ -138,6 +138,7 @@ class StockByLocationBase(BaseModel):
     product_id: int
     location_id: int
     cantidad_disponible: int = Field(0, ge=0)
+    cantidad_reservada: int = Field(0, ge=0)  # V2.0: Stock reservado en transferencias pendientes
 
 
 class StockByLocationCreate(StockByLocationBase):
@@ -146,6 +147,7 @@ class StockByLocationCreate(StockByLocationBase):
 
 class StockByLocationUpdate(BaseModel):
     cantidad_disponible: int = Field(..., ge=0)
+    cantidad_reservada: Optional[int] = Field(None, ge=0)  # Opcional para actualizaciones
 
 
 class StockByLocationResponse(StockByLocationBase):
