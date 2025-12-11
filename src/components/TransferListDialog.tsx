@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { ScrollArea } from './ui/scroll-area'
 import { Loader2, Check, X, Clock, Package, MapPin, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { apiClient } from '../lib/apiClient'
+import { inventoryServiceInstance } from '../lib/inventoryServiceFactory'
 import { StockTransfer, Location } from '../lib/types'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -36,27 +36,12 @@ export function TransferListDialog({
   const [confirmedBy, setConfirmedBy] = useState('')
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
 
-  const loadTransfers = useCallback(async () => {
-    setLoading(true)
-    try {
-      const filters: any = {}
-      if (currentLocationId) {
-        // Mostrar transferencias donde esta ubicación es origen o destino
-        filters.location_id = currentLocationId
-      }
-      // Si no hay currentLocationId, mostrar TODAS las transferencias
-      
-      console.log('[TransferListDialog] Cargando transferencias con filtros:', filters)
-      const allTransfers = await apiClient.listStockTransfers(filters)
-      console.log('[TransferListDialog] Transferencias recibidas:', allTransfers.length, allTransfers)
-      setTransfers(allTransfers)
-    } catch (error) {
-      console.error('[TransferListDialog] Error loading transfers:', error)
-      toast.error(`Error al cargar transferencias: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [currentLocationId])
+      const loadTransfers = async () => {
+      setLoading(true)
+      try {
+        const service = inventoryServiceInstance
+        const allTransfers = await service.listStockTransfers()
+
 
   useEffect(() => {
     if (open) {
@@ -65,73 +50,22 @@ export function TransferListDialog({
   }, [open, loadTransfers])
 
   const handleConfirm = async (transfer: StockTransfer) => {
-    if (!confirmedBy.trim()) {
-      toast.error('Ingresa tu nombre para confirmar')
-      return
-    }
-
-    setActionLoading(true)
     try {
-      await apiClient.confirmStockTransfer(transfer.id, confirmedBy.trim())
+      const service = inventoryServiceInstance
+      await service.confirmStockTransfer(transfer.id, 'Usuario Actual') // TODO: Get real user
       toast.success('Transferencia confirmada exitosamente')
-      setSelectedTransfer(null)
-      setConfirmedBy('')
-      loadTransfers()
-      onTransferUpdated?.()
-    } catch (error) {
-      console.error('Error confirming transfer:', error)
-      toast.error(error instanceof Error ? error.message : 'Error al confirmar transferencia')
-    } finally {
-      setActionLoading(false)
-    }
-  }
 
   const handleReject = async (transfer: StockTransfer) => {
-    if (!confirmedBy.trim()) {
-      toast.error('Ingresa tu nombre para rechazar')
-      return
-    }
-
-    setActionLoading(true)
     try {
-      await apiClient.rejectStockTransfer(
-        transfer.id,
-        confirmedBy.trim(),
-        rejectionReason.trim() || 'Sin motivo especificado'
-      )
+      const service = inventoryServiceInstance
+      await service.rejectStockTransfer(transfer.id, 'Usuario Actual', 'Rechazada por usuario')
       toast.success('Transferencia rechazada')
-      setSelectedTransfer(null)
-      setConfirmedBy('')
-      setRejectionReason('')
-      loadTransfers()
-      onTransferUpdated?.()
-    } catch (error) {
-      console.error('Error rejecting transfer:', error)
-      toast.error(error instanceof Error ? error.message : 'Error al rechazar transferencia')
-    } finally {
-      setActionLoading(false)
-    }
-  }
 
   const handleCancel = async (transfer: StockTransfer) => {
-    if (!window.confirm('¿Estás seguro de cancelar esta transferencia?')) {
-      return
-    }
-
-    setActionLoading(true)
     try {
-      await apiClient.cancelStockTransfer(transfer.id)
+      const service = inventoryServiceInstance
+      await service.cancelStockTransfer(transfer.id)
       toast.success('Transferencia cancelada')
-      setSelectedTransfer(null)
-      loadTransfers()
-      onTransferUpdated?.()
-    } catch (error) {
-      console.error('Error canceling transfer:', error)
-      toast.error(error instanceof Error ? error.message : 'Error al cancelar transferencia')
-    } finally {
-      setActionLoading(false)
-    }
-  }
 
   const getLocationName = (locationId: number) => {
     return locations.find(l => l.id === locationId)?.nombre || `Ubicación ${locationId}`

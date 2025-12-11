@@ -55,6 +55,14 @@ export function NewOrderDialog({
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
   const [metodoPago, setMetodoPago] = useState<CreateOrderRequest['metodo_pago']>('efectivo')
   const [items, setItems] = useState<OrderItemForm[]>([{ product_id: 0, cantidad: 1 }])
+  const [tradeIns, setTradeIns] = useState<{
+    marca: string
+    modelo: string
+    imei: string
+    condicion: 'usado' | 'dañado' | 'para_repuestos'
+    valor_estimado: number
+    notas: string
+  }[]>([])
   const [notas, setNotas] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -66,9 +74,13 @@ export function NewOrderDialog({
     setCanal('whatsapp')
     setMetodoPago('efectivo')
     setItems([{ product_id: 0, cantidad: 1 }])
+    setTradeIns([])
     setNotas('')
     setDeliveryDate('')
     setIsSubmitting(false)
+    // 🔒 Bug #5: Resetear también salesProfileSlug y sourceLocationId
+    setSalesProfileSlug('')
+    setSourceLocationId(null)
   }
 
   // PROBLEMA 1: Resetear formulario al cerrar/cancelar
@@ -96,9 +108,11 @@ export function NewOrderDialog({
     // V2.0: Verificar stock_items (tabla Stock)
     if (product.stock_items && product.stock_items.length > 0) {
       const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-      const hasStock = stockInLocation && stockInLocation.cantidad_disponible > 0
+      // 🔒 Bug #8: Considerar stock_reservada en el cálculo
+      const stockLibre = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
+      const hasStock = stockInLocation && stockLibre > 0
       
-      console.log('📦 Producto:', product.nombre, '| Ubicación:', sourceLocationId, '| Stock:', stockInLocation?.cantidad_disponible || 0, '| Mostrar:', hasStock)
+      console.log('📦 Producto:', product.nombre, '| Ubicación:', sourceLocationId, '| Disponible:', stockInLocation?.cantidad_disponible || 0, '| Reservado:', stockInLocation?.cantidad_reservada || 0, '| Libre:', stockLibre, '| Mostrar:', hasStock)
       
       return hasStock
     }
@@ -172,11 +186,15 @@ export function NewOrderDialog({
   }
 
   const calculateTotal = () => {
-    return items.reduce((total, item) => {
+    const itemsTotal = items.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
       if (!product) return total
       return total + product.precio * item.cantidad
     }, 0)
+
+    const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+
+    return Math.max(0, itemsTotal - tradeInsTotal)
   }
 
   const handleSubmit = async () => {
@@ -255,6 +273,7 @@ export function NewOrderDialog({
         customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
         items: validItems,
+        trade_ins: tradeIns.length > 0 ? tradeIns : undefined,
         notes: notas.trim() || undefined,
         delivery_date: deliveryDate || undefined
       })
@@ -496,6 +515,117 @@ export function NewOrderDialog({
             </div>
           </div>
 
+          {/* Trade-Ins Section */}
+          <div className="space-y-4 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <Label className="text-base font-semibold">Retomas (Trade-Ins)</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', imei: '', condicion: 'usado', valor_estimado: 0, notas: '' }])}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Agregar Retoma
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              {tradeIns.map((tradeIn, index) => (
+                <div key={index} className="grid grid-cols-12 gap-2 items-start border p-2 rounded-md">
+                  <div className="col-span-4 space-y-1">
+                    <Input
+                      placeholder="Marca"
+                      value={tradeIn.marca}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].marca = e.target.value
+                        setTradeIns(newTradeIns)
+                      }}
+                    />
+                    <Input
+                      placeholder="Modelo"
+                      value={tradeIn.modelo}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].modelo = e.target.value
+                        setTradeIns(newTradeIns)
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-4 space-y-1">
+                    <Input
+                      placeholder="IMEI (Opcional)"
+                      value={tradeIn.imei}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].imei = e.target.value
+                        setTradeIns(newTradeIns)
+                      }}
+                    />
+                    <Select
+                      value={tradeIn.condicion}
+                      onValueChange={value => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].condicion = value as any
+                        setTradeIns(newTradeIns)
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Condición" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="usado">Usado</SelectItem>
+                        <SelectItem value="dañado">Dañado</SelectItem>
+                        <SelectItem value="para_repuestos">Para Repuestos</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-3 space-y-1">
+                    <Input
+                      type="number"
+                      placeholder="Valor Estimado"
+                      value={tradeIn.valor_estimado || ''}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].valor_estimado = parseFloat(e.target.value) || 0
+                        setTradeIns(newTradeIns)
+                      }}
+                    />
+                    <Input
+                      placeholder="Notas"
+                      value={tradeIn.notas}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].notas = e.target.value
+                        setTradeIns(newTradeIns)
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-1 flex justify-center pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns.splice(index, 1)
+                        setTradeIns(newTradeIns)
+                      }}
+                    >
+                      <Trash className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {tradeIns.length === 0 && (
+                <div className="text-sm text-muted-foreground text-center py-2">
+                  No hay equipos en retoma
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="notas">Notas (opcional)</Label>
             <Textarea
@@ -531,7 +661,12 @@ export function NewOrderDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          {/* 🔒 Bug #9: Validar que ubicación esté seleccionada */}
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting || !sourceLocationId || !salesProfileSlug || items.length === 0}
+            title={!sourceLocationId ? 'Selecciona una ubicación' : !salesProfileSlug ? 'Selecciona un perfil de ventas' : ''}
+          >
             {isSubmitting ? 'Creando...' : 'Crear Orden'}
           </Button>
         </DialogFooter>

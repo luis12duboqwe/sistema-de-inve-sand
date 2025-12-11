@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { Profile, Product, Supplier, Location } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -112,7 +112,7 @@ export function NewProductDialog({
   const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
 
   // Moneda global (TODO: mover a configuración global)
-  const currency = 'HNL'
+  const currency = 'Lps'
 
   // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
@@ -120,7 +120,7 @@ export function NewProductDialog({
       if (open) {
         try {
           // Cargar proveedores usando método público
-          const suppliersData = await apiClient.listSuppliers(false)
+          const suppliersData = await inventoryServiceInstance.listSuppliers(false)
           setSuppliers(suppliersData)
           
           // Usar ubicaciones externas si se proporcionan, sino cargar
@@ -131,11 +131,12 @@ export function NewProductDialog({
             }
           } else {
             // Cargar ubicaciones activas (V2.0) usando método público
-            const locationsData = await apiClient.listLocations(true)
-            setLocations(locationsData)
+            const locationsData = await inventoryServiceInstance.getLocations()
+            const activeLocations = locationsData.filter(l => l.activo)
+            setLocations(activeLocations)
             // Seleccionar la primera ubicación por defecto
-            if (locationsData.length > 0 && !selectedLocationId) {
-              setSelectedLocationId(locationsData[0].id)
+            if (activeLocations.length > 0 && !selectedLocationId) {
+              setSelectedLocationId(activeLocations[0].id)
             }
           }
         } catch (err) {
@@ -487,7 +488,6 @@ export function NewProductDialog({
                   <SelectItem value="nuevo">Nuevo</SelectItem>
                   <SelectItem value="usado">Usado</SelectItem>
                   <SelectItem value="reacondicionado">Reacondicionado</SelectItem>
-                  <SelectItem value="grado A">Grado A</SelectItem>
                 </SelectContent>
               </Select>
             </div>

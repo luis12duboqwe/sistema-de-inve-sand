@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge'
 import { Checkbox } from './ui/checkbox'
 import { useKV } from '@/hooks/use-kv'
-import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 export function SalesProfilesList() {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
@@ -34,9 +34,7 @@ export function SalesProfilesList() {
 
   const loadProfiles = async () => {
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      const data = await service.getSalesProfiles?.()
-      if (!data) throw new Error('El servicio no soporta SalesProfiles en modo local aún')
+      const data = await inventoryServiceInstance.getSalesProfiles()
       setProfiles(data)
     } catch (error) {
       toast.error('Error al cargar perfiles de venta')
@@ -63,10 +61,7 @@ export function SalesProfilesList() {
         .toLowerCase()
         .replace(/\s+/g, '-')
 
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.createSalesProfile) throw new Error('SalesProfiles no disponibles en modo local; activa modo API')
-
-      await service.createSalesProfile({
+      await inventoryServiceInstance.createSalesProfile({
         name: name.trim(),
         slug: normalizedSlug,
         tipo,
@@ -101,10 +96,7 @@ export function SalesProfilesList() {
         .toLowerCase()
         .replace(/\s+/g, '-')
 
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.updateSalesProfile) throw new Error('SalesProfiles no disponibles en modo local; activa modo API')
-
-      await service.updateSalesProfile(editingProfile.id, {
+      await inventoryServiceInstance.updateSalesProfile(editingProfile.id, {
         name: name.trim(),
         slug: normalizedSlug,
         tipo,
@@ -128,10 +120,7 @@ export function SalesProfilesList() {
     }
 
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.deleteSalesProfile) throw new Error('SalesProfiles no disponibles en modo local; activa modo API')
-
-      await service.deleteSalesProfile(id)
+      await inventoryServiceInstance.deleteSalesProfile(id)
 
       toast.success('Perfil eliminado exitosamente')
       loadProfiles()
@@ -143,10 +132,7 @@ export function SalesProfilesList() {
 
   const handleToggleActive = async (profile: SalesProfile) => {
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.updateSalesProfile) throw new Error('SalesProfiles no disponibles en modo local; activa modo API')
-
-      await service.updateSalesProfile(profile.id, { active: !profile.active })
+      await inventoryServiceInstance.updateSalesProfile(profile.id, { active: !profile.active })
 
       toast.success(`Perfil ${!profile.active ? 'activado' : 'desactivado'}`)
       loadProfiles()

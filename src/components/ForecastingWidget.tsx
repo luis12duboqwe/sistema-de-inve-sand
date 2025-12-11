@@ -23,10 +23,10 @@ export function ForecastingWidget({
   onRefresh,
 }: ForecastingWidgetProps) {
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-MX', {
-      style: 'currency',
-      currency: 'MXN',
-    }).format(amount)
+    return `Lps ${amount.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`
   }
 
   const getTimeSinceUpdate = () => {

@@ -181,15 +181,18 @@ class ProductIMEI(Base):
     imei = Column(String, unique=True, nullable=False, index=True)
     vendido = Column(Boolean, default=False, nullable=False, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    transfer_id = Column(Integer, ForeignKey("stock_transfers.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     product = relationship("Product", back_populates="imeis")
     location = relationship("Location")
     order = relationship("Order", backref="imeis_vendidos")
+    transfer = relationship("StockTransfer", backref="imeis_en_transito")
     
     __table_args__ = (
         Index('idx_product_imei_vendido', 'product_id', 'vendido'),
         Index('idx_product_imei_location', 'location_id'),
+        Index('idx_product_imei_transfer', 'transfer_id'),
     )
 
 class Order(Base):
@@ -218,6 +221,7 @@ class Order(Base):
     source_location = relationship("Location", back_populates="orders")
     profile = relationship("Profile", foreign_keys=[profile_id], back_populates="orders_legacy")  # Temporal
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    trade_ins = relationship("TradeIn", back_populates="order", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_order_sales_profile_estado', 'sales_profile_id', 'estado'),
@@ -325,3 +329,20 @@ class FAQEntry(Base):
     __table_args__ = (
         Index('idx_faq_activa_veces_usada', 'activa', 'veces_usada'),
     )
+
+
+class TradeIn(BaseModel):
+    """Registro de equipos recibidos como parte de pago (Trade-In)"""
+    __tablename__ = "trade_ins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    marca = Column(String, nullable=False)
+    modelo = Column(String, nullable=False)
+    imei = Column(String, nullable=True)  # Puede ser null si no es celular
+    condicion = Column(String, nullable=False)  # 'usado', 'dañado', 'para_repuestos'
+    valor_estimado = Column(Numeric(10, 2), nullable=False)
+    notas = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    order = relationship("Order", back_populates="trade_ins")

@@ -12,7 +12,7 @@ import type { OrderWithItems, Order, SalesProfile, Location } from '@/lib/types'
 import { format } from 'date-fns'
 import { PencilSimple, User, FilePdf, Trash, Robot, MapPin } from '@phosphor-icons/react'
 import { useState, useEffect } from 'react'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 interface OrderCardProps {
   order: OrderWithItems
@@ -38,7 +38,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
 
   const loadSalesProfile = async (id: number) => {
     try {
-      const data = await apiClient.getSalesProfile(id)
+      const data = await inventoryServiceInstance.getSalesProfile(id)
       setSalesProfile(data)
     } catch (error) {
       console.error('Error loading sales profile:', error)
@@ -47,7 +47,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
 
   const loadSourceLocation = async (id: number) => {
     try {
-      const data = await apiClient.getLocation(id)
+      const data = await inventoryServiceInstance.getLocation(id)
       setSourceLocation(data)
     } catch (error) {
       console.error('Error loading location:', error)
@@ -157,7 +157,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
               <span className="text-muted-foreground">Perfil de Venta:</span>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <Robot size={14} className="text-primary" />
-                <p className="font-medium">{salesProfile.nombre}</p>
+                <p className="font-medium">{salesProfile.name}</p>
                 <Badge variant="outline" className="text-xs capitalize">
                   {salesProfile.tipo.replace('_', ' ')}
                 </Badge>

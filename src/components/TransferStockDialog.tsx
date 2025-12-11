@@ -21,8 +21,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import type { ProductWithStock, Location, CreateStockTransferRequest } from '@/lib/types'
-import { ArrowsLeftRight, AlertCircle, MapPin, Package } from '@phosphor-icons/react'
-import { apiClient } from '@/lib/apiClient'
+import { ArrowsLeftRight, WarningCircle as AlertCircle, MapPin, Package } from '@phosphor-icons/react'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 interface TransferStockDialogProps {
   open: boolean
@@ -60,7 +60,7 @@ export function TransferStockDialog({
   const loadLocations = async () => {
     setLoading(true)
     try {
-      const data = await apiClient.listLocations()
+      const data = await inventoryServiceInstance.getLocations()
       setLocations(data.filter(l => l.activo))
     } catch (error) {
       console.error('Error al cargar ubicaciones:', error)
@@ -122,7 +122,7 @@ export function TransferStockDialog({
         created_by: 'Sistema'
       }
 
-      await apiClient.createStockTransfer(transferData)
+      await inventoryServiceInstance.createStockTransfer(transferData)
 
       const fromLoc = locations.find(l => l.id === fromLocationId)
       const toLoc = locations.find(l => l.id === toLocationId)

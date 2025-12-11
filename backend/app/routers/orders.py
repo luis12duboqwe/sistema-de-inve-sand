@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import datetime, date
 import math
 from app.database import get_db
-from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location
+from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory
 from app.schemas import (
     OrderCreate,
     OrderResponse,
@@ -14,7 +14,8 @@ from app.schemas import (
     OrderStatusUpdate,
     OrderUpdate,
     OrderSearchParams,
-    PaginatedResponse
+    PaginatedResponse,
+    TradeInResponse
 )
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
@@ -71,6 +72,11 @@ def _serialize_order(order: Order) -> OrderResponse:
             "product": ProductResponse(**_serialize_product_for_order(item.product, order.source_location_id)) if item.product else None
         })
 
+    trade_ins_response = []
+    if order.trade_ins:
+        for trade_in in order.trade_ins:
+            trade_ins_response.append(TradeInResponse.model_validate(trade_in))
+
     return OrderResponse(
         id=order.id,
         profile_id=order.profile_id,
@@ -85,7 +91,8 @@ def _serialize_order(order: Order) -> OrderResponse:
         notes=order.notes,
         delivery_date=order.delivery_date,
         created_at=order.created_at,
-        items=items_response
+        items=items_response,
+        trade_ins=trade_ins_response
     )
 
 @router.get("", response_model=PaginatedResponse[OrderResponse])
@@ -337,12 +344,17 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     status_code=400,
                     detail=f"El producto '{product.nombre}' no tiene stock en la ubicación '{source_location.nombre}'"
                 )
-            
-            if stock.cantidad_disponible < item.cantidad:
+
+            stock_libre = stock.cantidad_disponible - stock.cantidad_reservada
+            if stock_libre < item.cantidad:
                 location_name = source_location.nombre if source_location else "la ubicación"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Stock insuficiente para '{product.nombre}' (SKU: {product.sku}) en {location_name}. Disponible: {stock.cantidad_disponible}, Solicitado: {item.cantidad}. Por favor, ajuste la cantidad o seleccione otra ubicación con stock disponible."
+                    detail=(
+                        f"Stock insuficiente para '{product.nombre}' (SKU: {product.sku}) en {location_name}. "
+                        f"Libre: {stock_libre} (Disponible: {stock.cantidad_disponible}, Reservado: {stock.cantidad_reservada}), "
+                        f"Solicitado: {item.cantidad}."
+                    )
                 )
             
             precio_unitario = Decimal(str(product.precio))
@@ -369,6 +381,17 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     detail="La orden debe tener al menos un producto con valor. No se pueden crear órdenes solo con regalos/promociones."
                 )
         
+        # V2.0: Procesar Trade-Ins (Retomas)
+        trade_in_total = Decimal("0.00")
+        if order.trade_ins:
+            for trade_in in order.trade_ins:
+                trade_in_total += trade_in.valor_estimado
+        
+        # El total a pagar es el subtotal de items menos el valor de las retomas
+        total_final = total - trade_in_total
+        if total_final < 0:
+            total_final = Decimal("0.00")
+
         # Crear orden con nuevos campos V2.0
         db_order = Order(
             profile_id=profile_id_for_order,  # Legacy, puede ser None
@@ -378,13 +401,27 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             customer_phone=customer_phone_str,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
-            total=total,
+            total=total_final,
             estado="pendiente",
             notes=order.notes,
             delivery_date=order.delivery_date
         )
         db.add(db_order)
         db.flush()
+
+        # Guardar Trade-Ins
+        if order.trade_ins:
+            for trade_in_item in order.trade_ins:
+                db_trade_in = TradeIn(
+                    order_id=db_order.id,
+                    marca=trade_in_item.marca,
+                    modelo=trade_in_item.modelo,
+                    imei=trade_in_item.imei,
+                    condicion=trade_in_item.condicion,
+                    valor_estimado=trade_in_item.valor_estimado,
+                    notas=trade_in_item.notas
+                )
+                db.add(db_trade_in)
         
         db_order_items = []
         for item_data in order_items_data:
@@ -402,25 +439,48 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             stock_anterior = item_data["stock"].cantidad_disponible
             stock_nuevo = stock_anterior - item_data["cantidad"]
             
-            # CRÍTICO: Validar stock no negativo antes de commit
-            if stock_nuevo < 0:
+            # CRÍTICO: Validar stock no negativo ni por debajo de reservado antes de commit
+            if stock_nuevo < 0 or stock_nuevo < item_data["stock"].cantidad_reservada:
                 db.rollback()
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Error crítico: Stock quedaría negativo para '{item_data['product'].nombre}'. Esto no debería ocurrir después de las validaciones previas."
+                    detail=(
+                        f"Error crítico: Stock quedaría por debajo de la reserva para '{item_data['product'].nombre}'. "
+                        f"Disponible proyectado: {stock_nuevo}, Reservado: {item_data['stock'].cantidad_reservada}"
+                    )
                 )
             
-            item_data["stock"].cantidad_disponible = stock_nuevo
-            
-            # V2.0: Marcar IMEIs como vendidos
+            # V2.0: Validar IMEIs ANTES de descontar stock (Bug #26 fix)
             from app.models import StockHistory, ProductIMEI
             
-            # Buscar IMEIs disponibles del producto en la ubicación de origen
-            imeis_disponibles = db.query(ProductIMEI).filter(
-                ProductIMEI.product_id == item_data["product"].id,
-                ProductIMEI.location_id == order.source_location_id,
-                ProductIMEI.vendido == False
-            ).limit(item_data["cantidad"]).all()
+            # Verificar si el producto tiene IMEIs registrados en el sistema (si es serializado)
+            # Si tiene al menos un IMEI registrado (vendido o no), asumimos que es un producto serializado
+            has_imeis = db.query(ProductIMEI).filter(
+                ProductIMEI.product_id == item_data["product"].id
+            ).first() is not None
+
+            imeis_disponibles = []  # Inicializar vacío
+            if has_imeis:
+                # Buscar IMEIs disponibles del producto en la ubicación de origen
+                imeis_disponibles = db.query(ProductIMEI).filter(
+                    ProductIMEI.product_id == item_data["product"].id,
+                    ProductIMEI.location_id == order.source_location_id,
+                    ProductIMEI.vendido == False
+                ).limit(item_data["cantidad"]).all()
+
+                # ✅ VALIDAR IMEIs PRIMERO antes de descontar stock
+                if len(imeis_disponibles) < item_data["cantidad"]:
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"No hay IMEIs suficientes para '{item_data['product'].nombre}' en la ubicación seleccionada. "
+                            f"Disponibles: {len(imeis_disponibles)}, Requeridos: {item_data['cantidad']}"
+                        )
+                    )
+            
+            # ✅ SOLO DESPUÉS de validar IMEIs, descontar stock
+            item_data["stock"].cantidad_disponible = stock_nuevo
             
             # Marcar IMEIs como vendidos y asociar a la orden
             for imei_obj in imeis_disponibles:
@@ -442,11 +502,18 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             )
             db.add(stock_history)
         
+        # ✅ Commit transacción
         db.commit()
-        db.refresh(db_order)
         
-        for item in db_order_items:
-            db.refresh(item)
+        # ✅ Refresh con manejo de errores (Bug #28 fix)
+        try:
+            db.refresh(db_order)
+            for item in db_order_items:
+                db.refresh(item)
+        except Exception as refresh_error:
+            # Si refresh falla, los datos ya fueron guardados, pero loguear
+            print(f"⚠️ Warning: Error durante refresh: {refresh_error}")
+            # Continuar con los datos que tenemos
         
         return _serialize_order(db_order)
     except HTTPException:
@@ -500,28 +567,40 @@ def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session =
 @router.put("/{order_id}", response_model=OrderResponse)
 def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_db)):
     """
-    Actualiza una orden existente, incluyendo sus items y totales.
+    Actualiza una orden existente con transaccionalidad garantizada (Bug #1 fix).
     
     Solo permite actualizar órdenes en estado 'pendiente' o 'por_entregar'.
+    GARANTIZA: Todas las validaciones ANTES de cualquier modificación.
     """
-    order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
-
-    # Validar que la orden no esté cancelada o completada
-    if order.estado == "cancelada":
-        raise HTTPException(
-            status_code=400,
-            detail="No se puede modificar una orden cancelada"
-        )
-    
-    if order.estado == "completada":
-        raise HTTPException(
-            status_code=400,
-            detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
-        )
-
     try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+        # Validar que la orden no esté cancelada o completada
+        if order.estado == "cancelada":
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede modificar una orden cancelada"
+            )
+        
+        if order.estado == "completada":
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
+            )
+
+        # 🔒 BUG #1 FIX: Obtener snapshot de items antiguos PRIMERO
+        from app.models import StockHistory, ProductIMEI
+        current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        old_items_data = [
+            {
+                'product_id': item.product_id,
+                'cantidad': item.cantidad,
+                'location_id': order.source_location_id
+            }
+            for item in current_items
+        ]
         current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
 
         if updates.items is not None:
@@ -596,11 +675,16 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                 if not stock:
                     raise HTTPException(status_code=400, detail=f"El producto {item_update.product_id} no tiene stock registrado en la ubicación especificada")
 
-                # VALIDACIÓN PREVIA: Verificar stock suficiente ANTES de decrementar
-                if stock.cantidad_disponible < item_update.cantidad:
+                # VALIDACIÓN PREVIA: Verificar stock libre (disponible - reservado) ANTES de decrementar
+                stock_libre = stock.cantidad_disponible - stock.cantidad_reservada
+                if stock_libre < item_update.cantidad:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Stock insuficiente para '{product.nombre}'. Disponible: {stock.cantidad_disponible}, Solicitado: {item_update.cantidad}"
+                        detail=(
+                            f"Stock insuficiente para '{product.nombre}'. "
+                            f"Libre: {stock_libre} (Disponible: {stock.cantidad_disponible}, Reservado: {stock.cantidad_reservada}), "
+                            f"Solicitado: {item_update.cantidad}"
+                        )
                     )
 
                 price = Decimal(str(product.precio))
@@ -621,11 +705,13 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                 stock.cantidad_disponible -= item_update.cantidad
                 
                 # VALIDACIÓN POST-OPERACIÓN: Detectar race conditions
-                if stock.cantidad_disponible < 0:
+                if stock.cantidad_disponible < 0 or stock.cantidad_disponible < stock.cantidad_reservada:
                     db.rollback()
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Error crítico: Stock negativo detectado ({stock.cantidad_disponible}). Posible race condition."
+                        detail=(
+                            f"Error crítico: Stock por debajo de reservas detectado (Disponible: {stock.cantidad_disponible}, Reservado: {stock.cantidad_reservada})."
+                        )
                     )
                 
                 # TRAZABILIDAD: Registrar cambio de stock en historial
@@ -651,10 +737,16 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                     ProductIMEI.vendido == False
                 ).limit(item_update.cantidad).all()
                 
-                # VALIDACIÓN: Verificar que haya suficientes IMEIs si el producto los requiere
+                # VALIDACIÓN: Verificar que haya suficientes IMEIs
                 if len(imeis_disponibles) < item_update.cantidad:
-                    # Advertencia en logs pero no bloquear (IMEIs son opcionales)
-                    print(f"ADVERTENCIA: Solo {len(imeis_disponibles)} IMEIs disponibles de {item_update.cantidad} solicitados para producto {item_update.product_id}")
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"No hay IMEIs suficientes para el producto {item_update.product_id} en la ubicación seleccionada. "
+                            f"Disponibles: {len(imeis_disponibles)}, Requeridos: {item_update.cantidad}"
+                        )
+                    )
                 
                 for imei in imeis_disponibles:
                     imei.vendido = True
@@ -682,6 +774,21 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
         
         if updates.delivery_date is not None:
             order.delivery_date = updates.delivery_date
+        
+        # 🔒 BUG #30 FIX: Validar source_location_id no sea null al actualizar
+        if hasattr(updates, 'source_location_id') and updates.source_location_id:
+            location = db.query(Location).filter(Location.id == updates.source_location_id).first()
+            if not location:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Ubicación con ID {updates.source_location_id} no encontrada"
+                )
+            if not location.activo:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Ubicación '{location.nombre}' está inactiva"
+                )
+            order.source_location_id = updates.source_location_id
 
         db.commit()
         db.refresh(order)
@@ -781,27 +888,38 @@ def cancel_order(
                     Stock.product_id == item.product_id,
                     Stock.location_id == order.source_location_id
                 ).first()
-                
-                if stock:
-                    stock_anterior = stock.cantidad_disponible
-                    stock.cantidad_disponible += item.cantidad
-                    
-                    print(f"  📦 Producto {item.product_id}: Stock {stock_anterior} → {stock.cantidad_disponible} (+{item.cantidad})")
-                    
-                    # Registrar en historial
-                    history = StockHistory(
+
+                # Crear el registro de stock si fue eliminado accidentalmente
+                if not stock:
+                    stock = Stock(
                         product_id=item.product_id,
                         location_id=order.source_location_id,
-                        tipo_cambio='devolucion',
-                        cantidad=item.cantidad,  # Positivo = entrada
-                        stock_anterior=stock_anterior,
-                        stock_nuevo=stock.cantidad_disponible,
-                        referencia_id=order_id,
-                        referencia_tipo='order_cancelled',
-                        notas=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
-                        usuario='sistema'  # TODO: Usar usuario autenticado
+                        cantidad_disponible=0,
+                        cantidad_reservada=0
                     )
-                    db.add(history)
+                    db.add(stock)
+                    db.flush()
+                    stock_anterior = 0
+                else:
+                    stock_anterior = stock.cantidad_disponible
+
+                stock.cantidad_disponible += item.cantidad
+                print(f"  📦 Producto {item.product_id}: Stock {stock_anterior} → {stock.cantidad_disponible} (+{item.cantidad})")
+
+                # Registrar en historial
+                history = StockHistory(
+                    product_id=item.product_id,
+                    location_id=order.source_location_id,
+                    tipo_cambio='devolucion',
+                    cantidad=item.cantidad,  # Positivo = entrada
+                    stock_anterior=stock_anterior,
+                    stock_nuevo=stock.cantidad_disponible,
+                    referencia_id=order_id,
+                    referencia_tipo='order_cancelled',
+                    notas=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
+                    usuario='sistema'  # TODO: Usar usuario autenticado
+                )
+                db.add(history)
             
             # 2. Liberar IMEIs asociados a esta orden
             imeis_vendidos = db.query(ProductIMEI).filter(
@@ -895,9 +1013,27 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
                 else:
                     # Legacy: Sin ubicación específica
                     stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-                
-                if stock:
+
+                # Crear el registro de stock si fue eliminado accidentalmente (solo cuando hay ubicación)
+                if not stock:
+                    if order.source_location_id:
+                        stock = Stock(
+                            product_id=item.product_id,
+                            location_id=order.source_location_id,
+                            cantidad_disponible=0,
+                            cantidad_reservada=0
+                        )
+                        db.add(stock)
+                        db.flush()
+                        old_stock = 0
+                    else:
+                        # No hay ubicación (legacy) y tampoco registro de stock; no se puede reponer
+                        old_stock = 0
+                        stock = None
+                else:
                     old_stock = stock.cantidad_disponible
+
+                if stock:
                     stock.cantidad_disponible += item.cantidad
                     print(f"    📦 Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
                 

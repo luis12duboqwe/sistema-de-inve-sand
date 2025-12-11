@@ -16,6 +16,7 @@ import type { Profile, Supplier } from '@/lib/types'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 interface ManageSuppliersDialogProps {
   open: boolean
@@ -45,13 +46,8 @@ export function ManageSuppliersDialog({
   const loadSuppliers = async () => {
     setLoading(true)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/suppliers?profile_id=${profile.id}&include_inactive=false`
-      )
-      const data = await response.json()
-      if (data.items) {
-        setSuppliers(data.items)
-      }
+      const data = await inventoryServiceInstance.listSuppliers(false)
+      setSuppliers(data)
     } catch (error) {
       console.error('Error loading suppliers:', error)
       toast.error('Error al cargar proveedores')
@@ -102,41 +98,24 @@ export function ManageSuppliersDialog({
     try {
       const supplierData = {
         nombre: nombre.trim(),
-        contacto: contacto.trim() || null,
-        telefono: telefono.trim() || null,
-        email: email.trim() || null,
-        direccion: direccion.trim() || null,
-        notas: notas.trim() || null,
+        contacto: contacto.trim() || undefined,
+        telefono: telefono.trim() || undefined,
+        email: email.trim() || undefined,
+        direccion: direccion.trim() || undefined,
+        notas: notas.trim() || undefined,
         activo: true
       }
 
       if (editingSupplier) {
         // Update
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/suppliers/${editingSupplier.id}`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(supplierData)
-          }
-        )
-
-        if (!response.ok) throw new Error('Error al actualizar proveedor')
-
+        await inventoryServiceInstance.updateSupplier(editingSupplier.id, supplierData)
         toast.success('Proveedor actualizado exitosamente')
       } else {
         // Create
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/suppliers`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...supplierData,
-            profile_id: profile.id
-          })
-        })
-
-        if (!response.ok) throw new Error('Error al crear proveedor')
-
+        await inventoryServiceInstance.createSupplier({
+          ...supplierData,
+          profile_id: profile.id
+        } as any)
         toast.success('Proveedor creado exitosamente')
       }
 
@@ -156,12 +135,7 @@ export function ManageSuppliersDialog({
     }
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/suppliers/${supplier.id}`,
-        { method: 'DELETE' }
-      )
-
-      if (!response.ok) throw new Error('Error al eliminar proveedor')
+      await inventoryServiceInstance.deleteSupplier(supplier.id)
 
       toast.success('Proveedor eliminado exitosamente')
       await loadSuppliers()

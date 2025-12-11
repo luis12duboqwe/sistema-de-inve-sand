@@ -7,6 +7,7 @@ import { Badge } from './ui/badge'
 import { MapPin, Package, Pencil, Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { StockByLocation, Location, Product } from '@/lib/types'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { apiClient } from '@/lib/apiClient'
 
 interface StockByLocationDialogProps {
@@ -39,10 +40,11 @@ export function StockByLocationDialog({
   const [editingQuantity, setEditingQuantity] = useState(0)
 
   const loadStockByLocation = async () => {
+    if (!productId) return
     setLoading(true)
     try {
-      const data = await apiClient.getStockByLocation(productId)
-      setStockItems(data.items || [])
+      const data = await inventoryServiceInstance.getStockByLocation(productId)
+      setStockItems(data || [])
     } catch (error) {
       console.error('Error:', error)
       toast.error('Error al cargar stock por ubicación')
@@ -64,6 +66,7 @@ export function StockByLocationDialog({
   }
 
   const handleSaveStock = async (locationId: number) => {
+    if (!productId) return
     if (editingQuantity < 0) {
       toast.error('La cantidad no puede ser negativa')
       return

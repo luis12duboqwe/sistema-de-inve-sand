@@ -4,7 +4,7 @@ export function formatPrice(
   amount: number,
   settings?: ProfileSettings
 ): string {
-  const currency = settings?.currency || 'HNL'
+  const currency = settings?.currency || 'Lps'
   const format = settings?.priceFormat || 'standard'
   
   let formattedNumber: string

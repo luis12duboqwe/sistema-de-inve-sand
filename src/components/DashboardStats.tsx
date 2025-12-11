@@ -7,7 +7,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -22,7 +22,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
 
   const loadLocations = useCallback(async () => {
     try {
-      const data = await apiClient.listLocations()
+      const data = await inventoryServiceInstance.listLocations()
       setLocations(data)
       setApiError(null)
     } catch (error) {
@@ -34,7 +34,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
 
   const loadSalesProfiles = useCallback(async () => {
     try {
-      const data = await apiClient.listSalesProfiles()
+      const data = await inventoryServiceInstance.listSalesProfiles()
       setSalesProfiles(data)
       setApiError(null)
     } catch (error) {

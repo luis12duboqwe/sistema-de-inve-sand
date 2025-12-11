@@ -9,7 +9,7 @@ import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Badge } from './ui/badge'
 import { useKV } from '@/hooks/use-kv'
-import { inventoryServiceFactory } from '@/lib/inventoryServiceFactory'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 export function LocationsList() {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
@@ -33,8 +33,7 @@ export function LocationsList() {
 
   const loadLocations = async () => {
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      const data = await service.getLocations()
+      const data = await inventoryServiceInstance.getLocations()
       console.log('✅ Ubicaciones cargadas:', data)
       setLocations(data || [])
     } catch (error) {
@@ -52,9 +51,7 @@ export function LocationsList() {
     }
 
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      
-      const newLocation = await service.createLocation({
+      const newLocation = await inventoryServiceInstance.createLocation({
         nombre: nombre.trim(),
         tipo,
         direccion: direccion.trim() || undefined,
@@ -84,10 +81,7 @@ export function LocationsList() {
     }
 
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.updateLocation) throw new Error('Locations no disponibles en modo local; activa modo API')
-
-      await service.updateLocation(editingLocation.id, {
+      await inventoryServiceInstance.updateLocation(editingLocation.id, {
         nombre: nombre.trim(),
         tipo,
         direccion: direccion.trim() || undefined,
@@ -111,9 +105,7 @@ export function LocationsList() {
     }
 
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      
-      await service.deleteLocation(id)
+      await inventoryServiceInstance.deleteLocation(id)
 
       toast.success('✅ Ubicación eliminada exitosamente')
       await loadLocations()
@@ -140,10 +132,7 @@ export function LocationsList() {
 
   const handleToggleActive = async (location: Location) => {
     try {
-      const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
-      if (!service.updateLocation) throw new Error('Locations no disponibles en modo local; activa modo API')
-
-      await service.updateLocation(location.id, { activo: !location.activo })
+      await inventoryServiceInstance.updateLocation(location.id, { activo: !location.activo })
 
       toast.success(`Ubicación ${!location.activo ? 'activada' : 'desactivada'}`)
       loadLocations()

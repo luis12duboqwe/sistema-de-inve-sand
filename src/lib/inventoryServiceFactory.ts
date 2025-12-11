@@ -11,7 +11,11 @@ import type {
   Stock,
   OrderItem,
   SalesProfile,
-  Location
+  Location,
+  CreateStockTransferRequest,
+  StockTransfer,
+  Supplier,
+  StockByLocation
 } from './types'
 
 async function getUseApiSetting(): Promise<boolean> {
@@ -51,12 +55,14 @@ export interface IInventoryService {
 
   listSalesProfiles(): Promise<SalesProfile[]>
   getSalesProfiles(): Promise<SalesProfile[]>
+  getSalesProfile(id: number): Promise<SalesProfile>
   createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile>
   updateSalesProfile(id: number, updates: Partial<SalesProfile>): Promise<SalesProfile>
   deleteSalesProfile(id: number): Promise<void>
 
   listLocations(): Promise<Location[]>
   getLocations(): Promise<Location[]>
+  getLocation(id: number): Promise<Location>
   createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location>
   updateLocation(id: number, updates: Partial<Location>): Promise<Location>
   deleteLocation(id: number): Promise<void>
@@ -85,12 +91,13 @@ export interface IInventoryService {
   
   addProduct(
     product: Omit<Product, 'id'>,
-    initialStock: number
+    initialStock: number,
+    locationId?: number
   ): Promise<Product | ProductWithStock>
   
   createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock>
   
-  updateStock(productId: number, cantidad: number): Promise<void>
+  updateStock(productId: number, cantidad: number, locationId: number): Promise<void>
   
   updateProduct(
     productId: number,
@@ -100,7 +107,26 @@ export interface IInventoryService {
   deleteProduct(productId: number): Promise<void>
   deleteOrder(orderId: number): Promise<void>
 
-  bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]>
+  bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]>
+
+  createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer>
+  listStockTransfers(filters?: {
+    product_id?: number
+    from_location_id?: number
+    to_location_id?: number
+    location_id?: number
+    estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
+  }): Promise<StockTransfer[]>
+  confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer>
+  rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer>
+  cancelStockTransfer(id: number): Promise<void>
+
+  listSuppliers(includeInactive?: boolean): Promise<Supplier[]>
+  createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier>
+  updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier>
+  deleteSupplier(id: number): Promise<void>
+
+  getStockByLocation(productId: number): Promise<StockByLocation[]>
 }
 
 class LocalServiceWrapper implements IInventoryService {
@@ -160,6 +186,10 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.getSalesProfiles()
   }
 
+  async getSalesProfile(id: number): Promise<SalesProfile> {
+    return this.service.getSalesProfile(id)
+  }
+
   async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
     return this.service.createSalesProfile(profile)
   }
@@ -178,6 +208,10 @@ class LocalServiceWrapper implements IInventoryService {
 
   async getLocations(): Promise<Location[]> {
     return this.service.getLocations()
+  }
+
+  async getLocation(id: number): Promise<Location> {
+    return this.service.getLocation(id)
   }
 
   async createLocation(location: Omit<Location, 'id' | 'created_at' | 'updated_at'>): Promise<Location> {
@@ -222,17 +256,18 @@ class LocalServiceWrapper implements IInventoryService {
 
   async addProduct(
     product: Omit<Product, 'id'>,
-    initialStock: number
+    initialStock: number,
+    locationId?: number
   ): Promise<ProductWithStock> {
-    return this.service.addProduct(product, initialStock)
+    return this.service.addProduct(product, initialStock, locationId)
   }
 
   async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
     return this.service.createProduct(product, locationId)
   }
 
-  async updateStock(productId: number, cantidad: number): Promise<void> {
-    return this.service.updateStock(productId, cantidad)
+  async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
+    return this.service.updateStock(productId, cantidad, locationId)
   }
 
   async updateProduct(
@@ -250,8 +285,48 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.deleteOrder(orderId)
   }
 
-  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
-    return this.service.bulkCreateProducts(productsData)
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
+    return this.service.bulkCreateProducts(productsData, locationId)
+  }
+
+  async createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer> {
+    return this.service.createStockTransfer(request)
+  }
+
+  async listStockTransfers(filters?: any): Promise<StockTransfer[]> {
+    return this.service.listStockTransfers(filters)
+  }
+
+  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
+    return this.service.confirmStockTransfer(id, confirmedBy)
+  }
+
+  async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
+    return this.service.rejectStockTransfer(id, rejectedBy, rejectionReason)
+  }
+
+  async cancelStockTransfer(id: number): Promise<void> {
+    return this.service.cancelStockTransfer(id)
+  }
+
+  async listSuppliers(includeInactive?: boolean): Promise<Supplier[]> {
+    return this.service.listSuppliers(includeInactive)
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    return this.service.createSupplier(supplier)
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    return this.service.updateSupplier(id, updates)
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    return this.service.deleteSupplier(id)
+  }
+
+  async getStockByLocation(productId: number): Promise<StockByLocation[]> {
+    return this.service.getStockByLocation(productId)
   }
 }
 
@@ -382,6 +457,16 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
+  async getSalesProfile(id: number): Promise<SalesProfile> {
+    try {
+      const service = await this.getService()
+      return service.getSalesProfile(id)
+    } catch (error) {
+      console.error('Error getting sales profile (unified):', error)
+      throw new Error(`Failed to get sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
     try {
       const service = await this.getService()
@@ -428,6 +513,16 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error getting locations (unified):', error)
       throw new Error(`Failed to get locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getLocation(id: number): Promise<Location> {
+    try {
+      const service = await this.getService()
+      return service.getLocation(id)
+    } catch (error) {
+      console.error('Error getting location (unified):', error)
+      throw new Error(`Failed to get location: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -510,11 +605,12 @@ class UnifiedInventoryService implements IInventoryService {
 
   async addProduct(
     product: Omit<Product, 'id'>,
-    initialStock: number
+    initialStock: number,
+    locationId?: number
   ): Promise<ProductWithStock> {
     try {
       const service = await this.getService()
-      return service.addProduct(product, initialStock) as Promise<ProductWithStock>
+      return service.addProduct(product, initialStock, locationId) as Promise<ProductWithStock>
     } catch (error) {
       console.error('Error adding product (unified):', error)
       throw new Error(`Failed to add product: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -533,10 +629,10 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async updateStock(productId: number, cantidad: number): Promise<void> {
+  async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
     try {
       const service = await this.getService()
-      return service.updateStock(productId, cantidad)
+      return service.updateStock(productId, cantidad, locationId)
     } catch (error) {
       console.error('Error updating stock (unified):', error)
       throw error instanceof Error ? error : new Error(`Failed to update stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -576,13 +672,113 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
     try {
       const service = await this.getService()
-      return service.bulkCreateProducts(productsData)
+      return service.bulkCreateProducts(productsData, locationId)
     } catch (error) {
       console.error('Error bulk creating products (unified):', error)
       throw new Error(`Failed to bulk create products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer> {
+    try {
+      const service = await this.getService()
+      return service.createStockTransfer(request)
+    } catch (error) {
+      console.error('Error creating stock transfer (unified):', error)
+      throw new Error(`Failed to create stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listStockTransfers(filters?: any): Promise<StockTransfer[]> {
+    try {
+      const service = await this.getService()
+      return service.listStockTransfers(filters)
+    } catch (error) {
+      console.error('Error listing stock transfers (unified):', error)
+      throw new Error(`Failed to list stock transfers: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
+    try {
+      const service = await this.getService()
+      return service.confirmStockTransfer(id, confirmedBy)
+    } catch (error) {
+      console.error('Error confirming stock transfer (unified):', error)
+      throw new Error(`Failed to confirm stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
+    try {
+      const service = await this.getService()
+      return service.rejectStockTransfer(id, rejectedBy, rejectionReason)
+    } catch (error) {
+      console.error('Error rejecting stock transfer (unified):', error)
+      throw new Error(`Failed to reject stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async cancelStockTransfer(id: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.cancelStockTransfer(id)
+    } catch (error) {
+      console.error('Error canceling stock transfer (unified):', error)
+      throw new Error(`Failed to cancel stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listSuppliers(includeInactive?: boolean): Promise<Supplier[]> {
+    try {
+      const service = await this.getService()
+      return service.listSuppliers(includeInactive)
+    } catch (error) {
+      console.error('Error listing suppliers (unified):', error)
+      throw new Error(`Failed to list suppliers: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    try {
+      const service = await this.getService()
+      return service.createSupplier(supplier)
+    } catch (error) {
+      console.error('Error creating supplier (unified):', error)
+      throw new Error(`Failed to create supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    try {
+      const service = await this.getService()
+      return service.updateSupplier(id, updates)
+    } catch (error) {
+      console.error('Error updating supplier (unified):', error)
+      throw new Error(`Failed to update supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteSupplier(id)
+    } catch (error) {
+      console.error('Error deleting supplier (unified):', error)
+      throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getStockByLocation(productId: number): Promise<StockByLocation[]> {
+    try {
+      const service = await this.getService()
+      return service.getStockByLocation(productId)
+    } catch (error) {
+      console.error('Error getting stock by location (unified):', error)
+      throw new Error(`Failed to get stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }
@@ -636,12 +832,20 @@ class ApiInventoryService implements IInventoryService {
     return this.listSalesProfiles()
   }
 
+  async getSalesProfile(id: number): Promise<SalesProfile> {
+    return apiClient.getSalesProfile(id)
+  }
+
   async listLocations(): Promise<Location[]> {
     return apiClient.listLocations()
   }
 
   async getLocations(): Promise<Location[]> {
     return this.listLocations()
+  }
+
+  async getLocation(id: number): Promise<Location> {
+    return apiClient.getLocation(id)
   }
 
   async createSalesProfile(profile: Omit<SalesProfile, 'id' | 'created_at' | 'updated_at'>): Promise<SalesProfile> {
@@ -715,8 +919,8 @@ class ApiInventoryService implements IInventoryService {
     return this.addProduct(productData as Omit<Product, 'id'>, stock_disponible, locationId)
   }
 
-  async updateStock(productId: number, cantidad: number): Promise<void> {
-    return apiClient.updateStock(productId, cantidad)
+  async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
+    return apiClient.updateStock(productId, cantidad, locationId)
   }
 
   async updateProduct(
@@ -734,8 +938,48 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.deleteOrder(orderId)
   }
 
-  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
-    return apiClient.bulkCreateProducts(productsData)
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
+    return apiClient.bulkCreateProducts(productsData, locationId)
+  }
+
+  async createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer> {
+    return apiClient.createStockTransfer(request)
+  }
+
+  async listStockTransfers(filters?: any): Promise<StockTransfer[]> {
+    return apiClient.listStockTransfers(filters)
+  }
+
+  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
+    return apiClient.confirmStockTransfer(id, confirmedBy)
+  }
+
+  async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
+    return apiClient.rejectStockTransfer(id, rejectedBy, rejectionReason)
+  }
+
+  async cancelStockTransfer(id: number): Promise<void> {
+    return apiClient.cancelStockTransfer(id)
+  }
+
+  async listSuppliers(includeInactive?: boolean): Promise<Supplier[]> {
+    return apiClient.listSuppliers(includeInactive)
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    return apiClient.createSupplier(supplier)
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    return apiClient.updateSupplier(id, updates)
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    return apiClient.deleteSupplier(id)
+  }
+
+  async getStockByLocation(productId: number): Promise<StockByLocation[]> {
+    return apiClient.getStockByLocation(productId)
   }
 }
 

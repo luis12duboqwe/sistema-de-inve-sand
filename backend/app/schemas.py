@@ -363,6 +363,28 @@ class OrderItemUpdate(BaseModel):
             raise ValueError('El product_id debe ser mayor a 0')
         return v
 
+class TradeInCreate(BaseModel):
+    """Schema para crear un registro de Trade-In"""
+    marca: str = Field(..., min_length=1)
+    modelo: str = Field(..., min_length=1)
+    imei: Optional[str] = None
+    condicion: str = Field(..., description="usado, dañado, para_repuestos")
+    valor_estimado: Decimal = Field(..., gt=0)
+    notas: Optional[str] = None
+
+class TradeInResponse(BaseModel):
+    """Schema de respuesta para Trade-In"""
+    id: int
+    marca: str
+    modelo: str
+    imei: Optional[str]
+    condicion: str
+    valor_estimado: Decimal
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class OrderCreate(BaseModel):
     profile_slug: Optional[str] = None  # LEGACY: Compatibilidad con V1, usar sales_profile_slug en su lugar
     sales_profile_slug: Optional[str] = None  # V2.0: Slug del perfil de venta (bot/vendedor)
@@ -372,6 +394,7 @@ class OrderCreate(BaseModel):
     customer_phone: str
     metodo_pago: MetodoPagoEnum
     items: List[OrderItemCreate] = Field(..., min_length=1, description="Debe contener al menos un producto")
+    trade_ins: Optional[List[TradeInCreate]] = None  # V2.0: Equipos recibidos en parte de pago
     notes: Optional[str] = None  # Notas adicionales de la orden
     delivery_date: Optional[datetime] = None  # Fecha de entrega programada
     
@@ -410,6 +433,7 @@ class OrderResponse(BaseModel):
     delivery_date: Optional[datetime] = None
     created_at: datetime
     items: List[OrderItemResponse]
+    trade_ins: Optional[List[TradeInResponse]] = None
 
     class Config:
         from_attributes = True
@@ -683,6 +707,7 @@ class StockTransferCreate(BaseModel):
     from_location_id: int = Field(..., description="ID de ubicación origen")
     to_location_id: int = Field(..., description="ID de ubicación destino")
     cantidad: int = Field(..., gt=0, le=10000, description="Cantidad a transferir (máxima 10,000 unidades por transferencia)")
+    imeis: Optional[List[str]] = Field(None, description="Lista de IMEIs específicos a transferir (opcional)")
     notas: Optional[str] = None
     created_by: Optional[str] = None
     

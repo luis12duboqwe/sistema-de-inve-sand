@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case, desc, distinct
 from typing import List, Optional
 from decimal import Decimal
 from app.database import get_db
@@ -22,6 +22,7 @@ def list_customers(
     Lista clientes únicos con sus estadísticas básicas.
     
     V2.0: Filtra por sales_profile_slug (canal de venta).
+    Optimizado para usar agregación SQL en lugar de procesamiento en memoria.
     
     Args:
         - sales_profile_slug: Filtro opcional por canal de venta
@@ -31,64 +32,58 @@ def list_customers(
     Returns:
         Lista de clientes con estadísticas (ordenados por total gastado, descendente)
     """
-    query = db.query(Order)
-    
+    # Base query for filtering
+    filter_conditions = []
     if sales_profile_slug:
         sales_profile = db.query(SalesProfile).filter(
             SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
+            SalesProfile.active == True
         ).first()
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
                 detail=f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado o está inactivo"
             )
-        query = query.filter(Order.sales_profile_id == sales_profile.id)
+        filter_conditions.append(Order.sales_profile_id == sales_profile.id)
+
+    # Aggregation query
+    query = db.query(
+        Order.customer_phone,
+        func.max(Order.customer_name).label('customer_name'),
+        func.count(Order.id).label('total_orders'),
+        func.sum(case((Order.estado != 'cancelada', Order.total), else_=0)).label('total_spent'),
+        func.sum(case((Order.estado != 'cancelada', 1), else_=0)).label('completed_orders_count'),
+        func.min(Order.created_at).label('first_order_date'),
+        func.max(Order.created_at).label('last_order_date')
+    )
+
+    if filter_conditions:
+        query = query.filter(*filter_conditions)
+
+    query = query.group_by(Order.customer_phone).order_by(desc('total_spent'))
     
-    # Get all orders
-    orders = query.order_by(Order.created_at.desc()).all()
+    # Pagination
+    offset = (page - 1) * per_page
+    results = query.offset(offset).limit(per_page).all()
     
-    # Group by customer phone
-    customers_data = {}
-    for order in orders:
-        phone = order.customer_phone
-        if phone not in customers_data:
-            customers_data[phone] = {
-                "phone": phone,
-                "name": order.customer_name,
-                "orders": [],
-                "completed_orders": [],
-                "total": Decimal("0.00")
-            }
-        customers_data[phone]["orders"].append(order)
-        # Solo contar órdenes no canceladas en el total
-        if order.estado != 'cancelada':
-            customers_data[phone]["completed_orders"].append(order)
-            customers_data[phone]["total"] += order.total
-    
-    # Build and sort result by total spent
-    result = []
-    for phone, data in customers_data.items():
-        orders_list = data["orders"]
-        completed_list = data["completed_orders"]
-        result.append(CustomerStats(
-            customer_phone=phone,
-            customer_name=data["name"],
-            total_orders=len(orders_list),
-            total_spent=data["total"],
-            average_order=data["total"] / len(completed_list) if completed_list else Decimal("0.00"),
-            first_order_date=min(o.created_at for o in orders_list),
-            last_order_date=max(o.created_at for o in orders_list)
+    # Transform results to schema
+    response = []
+    for row in results:
+        # row is a KeyedTuple
+        total_spent = row.total_spent or Decimal("0.00")
+        completed_count = row.completed_orders_count or 0
+        
+        response.append(CustomerStats(
+            customer_phone=row.customer_phone,
+            customer_name=row.customer_name,
+            total_orders=row.total_orders,
+            total_spent=total_spent,
+            average_order=total_spent / completed_count if completed_count > 0 else Decimal("0.00"),
+            first_order_date=row.first_order_date,
+            last_order_date=row.last_order_date
         ))
     
-    # Sort by total spent descending
-    result.sort(key=lambda x: x.total_spent, reverse=True)
-    
-    # Apply pagination in-memory (after aggregation)
-    # NOTE: Ideally this should be done at database level with GROUP BY,
-    # but SQLite/SQLAlchemy makes this complex for this use case
-    offset = (page - 1) * per_page
-    return result[offset:offset + per_page]
+    return response
 
 
 @router.get("/{customer_phone}/stats", response_model=CustomerStats)

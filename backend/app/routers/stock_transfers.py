@@ -69,6 +69,13 @@ def create_transfer(
         - 404: Si el producto o ubicaciones no existen
         - 400: Si las ubicaciones son iguales o no hay stock suficiente
     """
+    # ✅ Validar cantidad > 0 (Bug #31 fix)
+    if not transfer.cantidad or transfer.cantidad <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="La cantidad a transferir debe ser mayor a 0"
+        )
+    
     # Validar ubicaciones
     from_location = db.query(Location).filter(
         Location.id == transfer.from_location_id,
@@ -136,6 +143,62 @@ def create_transfer(
             detail=f"Stock insuficiente en '{from_location.nombre}'. Libre: {stock_libre} (Total: {source_stock.cantidad_disponible}, Reservado: {source_stock.cantidad_reservada}), Solicitado: {transfer.cantidad}"
         )
     
+    # 🔒 BUG #3 FIX: Reservar IMEIs si el producto es serializado
+    from app.models import ProductIMEI
+    imeis_to_reserve = []
+    
+    # 🔒 BUG #3 FIX: Reservar IMEIs si el producto es serializado
+    from app.models import ProductIMEI
+    imeis_to_reserve = []
+    
+    # Verificar si el producto tiene IMEIs registrados
+    has_imeis = db.query(ProductIMEI).filter(
+        ProductIMEI.product_id == transfer.product_id
+    ).first() is not None
+    
+    if has_imeis:
+        if transfer.imeis:
+            # Si se proporcionaron IMEIs específicos, validarlos
+            if len(transfer.imeis) != transfer.cantidad:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La cantidad de IMEIs proporcionados ({len(transfer.imeis)}) no coincide con la cantidad a transferir ({transfer.cantidad})"
+                )
+            
+            # Buscar los IMEIs específicos
+            imeis_encontrados = db.query(ProductIMEI).filter(
+                ProductIMEI.product_id == transfer.product_id,
+                ProductIMEI.location_id == transfer.from_location_id,
+                ProductIMEI.vendido == False,
+                ProductIMEI.imei.in_(transfer.imeis)
+            ).all()
+            
+            if len(imeis_encontrados) != len(transfer.imeis):
+                encontrados_set = {i.imei for i in imeis_encontrados}
+                faltantes = set(transfer.imeis) - encontrados_set
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Algunos IMEIs no están disponibles en la ubicación de origen: {', '.join(faltantes)}"
+                )
+            
+            imeis_to_reserve = imeis_encontrados
+        else:
+            # Si no se proporcionaron, auto-seleccionar disponibles (comportamiento legacy)
+            imeis_disponibles = db.query(ProductIMEI).filter(
+                ProductIMEI.product_id == transfer.product_id,
+                ProductIMEI.location_id == transfer.from_location_id,
+                ProductIMEI.vendido == False,
+                ProductIMEI.transfer_id == None  # Asegurar que no estén ya en otra transferencia
+            ).limit(transfer.cantidad).all()
+            
+            if len(imeis_disponibles) < transfer.cantidad:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No hay IMEIs suficientes para transferir. Disponibles: {len(imeis_disponibles)}, Requeridos: {transfer.cantidad}"
+                )
+            
+            imeis_to_reserve = imeis_disponibles
+    
     # Crear la transferencia en estado PENDIENTE
     db_transfer = StockTransfer(
         product_id=product.id,
@@ -150,17 +213,21 @@ def create_transfer(
     
     # V2.0: RESERVAR el stock inmediatamente (stock en tránsito)
     # El stock queda bloqueado en la ubicación de origen hasta que se confirme o rechace
-    stock_anterior = source_stock.cantidad_reservada
+    stock_libre_antes = source_stock.cantidad_disponible - source_stock.cantidad_reservada
     source_stock.cantidad_reservada += transfer.cantidad
+    stock_libre_despues = source_stock.cantidad_disponible - source_stock.cantidad_reservada
     
-    # Registrar en historial de stock (trazabilidad de reserva)
+    # 🔒 BUG #3: Marcar IMEIs como reservados (transfer_pending)
+    # Ahora usamos transfer_id real gracias a la migración
+    
+    # Registrar en historial de stock (trazabilidad de reserva, usando stock libre)
     history_reserva = StockHistory(
         product_id=product.id,
         location_id=from_location.id,
         tipo_cambio='transferencia_reserva',
-        cantidad=-transfer.cantidad,  # Negativo porque reduce disponibilidad
-        stock_anterior=source_stock.cantidad_disponible,
-        stock_nuevo=source_stock.cantidad_disponible - transfer.cantidad,  # Stock libre después de reserva
+        cantidad=-transfer.cantidad,  # Negativo porque reduce stock libre
+        stock_anterior=stock_libre_antes,
+        stock_nuevo=stock_libre_despues,
         referencia_id=None,  # Se actualizará después del flush
         referencia_tipo='transfer_pending',
         notas=f"Stock reservado para transferencia a '{to_location.nombre}': {transfer.notas or 'Sin notas'}",
@@ -171,6 +238,11 @@ def create_transfer(
     try:
         db.flush()  # Obtener el ID de la transferencia
         history_reserva.referencia_id = db_transfer.id  # Actualizar referencia
+        
+        # Asignar transfer_id a los IMEIs reservados
+        for imei in imeis_to_reserve:
+            imei.transfer_id = db_transfer.id
+            
         db.commit()
         db.refresh(db_transfer)
         return _serialize_transfer(db_transfer)
@@ -335,8 +407,8 @@ def confirm_transfer(
         Stock.location_id == transfer.to_location_id
     ).first()
     
-    stock_anterior_origen = source_stock.cantidad_disponible
-    stock_anterior_destino = dest_stock.cantidad_disponible if dest_stock else 0
+    stock_libre_origen_antes = source_stock.cantidad_disponible - source_stock.cantidad_reservada
+    stock_libre_destino_antes = (dest_stock.cantidad_disponible - dest_stock.cantidad_reservada) if dest_stock else 0
     
     if not dest_stock:
         # Crear registro de stock en ubicación de destino
@@ -358,12 +430,14 @@ def confirm_transfer(
     dest_stock.cantidad_disponible += transfer.cantidad
     
     # VALIDACIÓN CRÍTICA POST: Verificar que el stock no quedó negativo (seguridad adicional contra race conditions)
-    if source_stock.cantidad_disponible < 0:
+    if source_stock.cantidad_disponible < 0 or source_stock.cantidad_disponible < source_stock.cantidad_reservada:
         db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Error crítico: Stock negativo detectado en ubicación de origen ({source_stock.cantidad_disponible}). Posible race condition o corrupción de datos. Operación revertida."
         )
+    stock_libre_origen_despues = source_stock.cantidad_disponible - source_stock.cantidad_reservada
+    stock_libre_destino_despues = dest_stock.cantidad_disponible - dest_stock.cantidad_reservada
     
     # Registrar en historial de stock (trazabilidad)
     history_salida = StockHistory(
@@ -371,8 +445,8 @@ def confirm_transfer(
         location_id=transfer.from_location_id,
         tipo_cambio='transferencia_salida',
         cantidad=-transfer.cantidad,
-        stock_anterior=stock_anterior_origen,
-        stock_nuevo=source_stock.cantidad_disponible,
+        stock_anterior=stock_libre_origen_antes,
+        stock_nuevo=stock_libre_origen_despues,
         referencia_id=transfer.id,
         referencia_tipo='transfer',
         notas=f"Transferencia a {transfer.to_location.nombre}: {transfer.notas or ''}",
@@ -385,8 +459,8 @@ def confirm_transfer(
         location_id=transfer.to_location_id,
         tipo_cambio='transferencia_entrada',
         cantidad=transfer.cantidad,
-        stock_anterior=stock_anterior_destino,
-        stock_nuevo=dest_stock.cantidad_disponible,
+        stock_anterior=stock_libre_destino_antes,
+        stock_nuevo=stock_libre_destino_despues,
         referencia_id=transfer.id,
         referencia_tipo='transfer',
         notas=f"Transferencia desde {transfer.from_location.nombre}: {transfer.notas or ''}",
@@ -396,14 +470,32 @@ def confirm_transfer(
     
     # V2.0: Mover IMEIs automáticamente a la nueva ubicación
     from app.models import ProductIMEI
-    imeis_to_move = db.query(ProductIMEI).filter(
-        ProductIMEI.product_id == transfer.product_id,
-        ProductIMEI.location_id == transfer.from_location_id,
-        ProductIMEI.vendido == False
-    ).limit(transfer.cantidad).all()
     
+    # Buscar IMEIs asociados a esta transferencia (V2.0 con transfer_id)
+    imeis_to_move = db.query(ProductIMEI).filter(
+        ProductIMEI.transfer_id == transfer.id
+    ).all()
+    
+    # Si no hay IMEIs asociados por transfer_id (legacy o migración incompleta),
+    # intentar buscar IMEIs disponibles en origen (fallback peligroso pero necesario para compatibilidad)
+    if not imeis_to_move:
+        # Verificar si el producto es serializado
+        has_imeis = db.query(ProductIMEI).filter(
+            ProductIMEI.product_id == transfer.product_id
+        ).first() is not None
+        
+        if has_imeis:
+            imeis_to_move = db.query(ProductIMEI).filter(
+                ProductIMEI.product_id == transfer.product_id,
+                ProductIMEI.location_id == transfer.from_location_id,
+                ProductIMEI.vendido == False,
+                ProductIMEI.transfer_id == None
+            ).limit(transfer.cantidad).all()
+    
+    # Mover los IMEIs y limpiar transfer_id
     for imei in imeis_to_move:
         imei.location_id = transfer.to_location_id
+        imei.transfer_id = None  # Limpiar la asociación con la transferencia
     
     # Actualizar estado de la transferencia
     transfer.estado = "confirmada"
@@ -468,8 +560,9 @@ def reject_transfer(
         print(f"ADVERTENCIA: Reserva inconsistente al rechazar transferencia {transfer_id}. Reservado: {source_stock.cantidad_reservada}, Cantidad transferencia: {transfer.cantidad}")
     
     # Liberar la reserva
-    stock_reservado_anterior = source_stock.cantidad_reservada
+    stock_libre_antes = source_stock.cantidad_disponible - source_stock.cantidad_reservada
     source_stock.cantidad_reservada = max(0, source_stock.cantidad_reservada - transfer.cantidad)
+    stock_libre_despues = source_stock.cantidad_disponible - source_stock.cantidad_reservada
     
     # Actualizar estado de la transferencia
     transfer.estado = "rechazada"
@@ -477,15 +570,24 @@ def reject_transfer(
     transfer.confirmed_by = reject_data.rejected_by
     transfer.rejection_reason = reject_data.rejection_reason
     
+    # V2.0: Liberar IMEIs reservados
+    from app.models import ProductIMEI
+    imeis_reserved = db.query(ProductIMEI).filter(
+        ProductIMEI.transfer_id == transfer.id
+    ).all()
+    
+    for imei in imeis_reserved:
+        imei.transfer_id = None
+    
     # V2.0: Registrar rechazo y liberación de reserva en historial
     from app.models import StockHistory
     history_rechazo = StockHistory(
         product_id=transfer.product_id,
         location_id=transfer.from_location_id,
         tipo_cambio='transferencia_rechazada',
-        cantidad=transfer.cantidad,  # Positivo porque libera stock
-        stock_anterior=source_stock.cantidad_disponible - transfer.cantidad,
-        stock_nuevo=source_stock.cantidad_disponible,  # Stock libre después de liberar reserva
+        cantidad=transfer.cantidad,  # Positivo porque libera stock reservado
+        stock_anterior=stock_libre_antes,
+        stock_nuevo=stock_libre_despues,
         referencia_id=transfer.id,
         referencia_tipo='transfer_rejected',
         notas=f"Transferencia rechazada por {reject_data.rejected_by}: {reject_data.rejection_reason or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
@@ -549,7 +651,18 @@ def cancel_transfer(
         print(f"ADVERTENCIA: Reserva inconsistente al cancelar transferencia {transfer_id}. Reservado: {source_stock.cantidad_reservada}, Cantidad transferencia: {transfer.cantidad}")
     
     # Liberar la reserva
+    stock_libre_antes = source_stock.cantidad_disponible - source_stock.cantidad_reservada
     source_stock.cantidad_reservada = max(0, source_stock.cantidad_reservada - transfer.cantidad)
+    stock_libre_despues = source_stock.cantidad_disponible - source_stock.cantidad_reservada
+    
+    # V2.0: Liberar IMEIs reservados
+    from app.models import ProductIMEI
+    imeis_reserved = db.query(ProductIMEI).filter(
+        ProductIMEI.transfer_id == transfer.id
+    ).all()
+    
+    for imei in imeis_reserved:
+        imei.transfer_id = None
     
     transfer.estado = "cancelada"
     
@@ -560,8 +673,8 @@ def cancel_transfer(
         location_id=transfer.from_location_id,
         tipo_cambio='transferencia_cancelada',
         cantidad=transfer.cantidad,  # Positivo porque libera stock
-        stock_anterior=source_stock.cantidad_disponible - transfer.cantidad,
-        stock_nuevo=source_stock.cantidad_disponible,  # Stock libre después de liberar reserva
+        stock_anterior=stock_libre_antes,
+        stock_nuevo=stock_libre_despues,
         referencia_id=transfer.id,
         referencia_tipo='transfer_cancelled',
         notas=f"Transferencia cancelada: {transfer.notas or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",

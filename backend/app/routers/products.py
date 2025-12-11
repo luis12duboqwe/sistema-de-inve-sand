@@ -34,14 +34,19 @@ def _serialize_product(product: Product) -> ProductResponse:
     stock_items_list = []
     
     if hasattr(product, 'stock_items') and product.stock_items:
-        total_stock = sum(stock.cantidad_disponible for stock in product.stock_items)
-        # Serializar stock_items para V2.0
+        total_stock = 0
+        # Serializar stock_items para V2.0, incluyendo stock libre (descontando reservas)
         for stock_item in product.stock_items:
+            cantidad_reservada = stock_item.cantidad_reservada or 0
+            stock_libre = max((stock_item.cantidad_disponible or 0) - cantidad_reservada, 0)
+            total_stock += stock_libre
+
             stock_items_list.append(StockByLocationResponse(
                 id=stock_item.id,
                 product_id=stock_item.product_id,
                 location_id=stock_item.location_id,
                 cantidad_disponible=stock_item.cantidad_disponible,
+                cantidad_reservada=cantidad_reservada,
                 location=LocationResponse(
                     id=stock_item.location.id,
                     nombre=stock_item.location.nombre,
@@ -111,16 +116,18 @@ def list_products(
         Respuesta paginada con lista de productos
     """
     # V2.0: Eager loading de stock_items y location para incluir en response
+    # 🔒 BUG #27 FIX: Separar joinedload (para datos) del join (para filtros)
     query = db.query(Product).options(
         joinedload(Product.stock_items).joinedload(Stock.location)
     )
 
-    # Filtro por ubicación específica (V2.0)
+    # Filtro por ubicación específica (V2.0) - SEPARADO del joinedload
     if location_id:
-        query = query.join(Stock).filter(
+        # Usar distinct() para evitar cartesian product con joinedload
+        query = query.join(Stock, Product.id == Stock.product_id).filter(
             Stock.location_id == location_id,
             Stock.cantidad_disponible > 0
-        )
+        ).distinct()
     
     if not include_inactive:
         query = query.filter(Product.activo == True)
@@ -185,11 +192,26 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     
     try:
         product_data = product.model_dump(by_alias=True)
+        product_data['moneda'] = 'Lps' # Enforce Lps
         cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
         # V2.0: Extraer initial_location_id y imeis_con_ubicacion
         initial_location_id = product_data.pop("initial_location_id", None)
         imeis_con_ubicacion = product_data.pop("imeis_con_ubicacion", None)
+        
+        # ✅ Validar que location esté activa si se proporciona (Bug #32 fix)
+        if initial_location_id:
+            location = db.query(Location).filter(Location.id == initial_location_id).first()
+            if not location:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"La ubicación con ID {initial_location_id} no fue encontrada"
+                )
+            if not location.activo:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La ubicación '{location.nombre}' está inactiva. No se puede crear stock aquí."
+                )
         
         # Extraer IMEIs legacy si existen
         imeis = product_data.pop("imeis", None)
@@ -218,13 +240,16 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
                     )
                 initial_location_id = default_location.id
             else:
-                # Validar que la ubicación exista
-                location = db.query(Location).filter(Location.id == initial_location_id).first()
+                # Validar que la ubicación exista y esté activa
+                location = db.query(Location).filter(
+                    Location.id == initial_location_id,
+                    Location.activo == True
+                ).first()
                 if not location:
                     db.rollback()
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Ubicación con ID {initial_location_id} no encontrada"
+                        detail=f"Ubicación con ID {initial_location_id} no encontrada o inactiva"
                     )
             
             db_stock = Stock(
@@ -738,49 +763,6 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")
 
 
-# ============= NUEVOS ENDPOINTS PARA STOCK POR UBICACIÓN =============
-
-@router.get("/{product_id}/stock/by-location")
-def get_product_stock_by_location(
-    product_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Obtener el stock de un producto desglosado por ubicación.
-    
-    Retorna:
-    - Stock en cada ubicación
-    - Stock total consolidado
-    """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
-    stock_by_location = db.query(Stock, Location).join(
-        Location, Stock.location_id == Location.id
-    ).filter(Stock.product_id == product_id).all()
-    
-    locations_data = []
-    total_stock = 0
-    
-    for stock, location in stock_by_location:
-        locations_data.append({
-            "location_id": location.id,
-            "location_name": location.nombre,
-            "location_type": location.tipo,
-            "cantidad": stock.cantidad_disponible
-        })
-        total_stock += stock.cantidad_disponible
-    
-    return {
-        "product_id": product_id,
-        "product_name": product.nombre,
-        "sku": product.sku,
-        "locations": locations_data,
-        "total_stock": total_stock
-    }
-
-
 @router.post("/{product_id}/stock/location/{location_id}")
 def set_product_stock_at_location(
     product_id: int,
@@ -798,8 +780,8 @@ def set_product_stock_at_location(
     
     # Verificar que la ubicación existe
     location = db.query(Location).filter(Location.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Ubicación no encontrada")
+    if not location or not location.activo:
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada o inactiva")
     
     # Buscar o crear el registro de stock
     stock = db.query(Stock).filter(
@@ -808,6 +790,13 @@ def set_product_stock_at_location(
     ).first()
     
     stock_anterior = stock.cantidad_disponible if stock else 0
+    reservado = stock.cantidad_reservada if stock else 0
+    
+    if reservado > cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede establecer stock menor al reservado. Reservado: {reservado}, Nuevo stock: {cantidad}"
+        )
     
     if stock:
         stock.cantidad_disponible = cantidad
@@ -815,7 +804,8 @@ def set_product_stock_at_location(
         stock = Stock(
             product_id=product_id,
             location_id=location_id,
-            cantidad_disponible=cantidad
+            cantidad_disponible=cantidad,
+            cantidad_reservada=0
         )
         db.add(stock)
     
@@ -880,3 +870,53 @@ def get_product_total_stock(
         "sku": product.sku,
         "total_stock": int(total)
     }
+
+
+@router.get("/{product_id}/stock/by-location", response_model=List[StockByLocationResponse])
+def get_product_stock_by_location(
+    product_id: int,
+    include_inactive_locations: bool = Query(False, description="Incluir ubicaciones inactivas"),
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve el stock del producto desglosado por ubicación (V2.0).
+
+    Esta ruta es usada por el frontend para mostrar stock por tienda/bodega.
+    Alinea el contrato con `apiClient.getStockByLocation` que esperaba este endpoint.
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    query = db.query(Stock).join(Location).filter(Stock.product_id == product_id)
+    if not include_inactive_locations:
+        query = query.filter(Location.activo == True)
+
+    stock_items = query.all()
+
+    result: List[StockByLocationResponse] = []
+    for stock in stock_items:
+        # Calcular stock libre para evitar mostrar unidades reservadas como disponibles
+        stock_libre = stock.cantidad_disponible - stock.cantidad_reservada
+        if stock_libre < 0:
+            stock_libre = 0
+
+        location = stock.location
+        result.append(StockByLocationResponse(
+            id=stock.id,
+            product_id=stock.product_id,
+            location_id=stock.location_id,
+            cantidad_disponible=stock.cantidad_disponible,
+            cantidad_reservada=stock.cantidad_reservada,
+            location=LocationResponse(
+                id=location.id,
+                nombre=location.nombre,
+                tipo=location.tipo,
+                direccion=location.direccion,
+                activo=location.activo,
+                created_at=location.created_at,
+                updated_at=location.updated_at
+            ) if location else None
+        ))
+
+    return result

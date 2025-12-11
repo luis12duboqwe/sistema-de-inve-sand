@@ -61,8 +61,8 @@ function validateProductRow(
   
   const condicionRaw = row.Condición?.trim() || row.condicion?.trim() || row.Condition?.trim() || ''
   const condicion = (condicionRaw || '').toLowerCase()
-  if (!condicion || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(condicion)) {
-    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado a"')
+  if (!condicion || !['nuevo', 'usado', 'reacondicionado'].includes(condicion)) {
+    errors.push('Condición debe ser "nuevo", "usado" o "reacondicionado"')
   }
   
   const precio = parseFloat(row.Precio || row.precio || row.Price || '0')
@@ -91,7 +91,7 @@ function validateProductRow(
       marca: row.Marca?.trim() || row.marca?.trim() || row.Brand?.trim() || '',
       modelo: row.Modelo?.trim() || row.modelo?.trim() || row.Model?.trim() || '',
       capacidad: row.Capacidad?.trim() || row.capacidad?.trim() || row.Capacity?.trim() || '',
-      condicion: (condicion === 'grado a' ? 'grado A' : condicion) as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
+      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado',
       precio: precio,
       moneda: row.Moneda?.trim() || row.moneda?.trim() || row.Currency?.trim() || 'HNL',
       garantia_meses: garantia,

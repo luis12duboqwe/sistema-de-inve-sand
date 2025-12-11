@@ -31,8 +31,8 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
       nuevo: 'Nuevo',
       usado: 'Usado',
       reacondicionado: 'Reacondicionado',
-      'grado A': 'Grado A'
     }
+       // 'grado A' condition removed
     return condicion ? (map[condicion] || condicion) : 'N/A'
   }
 

@@ -56,7 +56,7 @@ export function EditProductDialog({
       setCategoria(product.categoria)
       setMarca(product.marca)
       setModelo(product.modelo)
-      setCapacidad(product.capacidad)
+      setCapacidad(product.capacidad || '')
       setCondicion(product.condicion)
       setPrecio(product.precio.toString())
       setGarantiaMeses(product.garantia_meses.toString())
@@ -156,7 +156,6 @@ export function EditProductDialog({
                     <SelectItem value="nuevo">Nuevo</SelectItem>
                     <SelectItem value="usado">Usado</SelectItem>
                     <SelectItem value="reacondicionado">Reacondicionado</SelectItem>
-                    <SelectItem value="grado A">Grado A</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

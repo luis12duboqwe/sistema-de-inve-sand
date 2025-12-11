@@ -1305,7 +1305,8 @@ export default function App() {
                             <div className="grid gap-1.5">
                               {product.stock_items?.map((stockItem) => {
                                 const location = locations.find(l => l.id === stockItem.location_id)
-                                const stockLibre = stockItem.cantidad_disponible - (stockItem.cantidad_reservada || 0)
+                                // 🔒 BUG #33 FIX: Validar que stock sea >= 0
+                                const stockLibre = Math.max(0, (stockItem.cantidad_disponible || 0) - (stockItem.cantidad_reservada || 0))
                                 return (
                                   <div 
                                     key={stockItem.location_id} 

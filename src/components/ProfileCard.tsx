@@ -83,7 +83,7 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit,
           <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
             <div className="flex justify-between">
               <span>Moneda:</span>
-              <span className="font-medium text-foreground">{profile.settings.currency || 'HNL'}</span>
+              <span className="font-medium text-foreground">{profile.settings.currency || 'Lps'}</span>
             </div>
             {profile.settings.lowStockThreshold && (
               <div className="flex justify-between">

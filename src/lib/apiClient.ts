@@ -9,7 +9,8 @@ import type {
   Location,
   Supplier,
   CreateStockTransferRequest,
-  StockTransfer
+  StockTransfer,
+  StockByLocation
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -70,7 +71,7 @@ interface ApiProductResponse {
   marca: string
   modelo: string
   capacidad: string
-  condicion: 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'
+  condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
   moneda: string
   garantia_meses: number
@@ -97,6 +98,16 @@ interface ApiOrderResponse {
     precio_unitario: number
     es_regalo_promocion: boolean
     product?: ApiProductResponse
+  }[]
+  trade_ins?: {
+    id: number
+    marca: string
+    modelo: string
+    imei?: string
+    condicion: string
+    valor_estimado: number
+    notas?: string
+    created_at: string
   }[]
 }
 
@@ -382,9 +393,13 @@ class ApiClient {
     }
   }
 
-  async updateStock(productId: number, cantidad: number): Promise<void> {
+  async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
     try {
-      await this.request(`/products/${productId}/stock`, {
+      if (!locationId) {
+        throw new Error('locationId is required to actualizar stock por ubicación (V2.0)')
+      }
+
+      await this.request(`/products/${productId}/stock?location_id=${locationId}`, {
         method: 'PUT',
         body: JSON.stringify({ cantidad_disponible: cantidad }),
       })
@@ -405,9 +420,10 @@ class ApiClient {
     }
   }
 
-  async getStockByLocation(productId: number): Promise<{ items: any[] }> {
+  async getStockByLocation(productId: number, includeInactiveLocations = false): Promise<StockByLocation[]> {
     try {
-      return await this.request(`/products/${productId}/stock/by-location`)
+      const query = includeInactiveLocations ? '?include_inactive_locations=true' : ''
+      return await this.request<StockByLocation[]>(`/products/${productId}/stock/by-location${query}`)
     } catch (error) {
       console.error('Error fetching stock by location:', error)
       throw new Error(`Failed to fetch stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -416,9 +432,8 @@ class ApiClient {
 
   async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
     try {
-      await this.request(`/products/${productId}/stock/location/${locationId}`, {
-        method: 'POST',
-        body: JSON.stringify({ cantidad })
+      await this.request(`/products/${productId}/stock/location/${locationId}?cantidad=${cantidad}`, {
+        method: 'POST'
       })
     } catch (error) {
       console.error('Error updating stock by location:', error)
@@ -442,10 +457,14 @@ class ApiClient {
     }
   }
 
-  async bulkCreateProducts(productsData: Partial<ProductWithStock>[]): Promise<ProductWithStock[]> {
+  async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
     try {
+      if (!locationId) {
+        throw new Error('locationId es obligatorio para carga masiva en V2.0')
+      }
+
       const productsToCreate = productsData.map(p => ({
-        profile_id: p.profile_id!,
+        profile_id: p.profile_id,
         sku: p.sku!,
         nombre: p.nombre!,
         categoria: p.categoria!,
@@ -457,7 +476,8 @@ class ApiClient {
         moneda: p.moneda || 'HNL',
         garantia_meses: p.garantia_meses || 0,
         activo: true,
-        stock_inicial: p.stock_disponible || 0
+        stock_inicial: p.stock_disponible || 0,
+        initial_location_id: locationId
       }))
 
       return this.request<ProductWithStock[]>('/products/bulk', {
@@ -489,6 +509,12 @@ class ApiClient {
         customer_phone: String(order.customer_phone || ''),
         items: (order.items || []).map(item => {
           const product = item.product
+          const productMapped = product
+            ? {
+                ...product,
+                condicion: product.condicion as Product['condicion']
+              }
+            : undefined
           return {
             id: item.id,
             order_id: order.id,
@@ -496,21 +522,7 @@ class ApiClient {
             cantidad: item.cantidad,
             precio_unitario: item.precio_unitario,
             es_regalo_promocion: item.es_regalo_promocion,
-            product: product ? {
-              id: product.id,
-              profile_id: product.profile_id,
-              sku: product.sku,
-              nombre: product.nombre,
-              categoria: product.categoria,
-              marca: product.marca,
-              modelo: product.modelo,
-              capacidad: product.capacidad,
-              condicion: product.condicion,
-              precio: product.precio,
-              moneda: product.moneda,
-              garantia_meses: product.garantia_meses,
-              activo: product.activo,
-            } : undefined
+            product: productMapped
           }
         })
       }))
@@ -544,6 +556,13 @@ class ApiClient {
         ...apiOrder,
         items: apiOrder.items.map(item => {
           const product = item.product
+          const productMapped = product
+            ? {
+                ...product,
+                condicion: product.condicion as Product['condicion']
+              }
+            : undefined
+
           return {
             id: item.id,
             order_id: apiOrder.id,
@@ -551,23 +570,13 @@ class ApiClient {
             cantidad: item.cantidad,
             precio_unitario: item.precio_unitario,
             es_regalo_promocion: item.es_regalo_promocion,
-            product: product ? {
-              id: product.id,
-              profile_id: product.profile_id,
-              sku: product.sku,
-              nombre: product.nombre,
-              categoria: product.categoria,
-              marca: product.marca,
-              modelo: product.modelo,
-              capacidad: product.capacidad,
-              condicion: product.condicion,
-              precio: product.precio,
-              moneda: product.moneda,
-              garantia_meses: product.garantia_meses,
-              activo: product.activo,
-            } : undefined
+            product: productMapped
           }
-        })
+        }),
+        trade_ins: apiOrder.trade_ins?.map(t => ({
+          ...t,
+          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
+        }))
       }
     } catch (error) {
       console.error('Error creating order via API:', error)
@@ -635,6 +644,13 @@ class ApiClient {
         ...apiOrder,
         items: apiOrder.items.map(item => {
           const product = item.product
+          const productMapped = product
+            ? {
+                ...product,
+                condicion: product.condicion as Product['condicion']
+              }
+            : undefined
+
           return {
             id: item.id,
             order_id: apiOrder.id,
@@ -642,21 +658,7 @@ class ApiClient {
             cantidad: item.cantidad,
             precio_unitario: item.precio_unitario,
             es_regalo_promocion: item.es_regalo_promocion,
-            product: product ? {
-              id: product.id,
-              profile_id: product.profile_id,
-              sku: product.sku,
-              nombre: product.nombre,
-              categoria: product.categoria,
-              marca: product.marca,
-              modelo: product.modelo,
-              capacidad: product.capacidad,
-              condicion: product.condicion,
-              precio: product.precio,
-              moneda: product.moneda,
-              garantia_meses: product.garantia_meses,
-              activo: product.activo,
-            } : undefined
+            product: productMapped
           }
         })
       }
@@ -776,6 +778,41 @@ class ApiClient {
     } catch (error) {
       console.error('Error canceling stock transfer:', error)
       throw new Error(`Failed to cancel transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    try {
+      return this.request<Supplier>('/suppliers', {
+        method: 'POST',
+        body: JSON.stringify(supplier)
+      })
+    } catch (error) {
+      console.error('Error creating supplier:', error)
+      throw new Error(`Failed to create supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    try {
+      return this.request<Supplier>(`/suppliers/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      })
+    } catch (error) {
+      console.error('Error updating supplier:', error)
+      throw new Error(`Failed to update supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    try {
+      await this.request(`/suppliers/${id}`, {
+        method: 'DELETE'
+      })
+    } catch (error) {
+      console.error('Error deleting supplier:', error)
+      throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }

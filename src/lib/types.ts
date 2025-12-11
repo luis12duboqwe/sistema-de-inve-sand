@@ -66,7 +66,7 @@ export interface Product {
   marca: string
   modelo: string
   capacidad?: string
-  condicion: 'nuevo' | 'usado' | 'reacondicionado' | 'grado A'
+  condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
   moneda: string
   garantia_meses: number
@@ -81,7 +81,9 @@ export interface Product {
 export interface Stock {
   id: number
   product_id: number
+  location_id?: number
   cantidad_disponible: number
+  cantidad_reservada?: number
 }
 
 export interface Order {
@@ -134,6 +136,7 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
   }[]
+  trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
   notes?: string
   delivery_date?: string
   notas?: string
@@ -150,6 +153,7 @@ export interface Supplier {
   notas?: string
   activo: boolean
   created_at: string
+  updated_at?: string
 }
 
 export interface ProductWithSupplier extends ProductWithStock {
@@ -218,6 +222,7 @@ export interface CreateStockTransferRequest {
   from_location_id: number  // V2.0: ID de ubicación origen
   to_location_id: number  // V2.0: ID de ubicación destino
   cantidad: number
+  imeis?: string[] // V2.0: Lista de IMEIs específicos (opcional)
   notas?: string
   created_by?: string
 }
@@ -225,12 +230,12 @@ export interface CreateStockTransferRequest {
 export interface StockHistory {
   id: number
   product_id: number
-  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'ajuste' | 'devolucion'
+  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion'
   cantidad: number  // Positivo para entrada, negativo para salida
   stock_anterior: number
   stock_nuevo: number
   referencia_id?: number
-  referencia_tipo?: 'order' | 'transfer' | 'adjustment'
+  referencia_tipo?: 'order' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled'
   notas?: string
   usuario?: string
   created_at: string
@@ -245,4 +250,15 @@ export interface StockHistoryStats {
   total_entrada: number
   total_salida: number
   stock_actual: number
+}
+
+export interface ProductIMEI {
+  id: number
+  product_id: number
+  location_id?: number
+  imei: string
+  vendido: boolean
+  order_id?: number
+  transfer_id?: number // V2.0: ID de transferencia si está en tránsito
+  created_at: string
 }
