@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -45,6 +46,7 @@ export function EditProductDialog({
   const [precio, setPrecio] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('')
   const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
+  const [isSerialized, setIsSerialized] = useState(false)
   const [stock, setStock] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showStockDialog, setShowStockDialog] = useState(false)
@@ -61,6 +63,7 @@ export function EditProductDialog({
       setPrecio(product.precio.toString())
       setGarantiaMeses(product.garantia_meses.toString())
       setGarantiaCondiciones(product.garantia_condiciones || '')
+      setIsSerialized(product.is_serialized ?? (product.categoria === 'celular'))
       setStock(product.stock_disponible.toString())
     }
   }, [product])
@@ -81,7 +84,8 @@ export function EditProductDialog({
         condicion,
         precio: parseFloat(precio),
         garantia_meses: parseInt(garantiaMeses),
-        garantia_condiciones: garantiaCondiciones.trim() || undefined
+        garantia_condiciones: garantiaCondiciones.trim() || undefined,
+        is_serialized: isSerialized
       }
 
       const newStockValue = parseInt(stock)
@@ -227,6 +231,17 @@ export function EditProductDialog({
               <p className="text-sm text-muted-foreground">
                 Condiciones y términos aplicables a la garantía del producto
               </p>
+            </div>
+
+            <div className="flex items-center space-x-2 py-2">
+              <Checkbox 
+                id="edit_is_serialized" 
+                checked={isSerialized} 
+                onCheckedChange={(checked) => setIsSerialized(checked as boolean)}
+              />
+              <Label htmlFor="edit_is_serialized" className="cursor-pointer">
+                Producto Serializado (requiere IMEI)
+              </Label>
             </div>
 
             <div className="space-y-2">

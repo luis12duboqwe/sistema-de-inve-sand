@@ -12,7 +12,8 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import type { Profile, StockTransfer } from '@/lib/types'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import type { Location, StockTransfer } from '@/lib/types'
 import { 
   ArrowRightLeft, 
   Check, 
@@ -25,14 +26,14 @@ import {
 interface PendingTransfersDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  profile: Profile
+  locations: Location[]
   onTransferUpdate: () => void
 }
 
 export function PendingTransfersDialog({
   open,
   onOpenChange,
-  profile,
+  locations,
   onTransferUpdate
 }: PendingTransfersDialogProps) {
   const [transfers, setTransfers] = useState<StockTransfer[]>([])
@@ -43,19 +44,10 @@ export function PendingTransfersDialog({
   const loadPendingTransfers = async () => {
     setLoading(true)
     try {
-      // Obtener transferencias donde el perfil actual es el destino y están pendientes
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/stock-transfers?profile_slug=${profile.slug}&per_page=100`
-      )
-      const data = await response.json()
-      
-      if (data.items) {
-        // Filtrar solo las pendientes donde este perfil es el destino
-        const pending = data.items.filter(
-          (t: StockTransfer) => t.estado === 'pendiente' && t.to_profile_id === profile.id
-        )
-        setTransfers(pending)
-      }
+      const allTransfers = await inventoryServiceInstance.listStockTransfers({ estado: 'pendiente' })
+      const myLocationIds = locations.map(l => l.id)
+      const pending = allTransfers.filter(t => myLocationIds.includes(t.to_location_id))
+      setTransfers(pending)
     } catch (error) {
       console.error('Error loading transfers:', error)
       toast.error('Error al cargar transferencias pendientes')
@@ -65,11 +57,11 @@ export function PendingTransfersDialog({
   }
 
   useEffect(() => {
-    if (open && profile.id) {
+    if (open && locations.length > 0) {
       loadPendingTransfers()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, profile.id])
+  }, [open, locations])
 
   const handleConfirm = async (transfer: StockTransfer) => {
     if (!confirm(`¿Confirmar la recepción de ${transfer.cantidad} unidad(es) de "${transfer.product_nombre}"?`)) {
@@ -78,21 +70,7 @@ export function PendingTransfersDialog({
 
     setProcessingId(transfer.id)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/stock-transfers/${transfer.id}/confirm`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            confirmed_by: 'Sistema' // Puedes cambiar esto si tienes autenticación
-          })
-        }
-      )
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Error al confirmar transferencia')
-      }
+      await inventoryServiceInstance.confirmStockTransfer(transfer.id, 'Sistema')
 
       toast.success(
         `Transferencia confirmada. ${transfer.cantidad} unidad(es) agregadas al inventario.`
@@ -121,22 +99,7 @@ export function PendingTransfersDialog({
 
     setProcessingId(transfer.id)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/stock-transfers/${transfer.id}/reject`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rejection_reason: reason.trim(),
-            rejected_by: 'Sistema'
-          })
-        }
-      )
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Error al rechazar transferencia')
-      }
+      await inventoryServiceInstance.rejectStockTransfer(transfer.id, 'Sistema', reason.trim())
 
       toast.success('Transferencia rechazada')
       

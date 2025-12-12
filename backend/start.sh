@@ -32,8 +32,8 @@ pip install -q -r requirements.txt
 
 # Verificar base de datos
 if [ ! -f "inventory.db" ]; then
-    echo "🗄️  Inicializando base de datos con modelo V2.0..."
-    python init_db.py --with-data
+    echo "🗄️  Inicializando base de datos vacía (V2.0)..."
+    python init_db.py
     echo "✅ Base de datos inicializada"
 fi
 

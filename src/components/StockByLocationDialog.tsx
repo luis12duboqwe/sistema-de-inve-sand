@@ -4,11 +4,12 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Badge } from './ui/badge'
-import { MapPin, Package, Pencil, Check } from '@phosphor-icons/react'
+import { MapPin, Package, Pencil, Check, Barcode } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { StockByLocation, Location, Product } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { apiClient } from '@/lib/apiClient'
+import { IMEIListDialog } from './IMEIListDialog'
 
 interface StockByLocationDialogProps {
   open: boolean
@@ -38,6 +39,8 @@ export function StockByLocationDialog({
   const [loading, setLoading] = useState(true)
   const [editingLocationId, setEditingLocationId] = useState<number | null>(null)
   const [editingQuantity, setEditingQuantity] = useState(0)
+  const [showIMEIs, setShowIMEIs] = useState(false)
+  const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
 
   const loadStockByLocation = async () => {
     if (!productId) return
@@ -195,6 +198,20 @@ export function StockByLocationDialog({
                               <Pencil className="w-4 h-4" />
                             </Button>
                           )}
+                          {product?.categoria === 'celular' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedLocationId(stock.location_id)
+                                setShowIMEIs(true)
+                              }}
+                              className="mt-1"
+                              title="Ver IMEIs"
+                            >
+                              <Barcode className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -213,6 +230,16 @@ export function StockByLocationDialog({
             </div>
           )}
         </div>
+      )}
+      
+      {productId && (
+        <IMEIListDialog
+          open={showIMEIs}
+          onOpenChange={setShowIMEIs}
+          productId={productId}
+          productName={productName}
+          locationId={selectedLocationId}
+        />
       )}
     </>
   )

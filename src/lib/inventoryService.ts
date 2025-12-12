@@ -15,9 +15,30 @@ import type {
   StockTransfer,
   StockHistory,
   ProductIMEI,
-  TradeIn
+  TradeIn,
+  CreateReturnRequest,
+  Return,
+  IMEIHistory
 } from './types'
 import { getKV } from './kvStorage'
+
+// Simple Async Lock to prevent race conditions in Local Mode
+class AsyncLock {
+  private promise: Promise<void> = Promise.resolve()
+
+  async acquire(): Promise<() => void> {
+    let release: () => void
+    const nextPromise = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const previousPromise = this.promise
+    this.promise = previousPromise.then(() => nextPromise)
+    await previousPromise
+    return release!
+  }
+}
+
+const inventoryLock = new AsyncLock()
 
 const STORAGE_KEYS = {
   PROFILES: 'inventory-profiles',
@@ -31,7 +52,10 @@ const STORAGE_KEYS = {
   SUPPLIERS: 'inventory-suppliers',           // V2.0
   STOCK_TRANSFERS: 'inventory-stock-transfers', // V2.0
   STOCK_HISTORY: 'inventory-stock-history',   // V2.0
-  PRODUCT_IMEIS: 'inventory-product-imeis'    // V2.0
+  PRODUCT_IMEIS: 'inventory-product-imeis',   // V2.0
+  RETURNS: 'inventory-returns',               // V2.0
+  RETURN_ITEMS: 'inventory-return-items',     // V2.0
+  IMEI_HISTORY: 'inventory-imei-history'      // V2.0
 }
 
 export class InventoryService {
@@ -72,6 +96,26 @@ export class InventoryService {
       await kv.set(STORAGE_KEYS.PRODUCT_IMEIS, imeis)
     } catch (error) {
       console.error('Error saving product IMEIs:', error)
+    }
+  }
+
+  private async loadIMEIHistory(): Promise<IMEIHistory[]> {
+    try {
+      const kv = getKV()
+      const data = await kv.get<IMEIHistory[]>(STORAGE_KEYS.IMEI_HISTORY)
+      return data || []
+    } catch (error) {
+      console.error('Error loading IMEI history:', error)
+      return []
+    }
+  }
+
+  private async setIMEIHistory(history: IMEIHistory[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.IMEI_HISTORY, history)
+    } catch (error) {
+      console.error('Error saving IMEI history:', error)
     }
   }
 
@@ -223,21 +267,26 @@ export class InventoryService {
 
   async fetchProducts(profileSlug?: string, search?: string, includeInactive = false): Promise<ProductWithStock[]> {
     try {
-      const [products, stock, profiles, locations] = await Promise.all([
+      const [products, stock, , locations, imeis] = await Promise.all([
         this.loadProducts(),
         this.getStock(),
         this.loadProfiles(),
-        this.loadLocations()
+        this.loadLocations(),
+        this.loadProductIMEIs()
       ])
 
       let filtered = includeInactive ? products : products.filter(p => p.activo)
 
+      // V2.0 CHANGE: Products are global. Do not filter by profile_id even if slug is provided.
+      // Keeping this commented out for reference or legacy fallback if absolutely needed.
+      /*
       if (profileSlug) {
         const profile = profiles.find(pr => pr.slug === profileSlug)
         if (profile) {
           filtered = filtered.filter(p => p.profile_id === profile.id)
         }
       }
+      */
 
       if (search) {
         const searchLower = search.toLowerCase()
@@ -267,11 +316,17 @@ export class InventoryService {
         })
 
         const stockTotal = stockItems.reduce((acc, s) => acc + (s.stock_libre ?? 0), 0)
+        
+        // V2.0: Attach available IMEIs
+        const productImeis = imeis
+          .filter(i => i.product_id === product.id && !i.vendido && !i.transfer_id)
+          .map(i => i.imei)
 
         return {
           ...product,
           stock_disponible: stockTotal,
-          stock_items: stockItems
+          stock_items: stockItems,
+          imeis: productImeis.length > 0 ? productImeis : undefined
         }
       })
 
@@ -281,14 +336,27 @@ export class InventoryService {
       throw new Error(`Failed to fetch products: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
-
+    
   async getProducts(): Promise<ProductWithStock[]> {
     return this.fetchProducts(undefined, undefined, true)
   }
 
-  async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
+  async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     try {
-      const [profiles, products, stock, orders, orderItems, salesProfiles, locations, stockHistory, productIMEIs, tradeIns] = await Promise.all([
+      const imeis = await this.loadProductIMEIs()
+      return imeis
+        .filter(i => i.product_id === productId && i.location_id === locationId && !i.vendido && !i.transfer_id)
+        .map(i => i.imei)
+    } catch (error) {
+      console.error('Error fetching IMEIs locally:', error)
+      return []
+    }
+  }
+
+  async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
+    const release = await inventoryLock.acquire()
+    try {
+      const [profiles, products, stock, orders, orderItems, salesProfiles, locations, stockHistory, productIMEIs, tradeIns, imeiHistory] = await Promise.all([
         this.loadProfiles(),
         this.loadProducts(),
         this.getStock(),
@@ -298,7 +366,8 @@ export class InventoryService {
         this.loadLocations(),
         this.loadStockHistory(),
         this.loadProductIMEIs(),
-        this.loadTradeIns()
+        this.loadTradeIns(),
+        this.loadIMEIHistory()
       ])
 
       if (!request.source_location_id) {
@@ -353,13 +422,43 @@ export class InventoryService {
       const newOrderItems: OrderItem[] = []
       const newOrderId = Math.max(0, ...orders.map(o => o.id)) + 1
       const newStockHistory: StockHistory[] = []
+      const newIMEIHistory: IMEIHistory[] = []
       const updatedIMEIs: ProductIMEI[] = [...productIMEIs]
+
+      // Clone stock to avoid partial mutations on error
+      const updatedStock = stock.map(s => ({...s}))
 
       for (const item of request.items) {
         const product = products.find(p => p.id === item.product_id)!
-        total += product.precio * item.cantidad
+        // V2.0: Intentar obtener tasa de cambio del SalesProfile primero
+           let TASA_CAMBIO = 25.0 // Default fallback
+           
+           if (salesProfile && salesProfile.configuracion) {
+             try {
+               const config = salesProfile.configuracion
+               if (config.exchange_rate) {
+                 TASA_CAMBIO = Number(config.exchange_rate)
+               }
+             } catch (e) {
+               console.warn('Error parsing sales profile config for exchange rate', e)
+             }
+           } else if (profile?.settings?.exchangeRate) {
+             // Legacy fallback
+             TASA_CAMBIO = profile.settings.exchangeRate
+           }
+          
+        // Fix 2: Currency Conversion
+        let precioFinal = product.precio
+        if (product.moneda === 'USD') {
+           // Use the TASA_CAMBIO calculated above
+           precioFinal = product.precio * TASA_CAMBIO
+        } else if (product.moneda !== 'HNL') {
+           console.warn(`Producto ${product.nombre} tiene moneda ${product.moneda}, se asume HNL para totalización`)
+        }
+        
+        total += precioFinal * item.cantidad
 
-        const stockEntry = stock.find(
+        const stockEntry = updatedStock.find(
           s => s.product_id === item.product_id && s.location_id === request.source_location_id
         )!
         
@@ -374,21 +473,35 @@ export class InventoryService {
         }
 
         // V2.0: Handle IMEIs
-        const productHasIMEIs = updatedIMEIs.some(pi => pi.product_id === item.product_id)
-        if (productHasIMEIs) {
-          const availableIMEIs = updatedIMEIs.filter(
-            pi => pi.product_id === item.product_id && 
-                  pi.location_id === request.source_location_id && 
-                  !pi.vendido
-          )
+        // Check if product is serialized (explicit flag OR has IMEIs registered)
+        const isSerialized = product.is_serialized || updatedIMEIs.some(pi => pi.product_id === item.product_id)
+        
+        if (isSerialized) {
+          let imeisToSell: ProductIMEI[] = []
 
-          if (availableIMEIs.length < item.cantidad) {
-             throw new Error(`Insufficient IMEIs for product ${product.nombre}. Available: ${availableIMEIs.length}, Requested: ${item.cantidad}`)
+          if (item.imeis && item.imeis.length > 0) {
+             // Use provided IMEIs
+             if (item.imeis.length !== item.cantidad) {
+                throw new Error(`Mismatch between quantity and selected IMEIs for ${product.nombre}`)
+             }
+             
+             imeisToSell = updatedIMEIs.filter(
+                pi => pi.product_id === item.product_id &&
+                      pi.location_id === request.source_location_id &&
+                      !pi.vendido &&
+                      item.imeis!.includes(pi.imei)
+             )
+
+             if (imeisToSell.length !== item.cantidad) {
+                throw new Error(`Some selected IMEIs are not available for ${product.nombre}`)
+             }
+          } else {
+             // STRICT MODE: Require IMEIs
+             throw new Error(`El producto '${product.nombre}' es serializado. Debe seleccionar los IMEIs a vender.`)
           }
 
           // Mark IMEIs as sold
-          for (let i = 0; i < item.cantidad; i++) {
-            const imei = availableIMEIs[i]
+          for (const imei of imeisToSell) {
             const imeiIndex = updatedIMEIs.findIndex(pi => pi.id === imei.id)
             if (imeiIndex !== -1) {
               updatedIMEIs[imeiIndex] = {
@@ -396,6 +509,20 @@ export class InventoryService {
                 vendido: true,
                 order_id: newOrderId
               }
+
+              // V2.0: Add IMEI History (Sale)
+              newIMEIHistory.push({
+                id: Math.max(0, ...imeiHistory.map(h => h.id), ...newIMEIHistory.map(h => h.id)) + 1,
+                imei: imei.imei,
+                product_id: item.product_id,
+                location_id: request.source_location_id,
+                event_type: 'venta',
+                reference_id: newOrderId,
+                reference_type: 'order',
+                notes: `Venta en orden #${newOrderId}`,
+                created_by: salesProfile?.name || profile?.name || 'Sistema Local',
+                created_at: new Date().toISOString()
+              })
             }
           }
         }
@@ -404,6 +531,7 @@ export class InventoryService {
         newStockHistory.push({
           id: Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id)) + 1,
           product_id: item.product_id,
+          location_id: request.source_location_id, // V2.0: Add location_id
           tipo_cambio: 'venta',
           cantidad: -item.cantidad,
           stock_anterior: stockAnterior,
@@ -429,6 +557,14 @@ export class InventoryService {
       // Calculate trade-in total
       let tradeInTotal = 0
       const newTradeIns: TradeIn[] = []
+      const tradeInProducts: Product[] = []
+      const tradeInStock: Stock[] = []
+      const tradeInIMEIs: ProductIMEI[] = []
+      const tradeInStockHistory: StockHistory[] = []
+
+      // NOTE: This logic is duplicated from backend/app/routers/orders.py.
+      // Any changes here must be reflected in the backend and vice-versa.
+      // ⚠️ CRITICAL: KEEP IN SYNC WITH BACKEND LOGIC ⚠️
       if (request.trade_ins) {
         for (const tradeIn of request.trade_ins) {
           tradeInTotal += Number(tradeIn.valor_estimado) || 0
@@ -436,6 +572,149 @@ export class InventoryService {
             ...tradeIn,
             id: Math.max(0, ...tradeIns.map(t => t.id || 0), ...newTradeIns.map(t => t.id || 0)) + 1,
             order_id: newOrderId,
+            created_at: new Date().toISOString()
+          })
+
+          // 🔴 LOGICA NUEVA: Ingresar Trade-In al inventario automáticamente
+          // 1. Buscar si ya existe un producto compatible (mismo modelo/condición)
+          const existingProduct = products.find(p => 
+            p.marca === tradeIn.marca && 
+            p.modelo === tradeIn.modelo && 
+            p.condicion === tradeIn.condicion &&
+            p.activo
+          )
+
+          let newProduct: Product
+          let isNewProduct = false
+
+          if (existingProduct) {
+             newProduct = existingProduct
+             // No actualizamos precio ni costo del producto existente
+          } else {
+             // Crear Producto Nuevo si no existe
+             isNewProduct = true
+             const nextProductId = Math.max(0, ...products.map(p => p.id), ...tradeInProducts.map(p => p.id)) + 1
+             const skuSuffix = tradeIn.imei ? tradeIn.imei.slice(-6) : crypto.randomUUID().substring(0, 6)
+             // V2.0: Asegurar formato consistente con backend RET-{suffix}-{uuid}
+             const uuidPart = crypto.randomUUID().substring(0, 4)
+             const newSku = `RET-${skuSuffix}-${uuidPart}`
+
+             newProduct = {
+                id: nextProductId,
+                profile_id: profile?.id,
+                sku: newSku,
+                nombre: `RETOMA: ${tradeIn.marca} ${tradeIn.modelo}`,
+                categoria: tradeIn.imei ? 'celular' : 'accesorio',
+                marca: tradeIn.marca,
+                modelo: tradeIn.modelo,
+                condicion: tradeIn.condicion as any,
+                precio: tradeIn.precio_venta ? Number(tradeIn.precio_venta) : Number(tradeIn.valor_estimado) * 1.3,
+                costo: Number(tradeIn.valor_estimado),
+                moneda: 'HNL',
+                activo: true,
+                garantia_meses: 0,
+                is_serialized: !!tradeIn.imei,
+                capacidad: ''
+             }
+             tradeInProducts.push(newProduct)
+          }
+
+          // 2. Crear o Actualizar Stock
+          // Check if we already have a stock entry for this product in the current transaction (tradeInStock)
+          let stockEntry = tradeInStock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
+          
+          // If not in current transaction, check existing stock
+          if (!stockEntry) {
+             const existingStock = stock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
+             if (existingStock) {
+                // Clone it to avoid mutating original array directly before commit
+                stockEntry = { ...existingStock }
+                // Remove from original stock array in memory to avoid duplicates when merging later? 
+                // Actually, we should just update the existing one in `stock` array, but here we are building `tradeInStock` list.
+                // Let's just use `tradeInStock` for NEW entries, and update `stock` directly for existing ones.
+                
+                // Better approach: Update `updatedStock` directly
+                const updatedStockEntry = updatedStock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
+                if (updatedStockEntry) {
+                   updatedStockEntry.cantidad_disponible += 1
+                } else {
+                   // Should not happen if we found it in `stock`
+                }
+             } else {
+                // Create new stock entry
+                const nextStockId = Math.max(0, ...stock.map(s => s.id), ...tradeInStock.map(s => s.id)) + 1
+                stockEntry = {
+                    id: nextStockId,
+                    product_id: newProduct.id,
+                    location_id: request.source_location_id,
+                    cantidad_disponible: 1,
+                    cantidad_reservada: 0
+                }
+                tradeInStock.push(stockEntry)
+             }
+          } else {
+             // Already added to tradeInStock in this loop (multiple trade-ins of same new product)
+             stockEntry.cantidad_disponible += 1
+          }
+          
+          // Calculate previous stock for history
+          const stockAnterior = isNewProduct ? 0 : (
+             stock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)?.cantidad_disponible || 0
+          )
+
+          // 3. Registrar IMEI
+          if (tradeIn.imei) {
+            // Check if IMEI exists
+            const existingImei = updatedIMEIs.find(i => i.imei === tradeIn.imei)
+            
+            if (existingImei) {
+               // Reactivate existing IMEI
+               existingImei.product_id = newProduct.id
+               existingImei.location_id = request.source_location_id
+               existingImei.vendido = false
+               existingImei.order_id = undefined
+            } else {
+                const nextImeiId = Math.max(0, ...updatedIMEIs.map(i => i.id), ...tradeInIMEIs.map(i => i.id)) + 1
+                const newImei: ProductIMEI = {
+                id: nextImeiId,
+                product_id: newProduct.id,
+                location_id: request.source_location_id,
+                imei: tradeIn.imei,
+                vendido: false,
+                created_at: new Date().toISOString()
+                }
+                tradeInIMEIs.push(newImei)
+            }
+
+            // V2.0: Add IMEI History (Trade-In)
+            newIMEIHistory.push({
+              id: Math.max(0, ...imeiHistory.map(h => h.id), ...newIMEIHistory.map(h => h.id)) + 1,
+              imei: tradeIn.imei,
+              product_id: newProduct.id,
+              location_id: request.source_location_id,
+              event_type: 'retoma',
+              reference_id: newOrderId,
+              reference_type: 'order',
+              notes: `Ingreso por retoma en orden #${newOrderId}`,
+              created_by: salesProfile?.name || profile?.name || 'Sistema Local',
+              created_at: new Date().toISOString()
+            })
+          }
+
+          // 4. Historial Stock
+          const nextHistoryId = Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id), ...tradeInStockHistory.map(h => h.id)) + 1
+          tradeInStockHistory.push({
+            id: nextHistoryId,
+            product_id: newProduct.id,
+            location_id: request.source_location_id,
+            tipo_cambio: 'retoma',
+            cantidad: 1,
+            stock_anterior: stockAnterior,
+            stock_nuevo: stockAnterior + 1,
+            referencia_id: newOrderId,
+            referencia_tipo: 'order',
+            notas: `Ingreso por retoma de ${tradeIn.marca} ${tradeIn.modelo}`,
+            usuario: salesProfile?.name || profile?.name || 'Sistema Local',
             created_at: new Date().toISOString()
           })
         }
@@ -460,12 +739,14 @@ export class InventoryService {
         trade_ins: newTradeIns
       }
 
-      await this.setStock(stock)
+      await this.setProducts([...products, ...tradeInProducts])
+      await this.setStock([...updatedStock, ...tradeInStock])
       await this.setOrders([...orders, newOrder])
       await this.setOrderItems([...orderItems, ...newOrderItems])
-      await this.setStockHistory([...stockHistory, ...newStockHistory])
-      await this.setProductIMEIs(updatedIMEIs)
+      await this.setStockHistory([...stockHistory, ...newStockHistory, ...tradeInStockHistory])
+      await this.setProductIMEIs([...updatedIMEIs, ...tradeInIMEIs])
       await this.setTradeIns([...tradeIns, ...newTradeIns])
+      await this.setIMEIHistory([...imeiHistory, ...newIMEIHistory])
 
       const orderWithItems: OrderWithItems = {
         ...newOrder,
@@ -483,12 +764,14 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to create order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async fetchOrders(salesProfileSlug?: string): Promise<OrderWithItems[]> {
     try {
-      const [orders, orderItems, products, profiles, salesProfiles] = await Promise.all([
+      const [orders, orderItems, products, , salesProfiles] = await Promise.all([
         this.loadOrders(),
         this.getOrderItems(),
         this.loadProducts(),
@@ -647,15 +930,18 @@ export class InventoryService {
         id?: number
         product_id: number
         cantidad: number
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems> {
     try {
-      const [orders, orderItems, products, stock] = await Promise.all([
+      const [orders, orderItems, products, stock, imeis, stockHistory] = await Promise.all([
         this.loadOrders(),
         this.getOrderItems(),
         this.loadProducts(),
-        this.getStock()
+        this.getStock(),
+        this.loadProductIMEIs(),
+        this.loadStockHistory()
       ])
 
       const orderIndex = orders.findIndex(o => o.id === orderId)
@@ -671,16 +957,41 @@ export class InventoryService {
       }
 
       if (updates.items) {
-        // Devolver stock de los items actuales en la ubicación de origen
+        // 1. Restaurar stock de los items actuales
         for (const item of currentItems) {
           const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === locationId)
           if (!stockEntry) {
             throw new Error(`Stock record not found for product ${item.product_id} at location ${locationId} while restoring`)  
           }
+          const stockAnterior = stockEntry.cantidad_disponible
           stockEntry.cantidad_disponible += item.cantidad
+
+          // Record History
+          stockHistory.push({
+            id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+            product_id: item.product_id,
+            location_id: locationId,
+            tipo_cambio: 'devolucion',
+            cantidad: item.cantidad,
+            stock_anterior: stockAnterior,
+            stock_nuevo: stockEntry.cantidad_disponible,
+            referencia_id: orderId,
+            referencia_tipo: 'order_update',
+            notas: `Actualización de orden #${orderId} - Restauración de items`,
+            usuario: 'Sistema Local',
+            created_at: new Date().toISOString()
+          })
         }
 
-        // Validar stock libre por ubicación para los nuevos items
+        // 2. Liberar IMEIs asociados a esta orden (marcarlos como no vendidos)
+        // Esto permite que sean re-seleccionados si se mantienen en la orden, o liberados si se quitan
+        for (let i = 0; i < imeis.length; i++) {
+          if (imeis[i].order_id === orderId) {
+            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+          }
+        }
+
+        // 3. Validar stock libre por ubicación para los nuevos items
         for (const item of updates.items) {
           const product = products.find(p => p.id === item.product_id && p.activo)
           if (!product) {
@@ -698,6 +1009,24 @@ export class InventoryService {
             throw new Error(
               `Insufficient stock for product "${product.nombre}" at location ${locationId}. Free: ${stockLibre}, Reserved: ${reservado}, Requested: ${item.cantidad}`
             )
+          }
+
+          // Validación de IMEIs para productos serializados
+          if (item.imeis && item.imeis.length > 0) {
+             if (item.imeis.length !== item.cantidad) {
+                throw new Error(`Mismatch between quantity and selected IMEIs for ${product.nombre}`)
+             }
+             
+             // Verificar disponibilidad de IMEIs (ahora que liberamos los de la orden actual, deberían estar disponibles)
+             const unavailableImeis = item.imeis.filter(imeiStr => {
+               const imeiRecord = imeis.find(i => i.imei === imeiStr && i.product_id === item.product_id)
+               // Debe existir, estar en la ubicación correcta, y NO estar vendido (o haber sido liberado recién)
+               return !imeiRecord || imeiRecord.location_id !== locationId || imeiRecord.vendido
+             })
+
+             if (unavailableImeis.length > 0) {
+               throw new Error(`Some selected IMEIs are not available for ${product.nombre}: ${unavailableImeis.join(', ')}`)
+             }
           }
         }
 
@@ -717,9 +1046,36 @@ export class InventoryService {
           if (!stockEntry) {
             throw new Error(`Stock entry for product ${item.product_id} at location ${locationId} not found`)
           }
+          const stockAnterior = stockEntry.cantidad_disponible
           stockEntry.cantidad_disponible -= item.cantidad
           if (stockEntry.cantidad_reservada && stockEntry.cantidad_disponible < stockEntry.cantidad_reservada) {
             throw new Error(`Stock for product ${item.product_id} at location ${locationId} cannot fall below reserved (${stockEntry.cantidad_reservada})`)
+          }
+
+          // Record History
+          stockHistory.push({
+            id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+            product_id: item.product_id,
+            location_id: locationId,
+            tipo_cambio: 'venta',
+            cantidad: -item.cantidad,
+            stock_anterior: stockAnterior,
+            stock_nuevo: stockEntry.cantidad_disponible,
+            referencia_id: orderId,
+            referencia_tipo: 'order_update',
+            notas: `Actualización de orden #${orderId} - Nuevos items`,
+            usuario: 'Sistema Local',
+            created_at: new Date().toISOString()
+          })
+
+          // Marcar IMEIs como vendidos
+          if (item.imeis && item.imeis.length > 0) {
+            for (const imeiStr of item.imeis) {
+              const imeiIndex = imeis.findIndex(i => i.imei === imeiStr && i.product_id === item.product_id)
+              if (imeiIndex !== -1) {
+                imeis[imeiIndex] = { ...imeis[imeiIndex], vendido: true, order_id: orderId }
+              }
+            }
           }
 
           const newOrderItem: OrderItem = {
@@ -728,13 +1084,16 @@ export class InventoryService {
             product_id: item.product_id,
             cantidad: item.cantidad,
             precio_unitario: product.precio,
-            es_regalo_promocion: false
+            es_regalo_promocion: false,
+            imeis: item.imeis // Guardar IMEIs en el item para referencia local si es soportado
           }
           newOrderItems.push(newOrderItem)
         }
 
         await this.setOrderItems([...updatedOrderItems, ...newOrderItems])
         await this.setStock(stock)
+        await this.setProductIMEIs(imeis)
+        await this.setStockHistory(stockHistory)
 
         orders[orderIndex].total = total
       }
@@ -773,10 +1132,11 @@ export class InventoryService {
 
   async addProduct(product: Omit<Product, 'id'>, initialStock: number, locationId?: number): Promise<ProductWithStock> {
     try {
-      const [products, stock, locations] = await Promise.all([
+      const [products, stock, locations, stockHistory] = await Promise.all([
         this.loadProducts(),
         this.getStock(),
-        this.loadLocations()
+        this.loadLocations(),
+        this.loadStockHistory()
       ])
 
       if (!locationId) {
@@ -790,7 +1150,7 @@ export class InventoryService {
 
       const newProduct: Product = {
         ...product,
-        moneda: 'Lps', // Enforce Lps
+        moneda: product.moneda || 'HNL', // Respect provided currency or default to HNL
         id: Math.max(0, ...products.map(p => p.id)) + 1
       }
 
@@ -802,8 +1162,26 @@ export class InventoryService {
         cantidad_reservada: 0
       }
 
+      if (initialStock > 0) {
+        stockHistory.push({
+          id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+          product_id: newProduct.id,
+          location_id: locationId,
+          tipo_cambio: 'compra',
+          cantidad: initialStock,
+          stock_anterior: 0,
+          stock_nuevo: initialStock,
+          referencia_id: 0,
+          referencia_tipo: 'initial_stock',
+          notas: 'Stock inicial al crear producto',
+          usuario: 'Sistema Local',
+          created_at: new Date().toISOString()
+        })
+      }
+
       await this.setProducts([...products, newProduct])
       await this.setStock([...stock, newStock])
+      await this.setStockHistory(stockHistory)
 
       return {
         ...newProduct,
@@ -836,9 +1214,10 @@ export class InventoryService {
         throw new Error('locationId is required to update stock by location (V2.0)')
       }
 
-      const [stock, locations] = await Promise.all([
+      const [stock, locations, stockHistory] = await Promise.all([
         this.getStock(),
-        this.loadLocations()
+        this.loadLocations(),
+        this.loadStockHistory()
       ])
 
       const locationExists = locations.some(l => l.id === locationId)
@@ -860,6 +1239,7 @@ export class InventoryService {
         stock.push(stockEntry)
       }
 
+      const stockAnterior = stockEntry.cantidad_disponible
       stockEntry.cantidad_disponible = cantidad
       const reservado = stockEntry.cantidad_reservada || 0
       if (stockEntry.cantidad_disponible < reservado) {
@@ -867,7 +1247,24 @@ export class InventoryService {
           `Stock for product ${productId} at location ${locationId} cannot be below reserved (${reservado})`
         )
       }
+
+      stockHistory.push({
+        id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+        product_id: productId,
+        location_id: locationId,
+        tipo_cambio: 'ajuste',
+        cantidad: cantidad - stockAnterior,
+        stock_anterior: stockAnterior,
+        stock_nuevo: cantidad,
+        referencia_id: 0,
+        referencia_tipo: 'manual_adjustment',
+        notas: 'Ajuste manual de stock',
+        usuario: 'Sistema Local',
+        created_at: new Date().toISOString()
+      })
+
       await this.setStock(stock)
+      await this.setStockHistory(stockHistory)
     } catch (error) {
       console.error('Error updating stock:', error)
       if (error instanceof Error) {
@@ -1282,13 +1679,11 @@ export class InventoryService {
            throw new Error(`Some requested IMEIs are not available at source location`)
         }
       } else {
-        // Auto-select available IMEIs
-        imeisToReserve = productIMEIs.filter(
-          pi => pi.product_id === request.product_id && 
-                pi.location_id === request.from_location_id && 
-                !pi.vendido &&
-                !pi.transfer_id
-        ).slice(0, request.cantidad)
+        // V2.0 Strict Mode: If product is serialized, IMEIs MUST be specified
+        // Check explicit flag first, then fallback to checking if any IMEIs exist
+        if (product.is_serialized || productIMEIs.some(pi => pi.product_id === request.product_id)) {
+             throw new Error("Este producto es serializado. Debe especificar los IMEIs a transferir.")
+        }
       }
 
       // Note: In local mode we don't enforce IMEI reservation if not enough found (legacy behavior),
@@ -1318,10 +1713,30 @@ export class InventoryService {
         imei.transfer_id = newTransfer.id
       }
 
+      // V2.0: Add Stock History (Reservation)
+      const stockHistory = await this.loadStockHistory()
+      const nextHistoryId = Math.max(0, ...stockHistory.map(h => h.id)) + 1
+      
+      const historyReserva: StockHistory = {
+        id: nextHistoryId,
+        product_id: request.product_id,
+        location_id: request.from_location_id, // V2.0: Location ID
+        tipo_cambio: 'transferencia_reserva',
+        cantidad: -request.cantidad, // Negative because it reduces free stock
+        stock_anterior: available,
+        stock_nuevo: available - request.cantidad,
+        referencia_id: newTransfer.id,
+        referencia_tipo: 'transfer_pending',
+        notas: `Stock reservado para transferencia a '${toLocation.nombre}': ${request.notas || 'Sin notas'}`,
+        usuario: request.created_by || 'Sistema Local',
+        created_at: new Date().toISOString()
+      }
+
       await Promise.all([
         this.setStock(stock),
         this.setStockTransfers([...transfers, newTransfer]),
-        this.setProductIMEIs(productIMEIs)
+        this.setProductIMEIs(productIMEIs),
+        this.setStockHistory([...stockHistory, historyReserva])
       ])
       
       return newTransfer
@@ -1357,10 +1772,12 @@ export class InventoryService {
 
   async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
     try {
-      const [transfers, stock, productIMEIs] = await Promise.all([
+      const [transfers, stock, productIMEIs, imeiHistory, stockHistory] = await Promise.all([
         this.loadStockTransfers(),
         this.getStock(),
-        this.loadProductIMEIs()
+        this.loadProductIMEIs(),
+        this.loadIMEIHistory(),
+        this.loadStockHistory()
       ])
 
       const transferIndex = transfers.findIndex(t => t.id === id)
@@ -1379,6 +1796,8 @@ export class InventoryService {
 
       // Increase destination stock
       let toStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.to_location_id)
+      let stockLibreDestinoAntes = 0
+
       if (!toStock) {
         toStock = {
           id: Math.max(0, ...stock.map(s => s.id)) + 1,
@@ -1388,8 +1807,49 @@ export class InventoryService {
           cantidad_reservada: 0
         }
         stock.push(toStock)
+      } else {
+        stockLibreDestinoAntes = toStock.cantidad_disponible - (toStock.cantidad_reservada || 0)
       }
       toStock.cantidad_disponible += transfer.cantidad
+
+      // V2.0: Stock History (Exit from Source, Entry to Destination)
+      const stockLibreOrigenAntes = fromStock.cantidad_disponible + transfer.cantidad - (fromStock.cantidad_reservada + transfer.cantidad)
+      const stockLibreOrigenDespues = fromStock.cantidad_disponible - fromStock.cantidad_reservada
+      const stockLibreDestinoDespues = toStock.cantidad_disponible - (toStock.cantidad_reservada || 0)
+
+      const nextHistoryId = Math.max(0, ...stockHistory.map(h => h.id)) + 1
+      
+      const historySalida: StockHistory = {
+        id: nextHistoryId,
+        product_id: transfer.product_id,
+        location_id: transfer.from_location_id,
+        tipo_cambio: 'transferencia_salida',
+        cantidad: -transfer.cantidad,
+        stock_anterior: stockLibreOrigenAntes,
+        stock_nuevo: stockLibreOrigenDespues,
+        referencia_id: transfer.id,
+        referencia_tipo: 'transfer',
+        notas: `Transferencia a ${transfer.to_location_name}: ${transfer.notas || ''}`,
+        usuario: confirmedBy,
+        created_at: new Date().toISOString()
+      }
+
+      const historyEntrada: StockHistory = {
+        id: nextHistoryId + 1,
+        product_id: transfer.product_id,
+        location_id: transfer.to_location_id,
+        tipo_cambio: 'transferencia_entrada',
+        cantidad: transfer.cantidad,
+        stock_anterior: stockLibreDestinoAntes,
+        stock_nuevo: stockLibreDestinoDespues,
+        referencia_id: transfer.id,
+        referencia_tipo: 'transfer',
+        notas: `Transferencia desde ${transfer.from_location_name}: ${transfer.notas || ''}`,
+        usuario: confirmedBy,
+        created_at: new Date().toISOString()
+      }
+
+      const newIMEIHistory: IMEIHistory[] = []
 
       // Move IMEIs (V2.0 Fix with transfer_id)
       let imeisToMove = productIMEIs.filter(
@@ -1409,6 +1869,20 @@ export class InventoryService {
       for (const imei of imeisToMove) {
         imei.location_id = transfer.to_location_id
         imei.transfer_id = undefined // Clear transfer_id
+
+        // V2.0: Add IMEI History (Transfer)
+        newIMEIHistory.push({
+            id: Math.max(0, ...imeiHistory.map(h => h.id), ...newIMEIHistory.map(h => h.id)) + 1,
+            imei: imei.imei,
+            product_id: transfer.product_id,
+            location_id: transfer.to_location_id,
+            event_type: 'transferencia',
+            reference_id: transfer.id,
+            reference_type: 'transfer',
+            notes: `Transferencia confirmada de ${transfer.from_location_name} a ${transfer.to_location_name}`,
+            created_by: confirmedBy,
+            created_at: new Date().toISOString()
+        })
       }
 
       // Update transfer status
@@ -1423,7 +1897,9 @@ export class InventoryService {
       await Promise.all([
         this.setStock(stock),
         this.setStockTransfers(transfers),
-        this.setProductIMEIs(productIMEIs)
+        this.setProductIMEIs(productIMEIs),
+        this.setIMEIHistory([...imeiHistory, ...newIMEIHistory]),
+        this.setStockHistory([...stockHistory, historySalida, historyEntrada])
       ])
 
       return updatedTransfer
@@ -1639,6 +2115,157 @@ export class InventoryService {
     }
   }
 
+  private async loadReturns(): Promise<Return[]> {
+    try {
+      const kv = getKV()
+      const data = await kv.get<Return[]>(STORAGE_KEYS.RETURNS)
+      return data || []
+    } catch (error) {
+      console.error('Error loading returns:', error)
+      return []
+    }
+  }
+
+  private async setReturns(returns: Return[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.RETURNS, returns)
+    } catch (error) {
+      console.error('Error saving returns:', error)
+      throw error
+    }
+  }
+
+  async getReturns(): Promise<Return[]> {
+    return this.loadReturns()
+  }
+
+  async createReturn(request: CreateReturnRequest): Promise<Return> {
+    try {
+      const [returns, orders, stock, stockHistory, imeis, imeiHistory] = await Promise.all([
+        this.loadReturns(),
+        this.loadOrders(),
+        this.getStock(),
+        this.loadStockHistory(),
+        this.loadProductIMEIs(),
+        this.loadIMEIHistory()
+      ])
+
+      const order = orders.find(o => o.id === request.order_id)
+      if (!order) {
+        throw new Error(`Order ${request.order_id} not found`)
+      }
+
+      const nextReturnId = Math.max(0, ...returns.map(r => r.id)) + 1
+      const now = new Date().toISOString()
+
+      const newReturn: Return = {
+        id: nextReturnId,
+        order_id: request.order_id,
+        created_at: now,
+        reason: request.reason,
+        status: 'completed',
+        created_by: request.created_by,
+        items: request.items.map((item, index) => ({
+          ...item,
+          id: index + 1
+        }))
+      }
+
+      // Process stock updates
+      const updatedStock = [...stock]
+      const newStockHistory = [...stockHistory]
+      const updatedIMEIs = [...imeis]
+      const updatedIMEIHistory = [...imeiHistory]
+
+      for (const item of request.items) {
+        if (item.action === 'refund' || item.action === 'warranty_exchange') {
+          const locationId = order.source_location_id
+          if (!locationId) continue
+
+          const stockEntry = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
+          
+          if (stockEntry) {
+            // Solo reingresar al stock disponible si NO es defectuoso
+            if (item.condition !== 'defectuoso') {
+              stockEntry.cantidad_disponible += item.quantity
+            }
+          } else {
+            const nextStockId = Math.max(0, ...updatedStock.map(s => s.id)) + 1
+            updatedStock.push({
+              id: nextStockId,
+              product_id: item.product_id,
+              location_id: locationId,
+              cantidad_disponible: item.condition !== 'defectuoso' ? item.quantity : 0,
+              cantidad_reservada: 0
+            })
+          }
+
+          // Add history
+          const nextHistoryId = Math.max(0, ...newStockHistory.map(h => h.id)) + 1
+          newStockHistory.push({
+            id: nextHistoryId,
+            product_id: item.product_id,
+            location_id: locationId,
+            tipo_cambio: 'devolucion',
+            cantidad: item.quantity,
+            stock_anterior: stockEntry ? stockEntry.cantidad_disponible - item.quantity : 0,
+            stock_nuevo: stockEntry ? stockEntry.cantidad_disponible : item.quantity,
+            referencia_id: nextReturnId,
+            referencia_tipo: 'return',
+            notas: `Devolución orden #${order.id}: ${item.condition}`,
+            usuario: request.created_by || 'Sistema Local',
+            created_at: now
+          })
+
+          // Update IMEI if present
+          if (item.imei) {
+            const imeiRecord = updatedIMEIs.find(i => i.imei === item.imei)
+            if (imeiRecord) {
+              imeiRecord.vendido = false
+              imeiRecord.order_id = undefined
+
+              // Add IMEI History
+              const nextIMEIHistoryId = Math.max(0, ...updatedIMEIHistory.map(h => h.id)) + 1
+              updatedIMEIHistory.push({
+                id: nextIMEIHistoryId,
+                imei: item.imei,
+                product_id: item.product_id,
+                location_id: locationId,
+                event_type: 'devolucion',
+                reference_id: nextReturnId,
+                reference_type: 'return',
+                notes: `Devolución orden #${order.id}: ${item.condition}`,
+                created_at: now,
+                created_by: request.created_by || 'Sistema Local'
+              })
+            }
+          }
+        }
+      }
+
+      await this.setReturns([...returns, newReturn])
+      await this.setStock(updatedStock)
+      await this.setStockHistory(newStockHistory)
+      await this.setProductIMEIs(updatedIMEIs)
+      await this.setIMEIHistory(updatedIMEIHistory)
+
+      return newReturn
+    } catch (error) {
+      console.error('Error creating return:', error)
+      throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
+    try {
+      const history = await this.loadIMEIHistory()
+      return history.filter(h => h.imei === imei).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    } catch (error) {
+      console.error('Error getting IMEI history:', error)
+      return []
+    }
+  }
 }
 
 export const inventoryService = new InventoryService()

@@ -116,6 +116,9 @@ class SafeSparkKV implements SparkKV {
   }
 
   async delete(key: string): Promise<void> {
+    // Invalidar caché
+    this.cache.delete(key)
+    
     try {
       await this.sparkKV.delete(key)
     } catch (error) {

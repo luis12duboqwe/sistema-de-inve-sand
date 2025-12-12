@@ -17,7 +17,13 @@ class Settings(BaseSettings):
     api_port: int = 8000
     
     # CORS
-    cors_origins: List[str] = ["*"]  # In production, set specific origins
+    cors_origins: List[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://*.app.github.dev",
+        "https://*.github.dev",
+        "*"
+    ]
     
     # JWT Authentication
     secret_key: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"

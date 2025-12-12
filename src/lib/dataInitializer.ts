@@ -36,11 +36,28 @@ export async function clearAllData() {
   const kv = getKV()
   
   try {
+    // V1 Keys
     await kv.delete('inventory-profiles')
     await kv.delete('inventory-products')
     await kv.delete('inventory-stock')
     await kv.delete('inventory-orders')
     await kv.delete('inventory-order-items')
+    
+    // V2 Keys
+    await kv.delete('inventory-locations')
+    await kv.delete('inventory-sales-profiles')
+    await kv.delete('inventory-suppliers')
+    await kv.delete('inventory-stock-transfers')
+    await kv.delete('inventory-stock-history')
+    await kv.delete('inventory-product-imeis')
+    await kv.delete('inventory-returns')
+    await kv.delete('inventory-return-items')
+    await kv.delete('inventory-imei-history')
+    await kv.delete('inventory-trade-ins')
+    
+    // Settings
+    await kv.delete('v2_reset_complete_final')
+    
     console.log('✅ All data cleared successfully')
   } catch (error) {
     console.error('Error clearing data:', error)

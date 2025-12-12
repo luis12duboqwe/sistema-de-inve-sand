@@ -18,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash, Robot, MapPin } from '@phosphor-icons/react'
+import { Plus, Trash, Robot, MapPin, WarningCircle } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location } from '@/lib/types'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { toast } from 'sonner'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 
@@ -36,6 +37,7 @@ interface NewOrderDialogProps {
 interface OrderItemForm {
   product_id: number
   cantidad: number
+  imeis?: string[]
 }
 
 export function NewOrderDialog({
@@ -48,8 +50,11 @@ export function NewOrderDialog({
   onSubmit
 }: NewOrderDialogProps) {
   // V2.0: Sistema único con múltiples canales de venta y ubicaciones
-  const [salesProfileSlug, setSalesProfileSlug] = useState('')
-  const [sourceLocationId, setSourceLocationId] = useState<number | null>(null)
+  const [salesProfileSlug, setSalesProfileSlug] = useState(() => localStorage.getItem('last_sales_profile_slug') || '')
+  const [sourceLocationId, setSourceLocationId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('last_source_location_id')
+    return saved ? parseInt(saved) : null
+  })
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
@@ -61,11 +66,29 @@ export function NewOrderDialog({
     imei: string
     condicion: 'usado' | 'dañado' | 'para_repuestos'
     valor_estimado: number
+    precio_venta?: number
     notas: string
   }[]>([])
   const [notas, setNotas] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
+
+  // Persistir selección en localStorage
+  useEffect(() => {
+    if (salesProfileSlug) localStorage.setItem('last_sales_profile_slug', salesProfileSlug)
+  }, [salesProfileSlug])
+
+  useEffect(() => {
+    if (sourceLocationId) localStorage.setItem('last_source_location_id', sourceLocationId.toString())
+  }, [sourceLocationId])
+
+  // 🔒 BUG FIX: Limpiar IMEIs seleccionados al cambiar de ubicación para evitar inconsistencias
+  useEffect(() => {
+    setAvailableIMEIs({})
+    setItems(prev => prev.map(item => ({ ...item, imeis: [] })))
+  }, [sourceLocationId])
 
   // Función para resetear el formulario
   const resetForm = () => {
@@ -78,9 +101,8 @@ export function NewOrderDialog({
     setNotas('')
     setDeliveryDate('')
     setIsSubmitting(false)
-    // 🔒 Bug #5: Resetear también salesProfileSlug y sourceLocationId
-    setSalesProfileSlug('')
-    setSourceLocationId(null)
+    // NO resetear salesProfileSlug y sourceLocationId para mantener selección entre ventas
+    setAvailableIMEIs({})
   }
 
   // PROBLEMA 1: Resetear formulario al cerrar/cancelar
@@ -90,15 +112,20 @@ export function NewOrderDialog({
     }
   }, [open])
 
-  // Establecer valores por defecto al abrir
+  // Establecer valores por defecto al abrir si no hay selección previa
   useEffect(() => {
     if (!open) return
-    console.log('📍 NewOrderDialog - Ubicaciones disponibles:', locations)
-    const defaultSalesProfile = salesProfiles.find(sp => sp.active) || salesProfiles[0]
-    const defaultLocation = locations.find(l => l.activo) || locations[0]
-    setSalesProfileSlug(defaultSalesProfile?.slug ?? '')
-    setSourceLocationId(defaultLocation?.id ?? null)
-  }, [open, salesProfiles, locations])
+    
+    if (!salesProfileSlug && salesProfiles.length > 0) {
+      const defaultSalesProfile = salesProfiles.find(sp => sp.active) || salesProfiles[0]
+      setSalesProfileSlug(defaultSalesProfile?.slug ?? '')
+    }
+    
+    if (!sourceLocationId && locations.length > 0) {
+      const defaultLocation = locations.find(l => l.activo) || locations[0]
+      setSourceLocationId(defaultLocation?.id ?? null)
+    }
+  }, [open, salesProfiles, locations, salesProfileSlug, sourceLocationId])
 
   // Filtrar productos: solo mostrar los que tienen stock en la ubicación seleccionada
   const availableProducts = products.filter(product => {
@@ -130,21 +157,39 @@ export function NewOrderDialog({
     setItems(items.filter((_, i) => i !== index))
   }
 
-  const handleItemChange = (index: number, field: keyof OrderItemForm, value: number) => {
+  const handleItemChange = async (index: number, field: keyof OrderItemForm, value: any) => {
     const newItems = [...items]
     
     // Si cambia el producto, validar que no esté duplicado
-    if (field === 'product_id' && value > 0) {
-      const isDuplicate = newItems.some((item, i) => i !== index && item.product_id === value)
-      if (isDuplicate) {
-        const product = products.find(p => p.id === value)
-        toast.error(`❌ "${product?.nombre}" ya está en la orden. Usa el campo cantidad para pedir más unidades.`)
-        return // No permitir el cambio
+    if (field === 'product_id') {
+      const productId = value as number
+      if (productId > 0) {
+        const isDuplicate = newItems.some((item, i) => i !== index && item.product_id === productId)
+        if (isDuplicate) {
+          const product = products.find(p => p.id === productId)
+          toast.error(`❌ "${product?.nombre}" ya está en la orden. Usa el campo cantidad para pedir más unidades.`)
+          return // No permitir el cambio
+        }
+
+        // Fetch IMEIs if needed
+        const product = products.find(p => p.id === productId)
+        const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
+        if (isSerialized && sourceLocationId) {
+           try {
+             const imeis = await inventoryServiceInstance.getAvailableIMEIs(productId, sourceLocationId)
+             setAvailableIMEIs(prev => ({ ...prev, [productId]: imeis }))
+             newItems[index].imeis = []
+           } catch (e) {
+             console.error('Error fetching IMEIs', e)
+           }
+        }
       }
+      newItems[index].product_id = productId
     }
     
     // Si cambia cantidad, validar contra stock disponible
-    if (field === 'cantidad') {
+    else if (field === 'cantidad') {
+      const val = value as number
       const productId = newItems[index].product_id
       if (productId > 0) {
         const product = products.find(p => p.id === productId)
@@ -154,32 +199,30 @@ export function NewOrderDialog({
         if (product?.stock_items && product.stock_items.length > 0) {
           // V2.0: Usar stock de la ubicación específica
           const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-          available = stockInLocation?.cantidad_disponible || 0
+          available = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
         } else {
           // Legacy: Usar stock_disponible global
           available = product?.stock_disponible || 0
         }
         
-        console.log('🔍 Validando cantidad:', { 
-          producto: product?.nombre, 
-          cantidad: value, 
-          disponible: available, 
-          ubicacion: sourceLocationId,
-          modo: product?.stock_items?.length ? 'V2.0 ubicaciones' : 'Legacy global'
-        })
-        
         // Limitar al stock disponible
-        if (value > available) {
+        if (val > available) {
           toast.error(`⚠️ Solo hay ${available} unidades de "${product?.nombre}" ${product?.stock_items?.length ? 'en esta ubicación' : 'disponibles'}`)
-          newItems[index][field] = available
+          newItems[index].cantidad = available
         } else {
-          newItems[index][field] = value
+          newItems[index].cantidad = val
+        }
+
+        // Trim IMEIs if quantity reduced
+        if (newItems[index].imeis && newItems[index].imeis!.length > newItems[index].cantidad) {
+           newItems[index].imeis = newItems[index].imeis!.slice(0, newItems[index].cantidad)
         }
       } else {
-        newItems[index][field] = value
+        newItems[index].cantidad = val
       }
-    } else {
-      newItems[index][field] = value
+    } 
+    else if (field === 'imeis') {
+       newItems[index].imeis = value as string[]
     }
     
     setItems(newItems)
@@ -226,6 +269,20 @@ export function NewOrderDialog({
       return
     }
 
+    // Validar IMEIs para productos serializados
+    for (const item of validItems) {
+      const product = products.find(p => p.id === item.product_id)
+      // V2.0: Usar is_serialized si existe, fallback a categoría celular
+      const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
+      
+      if (isSerialized) {
+        if (!item.imeis || item.imeis.length !== item.cantidad) {
+          toast.error(`Debes seleccionar ${item.cantidad} IMEIs para "${product?.nombre}"`)
+          return
+        }
+      }
+    }
+
     // PROBLEMA 3: Validar duplicados PRIMERO - sumar cantidades del mismo producto
     const productQuantities = new Map<number, number>()
     for (const item of validItems) {
@@ -246,7 +303,7 @@ export function NewOrderDialog({
       if (product.stock_items && product.stock_items.length > 0) {
         // V2.0: Usar stock de la ubicación específica
         const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-        available = stockInLocation?.cantidad_disponible || 0
+        available = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
       } else {
         // Legacy: Usar stock_disponible global
         available = product.stock_disponible || 0
@@ -434,82 +491,149 @@ export function NewOrderDialog({
 
             <div className="space-y-2">
               {items.map((item, index) => (
-                <div key={index} className="flex items-end gap-2">
-                  <div className="flex-1 space-y-2">
-                    <Select
-                      value={item.product_id.toString()}
-                      onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar producto" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableProducts.length === 0 ? (
-                          <div className="p-4 text-center text-sm text-muted-foreground">
-                            {sourceLocationId 
-                              ? 'No hay productos con stock en esta ubicación'
-                              : 'Selecciona primero una ubicación'}
-                          </div>
-                        ) : (
-                          availableProducts.map(product => {
-                            // Obtener stock en la ubicación seleccionada
-                            const stockInLocation = product.stock_items?.find(
-                              s => s.location_id === sourceLocationId
-                            )
-                            const stockDisplay = stockInLocation 
-                              ? stockInLocation.cantidad_disponible 
-                              : product.stock_disponible
-                            
-                            return (
-                              <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.nombre} - HNL {product.precio.toLocaleString()} 
-                                <span className="ml-2 text-muted-foreground">
-                                  (Stock: {stockDisplay})
-                                </span>
-                              </SelectItem>
-                            )
-                          })
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-2">
+                      <Select
+                        value={item.product_id.toString()}
+                        onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar producto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableProducts.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              {sourceLocationId 
+                                ? 'No hay productos con stock en esta ubicación'
+                                : 'Selecciona primero una ubicación'}
+                            </div>
+                          ) : (
+                            availableProducts.map(product => {
+                              // Obtener stock en la ubicación seleccionada
+                              const stockInLocation = product.stock_items?.find(
+                                s => s.location_id === sourceLocationId
+                              )
+                              const stockDisplay = stockInLocation 
+                                ? (stockInLocation.cantidad_disponible - (stockInLocation.cantidad_reservada || 0))
+                                : product.stock_disponible
+                              
+                              return (
+                                <SelectItem key={product.id} value={product.id.toString()}>
+                                  {product.nombre} - HNL {product.precio.toLocaleString()} 
+                                  <span className="ml-2 text-muted-foreground">
+                                    (Stock: {stockDisplay})
+                                  </span>
+                                </SelectItem>
+                              )
+                            })
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <div className="w-24 space-y-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      max={(() => {
-                        const product = products.find(p => p.id === item.product_id)
-                        if (!product) return 999
-                        
-                        // V2.0: Usar stock de ubicación específica si existe
-                        if (product.stock_items && product.stock_items.length > 0) {
-                          const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-                          return stockInLocation?.cantidad_disponible || 0
+                    <div className="w-24 space-y-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max={(() => {
+                          const product = products.find(p => p.id === item.product_id)
+                          if (!product) return 999
+                          
+                          // V2.0: Usar stock de ubicación específica si existe
+                          if (product.stock_items && product.stock_items.length > 0) {
+                            const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
+                            return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
+                          }
+                          
+                          // Legacy: Usar stock global
+                          return product.stock_disponible || 0
+                        })()}
+                        value={item.cantidad}
+                        onChange={e =>
+                          handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
                         }
-                        
-                        // Legacy: Usar stock global
-                        return product.stock_disponible || 0
-                      })()}
-                      value={item.cantidad}
-                      onChange={e =>
-                        handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
-                      }
-                      placeholder="Cant."
-                    />
+                        placeholder="Cant."
+                      />
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleRemoveItem(index)}
+                      disabled={items.length === 1}
+                      title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
+                    >
+                      <Trash size={16} />
+                    </Button>
                   </div>
 
-                  {/* PROBLEMA 2: Siempre mostrar botón eliminar, deshabilitar si es el último */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleRemoveItem(index)}
-                    disabled={items.length === 1}
-                    title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
-                  >
-                    <Trash size={16} />
-                  </Button>
+                  {/* IMEI Selector */}
+                  {(() => {
+                    const product = products.find(p => p.id === item.product_id)
+                    const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
+                    
+                    if (isSerialized) {
+                      const imeis = availableIMEIs[item.product_id] || []
+                      return (
+                        <div className="w-full bg-muted/30 p-2 rounded border border-dashed">
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-xs font-medium">
+                              Seleccionar IMEIs ({item.imeis?.length || 0}/{item.cantidad})
+                            </Label>
+                            <span className="text-xs text-muted-foreground">
+                              {imeis.length} disponibles
+                            </span>
+                          </div>
+                          
+                          {imeis.length === 0 ? (
+                            <div className="text-xs text-muted-foreground italic">
+                              No hay IMEIs disponibles en esta ubicación.
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {imeis.map(imei => {
+                                const isSelected = item.imeis?.includes(imei)
+                                return (
+                                  <div 
+                                    key={imei}
+                                    onClick={() => {
+                                      const currentImeis = item.imeis || []
+                                      let newImeis
+                                      if (isSelected) {
+                                        newImeis = currentImeis.filter(i => i !== imei)
+                                      } else {
+                                        if (currentImeis.length >= item.cantidad) {
+                                          toast.error(`Solo puedes seleccionar ${item.cantidad} IMEIs`)
+                                          return
+                                        }
+                                        newImeis = [...currentImeis, imei]
+                                      }
+                                      handleItemChange(index, 'imeis', newImeis)
+                                    }}
+                                    className={`cursor-pointer px-2 py-1 text-xs rounded border transition-colors ${
+                                      isSelected
+                                        ? 'bg-primary text-primary-foreground border-primary font-medium' 
+                                        : 'bg-background hover:bg-muted border-input'
+                                    }`}
+                                  >
+                                    {imei}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {item.cantidad > (item.imeis?.length || 0) && (
+                            <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                              <WarningCircle className="w-3 h-3" />
+                              Faltan seleccionar {item.cantidad - (item.imeis?.length || 0)} IMEIs
+                            </div>
+                          )}
+                        </div>
+                      )
+                    }
+                  })()}
                 </div>
               ))}
             </div>
@@ -523,7 +647,7 @@ export function NewOrderDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', imei: '', condicion: 'usado', valor_estimado: 0, notas: '' }])}
+                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Agregar Retoma
@@ -587,10 +711,27 @@ export function NewOrderDialog({
                       placeholder="Valor Estimado"
                       value={tradeIn.valor_estimado || ''}
                       onChange={e => {
+                        const val = parseFloat(e.target.value) || 0
                         const newTradeIns = [...tradeIns]
-                        newTradeIns[index].valor_estimado = parseFloat(e.target.value) || 0
+                        newTradeIns[index].valor_estimado = val
+                        // Auto-calcular precio sugerido (30%) si no se ha editado manualmente
+                        if (!newTradeIns[index].precio_venta || newTradeIns[index].precio_venta === 0) {
+                           newTradeIns[index].precio_venta = Math.round(val * 1.3)
+                        }
                         setTradeIns(newTradeIns)
                       }}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Precio Venta (Sugerido)"
+                      value={tradeIn.precio_venta || ''}
+                      onChange={e => {
+                        const newTradeIns = [...tradeIns]
+                        newTradeIns[index].precio_venta = parseFloat(e.target.value) || 0
+                        setTradeIns(newTradeIns)
+                      }}
+                      className="bg-green-50 border-green-200"
+                      title="Precio de venta sugerido para el nuevo producto"
                     />
                     <Input
                       placeholder="Notas"

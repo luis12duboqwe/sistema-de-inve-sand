@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -98,6 +99,7 @@ export function NewProductDialog({
   const [capacidad, setCapacidad] = useState('128GB')
   const [color, setColor] = useState('Negro')
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
+  const [isSerialized, setIsSerialized] = useState(true)
   const [precio, setPrecio] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('12')
   const [stockInicial, setStockInicial] = useState('1')
@@ -111,8 +113,17 @@ export function NewProductDialog({
   const [locations, setLocations] = useState<Location[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
 
-  // Moneda global (TODO: mover a configuración global)
-  const currency = 'Lps'
+  // Moneda configurable
+  const [moneda, setMoneda] = useState('HNL')
+
+  // Auto-set serialized flag based on category
+  useEffect(() => {
+    if (categoria === 'celular') {
+      setIsSerialized(true)
+    } else {
+      setIsSerialized(false)
+    }
+  }, [categoria])
 
   // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
@@ -212,6 +223,7 @@ export function NewProductDialog({
     setColor('Negro')
     setCondicion('nuevo')
     setPrecio('')
+    setMoneda('HNL')
     setGarantiaMeses('12')
     setStockInicial('1')
     setSupplierId(undefined)
@@ -299,9 +311,10 @@ export function NewProductDialog({
           capacidad: categoria === 'celular' ? capacidad : 'N/A',
           condicion,
           precio: parseFloat(precio),
-          moneda: currency,
+          moneda,
           garantia_meses: parseInt(garantiaMeses),
           garantia_condiciones: garantiaCondiciones.trim() || undefined,
+          is_serialized: isSerialized,
           imeis: imeis.filter(i => i.trim()).length > 0 ? imeis.filter(i => i.trim()) : undefined
         },
         parseInt(stockInicial),
@@ -340,6 +353,16 @@ export function NewProductDialog({
                   <SelectItem value="accesorio">Accesorio</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center space-x-2 pt-8">
+              <Checkbox 
+                id="is_serialized" 
+                checked={isSerialized} 
+                onCheckedChange={(checked) => setIsSerialized(checked as boolean)}
+              />
+              <Label htmlFor="is_serialized" className="cursor-pointer">
+                Producto Serializado (requiere IMEI)
+              </Label>
             </div>
           </div>
 
@@ -542,17 +565,31 @@ export function NewProductDialog({
           )}
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="precio">Precio ({currency}) *</Label>
-              <Input
-                id="precio"
-                type="number"
-                min="0"
-                step="0.01"
-                value={precio}
-                onChange={e => setPrecio(e.target.value)}
-                placeholder="15000"
-              />
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="precio">Precio *</Label>
+                <Input
+                  id="precio"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={precio}
+                  onChange={e => setPrecio(e.target.value)}
+                  placeholder="15000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="moneda">Moneda</Label>
+                <Select value={moneda} onValueChange={setMoneda}>
+                  <SelectTrigger id="moneda">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="HNL">HNL</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -592,7 +629,7 @@ export function NewProductDialog({
               </p>
             </div>
 
-            {categoria === 'celular' && (
+            {isSerialized && (
               <div className="space-y-2">
                 <Label>IMEI (Opcional)</Label>
                 <div className="space-y-2">

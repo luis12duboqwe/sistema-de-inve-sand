@@ -17,6 +17,17 @@ export function validatePhoneNumber(phone: unknown): { valid: boolean; phone: st
       error: 'El número de teléfono es requerido'
     }
   }
+
+  // Remove all non-digit characters
+  const digits = sanitized.replace(/\D/g, '')
+  
+  if (digits.length < 8) {
+    return {
+      valid: false,
+      phone: sanitized,
+      error: 'El número de teléfono debe tener al menos 8 dígitos'
+    }
+  }
   
   return {
     valid: true,
