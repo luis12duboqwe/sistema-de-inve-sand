@@ -5,7 +5,7 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location, Supplier
+from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI
 from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
@@ -73,15 +73,40 @@ def _serialize_product(product: Product) -> ProductResponse:
         capacidad=product.capacidad,
         condicion=product.condicion,
         precio=product.precio,
+        costo=product.costo, # V2.0: Incluir costo para reportes
         moneda=product.moneda,
         garantia_meses=product.garantia_meses,
         garantia_condiciones=product.garantia_condiciones,
         activo=product.activo,
+        is_serialized=product.is_serialized, # V2.0: Incluir flag de serialización
         imei=imeis_list[0] if imeis_list else None,  # Primer IMEI por compatibilidad
         imeis=imeis_list if imeis_list else None,
         stock_disponible=total_stock,
         stock_items=stock_items_list if stock_items_list else None
     )
+
+
+@router.get("/{product_id}/imeis", response_model=List[str])
+def get_product_imeis(
+    product_id: int,
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene los IMEIs disponibles para un producto, opcionalmente filtrados por ubicación.
+    """
+    query = db.query(ProductIMEI.imei).filter(
+        ProductIMEI.product_id == product_id,
+        ProductIMEI.vendido == False,
+        ProductIMEI.transfer_id == None  # No incluir los que están en tránsito
+    )
+    
+    if location_id:
+        query = query.filter(ProductIMEI.location_id == location_id)
+        
+    imeis = query.all()
+    return [i.imei for i in imeis]
+
 
 @router.get("", response_model=PaginatedResponse[ProductResponse])
 def list_products(
@@ -192,12 +217,26 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     
     try:
         product_data = product.model_dump(by_alias=True)
-        product_data['moneda'] = 'Lps' # Enforce Lps
+        # product_data['moneda'] = 'Lps' # REMOVED: Allow multiple currencies
         cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
         # V2.0: Extraer initial_location_id y imeis_con_ubicacion
         initial_location_id = product_data.pop("initial_location_id", None)
         imeis_con_ubicacion = product_data.pop("imeis_con_ubicacion", None)
+        
+        # VALIDACIÓN: Enforce IMEIs for serialized products if stock > 0
+        # Si es celular, forzar is_serialized a True si no se especificó lo contrario
+        if product.categoria == CategoriaEnum.CELULAR and not product.is_serialized:
+             product.is_serialized = True
+             product_data['is_serialized'] = True
+
+        if product.is_serialized and cantidad_inicial > 0:
+            has_imeis = (imeis_con_ubicacion and len(imeis_con_ubicacion) > 0) or (product.imeis and len(product.imeis) > 0)
+            if not has_imeis:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Para productos serializados con stock inicial, debe proporcionar los IMEIs."
+                )
         
         # ✅ Validar que location esté activa si se proporciona (Bug #32 fix)
         if initial_location_id:
@@ -511,6 +550,10 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
                     detail=f"El proveedor con ID {updates.supplier_id} no fue encontrado"
                 )
         product.supplier_id = updates.supplier_id
+
+    if updates.is_serialized is not None:
+        product.is_serialized = updates.is_serialized
+
     if updates.activo is not None:
         product.activo = updates.activo
 
@@ -562,6 +605,13 @@ def update_product_stock(
         raise HTTPException(
             status_code=400,
             detail=f"El stock no puede ser negativo. Valor proporcionado: {update.cantidad_disponible}"
+        )
+    
+    # V2.0: Validar que no sea menor a lo reservado
+    if update.cantidad_disponible < stock.cantidad_reservada:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El stock no puede ser menor a la cantidad reservada ({stock.cantidad_reservada}). Libere las reservas o cancele transferencias pendientes primero."
         )
     
     # Registrar cambio en historial

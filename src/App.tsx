@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useKV } from '@/hooks/use-kv'
+import { getKV } from '@/lib/kvStorage'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 // import { ProfileCard } from '@/components/ProfileCard' // DEPRECATED V1.0
+import { ManageSuppliersDialog } from '@/components/ManageSuppliersDialog'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 // import { NewProfileDialog } from '@/components/NewProfileDialog' // DEPRECATED V1.0
@@ -43,7 +45,7 @@ import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
 import { StockHistoryDialog } from '@/components/StockHistoryDialog'
 import { LocationsList } from '@/components/LocationsList'
 import { SalesProfilesList } from '@/components/SalesProfilesList'
-import { initializeDefaultData } from '@/lib/dataInitializer'
+import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
@@ -63,7 +65,7 @@ export default function App() {
   const [orders, setOrders] = useKV<OrderWithItems[]>('inventory-orders', [])
   const [profiles, setProfiles] = useKV<Profile[]>('inventory-profiles', [])
   const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
-  const [locations, setLocations] = useState<Location[]>([])
+  const [locations, setLocations] = useKV<Location[]>('inventory-locations', [])
   const [dataLoaded, setDataLoaded] = useState(false)
   // V2.0: Renamed for clarity - this filters views by sales channel, not business segment
   const [selectedSalesChannel, setSelectedSalesChannel] = useState<string>('all')
@@ -81,6 +83,7 @@ export default function App() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showSuppliersDialog, setShowSuppliersDialog] = useState(false)
   const [showHealthCheckDialog, setShowHealthCheckDialog] = useState(false)
   const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   const [showLowStockReport, setShowLowStockReport] = useState(false)
@@ -145,6 +148,17 @@ export default function App() {
         console.log('🔄 Cargando datos iniciales...')
         console.log('📊 useAPI:', useAPI, 'apiUrl:', apiUrl)
         
+        // AUTO-RESET: Limpiar datos locales una sola vez para asegurar limpieza
+        const kv = getKV()
+        const resetDone = await kv.get('v2_reset_complete_final')
+        if (!resetDone && !useAPI) {
+          console.log('🧹 Ejecutando limpieza automática de datos locales...')
+          await clearAllData()
+          await kv.set('v2_reset_complete_final', true)
+          window.location.reload()
+          return
+        }
+
         // Inicializar datos por defecto si no existen
         await initializeDefaultData()
         
@@ -821,6 +835,14 @@ export default function App() {
                 >
                   <Upload size={18} />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowSuppliersDialog(true)}
+                  title="Gestionar Proveedores"
+                >
+                  <User size={18} />
+                </Button>
                 <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
                   Nuevo Producto
                 </Button>
@@ -930,9 +952,26 @@ export default function App() {
                           setProducts((current: ProductWithStock[]) => (current ?? []).filter(pr => pr.id !== p.id))
                           toast.success('Producto eliminado exitosamente')
                         } catch (error) {
-                          console.error('Error deleting product:', error)
                           const message = error instanceof Error ? error.message : 'Error desconocido'
-                          toast.error(`Error al eliminar producto: ${message}`)
+                          
+                          // Check if error is about references
+                          if (message.includes('referenciado') || message.includes('orders') || message.includes('históricas')) {
+                             console.log('Delete prevented due to existing references (expected behavior)')
+                             
+                             if (confirm(`No se puede eliminar el producto "${p.nombre}" porque tiene historial de ventas.\n\n¿Deseas desactivarlo en su lugar para que no aparezca en nuevas ventas?`)) {
+                                try {
+                                    const updated = await service.updateProduct(p.id, { ...p, activo: false })
+                                    setProducts((current: ProductWithStock[]) => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
+                                    toast.success('Producto desactivado correctamente')
+                                } catch (updateError) {
+                                    console.error('Error deactivating product:', updateError)
+                                    toast.error('Error al desactivar producto')
+                                }
+                             }
+                          } else {
+                              console.error('Error deleting product:', error)
+                              toast.error(`Error al eliminar producto: ${message}`)
+                          }
                         }
                       }}
                     />
@@ -1185,8 +1224,23 @@ export default function App() {
                           toast.success('Orden eliminada exitosamente')
                         } catch (error) {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
-                          console.error('❌ Error al eliminar orden:', error)
-                          toast.error(`Error al eliminar orden: ${message}`)
+                          
+                          if (message.includes('completada') || message.includes('cancelar')) {
+                              console.log('Delete prevented for completed order (expected behavior)')
+                              if (confirm(`No se puede eliminar una orden completada.\n\n¿Deseas cancelarla en su lugar? Esto repondrá el stock automáticamente.`)) {
+                                  try {
+                                      const cancelledOrder = await service.cancelOrder(order.id, 'Cancelación solicitada por usuario al intentar eliminar')
+                                      setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === cancelledOrder.id ? cancelledOrder : o))
+                                      toast.success('Orden cancelada exitosamente')
+                                  } catch (cancelError) {
+                                      console.error('Error cancelling order:', cancelError)
+                                      toast.error('Error al cancelar orden')
+                                  }
+                              }
+                          } else {
+                              console.error('❌ Error al eliminar orden:', error)
+                              toast.error(`Error al eliminar orden: ${message}`)
+                          }
                         }
                       }}
                     />
@@ -1353,7 +1407,10 @@ export default function App() {
           </TabsContent>
 
           <TabsContent value="sales-profiles" className="space-y-6">
-            <SalesProfilesList />
+            <SalesProfilesList onUpdate={async () => {
+              const updated = await service.getSalesProfiles()
+              setSalesProfiles(updated)
+            }} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1535,6 +1592,11 @@ export default function App() {
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         onImport={handleImportProducts}
+      />
+
+      <ManageSuppliersDialog
+        open={showSuppliersDialog}
+        onOpenChange={setShowSuppliersDialog}
       />
 
       {/* DEPRECATED V1.0 - Profile Settings

@@ -10,9 +10,10 @@ import {
 } from '@/components/ui/select'
 import type { OrderWithItems, Order, SalesProfile, Location } from '@/lib/types'
 import { format } from 'date-fns'
-import { PencilSimple, User, FilePdf, Trash, Robot, MapPin } from '@phosphor-icons/react'
+import { PencilSimple, User, FilePdf, Trash, Robot, MapPin, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { useState, useEffect } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { ReturnDialog } from './ReturnDialog'
 
 interface OrderCardProps {
   order: OrderWithItems
@@ -26,6 +27,7 @@ interface OrderCardProps {
 export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory, onExportPDF, onDelete }: OrderCardProps) {
   const [salesProfile, setSalesProfile] = useState<SalesProfile | null>(null)
   const [sourceLocation, setSourceLocation] = useState<Location | null>(null)
+  const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false)
 
   useEffect(() => {
     if (order.sales_profile_id) {
@@ -238,6 +240,17 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                 <Trash size={16} />
               </Button>
             )}
+            {order.estado === 'completada' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReturnDialogOpen(true)}
+                title="Procesar devolución"
+              >
+                <ArrowCounterClockwise size={16} className="mr-2" />
+                Devolución
+              </Button>
+            )}
             {onExportPDF && (
               <Button
                 variant="outline"
@@ -267,6 +280,13 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
           </div>
         </div>
       </div>
+
+      <ReturnDialog 
+        open={isReturnDialogOpen} 
+        onOpenChange={setIsReturnDialogOpen}
+        order={order}
+        onSuccess={() => setIsReturnDialogOpen(false)}
+      />
     </Card>
   )
 }

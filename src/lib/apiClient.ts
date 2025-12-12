@@ -10,7 +10,10 @@ import type {
   Supplier,
   CreateStockTransferRequest,
   StockTransfer,
-  StockByLocation
+  StockByLocation,
+  CreateReturnRequest,
+  Return,
+  IMEIHistory
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -76,7 +79,9 @@ interface ApiProductResponse {
   moneda: string
   garantia_meses: number
   activo: boolean
+  is_serialized?: boolean
   stock_disponible: number
+  stock_items?: StockByLocation[]
 }
 
 interface ApiOrderResponse {
@@ -155,7 +160,14 @@ class ApiClient {
         }
         
         // Para otros errores o último intento, lanzamos el error
-        console.error(`API request failed for ${endpoint}:`, lastError)
+        // Evitar loguear errores de validación de negocio conocidos como errores críticos
+        const errorMessage = lastError.message || ''
+        if (!errorMessage.includes('referenciado') && 
+            !errorMessage.includes('históricas') && 
+            !errorMessage.includes('completada') && 
+            !errorMessage.includes('cancelar')) {
+            console.error(`API request failed for ${endpoint}:`, lastError)
+        }
         
         // Mensaje de error más descriptivo
         if (lastError.message.includes('Failed to fetch')) {
@@ -351,6 +363,16 @@ class ApiClient {
     }
   }
 
+  async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
+    try {
+      const endpoint = `/products/${productId}/imeis?location_id=${locationId}`
+      return await this.request<string[]>(endpoint)
+    } catch (error) {
+      console.error('Error fetching IMEIs from API:', error)
+      return []
+    }
+  }
+
   async createProduct(
     product: Omit<Product, 'id' | 'activo'>,
     initialStock: number,
@@ -366,6 +388,16 @@ class ApiClient {
       // V2.0: Agregar locationId si se proporciona
       if (locationId) {
         body.initial_location_id = locationId
+        
+        // V2.0: Transformar imeis (string[]) a imeis_con_ubicacion (objeto[])
+        if (body.imeis && Array.isArray(body.imeis) && body.imeis.length > 0) {
+          body.imeis_con_ubicacion = body.imeis.map((imei: string) => ({
+            imei,
+            location_id: locationId
+          }))
+          // Eliminar campo legacy para forzar uso de V2.0 en backend
+          delete body.imeis
+        }
       }
       
       return this.request<ProductWithStock>('/products', {
@@ -415,8 +447,11 @@ class ApiClient {
         method: 'DELETE',
       })
     } catch (error) {
-      console.error('Error deleting product via API:', error)
-      throw new Error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (!message.includes('referenciado') && !message.includes('históricas')) {
+          console.error('Error deleting product via API:', error)
+      }
+      throw new Error(`Failed to delete product: ${message}`)
     }
   }
 
@@ -452,8 +487,23 @@ class ApiClient {
       })
       console.log(`✅ Orden ${orderId} eliminada exitosamente`)
     } catch (error) {
-      console.error('Error deleting order via API:', error)
-      throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (!message.includes('completada') && !message.includes('cancelar')) {
+          console.error('Error deleting order via API:', error)
+      }
+      throw new Error(`Failed to delete order: ${message}`)
+    }
+  }
+
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
+    try {
+      const query = reason ? `?reason=${encodeURIComponent(reason)}` : ''
+      return await this.request<OrderWithItems>(`/orders/${orderId}/cancel${query}`, {
+        method: 'POST',
+      })
+    } catch (error) {
+      console.error('Error cancelling order via API:', error)
+      throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -524,7 +574,11 @@ class ApiClient {
             es_regalo_promocion: item.es_regalo_promocion,
             product: productMapped
           }
-        })
+        }),
+        trade_ins: order.trade_ins?.map(t => ({
+          ...t,
+          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
+        }))
       }))
     } catch (error) {
       console.error('Error fetching orders from API:', error)
@@ -579,8 +633,14 @@ class ApiClient {
         }))
       }
     } catch (error) {
-      console.error('Error creating order via API:', error)
-      throw new Error(`Failed to create order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      // Bug #6: Mejor manejo de errores para exponer mensaje del backend
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error('Order creation failed:', {
+        payload: request,
+        error: errorMessage,
+        timestamp: new Date().toISOString()
+      })
+      throw new Error(errorMessage)
     }
   }
 
@@ -626,6 +686,7 @@ class ApiClient {
         id?: number
         product_id: number
         cantidad: number
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems> {
@@ -660,7 +721,11 @@ class ApiClient {
             es_regalo_promocion: item.es_regalo_promocion,
             product: productMapped
           }
-        })
+        }),
+        trade_ins: apiOrder.trade_ins?.map(t => ({
+          ...t,
+          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
+        }))
       }
     } catch (error) {
       console.error('Error updating order via API:', error)
@@ -813,6 +878,37 @@ class ApiClient {
     } catch (error) {
       console.error('Error deleting supplier:', error)
       throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createReturn(returnData: CreateReturnRequest): Promise<Return> {
+    try {
+      return this.request<Return>('/returns', {
+        method: 'POST',
+        body: JSON.stringify(returnData)
+      })
+    } catch (error) {
+      console.error('Error creating return:', error)
+      throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getReturns(): Promise<Return[]> {
+    try {
+      const response = await this.request<{ items: Return[] }>('/returns')
+      return response.items || []
+    } catch (error) {
+      console.error('Error getting returns:', error)
+      throw new Error(`Failed to get returns: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
+    try {
+      return this.request<IMEIHistory[]>(`/imeis/history/${imei}`)
+    } catch (error) {
+      console.error('Error getting IMEI history:', error)
+      throw new Error(`Failed to get IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }

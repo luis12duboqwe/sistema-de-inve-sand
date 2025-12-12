@@ -71,6 +71,20 @@ class TipoSalesProfileEnum(str, Enum):
     SISTEMA_AUTOMATICO = "sistema_automatico"
 
 
+class ReturnConditionEnum(str, Enum):
+    """Condición del producto devuelto"""
+    NUEVO = "nuevo"
+    DEFECTUOSO = "defectuoso"
+    ABIERTO = "abierto"
+
+
+class ReturnActionEnum(str, Enum):
+    """Acción a tomar con la devolución"""
+    REFUND = "refund" # Reembolso
+    WARRANTY_EXCHANGE = "warranty_exchange" # Cambio por garantía
+    STORE_CREDIT = "store_credit" # Crédito en tienda
+
+
 # ============= LOCATION SCHEMAS =============
 class LocationBase(BaseModel):
     nombre: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
@@ -139,6 +153,7 @@ class StockByLocationBase(BaseModel):
     location_id: int
     cantidad_disponible: int = Field(0, ge=0)
     cantidad_reservada: int = Field(0, ge=0)  # V2.0: Stock reservado en transferencias pendientes
+    cantidad_defectuosa: int = Field(0, ge=0)  # V2.0: Stock defectuoso/merma
 
 
 class StockByLocationCreate(StockByLocationBase):
@@ -162,6 +177,7 @@ class ProfileBase(BaseModel):
     name: str = Field(..., min_length=1, description="Nombre no puede estar vacío")
     slug: str = Field(..., min_length=1, description="Slug no puede estar vacío")
     active: bool = True
+    settings: Optional[str] = None  # JSON string
 
 class ProfileCreate(ProfileBase):
     pass
@@ -177,6 +193,7 @@ class ProfileUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
     slug: Optional[str] = Field(None, min_length=1, description="Slug no puede estar vacío si se proporciona")
     active: Optional[bool] = None
+    settings: Optional[str] = None
 
 
 # Supplier Schemas
@@ -233,10 +250,12 @@ class ProductBase(BaseModel):
     capacidad: Optional[str] = None
     condicion: CondicionEnum
     precio: Decimal = Field(..., gt=0, le=1000000, description="Precio debe ser mayor a 0 y menor a 1,000,000")
+    costo: Decimal = Field(0, ge=0, description="Costo del producto")
     moneda: str = "HNL"
     garantia_meses: int = Field(0, ge=0, le=120, description="Garantía en meses debe ser entre 0 y 120 (10 años)")
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool = True
+    is_serialized: bool = False  # V2.0: Control explícito de serialización
     imei: Optional[str] = None  # DEPRECATED: Usar imeis_con_ubicacion para nuevos productos V2.0
     imeis: Optional[List[str]] = None  # DEPRECATED: Usar imeis_con_ubicacion para V2.0
     
@@ -277,9 +296,11 @@ class ProductUpdate(BaseModel):
     capacidad: Optional[str] = None
     condicion: Optional[CondicionEnum] = None
     precio: Optional[Decimal] = None
+    costo: Optional[Decimal] = None
     moneda: Optional[str] = None
     garantia_meses: Optional[int] = None
     garantia_condiciones: Optional[str] = None
+    is_serialized: Optional[bool] = None  # V2.0: Control explícito de serialización
     activo: Optional[bool] = None
     supplier_id: Optional[int] = None
     imei: Optional[str] = None
@@ -304,10 +325,12 @@ class ProductResponse(BaseModel):
     capacidad: Optional[str] = None
     condicion: str
     precio: Decimal
+    costo: Decimal
     moneda: str
     garantia_meses: int
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool
+    is_serialized: bool = False  # V2.0: Control explícito de serialización
     imei: Optional[str] = None  # Mantener por compatibilidad
     imeis: Optional[List[str]] = None  # Array de IMEIs disponibles
     stock_disponible: int
@@ -320,6 +343,7 @@ class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
     es_regalo_promocion: bool = False
+    imeis: Optional[List[str]] = None  # V2.0: IMEIs específicos para productos serializados
     
     @field_validator('cantidad')
     @classmethod
@@ -337,6 +361,7 @@ class OrderItemResponse(BaseModel):
     precio_unitario: Decimal
     es_regalo_promocion: bool
     product: ProductResponse
+    imeis: Optional[List[str]] = None  # V2.0: IMEIs vendidos en este item
 
     class Config:
         from_attributes = True
@@ -346,6 +371,7 @@ class OrderItemUpdate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
     es_regalo_promocion: bool = False
+    imeis: Optional[List[str]] = None  # V2.0: IMEIs específicos para productos serializados
     
     @field_validator('cantidad')
     @classmethod
@@ -369,8 +395,17 @@ class TradeInCreate(BaseModel):
     modelo: str = Field(..., min_length=1)
     imei: Optional[str] = None
     condicion: str = Field(..., description="usado, dañado, para_repuestos")
+    precio_venta: Optional[Decimal] = Field(None, gt=0, description="Precio de venta sugerido para el producto resultante")
     valor_estimado: Decimal = Field(..., gt=0)
     notas: Optional[str] = None
+
+    @field_validator('condicion')
+    @classmethod
+    def validate_condicion(cls, v):
+        allowed = ['usado', 'dañado', 'para_repuestos', 'nuevo']
+        if v not in allowed:
+            raise ValueError(f'Condición inválida. Debe ser una de: {", ".join(allowed)}')
+        return v
 
 class TradeInResponse(BaseModel):
     """Schema de respuesta para Trade-In"""
@@ -718,6 +753,14 @@ class StockTransferCreate(BaseModel):
             raise ValueError('Las ubicaciones de origen y destino deben ser diferentes')
         return v
 
+    @field_validator('imeis')
+    @classmethod
+    def validate_imeis_count(cls, v, info):
+        if v is not None and 'cantidad' in info.data:
+            if len(v) != info.data['cantidad']:
+                raise ValueError(f'La cantidad de IMEIs ({len(v)}) no coincide con la cantidad a transferir ({info.data["cantidad"]})')
+        return v
+
 
 class StockTransferResponse(BaseModel):
     """Schema para la respuesta de una transferencia de stock (V2.0)"""
@@ -735,6 +778,7 @@ class StockTransferResponse(BaseModel):
     rejection_reason: Optional[str] = None
     created_at: datetime
     created_by: Optional[str]
+    imeis: Optional[List[str]] = None  # V2.0: Lista de IMEIs transferidos
     
     # Información adicional del producto y ubicaciones
     product_nombre: Optional[str] = None
@@ -752,9 +796,66 @@ class StockTransferResponse(BaseModel):
 class StockTransferConfirm(BaseModel):
     """Schema para confirmar una transferencia"""
     confirmed_by: Optional[str] = None
+    scanned_imeis: Optional[List[str]] = None  # V2.0: Validación de recepción física
 
 
 class StockTransferReject(BaseModel):
     """Schema para rechazar una transferencia"""
     rejection_reason: str = Field(..., min_length=1, description="Razón del rechazo")
     rejected_by: Optional[str] = None
+
+
+# ============= RETURN SCHEMAS =============
+
+class ReturnItemCreate(BaseModel):
+    product_id: int
+    quantity: int = Field(..., gt=0)
+    condition: ReturnConditionEnum
+    action: ReturnActionEnum
+    imei: Optional[str] = None
+
+class ReturnCreate(BaseModel):
+    order_id: int
+    reason: Optional[str] = None
+    created_by: Optional[str] = None
+    items: List[ReturnItemCreate]
+
+class ReturnItemResponse(BaseModel):
+    id: int
+    product_id: int
+    quantity: int
+    condition: str
+    action: str
+    imei: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+class ReturnResponse(BaseModel):
+    id: int
+    order_id: int
+    created_at: datetime
+    reason: Optional[str]
+    status: str
+    created_by: Optional[str]
+    items: List[ReturnItemResponse]
+    
+    class Config:
+        from_attributes = True
+
+class IMEIHistoryResponse(BaseModel):
+    id: int
+    imei: str
+    product_id: int
+    location_id: Optional[int]
+    event_type: str
+    reference_id: Optional[int]
+    reference_type: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    created_by: Optional[str]
+    product_name: Optional[str] = None
+    location_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True

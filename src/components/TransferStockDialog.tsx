@@ -42,6 +42,8 @@ export function TransferStockDialog({
   const [toLocationId, setToLocationId] = useState<number | null>(null)
   const [cantidad, setCantidad] = useState('')
   const [notas, setNotas] = useState('')
+  const [selectedImeis, setSelectedImeis] = useState<string[]>([])
+  const [availableImeis, setAvailableImeis] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -54,8 +56,22 @@ export function TransferStockDialog({
       setToLocationId(null)
       setCantidad('')
       setNotas('')
+      setSelectedImeis([])
+      setAvailableImeis([])
     }
   }, [open])
+
+  // Cargar IMEIs cuando cambia la ubicación de origen
+  useEffect(() => {
+    if (fromLocationId && product?.categoria === 'celular') {
+      inventoryServiceInstance.getAvailableIMEIs(product.id, fromLocationId)
+        .then(setAvailableImeis)
+        .catch(console.error)
+    } else {
+      setAvailableImeis([])
+    }
+    setSelectedImeis([])
+  }, [fromLocationId, product])
 
   const loadLocations = async () => {
     setLoading(true)
@@ -110,6 +126,13 @@ export function TransferStockDialog({
       return
     }
 
+    if (product.categoria === 'celular') {
+      if (selectedImeis.length !== cantidadNum) {
+        toast.error(`Debes seleccionar ${cantidadNum} IMEIs para transferir`)
+        return
+      }
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -118,6 +141,7 @@ export function TransferStockDialog({
         from_location_id: fromLocationId,
         to_location_id: toLocationId,
         cantidad: cantidadNum,
+        imeis: selectedImeis.length > 0 ? selectedImeis : undefined,
         notas: notas.trim() || undefined,
         created_by: 'Sistema'
       }
@@ -295,6 +319,60 @@ export function TransferStockDialog({
                     </p>
                   )}
                 </div>
+
+                {/* IMEI Selector */}
+                {product.categoria === 'celular' && fromLocationId && (
+                  <div className="grid gap-2">
+                    <Label>Seleccionar IMEIs ({selectedImeis.length}/{cantidad || 0})</Label>
+                    <div className="bg-muted/30 p-3 rounded-lg border border-dashed">
+                      {availableImeis.length === 0 ? (
+                        <div className="text-sm text-muted-foreground italic">
+                          No hay IMEIs disponibles en esta ubicación.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {availableImeis.map(imei => {
+                            const isSelected = selectedImeis.includes(imei)
+                            return (
+                              <div 
+                                key={imei}
+                                onClick={() => {
+                                  const qty = parseInt(cantidad) || 0
+                                  if (isSelected) {
+                                    setSelectedImeis(prev => prev.filter(i => i !== imei))
+                                  } else {
+                                    if (selectedImeis.length >= qty) {
+                                      if (qty === 0) {
+                                        toast.error('Primero ingresa la cantidad a transferir')
+                                      } else {
+                                        toast.error(`Solo puedes seleccionar ${qty} IMEIs`)
+                                      }
+                                      return
+                                    }
+                                    setSelectedImeis(prev => [...prev, imei])
+                                  }
+                                }}
+                                className={`cursor-pointer px-2 py-1 text-xs rounded border transition-colors ${
+                                  isSelected
+                                    ? 'bg-primary text-primary-foreground border-primary font-medium' 
+                                    : 'bg-background hover:bg-muted border-input'
+                                }`}
+                              >
+                                {imei}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {parseInt(cantidad) > selectedImeis.length && (
+                        <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Faltan seleccionar {parseInt(cantidad) - selectedImeis.length} IMEIs
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Notas */}
                 <div className="grid gap-2">

@@ -36,12 +36,25 @@ export function TransferListDialog({
   const [confirmedBy, setConfirmedBy] = useState('')
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
 
-      const loadTransfers = async () => {
-      setLoading(true)
-      try {
-        const service = inventoryServiceInstance
-        const allTransfers = await service.listStockTransfers()
-
+  const loadTransfers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const service = inventoryServiceInstance
+      const allTransfers = await service.listStockTransfers()
+      
+      // Filter by location if provided
+      const filtered = currentLocationId 
+        ? allTransfers.filter(t => t.from_location_id === currentLocationId || t.to_location_id === currentLocationId)
+        : allTransfers
+        
+      setTransfers(filtered)
+    } catch (error) {
+      console.error('Error loading transfers:', error)
+      toast.error('Error al cargar transferencias')
+    } finally {
+      setLoading(false)
+    }
+  }, [currentLocationId])
 
   useEffect(() => {
     if (open) {
@@ -50,22 +63,68 @@ export function TransferListDialog({
   }, [open, loadTransfers])
 
   const handleConfirm = async (transfer: StockTransfer) => {
+    if (!confirmedBy.trim()) {
+      toast.error('Por favor ingresa tu nombre para confirmar')
+      return
+    }
+    
+    setActionLoading(true)
     try {
       const service = inventoryServiceInstance
-      await service.confirmStockTransfer(transfer.id, 'Usuario Actual') // TODO: Get real user
+      await service.confirmStockTransfer(transfer.id, confirmedBy)
       toast.success('Transferencia confirmada exitosamente')
+      setSelectedTransfer(null)
+      setConfirmedBy('')
+      loadTransfers()
+      onTransferUpdated?.()
+    } catch (error) {
+      console.error('Error confirming transfer:', error)
+      toast.error('Error al confirmar transferencia')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   const handleReject = async (transfer: StockTransfer) => {
+    if (!confirmedBy.trim()) {
+      toast.error('Por favor ingresa tu nombre para rechazar')
+      return
+    }
+
+    setActionLoading(true)
     try {
       const service = inventoryServiceInstance
-      await service.rejectStockTransfer(transfer.id, 'Usuario Actual', 'Rechazada por usuario')
+      await service.rejectStockTransfer(transfer.id, confirmedBy, 'Rechazada por usuario')
       toast.success('Transferencia rechazada')
+      setSelectedTransfer(null)
+      setConfirmedBy('')
+      loadTransfers()
+      onTransferUpdated?.()
+    } catch (error) {
+      console.error('Error rejecting transfer:', error)
+      toast.error('Error al rechazar transferencia')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   const handleCancel = async (transfer: StockTransfer) => {
+    if (!window.confirm('¿Estás seguro de cancelar esta transferencia?')) return
+
+    setActionLoading(true)
     try {
       const service = inventoryServiceInstance
       await service.cancelStockTransfer(transfer.id)
       toast.success('Transferencia cancelada')
+      loadTransfers()
+      onTransferUpdated?.()
+    } catch (error) {
+      console.error('Error canceling transfer:', error)
+      toast.error('Error al cancelar transferencia')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   const getLocationName = (locationId: number) => {
     return locations.find(l => l.id === locationId)?.nombre || `Ubicación ${locationId}`
@@ -128,6 +187,19 @@ export function TransferListDialog({
             <span className="ml-1">{format(new Date(transfer.created_at), 'dd/MM/yy HH:mm', { locale: es })}</span>
           </div>
         </div>
+
+        {transfer.imeis && transfer.imeis.length > 0 && (
+          <div className="text-sm">
+            <span className="text-muted-foreground">IMEIs:</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {transfer.imeis.map((imei, idx) => (
+                <Badge key={idx} variant="outline" className="text-xs font-mono">
+                  {imei}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
 
         {transfer.notas && (
           <div className="text-sm">

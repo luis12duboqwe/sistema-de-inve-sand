@@ -21,7 +21,7 @@ import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 interface ManageSuppliersDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  profile: Profile
+  profile?: Profile
 }
 
 export function ManageSuppliersDialog({
@@ -57,11 +57,11 @@ export function ManageSuppliersDialog({
   }
 
   useEffect(() => {
-    if (open && profile.id) {
+    if (open) {
       loadSuppliers()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, profile.id])
+  }, [open])
 
   const resetForm = () => {
     setNombre('')
@@ -149,7 +149,7 @@ export function ManageSuppliersDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Gestionar Proveedores - {profile.name}</DialogTitle>
+          <DialogTitle>Gestionar Proveedores {profile?.name ? `- ${profile.name}` : ''}</DialogTitle>
           <DialogDescription>
             Administra los proveedores para organizar reclamos y devoluciones
           </DialogDescription>

@@ -51,7 +51,9 @@ def get_dashboard_stats(
     total_inventory_value = Decimal("0.00")
     for stock in stocks:
         if stock.product:
-            total_inventory_value += stock.product.precio * stock.cantidad_disponible
+            # V2.0: Usar costo si existe, sino precio (fallback)
+            valor_unitario = stock.product.costo if stock.product.costo > 0 else stock.product.precio
+            total_inventory_value += valor_unitario * stock.cantidad_disponible
     
     # Orders stats - Filtrar por sales_profile si se especifica
     today = datetime.now().date()

@@ -1,3 +1,29 @@
+export interface ReturnItem {
+  id?: number
+  product_id: number
+  quantity: number
+  condition: 'nuevo' | 'defectuoso' | 'abierto'
+  action: 'refund' | 'warranty_exchange' | 'store_credit'
+  imei?: string
+}
+
+export interface CreateReturnRequest {
+  order_id: number
+  reason?: string
+  created_by?: string
+  items: ReturnItem[]
+}
+
+export interface Return {
+  id: number
+  order_id: number
+  created_at: string
+  reason?: string
+  status: string
+  created_by?: string
+  items: ReturnItem[]
+}
+
 export interface ProfileSettings {
   currency: string
   taxRate: number
@@ -10,6 +36,7 @@ export interface ProfileSettings {
   businessEmail?: string
   autoCalculateTax: boolean
   priceFormat: 'standard' | 'comma' | 'space'
+  exchangeRate?: number // V2.0: Tasa de cambio configurable
 }
 
 export interface Profile {
@@ -68,10 +95,12 @@ export interface Product {
   capacidad?: string
   condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
+  costo?: number // V2.0: Costo para reportes financieros
   moneda: string
   garantia_meses: number
   garantia_condiciones?: string
   activo: boolean
+  is_serialized?: boolean // V2.0: Control explícito de serialización
   imei?: string  // DEPRECATED: Usar imeis[]
   imeis?: string[]
   stock_disponible?: number  // Total consolidado de todas las ubicaciones
@@ -104,6 +133,7 @@ export interface Order {
   updated_at?: string
   sales_profile?: SalesProfile  // V2.0: Perfil de venta expandido
   source_location?: Location  // V2.0: Ubicación origen expandida
+  trade_ins?: TradeIn[] // V2.0: Equipos recibidos en parte de pago
 }
 
 export interface OrderItem {
@@ -113,6 +143,8 @@ export interface OrderItem {
   cantidad: number
   precio_unitario: number
   es_regalo_promocion: boolean
+  product?: Product
+  imeis?: string[] // V2.0: IMEIs vendidos
 }
 
 export interface ProductWithStock extends Product {
@@ -120,8 +152,22 @@ export interface ProductWithStock extends Product {
   stock_items?: StockByLocation[]  // V2.0: Explícitamente incluir stock por ubicación
 }
 
+export interface TradeIn {
+  id?: number
+  order_id?: number
+  marca: string
+  modelo: string
+  imei?: string
+  condicion: 'usado' | 'dañado' | 'para_repuestos'
+  valor_estimado: number
+  precio_venta?: number // V2.0: Precio de venta sugerido
+  notas?: string
+  created_at?: string
+}
+
 export interface OrderWithItems extends Order {
   items: (OrderItem & { product?: Product })[]
+  trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
 }
 
 export interface CreateOrderRequest {
@@ -135,6 +181,7 @@ export interface CreateOrderRequest {
   items: {
     product_id: number
     cantidad: number
+    imeis?: string[]
   }[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
   notes?: string
@@ -213,6 +260,7 @@ export interface StockTransfer {
   to_location_name?: string  // V2.0: Nombre de ubicación destino
   from_profile_name?: string  // Legacy V1
   to_profile_name?: string  // Legacy V1
+  imeis?: string[] // V2.0: Lista de IMEIs transferidos
   // Helper para compatibilidad con componentes
   product?: { id: number; nombre: string; sku: string }
 }
@@ -230,12 +278,13 @@ export interface CreateStockTransferRequest {
 export interface StockHistory {
   id: number
   product_id: number
-  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion'
+  location_id?: number // V2.0: Ubicación donde ocurrió el movimiento
+  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion' | 'retoma' | 'compra'
   cantidad: number  // Positivo para entrada, negativo para salida
   stock_anterior: number
   stock_nuevo: number
   referencia_id?: number
-  referencia_tipo?: 'order' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled'
+  referencia_tipo?: 'order' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled' | 'return' | 'initial_stock'
   notas?: string
   usuario?: string
   created_at: string
@@ -261,4 +310,19 @@ export interface ProductIMEI {
   order_id?: number
   transfer_id?: number // V2.0: ID de transferencia si está en tránsito
   created_at: string
+}
+
+export interface IMEIHistory {
+  id: number
+  imei: string
+  product_id: number
+  location_id?: number
+  event_type: string
+  reference_id?: number
+  reference_type?: string
+  notes?: string
+  created_at: string
+  created_by?: string
+  product_name?: string
+  location_name?: string
 }

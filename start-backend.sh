@@ -52,8 +52,8 @@ echo ""
 # Verificar base de datos
 echo "📊 Verificando base de datos..."
 if [ ! -f "inventory.db" ]; then
-    echo "   Creando BD con V2.0..."
-    python3 init_db.py --with-data 2>&1 | tail -3 || python3 init_db.py
+    echo "   Creando BD vacía (V2.0)..."
+    python3 init_db.py
     echo "   ✅ BD creada"
 else
     echo "   ✅ BD existe"

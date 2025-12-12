@@ -12,7 +12,7 @@ import { Checkbox } from './ui/checkbox'
 import { useKV } from '@/hooks/use-kv'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
-export function SalesProfilesList() {
+export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [profiles, setProfiles] = useState<SalesProfile[]>([])
@@ -26,10 +26,10 @@ export function SalesProfilesList() {
   const [slug, setSlug] = useState('')
   const [tipo, setTipo] = useState<'bot_ia' | 'vendedor_humano' | 'sistema_automatico'>('bot_ia')
   const [canales, setCanales] = useState<('whatsapp' | 'facebook' | 'instagram')[]>([])
+  const [exchangeRate, setExchangeRate] = useState<string>('25.0')
 
   useEffect(() => {
     loadProfiles()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useAPI, apiUrl])
 
   const loadProfiles = async () => {
@@ -67,12 +67,16 @@ export function SalesProfilesList() {
         tipo,
         canales,
         active: true,
+        configuracion: {
+          exchange_rate: parseFloat(exchangeRate) || 25.0
+        }
       } as any)
 
       toast.success('Perfil de venta creado exitosamente')
       setIsCreateOpen(false)
       resetForm()
       loadProfiles()
+      if (onUpdate) onUpdate()
     } catch (error) {
       toast.error('Error al crear perfil')
       console.error(error)
@@ -102,11 +106,16 @@ export function SalesProfilesList() {
         tipo,
         canales,
         active: editingProfile.active,
+        configuracion: {
+          ...editingProfile.configuracion,
+          exchange_rate: parseFloat(exchangeRate) || 25.0
+        }
       })
 
       toast.success('Perfil actualizado exitosamente')
       setEditingProfile(null)
       resetForm()
+      if (onUpdate) onUpdate()
       loadProfiles()
     } catch (error) {
       toast.error('Error al actualizar perfil')
@@ -124,6 +133,7 @@ export function SalesProfilesList() {
 
       toast.success('Perfil eliminado exitosamente')
       loadProfiles()
+      if (onUpdate) onUpdate()
     } catch (error: any) {
       toast.error(error.message || 'Error al eliminar perfil')
       console.error(error)
@@ -135,6 +145,7 @@ export function SalesProfilesList() {
       await inventoryServiceInstance.updateSalesProfile(profile.id, { active: !profile.active })
 
       toast.success(`Perfil ${!profile.active ? 'activado' : 'desactivado'}`)
+      if (onUpdate) onUpdate()
       loadProfiles()
     } catch (error) {
       toast.error('Error al cambiar estado')
@@ -147,6 +158,7 @@ export function SalesProfilesList() {
     setSlug('')
     setTipo('bot_ia')
     setCanales([])
+    setExchangeRate('25.0')
   }
 
   const openEdit = (profile: SalesProfile) => {
@@ -155,6 +167,13 @@ export function SalesProfilesList() {
     setSlug(profile.slug)
     setTipo(profile.tipo)
     setCanales(profile.canales)
+    
+    // Cargar configuración
+    if (profile.configuracion && profile.configuracion.exchange_rate) {
+      setExchangeRate(String(profile.configuracion.exchange_rate))
+    } else {
+      setExchangeRate('25.0')
+    }
   }
 
   const toggleCanal = (canal: 'whatsapp' | 'facebook' | 'instagram') => {
@@ -280,6 +299,22 @@ export function SalesProfilesList() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div>
+                <Label htmlFor="exchange-rate">Tasa de Cambio (USD a HNL)</Label>
+                <Input
+                  id="exchange-rate"
+                  type="number"
+                  step="0.01"
+                  value={exchangeRate}
+                  onChange={(e) => setExchangeRate(e.target.value)}
+                  placeholder="25.00"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Usada para convertir precios en USD al crear órdenes.
+                </p>
+              </div>
+
               <div>
                 <Label>Canales de Venta *</Label>
                 <div className="space-y-2 mt-2">
@@ -447,6 +482,22 @@ export function SalesProfilesList() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div>
+              <Label htmlFor="edit-exchange-rate">Tasa de Cambio (USD a HNL)</Label>
+              <Input
+                id="edit-exchange-rate"
+                type="number"
+                step="0.01"
+                value={exchangeRate}
+                onChange={(e) => setExchangeRate(e.target.value)}
+                placeholder="25.00"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Usada para convertir precios en USD al crear órdenes.
+              </p>
+            </div>
+
             <div>
               <Label>Canales de Venta *</Label>
               <div className="space-y-2 mt-2">

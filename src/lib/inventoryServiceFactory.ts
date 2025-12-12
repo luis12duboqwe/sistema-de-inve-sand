@@ -15,7 +15,10 @@ import type {
   CreateStockTransferRequest,
   StockTransfer,
   Supplier,
-  StockByLocation
+  StockByLocation,
+  CreateReturnRequest,
+  Return,
+  IMEIHistory
 } from './types'
 
 async function getUseApiSetting(): Promise<boolean> {
@@ -47,7 +50,7 @@ export interface IInventoryService {
   
   getOrders(): Promise<OrderWithItems[]>
   
-  createProfile(profile: Omit<Profile, 'id'>): Promise<Profile>
+  createProfile(name: string, slug: string): Promise<Profile>
   
   listProfiles(): Promise<Profile[]>
   
@@ -74,6 +77,8 @@ export interface IInventoryService {
     estado: Order['estado']
   ): Promise<OrderWithItems>
 
+  cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems>
+
   updateOrder(
     orderId: number,
     updates: {
@@ -85,6 +90,7 @@ export interface IInventoryService {
         id?: number
         product_id: number
         cantidad: number
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems>
@@ -127,6 +133,13 @@ export interface IInventoryService {
   deleteSupplier(id: number): Promise<void>
 
   getStockByLocation(productId: number): Promise<StockByLocation[]>
+  
+  getAvailableIMEIs(productId: number, locationId: number): Promise<string[]>
+
+  createReturn(returnData: CreateReturnRequest): Promise<Return>
+  getReturns(): Promise<Return[]>
+
+  getIMEIHistory(imei: string): Promise<IMEIHistory[]>
 }
 
 class LocalServiceWrapper implements IInventoryService {
@@ -327,6 +340,21 @@ class LocalServiceWrapper implements IInventoryService {
 
   async getStockByLocation(productId: number): Promise<StockByLocation[]> {
     return this.service.getStockByLocation(productId)
+  }
+  async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
+    return this.service.getAvailableIMEIs(productId, locationId)
+  }
+
+  async createReturn(returnData: CreateReturnRequest): Promise<Return> {
+    return this.service.createReturn(returnData)
+  }
+
+  async getReturns(): Promise<Return[]> {
+    return this.service.getReturns()
+  }
+
+  async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
+    return this.service.getIMEIHistory(imei)
   }
 }
 
@@ -591,6 +619,7 @@ class UnifiedInventoryService implements IInventoryService {
         id?: number
         product_id: number
         cantidad: number
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems> {
@@ -667,8 +696,28 @@ class UnifiedInventoryService implements IInventoryService {
       const service = await this.getService()
       return service.deleteOrder(orderId)
     } catch (error) {
-      console.error('Error deleting order (unified):', error)
-      throw error instanceof Error ? error : new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      if (!message.includes('completada') && !message.includes('cancelar')) {
+          console.error('Error deleting order (unified):', error)
+      }
+      throw error instanceof Error ? error : new Error(`Failed to delete order: ${message}`)
+    }
+  }
+
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
+    try {
+      const useApi = await getUseApiSetting()
+      if (useApi) {
+        return apiClient.cancelOrder(orderId, reason)
+      } else {
+        // Local mode fallback - just update status for now
+        // In a real implementation, this should also restore stock
+        const service = await this.getService()
+        return service.updateOrderStatus(orderId, 'cancelado')
+      }
+    } catch (error) {
+      console.error('Error cancelling order (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -779,6 +828,26 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error getting stock by location (unified):', error)
       throw new Error(`Failed to get stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
+    try {
+      const service = await this.getService()
+      return service.getAvailableIMEIs(productId, locationId)
+    } catch (error) {
+      console.error('Error getting available IMEIs (unified):', error)
+      throw new Error(`Failed to get available IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createReturn(returnData: CreateReturnRequest): Promise<Return> {
+    try {
+      const service = await this.getService()
+      return service.createReturn(returnData)
+    } catch (error) {
+      console.error('Error creating return (unified):', error)
+      throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }
@@ -980,6 +1049,22 @@ class ApiInventoryService implements IInventoryService {
 
   async getStockByLocation(productId: number): Promise<StockByLocation[]> {
     return apiClient.getStockByLocation(productId)
+  }
+
+  async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
+    return apiClient.getAvailableIMEIs(productId, locationId)
+  }
+
+  async createReturn(returnData: CreateReturnRequest): Promise<Return> {
+    return apiClient.createReturn(returnData)
+  }
+
+  async getReturns(): Promise<Return[]> {
+    return apiClient.getReturns()
+  }
+
+  async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
+    return apiClient.getIMEIHistory(imei)
   }
 }
 

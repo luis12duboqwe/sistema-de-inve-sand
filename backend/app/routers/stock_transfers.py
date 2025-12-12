@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import StockTransfer, Product, Location, Stock, StockHistory
+from app.models import StockTransfer, Product, Location, Stock, StockHistory, IMEIHistory
 from app.schemas import (
     StockTransferCreate, 
     StockTransferResponse, 
@@ -40,7 +40,8 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
         to_location_name=transfer.to_location.nombre if transfer.to_location else None,
         # Legacy V1
         from_profile_name=transfer.from_profile.name if transfer.from_profile else None,
-        to_profile_name=transfer.to_profile.name if transfer.to_profile else None
+        to_profile_name=transfer.to_profile.name if transfer.to_profile else None,
+        imeis=[imei.imei for imei in transfer.imeis_en_transito] if transfer.imeis_en_transito else []
     )
 
 
@@ -121,7 +122,7 @@ def create_transfer(
     source_stock = db.query(Stock).filter(
         Stock.product_id == transfer.product_id,
         Stock.location_id == transfer.from_location_id
-    ).first()
+    ).with_for_update().first()
     
     if not source_stock:
         raise HTTPException(
@@ -147,16 +148,15 @@ def create_transfer(
     from app.models import ProductIMEI
     imeis_to_reserve = []
     
-    # 🔒 BUG #3 FIX: Reservar IMEIs si el producto es serializado
-    from app.models import ProductIMEI
-    imeis_to_reserve = []
-    
-    # Verificar si el producto tiene IMEIs registrados
-    has_imeis = db.query(ProductIMEI).filter(
-        ProductIMEI.product_id == transfer.product_id
-    ).first() is not None
-    
-    if has_imeis:
+    # Verificar si el producto es serializado (V2.0: usar campo explícito)
+    if product.is_serialized:
+        if not transfer.imeis:
+             # 🔒 BUG FIX: Enforce IMEI selection for serialized products
+             raise HTTPException(
+                 status_code=400,
+                 detail="Este producto es serializado. Debe especificar los IMEIs a transferir."
+             )
+
         if transfer.imeis:
             # Si se proporcionaron IMEIs específicos, validarlos
             if len(transfer.imeis) != transfer.cantidad:
@@ -182,22 +182,6 @@ def create_transfer(
                 )
             
             imeis_to_reserve = imeis_encontrados
-        else:
-            # Si no se proporcionaron, auto-seleccionar disponibles (comportamiento legacy)
-            imeis_disponibles = db.query(ProductIMEI).filter(
-                ProductIMEI.product_id == transfer.product_id,
-                ProductIMEI.location_id == transfer.from_location_id,
-                ProductIMEI.vendido == False,
-                ProductIMEI.transfer_id == None  # Asegurar que no estén ya en otra transferencia
-            ).limit(transfer.cantidad).all()
-            
-            if len(imeis_disponibles) < transfer.cantidad:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"No hay IMEIs suficientes para transferir. Disponibles: {len(imeis_disponibles)}, Requeridos: {transfer.cantidad}"
-                )
-            
-            imeis_to_reserve = imeis_disponibles
     
     # Crear la transferencia en estado PENDIENTE
     db_transfer = StockTransfer(
@@ -401,6 +385,37 @@ def confirm_transfer(
             detail=f"Stock insuficiente para confirmar. Disponible: {source_stock.cantidad_disponible}, Necesario: {transfer.cantidad}. No se puede procesar la transferencia."
         )
     
+    # V2.0: Validación de recepción física (IMEIs escaneados)
+    from app.models import ProductIMEI
+    imeis_in_transfer = db.query(ProductIMEI).filter(ProductIMEI.transfer_id == transfer.id).all()
+    
+    if imeis_in_transfer:
+        if not confirm_data.scanned_imeis:
+             # Si es serializado, EXIGIR escaneo
+             raise HTTPException(
+                 status_code=400, 
+                 detail="Este producto es serializado. Debe escanear los IMEIs recibidos para confirmar la transferencia."
+             )
+        
+        transfer_imeis_set = {i.imei for i in imeis_in_transfer}
+        scanned_imeis_set = set(confirm_data.scanned_imeis)
+        
+        # Verificar que todos los IMEIs de la transferencia fueron escaneados
+        missing = transfer_imeis_set - scanned_imeis_set
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Faltan IMEIs por escanear: {', '.join(missing)}. Verifique la recepción física."
+            )
+            
+        # Verificar que no se escanearon IMEIs extraños
+        extra = scanned_imeis_set - transfer_imeis_set
+        if extra:
+             raise HTTPException(
+                status_code=400,
+                detail=f"IMEIs escaneados no pertenecen a esta transferencia: {', '.join(extra)}"
+            )
+
     # Buscar o crear stock en ubicación de destino
     dest_stock = db.query(Stock).filter(
         Stock.product_id == transfer.product_id,
@@ -496,6 +511,19 @@ def confirm_transfer(
     for imei in imeis_to_move:
         imei.location_id = transfer.to_location_id
         imei.transfer_id = None  # Limpiar la asociación con la transferencia
+        
+        # 🟡 IMEI History: Transferencia
+        imei_history = IMEIHistory(
+            imei=imei.imei,
+            product_id=transfer.product_id,
+            location_id=transfer.to_location_id,
+            event_type='transferencia',
+            reference_id=transfer.id,
+            reference_type='transfer',
+            notes=f"Transferencia confirmada de {transfer.from_location.nombre} a {transfer.to_location.nombre}",
+            created_by=confirm_data.confirmed_by
+        )
+        db.add(imei_history)
     
     # Actualizar estado de la transferencia
     transfer.estado = "confirmada"

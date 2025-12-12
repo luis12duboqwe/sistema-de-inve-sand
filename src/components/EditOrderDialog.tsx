@@ -22,6 +22,7 @@ import { Plus, Trash } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { OrderWithItems, ProductWithStock } from '@/lib/types'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -36,6 +37,7 @@ interface EditOrderDialogProps {
     items: {
       product_id: number
       cantidad: number
+      imeis?: string[]
     }[]
     notes?: string
     delivery_date?: string
@@ -45,6 +47,7 @@ interface EditOrderDialogProps {
 interface OrderItemForm {
   product_id: number
   cantidad: number
+  imeis?: string[]
 }
 
 export function EditOrderDialog({
@@ -65,10 +68,12 @@ export function EditOrderDialog({
   const [items, setItems] = useState<OrderItemForm[]>(
     order.items.map(item => ({
       product_id: item.product_id,
-      cantidad: item.cantidad
+      cantidad: item.cantidad,
+      imeis: item.imeis || []
     }))
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
 
   useEffect(() => {
     if (open) {
@@ -83,11 +88,47 @@ export function EditOrderDialog({
       setItems(
         order.items.map(item => ({
           product_id: item.product_id,
-          cantidad: item.cantidad
+          cantidad: item.cantidad,
+          imeis: item.imeis || []
         }))
       )
     }
   }, [open, order])
+
+  // Fetch IMEIs for initial items and when items change
+  useEffect(() => {
+    const fetchIMEIs = async () => {
+      if (!order.source_location_id || !open) return
+      
+      const newAvailableIMEIs: Record<number, string[]> = {}
+      
+      for (const item of items) {
+        if (item.product_id > 0 && !newAvailableIMEIs[item.product_id]) {
+          const product = products.find(p => p.id === item.product_id)
+          if (product?.categoria === 'celular') {
+             try {
+               // Fetch available IMEIs
+               const imeis = await inventoryServiceInstance.getAvailableIMEIs(item.product_id, order.source_location_id)
+               
+               // Also include the IMEIs currently assigned to this item (so they appear as selectable)
+               // We need to find the original item in the order to get its IMEIs
+               const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+               const currentIMEIs = originalItem?.imeis || []
+               
+               // Combine and deduplicate
+               const combined = Array.from(new Set([...imeis, ...currentIMEIs]))
+               newAvailableIMEIs[item.product_id] = combined
+             } catch (e) {
+               console.error('Error fetching IMEIs', e)
+             }
+          }
+        }
+      }
+      setAvailableIMEIs(prev => ({ ...prev, ...newAvailableIMEIs }))
+    }
+    
+    fetchIMEIs()
+  }, [open, items, order.source_location_id, products])
 
   const addItem = () => {
     setItems([...items, { product_id: 0, cantidad: 1 }])
@@ -100,12 +141,25 @@ export function EditOrderDialog({
   const updateItemProduct = (index: number, productId: number) => {
     const newItems = [...items]
     newItems[index].product_id = productId
+    newItems[index].imeis = [] // Reset IMEIs when product changes
     setItems(newItems)
   }
 
   const updateItemQuantity = (index: number, cantidad: number) => {
     const newItems = [...items]
     newItems[index].cantidad = cantidad
+    
+    // Trim IMEIs if quantity reduced
+    if (newItems[index].imeis && newItems[index].imeis!.length > cantidad) {
+       newItems[index].imeis = newItems[index].imeis!.slice(0, cantidad)
+    }
+    
+    setItems(newItems)
+  }
+
+  const updateItemIMEIs = (index: number, imeis: string[]) => {
+    const newItems = [...items]
+    newItems[index].imeis = imeis
     setItems(newItems)
   }
 
@@ -155,6 +209,14 @@ export function EditOrderDialog({
       if (item.cantidad > maxAvailable) {
         toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${maxAvailable}`)
         return
+      }
+
+      // Validate IMEIs for serialized products
+      if (product.categoria === 'celular') {
+        if (!item.imeis || item.imeis.length !== item.cantidad) {
+          toast.error(`Debes seleccionar ${item.cantidad} IMEIs para ${product.nombre}`)
+          return
+        }
       }
     }
 
@@ -256,50 +318,107 @@ export function EditOrderDialog({
             {items.map((item, index) => {
               const availableForThisItem = getAvailableProducts(item.product_id)
               const originalItem = order.items.find(oi => oi.product_id === item.product_id)
+              const product = products.find(p => p.id === item.product_id)
+              
               return (
-                <div key={index} className="flex items-end gap-2">
-                  <div className="flex-1 space-y-2">
-                    <Label className="text-sm">Producto</Label>
-                    <Select
-                      value={item.product_id.toString()}
-                      onValueChange={(v) => updateItemProduct(index, parseInt(v))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar producto" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableForThisItem.map(product => {
-                          const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
-                          return (
-                            <SelectItem key={product.id} value={product.id.toString()}>
-                              {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
-                              {availableStock})
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
+                <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-2">
+                      <Label className="text-sm">Producto</Label>
+                      <Select
+                        value={item.product_id.toString()}
+                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar producto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableForThisItem.map(product => {
+                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
+                            return (
+                              <SelectItem key={product.id} value={product.id.toString()}>
+                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
+                                {availableStock})
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="w-24 space-y-2">
+                      <Label className="text-sm">Cantidad</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={item.cantidad}
+                        onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+
+                    {items.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => removeItem(index)}
+                      >
+                        <Trash size={16} />
+                      </Button>
+                    )}
                   </div>
 
-                  <div className="w-24 space-y-2">
-                    <Label className="text-sm">Cantidad</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={item.cantidad}
-                      onChange={(e) => updateItemQuantity(index, parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-
-                  {items.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => removeItem(index)}
-                    >
-                      <Trash size={16} />
-                    </Button>
+                  {/* IMEI Selector */}
+                  {product?.categoria === 'celular' && (
+                    <div className="w-full bg-muted/30 p-2 rounded border border-dashed">
+                      <div className="flex justify-between items-center mb-2">
+                        <Label className="text-xs font-medium">
+                          Seleccionar IMEIs ({item.imeis?.length || 0}/{item.cantidad})
+                        </Label>
+                        <span className="text-xs text-muted-foreground">
+                          {(availableIMEIs[item.product_id] || []).length} disponibles
+                        </span>
+                      </div>
+                      
+                      {(availableIMEIs[item.product_id] || []).length === 0 ? (
+                        <div className="text-xs text-muted-foreground italic">
+                          No hay IMEIs disponibles en esta ubicación.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {(availableIMEIs[item.product_id] || []).map(imei => {
+                            const isSelected = item.imeis?.includes(imei)
+                            return (
+                              <div 
+                                key={imei}
+                                onClick={() => {
+                                  const currentImeis = item.imeis || []
+                                  let newImeis
+                                  if (isSelected) {
+                                    newImeis = currentImeis.filter(i => i !== imei)
+                                  } else {
+                                    if (currentImeis.length >= item.cantidad) {
+                                      toast.error(`Solo puedes seleccionar ${item.cantidad} IMEIs`)
+                                      return
+                                    }
+                                    newImeis = [...currentImeis, imei]
+                                  }
+                                  updateItemIMEIs(index, newImeis)
+                                }}
+                                className={`
+                                  px-2 py-1 rounded text-xs cursor-pointer border transition-colors
+                                  ${isSelected 
+                                    ? 'bg-primary text-primary-foreground border-primary' 
+                                    : 'bg-background hover:bg-muted border-input'}
+                                `}
+                              >
+                                {imei}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )

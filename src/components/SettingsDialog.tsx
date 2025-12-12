@@ -13,8 +13,9 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { useKV } from '@/hooks/use-kv'
-import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
+import { clearAllData } from '@/lib/dataInitializer'
 import { toast } from 'sonner'
 
 interface SettingsDialogProps {
@@ -232,6 +233,31 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
               </div>
             </>
           )}
+
+          <div className="rounded-lg border border-destructive/50 p-4 space-y-3 bg-destructive/5">
+            <div>
+              <p className="text-sm font-medium mb-1 text-destructive flex items-center gap-2">
+                <Trash size={16} />
+                Zona de Peligro
+              </p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Elimina todos los datos locales (productos, órdenes, perfiles) y reinicia la aplicación.
+              </p>
+            </div>
+            <Button
+              onClick={async () => {
+                if (confirm('¿Estás seguro? Esto borrará TODOS los datos locales y no se puede deshacer.')) {
+                  await clearAllData()
+                  window.location.reload()
+                }
+              }}
+              variant="destructive"
+              className="w-full"
+              size="sm"
+            >
+              Borrar Datos Locales y Reiniciar
+            </Button>
+          </div>
         </div>
 
         <DialogFooter>

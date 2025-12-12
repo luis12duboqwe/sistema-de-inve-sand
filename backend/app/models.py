@@ -75,6 +75,7 @@ class Profile(Base):
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, nullable=False, index=True)
     active = Column(Boolean, default=True, nullable=False, index=True)
+    settings = Column(Text, nullable=True)  # V2.0: Added for legacy compatibility
 
     # V2.0: Cambiado a back_populates sin cascade, Product.profile_id ahora es SET NULL
     products = relationship("Product", back_populates="profile")
@@ -124,10 +125,12 @@ class Product(Base):
     capacidad = Column(String)
     condicion = Column(String, nullable=False)
     precio = Column(Numeric(10, 2), nullable=False)
+    costo = Column(Numeric(10, 2), default=0, nullable=False)  # V2.0: Costo para reportes financieros
     moneda = Column(String, default="HNL", nullable=False)
     garantia_meses = Column(Integer, default=0, nullable=False)
     garantia_condiciones = Column(Text, nullable=True)
     activo = Column(Boolean, default=True, nullable=False, index=True)
+    is_serialized = Column(Boolean, default=False, nullable=False)  # V2.0: Control explícito de serialización
 
     profile = relationship("Profile", back_populates="products")  # Temporal - será eliminado
     supplier = relationship("Supplier", back_populates="products")
@@ -151,6 +154,7 @@ class Stock(Base):
     location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True)
     cantidad_disponible = Column(Integer, default=0, nullable=False)
     cantidad_reservada = Column(Integer, default=0, nullable=False)  # V2.0: Stock reservado en transferencias pendientes
+    cantidad_defectuosa = Column(Integer, default=0, nullable=False)  # V2.0: Stock defectuoso/merma
     # NOTA: SQLite no soporta CHECK constraints de forma consistente
     # Se debe validar cantidad_disponible >= 0 en la lógica de aplicación
     # Todas las operaciones deben verificar esto antes de commit
@@ -331,7 +335,7 @@ class FAQEntry(Base):
     )
 
 
-class TradeIn(BaseModel):
+class TradeIn(Base):
     """Registro de equipos recibidos como parte de pago (Trade-In)"""
     __tablename__ = "trade_ins"
 
@@ -346,3 +350,59 @@ class TradeIn(BaseModel):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     order = relationship("Order", back_populates="trade_ins")
+
+
+class IMEIHistory(Base):
+    """Historial completo del ciclo de vida de un IMEI"""
+    __tablename__ = "imei_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    imei = Column(String, index=True, nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    event_type = Column(String, nullable=False) # 'ingreso', 'venta', 'transferencia', 'devolucion', 'retoma'
+    reference_id = Column(Integer, nullable=True) # order_id, transfer_id
+    reference_type = Column(String, nullable=True) # 'order', 'transfer', 'stock_adjustment'
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    created_by = Column(String, nullable=True)
+
+    product = relationship("Product")
+    location = relationship("Location")
+    
+    __table_args__ = (
+        Index('idx_imei_history_imei', 'imei'),
+        Index('idx_imei_history_product', 'product_id'),
+        Index('idx_imei_history_date', 'created_at'),
+    )
+
+
+class Return(Base):
+    """Registro de devoluciones y garantías (RMA)"""
+    __tablename__ = "returns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reason = Column(String, nullable=True)
+    status = Column(String, default="completed", nullable=False) # completed, pending
+    created_by = Column(String, nullable=True)
+    
+    order = relationship("Order", backref="returns")
+    items = relationship("ReturnItem", back_populates="return_obj", cascade="all, delete-orphan")
+
+
+class ReturnItem(Base):
+    """Items individuales dentro de una devolución"""
+    __tablename__ = "return_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    return_id = Column(Integer, ForeignKey("returns.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    condition = Column(String, nullable=False) # 'nuevo', 'defectuoso', 'abierto'
+    action = Column(String, nullable=False) # 'refund', 'warranty_exchange', 'store_credit'
+    imei = Column(String, nullable=True)
+    
+    return_obj = relationship("Return", back_populates="items")
+    product = relationship("Product")
