@@ -38,6 +38,7 @@ interface OrderItemForm {
   product_id: number
   cantidad: number
   imeis?: string[]
+  precio_unitario?: number // V2.1: Precio personalizado
 }
 
 export function NewOrderDialog({
@@ -173,6 +174,12 @@ export function NewOrderDialog({
 
         // Fetch IMEIs if needed
         const product = products.find(p => p.id === productId)
+        
+        // V2.1: Establecer precio por defecto al seleccionar producto
+        if (product) {
+          newItems[index].precio_unitario = product.precio
+        }
+
         const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
         if (isSerialized && sourceLocationId) {
            try {
@@ -224,6 +231,10 @@ export function NewOrderDialog({
     else if (field === 'imeis') {
        newItems[index].imeis = value as string[]
     }
+    else if (field === 'precio_unitario') {
+       // Si es string vacío o null, undefined para usar precio base
+       newItems[index].precio_unitario = (value === '' || value === null) ? undefined : Number(value)
+    }
     
     setItems(newItems)
   }
@@ -232,7 +243,9 @@ export function NewOrderDialog({
     const itemsTotal = items.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
       if (!product) return total
-      return total + product.precio * item.cantidad
+      // V2.1: Usar precio personalizado si existe
+      const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+      return total + price * item.cantidad
     }, 0)
 
     const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
@@ -530,6 +543,23 @@ export function NewOrderDialog({
                           )}
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="w-32 space-y-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.precio_unitario ?? ''}
+                        onChange={e =>
+                          handleItemChange(index, 'precio_unitario', e.target.value)
+                        }
+                        placeholder={(() => {
+                           const product = products.find(p => p.id === item.product_id)
+                           return product ? product.precio.toString() : "Precio"
+                        })()}
+                        title="Precio unitario (dejar vacío para usar precio de lista)"
+                      />
                     </div>
 
                     <div className="w-24 space-y-2">

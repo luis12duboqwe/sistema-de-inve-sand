@@ -449,11 +449,62 @@ export class InventoryService {
           
         // Fix 2: Currency Conversion
         let precioFinal = product.precio
-        if (product.moneda === 'USD') {
-           // Use the TASA_CAMBIO calculated above
-           precioFinal = product.precio * TASA_CAMBIO
-        } else if (product.moneda !== 'HNL') {
-           console.warn(`Producto ${product.nombre} tiene moneda ${product.moneda}, se asume HNL para totalización`)
+        
+        // V2.1: Usar precio personalizado si existe
+        if (item.precio_unitario !== undefined) {
+           precioFinal = item.precio_unitario
+           
+           // --- VALIDACIONES DE SEGURIDAD (Local Mode) ---
+           let costoLocal = product.costo
+           if (product.moneda === 'USD') {
+              costoLocal = product.costo * TASA_CAMBIO
+           }
+           
+           // 1. No vender bajo costo
+           if (precioFinal < costoLocal) {
+              throw new Error(`El precio negociado (${precioFinal}) para '${product.nombre}' es menor al costo. Operación no permitida.`)
+           }
+           
+           // 2. Reglas para Bots
+           if (salesProfile && salesProfile.tipo === 'bot_ia') {
+              let precioBaseLocal = product.precio
+              if (product.moneda === 'USD') {
+                 precioBaseLocal = product.precio * TASA_CAMBIO
+              }
+              
+              // REGLA 1: Límite de descuento dinámico (5% normal, 2% con regalías)
+              const hasGifts = request.items.some(i => {
+                  // En request.items no viene es_regalo_promocion explícito a veces, 
+                  // pero si viniera, lo checamos. 
+                  // En la UI actual no se manda es_regalo_promocion en el request principal, 
+                  // pero asumiremos que si el precio es 0 es regalo.
+                  // O mejor, si implementamos la UI de regalos después.
+                  // Por ahora, usaremos 5% como base estricta.
+                  return false 
+              })
+              
+              // TODO: Detectar regalos en frontend request si se implementa UI de regalos
+              const MAX_DISCOUNT_PERCENT = 0.05 
+              const minPriceAllowed = precioBaseLocal * (1 - MAX_DISCOUNT_PERCENT)
+              
+              if (precioFinal < minPriceAllowed) {
+                 throw new Error(`El bot no está autorizado a dar descuentos mayores al ${MAX_DISCOUNT_PERCENT*100}%. Precio mínimo: ${minPriceAllowed}`)
+              }
+
+              // REGLA 2: Números cerrados
+              if (precioFinal % 100 !== 0) {
+                  throw new Error(`El bot solo puede negociar números cerrados (ej. 21500). Precio inválido: ${precioFinal}`)
+              }
+           }
+           // ----------------------------------------------
+           
+        } else {
+           if (product.moneda === 'USD') {
+              // Use the TASA_CAMBIO calculated above
+              precioFinal = product.precio * TASA_CAMBIO
+           } else if (product.moneda !== 'HNL') {
+              console.warn(`Producto ${product.nombre} tiene moneda ${product.moneda}, se asume HNL para totalización`)
+           }
         }
         
         total += precioFinal * item.cantidad
@@ -548,7 +599,7 @@ export class InventoryService {
           order_id: newOrderId,
           product_id: item.product_id,
           cantidad: item.cantidad,
-          precio_unitario: product.precio,
+          precio_unitario: precioFinal,
           es_regalo_promocion: false
         }
         newOrderItems.push(newOrderItem)

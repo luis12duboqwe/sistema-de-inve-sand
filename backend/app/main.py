@@ -5,7 +5,7 @@ from app.database import init_db, get_db, check_db_connection
 from app.routers import (
     profiles, products, orders, faq, customers, reports, 
     auth_router, stock_transfers, suppliers, stock_history,
-    locations, sales_profiles, returns, imeis
+    locations, sales_profiles, returns, imeis, ai_intelligence
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
@@ -49,6 +49,14 @@ app.include_router(returns.router)
 app.include_router(imeis.router)
 app.include_router(suppliers.router)
 app.include_router(stock_history.router)
+app.include_router(ai_intelligence.router)
+
+@app.get("/api/health", tags=["Health"])
+def health_check():
+    """
+    Health check endpoint to verify backend connectivity.
+    """
+    return {"status": "ok", "version": "2.0.0"}
 
 @app.get("/")
 def read_root():

@@ -72,6 +72,45 @@ export interface SalesProfile {
   updated_at?: string
 }
 
+// V2.1: Configuración de IA para perfiles de venta
+export interface AIProfileConfig {
+  id?: number
+  sales_profile_id: number
+  model_name: string
+  temperature: number
+  system_prompt: string
+  initial_greeting?: string
+  voice_tone?: string
+  context_rules?: string
+  is_active: boolean
+}
+
+// V2.1: Gestión de Clientes e IA
+export interface Customer {
+  id: number
+  phone_number: string
+  name?: string
+  email?: string
+  notes?: string
+  is_troll: boolean
+  is_blocked: boolean
+  reputation_score: number
+  daily_message_count: number
+  last_interaction_at?: string
+  created_at: string
+}
+
+export interface TrainingQueueItem {
+  id: number
+  sales_profile_id?: number
+  customer_question: string
+  ai_proposed_answer?: string
+  admin_correction?: string
+  status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
+  created_at: string
+  sales_profile?: SalesProfile
+}
+
 // V2.0: Stock por ubicación
 export interface StockByLocation {
   id: number
@@ -92,6 +131,7 @@ export interface Product {
   categoria: 'celular' | 'accesorio'
   marca: string
   modelo: string
+  color?: string // V2.1: Color específico
   capacidad?: string
   condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
@@ -182,6 +222,7 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
     imeis?: string[]
+    precio_unitario?: number
   }[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
   notes?: string
@@ -325,4 +366,60 @@ export interface IMEIHistory {
   created_by?: string
   product_name?: string
   location_name?: string
+}
+
+// ==========================================
+// MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+// ==========================================
+
+export interface Customer {
+  id: number
+  phone_number: string
+  name?: string
+  email?: string
+  notes?: string
+  is_troll: boolean
+  is_blocked: boolean
+  reputation_score: number
+  daily_message_count: number
+  last_interaction_at?: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface AIProfileConfig {
+  id: number
+  sales_profile_id: number
+  model_name: string
+  temperature: number
+  system_prompt: string
+  initial_greeting?: string
+  voice_tone?: string
+  context_rules?: string
+  is_active: boolean
+  created_at: string
+  updated_at?: string
+}
+
+export interface InteractionLog {
+  id: number
+  customer_id: number
+  sales_profile_id: number
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  tokens_used: number
+  converted_order_id?: number
+  created_at: string
+}
+
+export interface TrainingQueueItem {
+  id: number
+  sales_profile_id: number
+  customer_question: string
+  ai_proposed_answer?: string
+  admin_correction?: string
+  status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
+  created_at: string
+  updated_at?: string
+  sales_profile?: SalesProfile
 }

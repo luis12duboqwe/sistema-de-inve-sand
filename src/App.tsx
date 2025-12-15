@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User, GraduationCap, ShieldCheck } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
@@ -45,6 +45,8 @@ import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
 import { StockHistoryDialog } from '@/components/StockHistoryDialog'
 import { LocationsList } from '@/components/LocationsList'
 import { SalesProfilesList } from '@/components/SalesProfilesList'
+import { AITrainingCenter } from '@/components/AITrainingCenter'
+import { CustomerInsights } from '@/components/CustomerInsights'
 import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -98,6 +100,8 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
   const [showTransferListDialog, setShowTransferListDialog] = useState(false)
+  const [showAITraining, setShowAITraining] = useState(false)
+  const [showCustomerInsights, setShowCustomerInsights] = useState(false)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
   // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -693,6 +697,26 @@ export default function App() {
                 )}
               </Button>
               
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowAITraining(true)}
+                title="Centro de Entrenamiento IA"
+                className="relative hover:bg-primary/10 text-blue-600"
+              >
+                <GraduationCap size={20} />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowCustomerInsights(true)}
+                title="Insights de Clientes"
+                className="relative hover:bg-primary/10 text-purple-600"
+              >
+                <ShieldCheck size={20} />
+              </Button>
+
               <Button
                 variant="ghost"
                 size="icon"
@@ -1737,6 +1761,16 @@ export default function App() {
       <SyncSettingsDialog
         open={showSyncSettings}
         onOpenChange={setShowSyncSettings}
+      />
+
+      <AITrainingCenter
+        open={showAITraining}
+        onOpenChange={setShowAITraining}
+      />
+
+      <CustomerInsights
+        open={showCustomerInsights}
+        onOpenChange={setShowCustomerInsights}
       />
 
       {viewingProductHistory && (

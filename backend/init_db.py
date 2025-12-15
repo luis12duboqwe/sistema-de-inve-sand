@@ -11,6 +11,7 @@ Uso:
 
 import sys
 import argparse
+import json
 from app.database import engine, SessionLocal
 from app.models import Base, Location, SalesProfile, Product, Stock, Profile
 
@@ -64,13 +65,27 @@ def insert_sample_data():
         
         # ========== 2. CREAR PERFILES DE VENTA ==========
         print("\n[2/5] Creando perfiles de venta...")
+        
+        # Configuración de negociación para el Bot
+        bot_config = {
+            "numero": "+504 9999-8888",
+            "horario": "24/7",
+            "auto_respuesta": True,
+            "negotiation_rules": {
+                "max_discount_percent": 0.05,
+                "steps": [0.02, 0.04, 0.05],
+                "round_to": 100,
+                "gift_policy": "strict_tradeoff"  # Si descuento > 2%, quitar regalos
+            }
+        }
+        
         sales_profiles_data = [
             {
                 "name": "Bot WhatsApp Principal",
                 "slug": "bot-whatsapp-1",
                 "tipo": "bot_ia",
                 "canales": '["whatsapp"]',
-                "configuracion": '{"numero": "+504 9999-8888", "horario": "24/7", "auto_respuesta": true}'
+                "configuracion": json.dumps(bot_config)
             },
             {
                 "name": "Vendedor Tienda Centro",

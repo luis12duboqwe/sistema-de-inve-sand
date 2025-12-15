@@ -53,12 +53,12 @@ export function BackendConnectionCheck({ onSuccess }: { onSuccess: () => void })
     // Intentar cada URL en secuencia con timeout corto
     for (const apiUrl of urls) {
       try {
-        console.log(`🔍 Intentando conectar a: ${apiUrl}/profiles`)
+        console.log(`🔍 Intentando conectar a: ${apiUrl}/health`)
         
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 segundos timeout
         
-        const response = await fetch(`${apiUrl}/profiles`, {
+        const response = await fetch(`${apiUrl}/health`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

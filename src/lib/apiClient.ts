@@ -13,7 +13,8 @@ import type {
   StockByLocation,
   CreateReturnRequest,
   Return,
-  IMEIHistory
+  IMEIHistory,
+  AIProfileConfig
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -73,6 +74,7 @@ interface ApiProductResponse {
   categoria: 'celular' | 'accesorio'
   marca: string
   modelo: string
+  color?: string
   capacidad: string
   condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
@@ -165,7 +167,8 @@ class ApiClient {
         if (!errorMessage.includes('referenciado') && 
             !errorMessage.includes('históricas') && 
             !errorMessage.includes('completada') && 
-            !errorMessage.includes('cancelar')) {
+            !errorMessage.includes('cancelar') &&
+            !errorMessage.includes('AI Config not found')) {
             console.error(`API request failed for ${endpoint}:`, lastError)
         }
         
@@ -240,6 +243,31 @@ class ApiClient {
     }
   }
 
+  // --- AI Intelligence Methods ---
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    try {
+      return await this.request<AIProfileConfig>(`/ai/config/${salesProfileId}`)
+    } catch (error) {
+      // Si es 404, retornamos null (no configurado aún)
+      console.warn('AI Config not found or error:', error)
+      return null
+    }
+  }
+
+  async updateAIProfileConfig(salesProfileId: number, config: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    try {
+      return await this.request<AIProfileConfig>(`/ai/config/${salesProfileId}`, {
+        method: 'POST', // Usamos POST para create/update (upsert)
+        body: JSON.stringify(config),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error updating AI config:', error)
+      throw new Error(`Failed to update AI config: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async listLocations(activeOnly = false): Promise<Location[]> {
     try {
       const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
@@ -250,6 +278,53 @@ class ApiClient {
     } catch (error) {
       console.error('Error listing locations from API:', error)
       throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // --- AI Training & Customer Insights ---
+
+  async listTrainingQueue(status = 'pending'): Promise<import('./types').TrainingQueueItem[]> {
+    try {
+      return await this.request<import('./types').TrainingQueueItem[]>(`/ai/training?status=${status}`)
+    } catch (error) {
+      console.error('Error listing training queue:', error)
+      return []
+    }
+  }
+
+  async resolveTrainingItem(id: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void> {
+    try {
+      await this.request(`/ai/training/${id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ action, correction }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error resolving training item:', error)
+      throw error
+    }
+  }
+
+  async listCustomers(search?: string): Promise<import('./types').Customer[]> {
+    try {
+      const query = search ? `?search=${encodeURIComponent(search)}` : ''
+      return await this.request<import('./types').Customer[]>(`/ai/customers${query}`)
+    } catch (error) {
+      console.error('Error listing customers:', error)
+      return []
+    }
+  }
+
+  async updateCustomerStatus(id: number, updates: { is_troll?: boolean; is_blocked?: boolean; notes?: string }): Promise<void> {
+    try {
+      await this.request(`/ai/customers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error updating customer:', error)
+      throw error
     }
   }
 
@@ -909,6 +984,87 @@ class ApiClient {
     } catch (error) {
       console.error('Error getting IMEI history:', error)
       throw new Error(`Failed to get IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // ==========================================
+  // MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+  // ==========================================
+
+  async getAIProfileConfig(salesProfileId: number): Promise<any> {
+    try {
+      return this.request<any>(`/ai/config/${salesProfileId}`)
+    } catch (error) {
+      // Si no existe (404), retornamos null para que el UI sepa que debe crear uno
+      return null
+    }
+  }
+
+  async updateAIProfileConfig(salesProfileId: number, config: any): Promise<any> {
+    try {
+      return this.request<any>(`/ai/config/${salesProfileId}`, {
+        method: 'POST',
+        body: JSON.stringify(config)
+      })
+    } catch (error) {
+      console.error('Error updating AI config:', error)
+      throw new Error(`Failed to update AI config: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getTrainingQueue(status: string = 'pending'): Promise<any[]> {
+    try {
+      return this.request<any[]>(`/ai/training-queue?status=${status}`)
+    } catch (error) {
+      console.error('Error fetching training queue:', error)
+      return []
+    }
+  }
+
+  async resolveTrainingItem(itemId: number, action: string, correction?: string): Promise<any> {
+    try {
+      return this.request<any>(`/ai/training-queue/${itemId}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ action, correction })
+      })
+    } catch (error) {
+      console.error('Error resolving training item:', error)
+      throw new Error(`Failed to resolve item: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getCustomers(search?: string): Promise<any[]> {
+    try {
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      params.append('limit', '50')
+      
+      const response = await this.request<{ items: any[] }>(`/customers?${params.toString()}`)
+      return response.items || []
+    } catch (error) {
+      console.error('Error fetching customers:', error)
+      return []
+    }
+  }
+
+  async updateCustomer(customerId: number, updates: any): Promise<any> {
+    try {
+      return this.request<any>(`/customers/${customerId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates)
+      })
+    } catch (error) {
+      console.error('Error updating customer:', error)
+      throw new Error(`Failed to update customer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getCustomerInteractions(customerId: number): Promise<any[]> {
+    try {
+      return this.request<any[]>(`/customers/${customerId}/interactions`)
+    } catch (error) {
+      console.error('Error fetching interactions:', error)
+      return []
     }
   }
 }

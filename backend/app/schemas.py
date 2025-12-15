@@ -247,6 +247,7 @@ class ProductBase(BaseModel):
     categoria: CategoriaEnum
     marca: str = Field(..., min_length=1, description="Marca no puede estar vacía")
     modelo: str = Field(..., min_length=1, description="Modelo no puede estar vacío")
+    color: Optional[str] = None  # V2.1: Color específico
     capacidad: Optional[str] = None
     condicion: CondicionEnum
     precio: Decimal = Field(..., gt=0, le=1000000, description="Precio debe ser mayor a 0 y menor a 1,000,000")
@@ -293,6 +294,7 @@ class ProductUpdate(BaseModel):
     categoria: Optional[CategoriaEnum] = None
     marca: Optional[str] = None
     modelo: Optional[str] = None
+    color: Optional[str] = None
     capacidad: Optional[str] = None
     condicion: Optional[CondicionEnum] = None
     precio: Optional[Decimal] = None
@@ -322,6 +324,7 @@ class ProductResponse(BaseModel):
     categoria: str
     marca: str
     modelo: str
+    color: Optional[str] = None
     capacidad: Optional[str] = None
     condicion: str
     precio: Decimal
@@ -342,6 +345,7 @@ class ProductResponse(BaseModel):
 class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
+    precio_unitario: Optional[Decimal] = Field(None, ge=0, description="Precio unitario personalizado (descuento/negociación)")
     es_regalo_promocion: bool = False
     imeis: Optional[List[str]] = None  # V2.0: IMEIs específicos para productos serializados
     

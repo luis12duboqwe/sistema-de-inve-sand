@@ -43,6 +43,7 @@ def _serialize_product_for_order(product: Product, location_id: Optional[int] = 
         "categoria": product.categoria,
         "marca": product.marca,
         "modelo": product.modelo,
+        "color": product.color,
         "capacidad": product.capacidad,
         "condicion": product.condicion,
         "precio": product.precio,
@@ -428,23 +429,72 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                 db, item.product_id, order.source_location_id, item.cantidad, item.imeis
             )
             
-            precio_unitario = Decimal(str(product.precio))
-            
-            # V2.0 FIX: Conversión de moneda (USD -> HNL)
-            # Asumimos tasa fija de 25.0 si no hay configuración
-            if product.moneda == 'USD':
-                TASA_CAMBIO = Decimal("25.0")
+            # Definir Tasa de Cambio (necesaria para validaciones y conversiones)
+            TASA_CAMBIO = Decimal("25.0")
+            if sales_profile and sales_profile.configuracion:
+                try:
+                    config = json.loads(sales_profile.configuracion)
+                    if 'exchange_rate' in config:
+                        TASA_CAMBIO = Decimal(str(config['exchange_rate']))
+                except Exception:
+                    pass # Fallback to default
+
+            # V2.1: Permitir precio personalizado (negociación)
+            if item.precio_unitario is not None:
+                precio_unitario = item.precio_unitario
                 
-                # Intentar obtener tasa de cambio del perfil de venta
-                if sales_profile and sales_profile.configuracion:
-                    try:
-                        config = json.loads(sales_profile.configuracion)
-                        if 'exchange_rate' in config:
-                            TASA_CAMBIO = Decimal(str(config['exchange_rate']))
-                    except Exception:
-                        pass # Fallback to default
+                # --- VALIDACIONES DE SEGURIDAD PARA PRECIOS PERSONALIZADOS ---
                 
-                precio_unitario = precio_unitario * TASA_CAMBIO
+                # Calcular costo en moneda local para comparación
+                costo_local = product.costo
+                if product.moneda == 'USD': # Asumiendo que costo está en la misma moneda que precio base
+                     # Nota: Si el costo está en USD, convertir a HNL
+                     costo_local = product.costo * TASA_CAMBIO
+                
+                # 1. No vender bajo costo (Hard Limit)
+                # Permitimos un margen de error de 0.01 por redondeo
+                if precio_unitario < costo_local:
+                     raise HTTPException(
+                        status_code=400,
+                        detail=f"El precio negociado ({precio_unitario:.2f}) para '{product.nombre}' es menor al costo ({costo_local:.2f}). Operación no permitida."
+                    )
+                
+                # 2. Reglas específicas para Bots (Soft Limit)
+                if sales_profile and sales_profile.tipo == 'bot_ia':
+                    # Calcular precio base en moneda local
+                    precio_base_local = product.precio
+                    if product.moneda == 'USD':
+                         precio_base_local = product.precio * TASA_CAMBIO
+                    
+                    # REGLA 1: Límite de descuento dinámico
+                    # Si hay regalías en la orden, el descuento máximo baja al 2%. Si no, es 5%.
+                    has_gifts = any(i.es_regalo_promocion for i in order.items)
+                    MAX_DISCOUNT_PERCENT = Decimal("0.02") if has_gifts else Decimal("0.05")
+                    
+                    min_price_allowed = precio_base_local * (1 - MAX_DISCOUNT_PERCENT)
+                    
+                    if precio_unitario < min_price_allowed:
+                         msg_extra = " (reducido por incluir regalías)" if has_gifts else ""
+                         raise HTTPException(
+                            status_code=400,
+                            detail=f"El bot no está autorizado a dar descuentos mayores al {int(MAX_DISCOUNT_PERCENT*100)}%{msg_extra}. Precio mínimo permitido: {min_price_allowed:.2f}"
+                        )
+
+                    # REGLA 2: Números cerrados (Round Numbers)
+                    # El precio debe ser divisible por 100 (ej. 21500, 21800). No 21550 ni 21501.
+                    if precio_unitario % 100 != 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"El bot solo puede negociar números cerrados (ej. 21500, 21800). Precio inválido: {precio_unitario}"
+                        )
+                # -------------------------------------------------------------
+
+            else:
+                precio_unitario = Decimal(str(product.precio))
+                
+                # V2.0 FIX: Conversión de moneda (USD -> HNL)
+                if product.moneda == 'USD':
+                    precio_unitario = precio_unitario * TASA_CAMBIO
             
             subtotal = precio_unitario * item.cantidad
             

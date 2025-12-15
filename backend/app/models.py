@@ -122,6 +122,7 @@ class Product(Base):
     categoria = Column(String, nullable=False, index=True)
     marca = Column(String, nullable=False, index=True)
     modelo = Column(String, nullable=False, index=True)
+    color = Column(String, nullable=True, index=True)  # V2.1: Color específico (ej. Sierra Blue)
     capacidad = Column(String)
     condicion = Column(String, nullable=False)
     precio = Column(Numeric(10, 2), nullable=False)
@@ -406,3 +407,113 @@ class ReturnItem(Base):
     
     return_obj = relationship("Return", back_populates="items")
     product = relationship("Product")
+
+
+# ==========================================
+# MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+# ==========================================
+
+class Customer(Base):
+    """
+    Cliente enriquecido para gestión de relaciones (CRM) y detección de trolls.
+    Centraliza la información de clientes que antes solo vivía en las órdenes.
+    """
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone_number = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Campos de Inteligencia / Seguridad
+    is_troll = Column(Boolean, default=False, index=True)
+    is_blocked = Column(Boolean, default=False, index=True)
+    reputation_score = Column(Integer, default=100)  # 0-100
+    daily_message_count = Column(Integer, default=0)
+    last_interaction_at = Column(DateTime(timezone=True), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    interactions = relationship("InteractionLog", back_populates="customer", cascade="all, delete-orphan")
+
+
+class AIProfileConfig(Base):
+    """
+    Configuración de personalidad y reglas para cada Bot de IA.
+    Vinculado 1:1 con SalesProfile.
+    """
+    __tablename__ = "ai_profile_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="CASCADE"), unique=True, nullable=False)
+    
+    # Configuración del Modelo
+    model_name = Column(String, default="gpt-4o")
+    temperature = Column(Numeric(3, 2), default=0.7)
+    
+    # Personalidad
+    system_prompt = Column(Text, nullable=False)  # La "Biblia" del bot
+    initial_greeting = Column(Text, nullable=True)
+    voice_tone = Column(String, nullable=True)  # formal, amigable, etc.
+    
+    # Reglas de Negocio
+    context_rules = Column(Text, nullable=True)  # JSON: filtros de inventario, etc.
+    is_active = Column(Boolean, default=True)
+    
+    # Notificaciones (V2.1)
+    admin_notification_phone = Column(String, nullable=True)  # WhatsApp del admin para alertas
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    sales_profile = relationship("SalesProfile", backref="ai_config")
+
+
+class InteractionLog(Base):
+    """
+    Historial de conversaciones entre Clientes y Bots.
+    Permite auditoría y reentrenamiento.
+    """
+    __tablename__ = "interaction_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    role = Column(String, nullable=False)  # 'user', 'assistant', 'system'
+    content = Column(Text, nullable=False)
+    tokens_used = Column(Integer, default=0)
+    
+    # Atribución de Venta
+    converted_order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    customer = relationship("Customer", back_populates="interactions")
+    sales_profile = relationship("SalesProfile")
+    converted_order = relationship("Order")
+
+
+class TrainingQueue(Base):
+    """
+    Cola de aprendizaje (Human-in-the-loop).
+    Preguntas que la IA no supo responder y requieren intervención humana.
+    """
+    __tablename__ = "training_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="SET NULL"), nullable=True)
+    
+    customer_question = Column(Text, nullable=False)
+    ai_proposed_answer = Column(Text, nullable=True)
+    admin_correction = Column(Text, nullable=True)
+    
+    status = Column(String, default="pending", index=True)  # pending, approved, rejected, converted_to_faq
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    sales_profile = relationship("SalesProfile")
+

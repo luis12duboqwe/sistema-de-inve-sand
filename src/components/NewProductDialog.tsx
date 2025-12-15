@@ -59,7 +59,32 @@ const MODELOS_POR_MARCA: Record<string, string[]> = {
 
 const CAPACIDADES = ['64GB', '128GB', '256GB', '512GB', '1TB']
 
-const COLORES = [
+// V2.1: Colores específicos por modelo para evitar sugerencias incorrectas
+const COLORES_POR_MODELO: Record<string, string[]> = {
+  // Apple
+  'iPhone 15 Pro Max': ['Titanio Natural', 'Titanio Azul', 'Titanio Blanco', 'Titanio Negro'],
+  'iPhone 15 Pro': ['Titanio Natural', 'Titanio Azul', 'Titanio Blanco', 'Titanio Negro'],
+  'iPhone 15 Plus': ['Negro', 'Azul', 'Verde', 'Amarillo', 'Rosa'],
+  'iPhone 15': ['Negro', 'Azul', 'Verde', 'Amarillo', 'Rosa'],
+  'iPhone 14 Pro Max': ['Morado Oscuro', 'Oro', 'Plata', 'Negro Espacial'],
+  'iPhone 14 Pro': ['Morado Oscuro', 'Oro', 'Plata', 'Negro Espacial'],
+  'iPhone 14': ['Medianoche', 'Blanco Estelar', 'Azul', 'Púrpura', 'Rojo', 'Amarillo'],
+  'iPhone 13': ['Medianoche', 'Blanco Estelar', 'Azul', 'Rosa', 'Verde', 'Rojo'],
+  'iPhone 12': ['Negro', 'Blanco', 'Rojo', 'Verde', 'Azul', 'Púrpura'],
+  'iPhone SE': ['Medianoche', 'Blanco Estelar', 'Rojo'],
+  
+  // Samsung
+  'Galaxy S24 Ultra': ['Titanium Gray', 'Titanium Black', 'Titanium Violet', 'Titanium Yellow'],
+  'Galaxy S24+': ['Onyx Black', 'Marble Gray', 'Cobalt Violet', 'Amber Yellow'],
+  'Galaxy S24': ['Onyx Black', 'Marble Gray', 'Cobalt Violet', 'Amber Yellow'],
+  'Galaxy S23 Ultra': ['Green', 'Phantom Black', 'Lavender', 'Cream'],
+  
+  // Xiaomi
+  'Xiaomi 14': ['Black', 'White', 'Jade Green', 'Pink'],
+  'Redmi Note 13 Pro': ['Midnight Black', 'Aurora Purple', 'Ocean Teal']
+}
+
+const COLORES_GENERICOS = [
   'Negro',
   'Blanco',
   'Azul',
@@ -69,9 +94,7 @@ const COLORES = [
   'Rosa',
   'Dorado',
   'Plateado',
-  'Gris',
-  'Titanio',
-  'Natural'
+  'Gris'
 ]
 
 interface NewProductDialogProps {
@@ -98,6 +121,7 @@ export function NewProductDialog({
   const [modeloOtro, setModeloOtro] = useState('')
   const [capacidad, setCapacidad] = useState('128GB')
   const [color, setColor] = useState('Negro')
+  const [colorOtro, setColorOtro] = useState('')
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [isSerialized, setIsSerialized] = useState(true)
   const [precio, setPrecio] = useState('')
@@ -112,6 +136,9 @@ export function NewProductDialog({
   // V2.0: Stock por ubicación
   const [locations, setLocations] = useState<Location[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
+  
+  // V2.1: Colores dinámicos
+  const [availableColors, setAvailableColors] = useState<string[]>(COLORES_GENERICOS)
 
   // Moneda configurable
   const [moneda, setMoneda] = useState('HNL')
@@ -124,6 +151,20 @@ export function NewProductDialog({
       setIsSerialized(false)
     }
   }, [categoria])
+
+  // V2.1: Actualizar colores disponibles según modelo
+  useEffect(() => {
+    const modeloActual = modelo === 'otro' ? modeloOtro : modelo
+    if (modeloActual && COLORES_POR_MODELO[modeloActual]) {
+      setAvailableColors(COLORES_POR_MODELO[modeloActual])
+      // Resetear color si el actual no está en la lista nueva
+      if (!COLORES_POR_MODELO[modeloActual].includes(color) && color !== 'Otro') {
+        setColor(COLORES_POR_MODELO[modeloActual][0])
+      }
+    } else {
+      setAvailableColors(COLORES_GENERICOS)
+    }
+  }, [modelo, modeloOtro])
 
   // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
@@ -172,7 +213,8 @@ export function NewProductDialog({
         const marcaCode = marcaActual.substring(0, 3).toUpperCase()
         const modeloCode = modeloActual.replace(/\s+/g, '').substring(0, 8).toUpperCase()
         const capacidadCode = capacidad.replace('GB', '').replace('TB', '000')
-        const colorCode = color.substring(0, 3).toUpperCase()
+        const colorActual = color === 'Otro' ? colorOtro : color
+        const colorCode = colorActual.substring(0, 3).toUpperCase()
         const skuGenerado = `${marcaCode}-${modeloCode}-${capacidadCode}-${colorCode}`
         setSku(skuGenerado)
       }
@@ -197,7 +239,8 @@ export function NewProductDialog({
       const modeloActual = modelo === 'otro' ? modeloOtro : modelo
       
       if (marcaActual && modeloActual) {
-        const nombreGenerado = `${marcaActual} ${modeloActual} ${capacidad} ${color}`
+        const colorActual = color === 'Otro' ? colorOtro : color
+        const nombreGenerado = `${marcaActual} ${modeloActual} ${capacidad} ${colorActual}`
         setNombre(nombreGenerado)
       }
     } else if (categoria === 'accesorio' && marca && modelo) {
@@ -275,6 +318,7 @@ export function NewProductDialog({
     
     const marcaFinal = marca === 'Otra' ? marcaOtra : marca
     const modeloFinal = modelo === 'otro' ? modeloOtro : modelo
+    const colorFinal = color === 'Otro' ? colorOtro : color
     
     if (!marcaFinal.trim()) {
       toast.error('Por favor ingresa la marca del producto')
@@ -283,6 +327,11 @@ export function NewProductDialog({
     
     if (!modeloFinal.trim()) {
       toast.error('Por favor ingresa el modelo del producto')
+      return
+    }
+
+    if (categoria === 'celular' && !colorFinal.trim()) {
+      toast.error('Por favor ingresa el color del producto')
       return
     }
     
@@ -308,6 +357,7 @@ export function NewProductDialog({
           categoria,
           marca: marcaFinal,
           modelo: modeloFinal,
+          color: colorFinal,
           capacidad: categoria === 'celular' ? capacidad : 'N/A',
           condicion,
           precio: parseFloat(precio),
@@ -446,11 +496,20 @@ export function NewProductDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {COLORES.map(c => (
+                      {availableColors.map(c => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
+                      <SelectItem value="Otro">Otro color...</SelectItem>
                     </SelectContent>
                   </Select>
+                  {color === 'Otro' && (
+                    <Input
+                      value={colorOtro}
+                      onChange={e => setColorOtro(e.target.value)}
+                      placeholder="Ej. Sierra Blue, Deep Purple"
+                      className="mt-2"
+                    />
+                  )}
                 </div>
               </div>
             </>
