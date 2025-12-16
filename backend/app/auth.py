@@ -110,3 +110,27 @@ async def get_current_user_optional(
         return await get_current_user(token, db)
     except HTTPException:
         return None
+
+def check_permission(permission_slug: str):
+    """Dependency factory to check if user has a specific permission"""
+    def _check(user: User = Depends(get_current_active_user)):
+        # Superusers bypass all checks
+        if user.is_superuser:
+            return True
+        
+        if not user.role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="User has no role assigned"
+            )
+            
+        # Check if role has permission
+        # Note: This assumes user.role.permissions is eager loaded or lazy loaded within session
+        has_perm = any(p.slug == permission_slug for p in user.role.permissions)
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail=f"Permission denied. Required: {permission_slug}"
+            )
+        return True
+    return _check

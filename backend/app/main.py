@@ -5,7 +5,8 @@ from app.database import init_db, get_db, check_db_connection
 from app.routers import (
     profiles, products, orders, faq, customers, reports, 
     auth_router, stock_transfers, suppliers, stock_history,
-    locations, sales_profiles, returns, imeis, ai_intelligence
+    locations, sales_profiles, returns, imeis, ai_intelligence,
+    financing, public
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
@@ -47,7 +48,9 @@ app.include_router(reports.router)
 app.include_router(stock_transfers.router)
 app.include_router(returns.router)
 app.include_router(imeis.router)
+app.include_router(public.router)
 app.include_router(suppliers.router)
+app.include_router(financing.router)
 app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
 

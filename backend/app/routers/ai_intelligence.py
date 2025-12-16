@@ -8,9 +8,10 @@ from datetime import datetime
 from app.database import get_db
 from app.models import (
     SalesProfile, Product, Stock, FAQEntry, Order, 
-    Customer, AIProfileConfig, InteractionLog, TrainingQueue, Location
+    Customer, AIProfileConfig, InteractionLog, TrainingQueue, Location,
+    Bank, FinancingOption, TradeInPolicy
 )
-from app.schemas import ProductResponse
+from app.schemas import ProductResponse, TradeInPolicyCreate, TradeInPolicyResponse
 
 router = APIRouter(prefix="/api/ai", tags=["AI Intelligence"])
 
@@ -28,6 +29,7 @@ class AIContextResponse(BaseModel):
     customer_info: Dict[str, Any]
     relevant_inventory: str  # Texto resumido para ahorrar tokens
     relevant_faqs: str       # Texto resumido
+    financing_info: str      # Información de bancos y tasas
     previous_context: List[Dict[str, str]]
 
 class InteractionLogCreate(BaseModel):
@@ -216,7 +218,67 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     for f in relevant_faqs:
         faq_text += f"P: {f.pregunta_clave}\nR: {f.respuesta}\n"
 
-    # 6. Historial Reciente (Últimos 5 mensajes)
+    # 6. Información de Financiamiento
+    banks = db.query(Bank).filter(Bank.active == True).all()
+    financing_text = "OPCIONES DE FINANCIAMIENTO Y TARJETAS:\n"
+    
+    if not banks:
+        financing_text += "No hay opciones de financiamiento activas actualmente.\n"
+    else:
+        for bank in banks:
+            rate_pct = float(bank.normal_card_rate) * 100
+            financing_text += f"- {bank.name}: Tasa Tarjeta Normal {rate_pct:.2f}%\n"
+            
+            active_options = [opt for opt in bank.financing_options if opt.active]
+            if active_options:
+                financing_text += "  Extrafinanciamiento:\n"
+                for opt in active_options:
+                    opt_rate_pct = float(opt.rate) * 100
+                    financing_text += f"  * {opt.months} Meses: {opt_rate_pct:.2f}% recargo total\n"
+    
+    financing_text += "\nNOTA PARA EL BOT: Para calcular cuota mensual: (Precio + (Precio * %Recargo)) / Meses.\n"
+    financing_text += "Si el cliente paga prima, restar prima antes de calcular recargo.\n"
+
+    # --- PROTOCOLO DE RETOMAS (TRADE-IN) ---
+    # Obtener políticas dinámicas de la base de datos
+    trade_in_policies = db.query(TradeInPolicy).filter(TradeInPolicy.is_active == True).all()
+    
+    financing_text += "\nPROTOCOLO DE RETOMAS (TRADE-IN):\n"
+    financing_text += "POLÍTICA DE MARCAS Y MODELOS:\n"
+    
+    if not trade_in_policies:
+        # Fallback por defecto si no hay reglas en DB
+        financing_text += "- ACEPTAMOS ÚNICAMENTE: Apple (iPhone) y Samsung.\n"
+        financing_text += "- RECHAZAMOS AUTOMÁTICAMENTE: Huawei, Xiaomi, Motorola, LG, Google Pixel, Tablets, Relojes, Laptops, Consolas, etc.\n"
+        financing_text += "- MODELOS RECHAZADOS: iPhone 8 o inferior, Samsung S10 o inferior, Serie A antigua.\n"
+    else:
+        accepted_brands = []
+        rejected_patterns = []
+        
+        for policy in trade_in_policies:
+            if policy.action == 'reject':
+                reason_str = f" ({policy.reason})" if policy.reason else ""
+                rejected_patterns.append(f"{policy.pattern}{reason_str}")
+            elif policy.action == 'accept_with_conditions':
+                accepted_brands.append(policy.pattern)
+                
+        if accepted_brands:
+            financing_text += f"- ACEPTAMOS PREFERENTEMENTE: {', '.join(accepted_brands)}.\n"
+        if rejected_patterns:
+            financing_text += "- RECHAZAMOS AUTOMÁTICAMENTE LOS SIGUIENTES MODELOS/MARCAS:\n"
+            for p in rejected_patterns:
+                financing_text += f"  * {p}\n"
+    
+    financing_text += "\nINSTRUCCIONES DE INTERACCIÓN:\n"
+    financing_text += "1. Consulta la lista de RECHAZADOS arriba. Si el cliente ofrece algo que coincida con un patrón rechazado, responde amablemente que NO lo aceptamos y explica la razón si existe.\n"
+    financing_text += "2. Si la marca/modelo NO está rechazado explícitamente y parece ser de gama alta/reciente, ENTONCES procede a pedir los datos obligatorios: Modelo exacto, Color, Capacidad (GB), Estado (pantalla, batería, detalles estéticos), ¿Está liberado?\n"
+    financing_text += "3. Una vez tengas los datos, di: 'Gracias, consultaré con el técnico el valor de retoma. Un momento por favor.'\n"
+    financing_text += "4. Si tienes un número de encargado configurado, menciona que le enviarás los datos.\n"
+    financing_text += "5. CÁLCULO DE DIFERENCIA: Precio Nuevo - Valor Retoma = Diferencia a Pagar.\n"
+    financing_text += "6. Si paga la diferencia con TARJETA/FINANCIAMIENTO: El recargo se aplica SOLO a la Diferencia a Pagar.\n"
+    financing_text += "   Fórmula: (Diferencia + (Diferencia * %Recargo)) / Meses.\n"
+
+    # 7. Historial Reciente (Últimos 5 mensajes)
     recent_logs = db.query(InteractionLog).filter(
         InteractionLog.customer_id == customer.id
     ).order_by(InteractionLog.created_at.desc()).limit(5).all()
@@ -230,7 +292,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
             "temperature": ai_config.temperature,
             "tone": ai_config.voice_tone,
             "context_rules": ai_config.context_rules,
-            "admin_phone": ai_config.admin_notification_phone  # Para que n8n sepa a quién avisar
+            "admin_phone": ai_config.admin_notification_phone or "el encargado" # Fallback si no hay número
         },
         customer_info={
             "name": customer.name,
@@ -239,6 +301,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
         },
         relevant_inventory=inventory_text,
         relevant_faqs=faq_text,
+        financing_info=financing_text,
         previous_context=context_history
     )
 
@@ -389,3 +452,31 @@ def update_customer_ai(customer_id: int, updates: Dict[str, Any], db: Session = 
         
     db.commit()
     return {"status": "updated"}
+
+
+# --- Trade-In Policies Endpoints ---
+
+@router.get("/trade-in-policies", response_model=List[TradeInPolicyResponse])
+def list_trade_in_policies(db: Session = Depends(get_db)):
+    """Lista todas las políticas de retoma"""
+    return db.query(TradeInPolicy).order_by(TradeInPolicy.created_at.desc()).all()
+
+@router.post("/trade-in-policies", response_model=TradeInPolicyResponse)
+def create_trade_in_policy(policy: TradeInPolicyCreate, db: Session = Depends(get_db)):
+    """Crea una nueva política de retoma"""
+    new_policy = TradeInPolicy(**policy.dict())
+    db.add(new_policy)
+    db.commit()
+    db.refresh(new_policy)
+    return new_policy
+
+@router.delete("/trade-in-policies/{policy_id}")
+def delete_trade_in_policy(policy_id: int, db: Session = Depends(get_db)):
+    """Elimina una política de retoma"""
+    policy = db.query(TradeInPolicy).filter(TradeInPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    db.delete(policy)
+    db.commit()
+    return {"status": "deleted"}

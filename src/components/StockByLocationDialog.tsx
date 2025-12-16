@@ -134,7 +134,7 @@ export function StockByLocationDialog({
               <div className="border rounded-lg divide-y">
                 {stockItems.map((stock) => (
                   <div key={stock.location_id} className="p-4 hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       {/* Ubicación info */}
                       <div className="flex items-center gap-3 flex-1">
                         {getLocationIcon(stock.location?.tipo)}
@@ -152,7 +152,7 @@ export function StockByLocationDialog({
 
                       {/* Stock display/edit */}
                       {editable && editingLocationId === stock.location_id ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-2 sm:mt-0">
                           <Input
                             type="number"
                             min="0"
@@ -176,42 +176,45 @@ export function StockByLocationDialog({
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 sm:gap-1 mt-2 sm:mt-0 justify-between sm:justify-end w-full sm:w-auto">
                           <Badge 
                             variant={stock.cantidad_disponible > 0 ? "default" : "secondary"}
                             className="text-base px-3 py-1"
                           >
                             {stock.cantidad_disponible} unidades
                           </Badge>
-                          {stock.cantidad_reservada > 0 && (
-                            <span className="text-xs text-amber-600">
-                              ({stock.cantidad_reservada} reservadas)
-                            </span>
-                          )}
-                          {editable && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStartEdit(stock.location_id, stock.cantidad_disponible)}
-                              className="mt-1"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {product?.categoria === 'celular' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setSelectedLocationId(stock.location_id)
-                                setShowIMEIs(true)
-                              }}
-                              className="mt-1"
-                              title="Ver IMEIs"
-                            >
-                              <Barcode className="w-4 h-4" />
-                            </Button>
-                          )}
+                          
+                          <div className="flex items-center gap-1">
+                            {stock.cantidad_reservada > 0 && (
+                              <span className="text-xs text-amber-600 mr-2 sm:mr-0">
+                                ({stock.cantidad_reservada} reservadas)
+                              </span>
+                            )}
+                            {editable && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleStartEdit(stock.location_id, stock.cantidad_disponible)}
+                                className="h-8 w-8 p-0"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {product?.categoria === 'celular' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedLocationId(stock.location_id)
+                                  setShowIMEIs(true)
+                                }}
+                                className="h-8 w-8 p-0"
+                                title="Ver IMEIs"
+                              >
+                                <Barcode className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

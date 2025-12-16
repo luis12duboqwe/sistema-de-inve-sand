@@ -1,10 +1,10 @@
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { ProductWithStock, OrderWithItems, Location, SalesProfile } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot } from '@phosphor-icons/react'
+import type { ProductWithStock, OrderWithItems, Location, SalesProfile, User } from '@/lib/types'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot, CalendarCheck } from '@phosphor-icons/react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { format, subDays, isSameDay } from 'date-fns'
+import { format, subDays, isSameDay, startOfDay, endOfDay } from 'date-fns'
 import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
@@ -12,10 +12,11 @@ import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 interface DashboardStatsProps {
   products: ProductWithStock[]
   orders: OrderWithItems[]
+  currentUser?: User | null
   onViewLowStockReport?: () => void
 }
 
-function DashboardStatsComponent({ products, orders, onViewLowStockReport }: DashboardStatsProps) {
+function DashboardStatsComponent({ products, orders, currentUser, onViewLowStockReport }: DashboardStatsProps) {
   const [locations, setLocations] = useState<Location[]>([])
   const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
   const [apiError, setApiError] = useState<string | null>(null)
@@ -141,6 +142,19 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
     }).filter(s => s.ordenes > 0)
   }, [salesProfiles, orders])
 
+  // Permission check for financial data
+  const canViewFinancials = useMemo(() => {
+    if (!currentUser) return true // Fallback for local mode
+    return currentUser.role?.is_system_role || 
+           currentUser.role?.permissions?.some(p => p.slug === 'reports:view')
+  }, [currentUser])
+
+  // Calculate daily orders for non-financial view
+  const dailyOrders = useMemo(() => {
+    const today = new Date()
+    return orders.filter(o => isSameDay(new Date(o.created_at), today)).length
+  }, [orders])
+
   const stats = [
     {
       title: 'Productos Activos',
@@ -160,17 +174,24 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
     },
     {
       title: 'Ingresos Totales',
-      value: `L ${totalRevenue.toFixed(2)}`,
+      value: canViewFinancials ? `L ${totalRevenue.toFixed(2)}` : '---',
       subtitle: 'Ventas completadas',
       icon: Money,
       color: 'text-green-600',
       bgColor: 'bg-green-600/10',
     },
-    {
+    canViewFinancials ? {
       title: 'Valor del Inventario',
       value: `L ${inventoryValue.toFixed(2)}`,
       subtitle: 'Total en stock',
       icon: ChartLineUp,
+      color: 'text-accent',
+      bgColor: 'bg-accent/10',
+    } : {
+      title: 'Órdenes de Hoy',
+      value: dailyOrders,
+      subtitle: 'Procesadas hoy',
+      icon: CalendarCheck,
       color: 'text-accent',
       bgColor: 'bg-accent/10',
     },
@@ -290,7 +311,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
           transition={{ delay: 0.5, duration: 0.3 }}
         >
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Ventas Últimos 7 Días</h3>
+            <h3 className="text-lg font-semibold mb-4">{canViewFinancials ? 'Ventas Últimos 7 Días' : 'Órdenes Últimos 7 Días'}</h3>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={last7Days}>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.005 250)" />
@@ -309,7 +330,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
                 />
                 <Line 
                   type="monotone" 
-                  dataKey="ventas" 
+                  dataKey={canViewFinancials ? "ventas" : "ordenes"} 
                   stroke="oklch(0.45 0.12 250)" 
                   strokeWidth={2}
                   dot={{ fill: 'oklch(0.45 0.12 250)', r: 4 }}
@@ -387,7 +408,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
                     return [value, 'Cantidad']
                   }}
                 />
-                <Bar dataKey="ingresos" fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
+                <Bar dataKey={canViewFinancials ? "ingresos" : "cantidad"} fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </Card>
@@ -399,7 +420,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
           {statsByLocation.length > 0 ? (
             <>
               <Card className="p-6">
-                <h3 className="text-lg font-semibold mb-4">Ventas por Ubicación</h3>
+                <h3 className="text-lg font-semibold mb-4">{canViewFinancials ? 'Ventas por Ubicación' : 'Órdenes por Ubicación'}</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={statsByLocation}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.005 250)" />
@@ -424,7 +445,7 @@ function DashboardStatsComponent({ products, orders, onViewLowStockReport }: Das
                         return [value, 'Órdenes']
                       }}
                     />
-                    <Bar dataKey="ingresos" fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey={canViewFinancials ? "ingresos" : "completadas"} fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </Card>

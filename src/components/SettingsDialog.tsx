@@ -13,10 +13,11 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { useKV } from '@/hooks/use-kv'
-import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { clearAllData } from '@/lib/dataInitializer'
 import { toast } from 'sonner'
+import { ManageUsersDialog } from '@/components/ManageUsersDialog'
 
 interface SettingsDialogProps {
   open: boolean
@@ -31,10 +32,18 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
   const [isTestingConnection, setIsTestingConnection] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [localApiUrl, setLocalApiUrl] = useState('')
+  const [showManageUsers, setShowManageUsers] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
     if (apiUrl) {
       setLocalApiUrl(apiUrl)
+    }
+    const userStr = localStorage.getItem('auth_user')
+    if (userStr) {
+      try {
+        setCurrentUser(JSON.parse(userStr))
+      } catch {}
     }
   }, [apiUrl])
 
@@ -192,6 +201,25 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
                 </p>
               </div>
 
+              {currentUser?.is_superuser && (
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">
+                        Gestión de Usuarios
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Administrar usuarios y roles del sistema
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setShowManageUsers(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      Gestionar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   onClick={testConnection}
@@ -269,6 +297,11 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <ManageUsersDialog 
+        open={showManageUsers} 
+        onOpenChange={setShowManageUsers} 
+      />
     </Dialog>
   )
 }

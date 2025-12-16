@@ -1,3 +1,30 @@
+export interface FinancingOption {
+  id: number
+  bank_id: number
+  months: number
+  rate: number
+  active: boolean
+}
+
+export interface Bank {
+  id: number
+  name: string
+  active: boolean
+  normal_card_rate: number
+  financing_options: FinancingOption[]
+}
+
+export interface FinancingDetails {
+  bank_id: number
+  bank_name: string
+  months: number
+  rate: number
+  surcharge: number
+  monthly_payment: number
+  original_total: number
+  down_payment?: number // V2.1: Prima o pago inicial en efectivo
+}
+
 export interface ReturnItem {
   id?: number
   product_id: number
@@ -128,7 +155,7 @@ export interface Product {
   supplier_id?: number
   sku: string
   nombre: string
-  categoria: 'celular' | 'accesorio'
+  categoria: 'celular' | 'accesorio' | 'pendiente_revision'
   marca: string
   modelo: string
   color?: string // V2.1: Color específico
@@ -208,6 +235,7 @@ export interface TradeIn {
 export interface OrderWithItems extends Order {
   items: (OrderItem & { product?: Product })[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
+  financing_details?: string // JSON string
 }
 
 export interface CreateOrderRequest {
@@ -228,6 +256,11 @@ export interface CreateOrderRequest {
   notes?: string
   delivery_date?: string
   notas?: string
+  financing_data?: {
+    bank_id: number
+    months: number
+    down_payment?: number
+  }
 }
 
 export interface Supplier {
@@ -422,4 +455,48 @@ export interface TrainingQueueItem {
   created_at: string
   updated_at?: string
   sales_profile?: SalesProfile
+}
+
+export interface Permission {
+  id: number
+  slug: string
+  description?: string
+  module: string
+  // Compatibilidad con código anterior (opcionales)
+  resource?: string
+  action?: string
+}
+
+export interface Role {
+  id: number
+  name: string
+  description?: string
+  permissions: Permission[]
+}
+
+export interface User {
+  id: number
+  username: string
+  email?: string
+  full_name?: string
+  is_active: boolean
+  is_superuser: boolean
+  role_id?: number
+  role?: Role
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user?: User
+}
+
+export interface TradeInPolicy {
+  id: number
+  rule_type: 'model_rejection' | 'brand_rejection' | 'condition_rejection'
+  pattern: string
+  action: 'reject' | 'accept_with_conditions'
+  reason?: string
+  is_active: boolean
+  created_at: string
 }

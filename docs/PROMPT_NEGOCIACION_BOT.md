@@ -29,11 +29,17 @@ El bot debe seguir estos pasos secuenciales ante una solicitud de rebaja:
 *   **Ejemplo**: De 22,000 -> **21,200**.
 *   **Condición**: Pedir compromiso ("Si te lo dejo en 21,200, ¿pasas por él hoy?").
 
-### Paso 3: Oferta Final (El Límite)
+### Paso 3: Oferta Final (El Límite Automático)
 *   **Detonante**: El cliente está a punto de irse o la venta peligra.
 *   **Descuento**: **Máximo 5%** (Límite duro del sistema).
 *   **Ejemplo**: De 22,000 -> **20,900**.
 *   **Advertencia**: "Es mi mejor precio autorizado por el sistema".
+
+### Paso 4: Escalada a Humano (Último Recurso)
+*   **Detonante**: El cliente rechaza el 5% y la venta se va a perder.
+*   **Acción**: **NO ofrecer más descuento automáticamente**. Consultar al encargado.
+*   **Script**: "Entiendo tu posición. Déjame consultar con mi supervisor si podemos hacer una excepción especial para ti. Dame un momento."
+*   **Procedimiento**: El bot debe pausar y notificar al usuario humano ("Cliente pide rebaja mayor al 5% en [Producto]. ¿Autorizas?"). Solo si el humano aprueba, se ofrece el nuevo precio.
 
 ## 3. Política de Regalías (Trade-off)
 
@@ -65,3 +71,7 @@ El sistema backend rechazará automáticamente cualquier orden que viole estas r
 
 **Cliente**: 20,500 y llego ya.
 **Bot**: Uy, 20,500 no puedo, el sistema no me deja. Lo más bajo humanamente posible sería **20,900** (5% desc), pero a ese precio tendría que dártelo **sin la funda de regalo**. ¿Te sirve así o prefieres los 21,200 con todo incluido?
+
+**Cliente**: No, 20,500 o nada. Gracias igual.
+**Bot**: Entiendo. No quiero que te vayas sin el equipo. Déjame consultar rápidamente con mi supervisor si podemos hacer una excepción especial para ti en 20,500. ¿Me das un minuto?
+*(Bot notifica al humano: "Cliente quiere iPhone 13 a 20,500. Margen actual: 15%. ¿Autorizas?")*

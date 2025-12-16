@@ -10,6 +10,7 @@ from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
 )
+from app.auth import check_permission
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -179,7 +180,7 @@ def list_products(
         pages=math.ceil(total / per_page) if total > 0 else 0
     )
 
-@router.post("", response_model=ProductResponse, status_code=201)
+@router.post("", response_model=ProductResponse, status_code=201, dependencies=[Depends(check_permission("inventory:create"))])
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     """
     Crea un nuevo producto con stock inicial.
@@ -487,7 +488,7 @@ def get_product_stock_by_location(
     )
 
 
-@router.put("/{product_id}", response_model=ProductResponse)
+@router.put("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:edit"))])
 def update_product(product_id: int, updates: ProductUpdate, db: Session = Depends(get_db)):
     """
     Actualiza un producto existente y devuelve su stock actual.
@@ -735,7 +736,7 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error al crear productos: {str(e)}")
 
 
-@router.delete("/{product_id}", status_code=204)
+@router.delete("/{product_id}", status_code=204, dependencies=[Depends(check_permission("inventory:delete"))])
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     """
     Elimina un producto del sistema.

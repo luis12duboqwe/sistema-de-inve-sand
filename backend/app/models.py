@@ -1,9 +1,37 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index
+from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
+# Association table for Role-Permission many-to-many relationship
+role_permissions = Table(
+    'role_permissions',
+    Base.metadata,
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete="CASCADE"), primary_key=True)
+)
+
+class Permission(Base):
+    """Permisos granulares del sistema (ej: 'products:create', 'inventory:view')"""
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String, unique=True, nullable=False, index=True) # ej: products:create
+    description = Column(String, nullable=False) # ej: Crear nuevos productos
+    module = Column(String, nullable=False) # ej: products, orders, settings
+
+class Role(Base):
+    """Roles de usuario (Admin, Gerente, Vendedor, Invitado)"""
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(String, nullable=True)
+    is_system_role = Column(Boolean, default=False) # Si es True, no se puede borrar (ej: Admin)
+    
+    permissions = relationship("Permission", secondary=role_permissions, backref="roles")
+    users = relationship("User", back_populates="role")
 
 class User(Base):
     """User model for authentication"""
@@ -11,13 +39,16 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
-    email = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=True, index=True) # Email opcional
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    is_superuser = Column(Boolean, default=False, nullable=False)
+    is_superuser = Column(Boolean, default=False, nullable=False) # Fallback para acceso total
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    role = relationship("Role", back_populates="users")
 
 
 class Location(Base):
@@ -217,6 +248,7 @@ class Order(Base):
     canal = Column(String, nullable=False, index=True)
     metodo_pago = Column(String, nullable=False)
     total = Column(Numeric(10, 2), nullable=False)
+    financing_details = Column(Text, nullable=True)  # JSON: {bank_id, bank_name, months, rate, surcharge, monthly_payment}
     estado = Column(String, default="pendiente", nullable=False, index=True)
     notes = Column(Text, nullable=True)
     delivery_date = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -344,6 +376,8 @@ class TradeIn(Base):
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     marca = Column(String, nullable=False)
     modelo = Column(String, nullable=False)
+    color = Column(String, nullable=True)      # V2.1: Nuevo campo
+    capacidad = Column(String, nullable=True)  # V2.1: Nuevo campo
     imei = Column(String, nullable=True)  # Puede ser null si no es celular
     condicion = Column(String, nullable=False)  # 'usado', 'dañado', 'para_repuestos'
     valor_estimado = Column(Numeric(10, 2), nullable=False)
@@ -512,8 +546,47 @@ class TrainingQueue(Base):
     
     status = Column(String, default="pending", index=True)  # pending, approved, rejected, converted_to_faq
     
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
     sales_profile = relationship("SalesProfile")
+
+
+class Bank(Base):
+    """Bancos para extrafinanciamiento"""
+    __tablename__ = "banks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    active = Column(Boolean, default=True, nullable=False)
+    normal_card_rate = Column(Numeric(5, 4), default=0.0, nullable=False) # Tasa para tarjeta normal (no extra)
+    
+    financing_options = relationship("FinancingOption", back_populates="bank", cascade="all, delete-orphan")
+
+
+class FinancingOption(Base):
+    """Opciones de financiamiento (Plazos y Tasas) por Banco"""
+    __tablename__ = "financing_options"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bank_id = Column(Integer, ForeignKey("banks.id", ondelete="CASCADE"), nullable=False, index=True)
+    months = Column(Integer, nullable=False) # 3, 6, 9, 12, 18, 24
+    rate = Column(Numeric(5, 4), nullable=False) # Porcentaje de recargo (ej. 0.05 para 5%)
+    active = Column(Boolean, default=True, nullable=False)
+
+    bank = relationship("Bank", back_populates="financing_options")
+
+
+class TradeInPolicy(Base):
+    """
+    Políticas de Retoma (Trade-In) aprendibles/configurables.
+    Define qué marcas/modelos se aceptan o rechazan.
+    """
+    __tablename__ = "trade_in_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_type = Column(String, default="model_rejection") # model_rejection, brand_rejection, condition_rejection
+    pattern = Column(String, nullable=False) # e.g., "iPhone XR", "Xiaomi", "Pantalla quebrada"
+    action = Column(String, default="reject") # reject, accept_with_conditions
+    reason = Column(String, nullable=True) # "No tiene mercado", "Muy viejo"
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 

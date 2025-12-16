@@ -18,9 +18,10 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash, Robot, MapPin, WarningCircle } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location } from '@/lib/types'
+import { Plus, Trash, Robot, MapPin, WarningCircle, CreditCard } from '@phosphor-icons/react'
+import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank, FinancingOption } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 
@@ -40,6 +41,8 @@ interface OrderItemForm {
   imeis?: string[]
   precio_unitario?: number // V2.1: Precio personalizado
 }
+
+
 
 export function NewOrderDialog({
   open,
@@ -64,6 +67,8 @@ export function NewOrderDialog({
   const [tradeIns, setTradeIns] = useState<{
     marca: string
     modelo: string
+    color?: string
+    capacidad?: string
     imei: string
     condicion: 'usado' | 'dañado' | 'para_repuestos'
     valor_estimado: number
@@ -74,7 +79,27 @@ export function NewOrderDialog({
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // V2.1: Financing State
+  const [banks, setBanks] = useState<Bank[]>([])
+  const [selectedBankId, setSelectedBankId] = useState<number | null>(null)
+  const [selectedMonths, setSelectedMonths] = useState<number | null>(null)
+  const [cashDownPayment, setCashDownPayment] = useState('') // Prima / Pago Inicial
+
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
+
+  // Load banks on mount
+  const loadBanks = async () => {
+    try {
+      const data = await apiClient.getBanks(true)
+      setBanks(data)
+    } catch (e) {
+      console.error('Error loading banks', e)
+    }
+  }
+
+  useEffect(() => {
+    loadBanks()
+  }, [open]) // Reload when dialog opens to get latest config
 
   // Persistir selección en localStorage
   useEffect(() => {
@@ -104,6 +129,9 @@ export function NewOrderDialog({
     setIsSubmitting(false)
     // NO resetear salesProfileSlug y sourceLocationId para mantener selección entre ventas
     setAvailableIMEIs({})
+    setSelectedBankId(null)
+    setSelectedMonths(null)
+    setCashDownPayment('')
   }
 
   // PROBLEMA 1: Resetear formulario al cerrar/cancelar
@@ -249,8 +277,27 @@ export function NewOrderDialog({
     }, 0)
 
     const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+    
+    let baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
 
-    return Math.max(0, itemsTotal - tradeInsTotal)
+    // V2.1: Calcular recargo por financiamiento
+    if (selectedBankId) {
+       const bank = banks.find(b => b.id === selectedBankId)
+       
+       if (metodoPago === 'financiamiento' && selectedMonths) {
+          const option = bank?.financing_options.find(o => o.months === selectedMonths)
+          if (option) {
+             const surcharge = baseTotal * Number(option.rate)
+             baseTotal += surcharge
+          }
+       } else if (metodoPago === 'tarjeta') {
+          // Tarjeta normal: aplicar tasa base del banco
+          const surcharge = baseTotal * Number(bank?.normal_card_rate || 0)
+          baseTotal += surcharge
+       }
+    }
+
+    return baseTotal
   }
 
   const handleSubmit = async () => {
@@ -275,11 +322,46 @@ export function NewOrderDialog({
       toast.error(phoneValidation.error || 'El teléfono del cliente es inválido')
       return
     }
+    
+    // Validar financiamiento
+    if (metodoPago === 'financiamiento') {
+       if (!selectedBankId) {
+          toast.error('Por favor selecciona el banco para el financiamiento')
+          return
+       }
+       if (!selectedMonths) {
+          toast.error('Por favor selecciona el plazo del financiamiento')
+          return
+       }
+    } else if (metodoPago === 'tarjeta') {
+       if (!selectedBankId) {
+          toast.error('Por favor selecciona el banco para el cobro con tarjeta')
+          return
+       }
+    }
 
     const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
     if (validItems.length === 0) {
       toast.error('Por favor agrega al menos un producto a la orden')
       return
+    }
+
+    // Validar Prima vs Total
+    if (metodoPago === 'financiamiento' || metodoPago === 'tarjeta') {
+        const itemsTotal = validItems.reduce((total, item) => {
+           const product = products.find(p => p.id === item.product_id)
+           if (!product) return total
+           const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+           return total + price * item.cantidad
+        }, 0)
+        const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+        const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
+        
+        const downPayment = parseFloat(cashDownPayment) || 0
+        if (downPayment > baseTotal) {
+            toast.error(`La prima (HNL ${downPayment}) no puede ser mayor al total de la orden (HNL ${baseTotal})`)
+            return
+        }
     }
 
     // Validar IMEIs para productos serializados
@@ -345,7 +427,12 @@ export function NewOrderDialog({
         items: validItems,
         trade_ins: tradeIns.length > 0 ? tradeIns : undefined,
         notes: notas.trim() || undefined,
-        delivery_date: deliveryDate || undefined
+        delivery_date: deliveryDate || undefined,
+        financing_data: (selectedBankId) ? {
+           bank_id: selectedBankId,
+           months: selectedMonths || 0, // 0 indicates normal card payment (no installments)
+           down_payment: parseFloat(cashDownPayment) || 0
+        } : undefined
       })
 
       // Reset ya no es necesario - el useEffect lo hace al cerrar
@@ -416,7 +503,7 @@ export function NewOrderDialog({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="customer-name">Nombre del Cliente</Label>
               <Input
@@ -439,7 +526,7 @@ export function NewOrderDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="canal">Canal</Label>
               <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
@@ -473,6 +560,157 @@ export function NewOrderDialog({
             </div>
           </div>
 
+          {/* V2.1: Financing Options */}
+          {(metodoPago === 'tarjeta' || metodoPago === 'financiamiento') && (
+            <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                    <CreditCard className="w-4 h-4" />
+                    {metodoPago === 'financiamiento' ? 'Opciones de Extrafinanciamiento' : 'Cobro con Tarjeta'}
+                 </div>
+               </div>
+               
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                     <Label className="text-xs">Banco</Label>
+                     <Select 
+                        value={selectedBankId?.toString() || ''} 
+                        onValueChange={(v) => {
+                           setSelectedBankId(Number(v))
+                           setSelectedMonths(null) // Reset months
+                        }}
+                     >
+                        <SelectTrigger className="h-8 text-xs">
+                           <SelectValue placeholder="Seleccionar Banco" />
+                        </SelectTrigger>
+                        <SelectContent>
+                           {banks.map(bank => (
+                              <SelectItem key={bank.id} value={bank.id.toString()}>
+                                 {bank.name} {metodoPago === 'tarjeta' && Number(bank.normal_card_rate) > 0 ? `(${Number(bank.normal_card_rate * 100).toFixed(2)}%)` : ''}
+                              </SelectItem>
+                           ))}
+                        </SelectContent>
+                     </Select>
+                  </div>
+                  
+                  {metodoPago === 'financiamiento' && (
+                    <div className="space-y-1">
+                       <Label className="text-xs">Plazo</Label>
+                       <Select 
+                          value={selectedMonths?.toString() || ''} 
+                          onValueChange={(v) => setSelectedMonths(Number(v))}
+                          disabled={!selectedBankId}
+                       >
+                          <SelectTrigger className="h-8 text-xs">
+                             <SelectValue placeholder="Meses" />
+                          </SelectTrigger>
+                          <SelectContent>
+                             {selectedBankId && banks.find(b => b.id === selectedBankId)?.financing_options.map(opt => (
+                                <SelectItem key={opt.id} value={opt.months.toString()}>
+                                   {opt.months} Meses ({Number(opt.rate) * 100}%)
+                                </SelectItem>
+                             ))}
+                          </SelectContent>
+                       </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-1 col-span-2 border-t pt-2 mt-1">
+                     <Label className="text-xs">Prima / Pago Inicial (Efectivo/Transf.)</Label>
+                     <Input 
+                        type="number" 
+                        className="h-8 text-xs" 
+                        placeholder="0.00"
+                        value={cashDownPayment}
+                        onChange={(e) => setCashDownPayment(e.target.value)}
+                     />
+                  </div>
+               </div>
+
+               {selectedBankId && (
+                  <div className="text-xs bg-background p-2 rounded border space-y-1">
+                     {metodoPago === 'tarjeta' && (
+                        <div className="text-blue-600 font-medium mb-1">
+                           Cobro con tarjeta aplica tasa normal
+                        </div>
+                     )}
+                     {(() => {
+                        const bank = banks.find(b => b.id === selectedBankId)
+                        if (!bank) return null
+
+                        // Calcular base total (items - tradeins)
+                        const itemsTotal = items.reduce((total, item) => {
+                           const product = products.find(p => p.id === item.product_id)
+                           if (!product) return total
+                           const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+                           return total + price * item.cantidad
+                        }, 0)
+                        const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+                        const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
+                        
+                        // V2.1: Split Payment Logic
+                        const downPayment = parseFloat(cashDownPayment) || 0
+                        const financedAmount = Math.max(0, baseTotal - downPayment)
+
+                        let surcharge = 0
+                        let rate = 0
+                        let monthly = 0
+
+                        if (metodoPago === 'financiamiento' && selectedMonths) {
+                           const option = bank.financing_options.find(o => o.months === selectedMonths)
+                           if (option) {
+                              rate = Number(option.rate)
+                              surcharge = financedAmount * rate
+                              monthly = (financedAmount + surcharge) / selectedMonths
+                           }
+                        } else if (metodoPago === 'tarjeta') {
+                           rate = Number(bank.normal_card_rate || 0)
+                           surcharge = financedAmount * rate
+                        }
+                        
+                        return (
+                           <>
+                              <div className="flex justify-between text-muted-foreground">
+                                 <span>Subtotal Productos:</span>
+                                 <span>HNL {baseTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                              </div>
+                              
+                              {downPayment > 0 && (
+                                 <div className="flex justify-between text-green-600 font-medium">
+                                    <span>(-) Prima / Efectivo:</span>
+                                    <span>HNL {downPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                 </div>
+                              )}
+
+                              <div className="flex justify-between font-medium border-t border-dashed pt-1">
+                                 <span>Monto a Financiar:</span>
+                                 <span>HNL {financedAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                              </div>
+
+                              <div className="flex justify-between text-red-500">
+                                 <span>(+) Recargo ({Number(rate*100).toFixed(2)}%):</span>
+                                 <span>HNL {surcharge.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                              </div>
+
+                              <div className="flex justify-between font-bold border-t pt-1 mt-1">
+                                 <span>A Cobrar en POS:</span>
+                                 <span>HNL {(financedAmount + surcharge).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                              </div>
+
+                              {monthly > 0 && (
+                                <div className="mt-3 bg-blue-50 p-3 rounded text-center border border-blue-100">
+                                   <div className="text-xs text-blue-600 uppercase font-bold tracking-wider">Cuota Mensual ({selectedMonths} meses)</div>
+                                   <div className="text-xl font-bold text-blue-700">HNL {monthly.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                </div>
+                              )}
+                           </>
+                        )
+                     })()}
+                  </div>
+               )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Productos</Label>
@@ -505,8 +743,8 @@ export function NewOrderDialog({
             <div className="space-y-2">
               {items.map((item, index) => (
                 <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1 space-y-2">
+                  <div className="flex flex-col md:flex-row md:items-end gap-2">
+                    <div className="flex-1 space-y-2 w-full">
                       <Select
                         value={item.product_id.toString()}
                         onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
@@ -545,58 +783,60 @@ export function NewOrderDialog({
                       </Select>
                     </div>
 
-                    <div className="w-32 space-y-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.precio_unitario ?? ''}
-                        onChange={e =>
-                          handleItemChange(index, 'precio_unitario', e.target.value)
-                        }
-                        placeholder={(() => {
-                           const product = products.find(p => p.id === item.product_id)
-                           return product ? product.precio.toString() : "Precio"
-                        })()}
-                        title="Precio unitario (dejar vacío para usar precio de lista)"
-                      />
-                    </div>
-
-                    <div className="w-24 space-y-2">
-                      <Input
-                        type="number"
-                        min="1"
-                        max={(() => {
-                          const product = products.find(p => p.id === item.product_id)
-                          if (!product) return 999
-                          
-                          // V2.0: Usar stock de ubicación específica si existe
-                          if (product.stock_items && product.stock_items.length > 0) {
-                            const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-                            return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
+                    <div className="flex items-end gap-2 w-full md:w-auto">
+                      <div className="flex-1 md:w-32 space-y-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.precio_unitario ?? ''}
+                          onChange={e =>
+                            handleItemChange(index, 'precio_unitario', e.target.value)
                           }
-                          
-                          // Legacy: Usar stock global
-                          return product.stock_disponible || 0
-                        })()}
-                        value={item.cantidad}
-                        onChange={e =>
-                          handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
-                        }
-                        placeholder="Cant."
-                      />
-                    </div>
+                          placeholder={(() => {
+                            const product = products.find(p => p.id === item.product_id)
+                            return product ? product.precio.toString() : "Precio"
+                          })()}
+                          title="Precio unitario (dejar vacío para usar precio de lista)"
+                        />
+                      </div>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleRemoveItem(index)}
-                      disabled={items.length === 1}
-                      title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
-                    >
-                      <Trash size={16} />
-                    </Button>
+                      <div className="w-24 space-y-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          max={(() => {
+                            const product = products.find(p => p.id === item.product_id)
+                            if (!product) return 999
+                            
+                            // V2.0: Usar stock de ubicación específica si existe
+                            if (product.stock_items && product.stock_items.length > 0) {
+                              const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
+                              return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
+                            }
+                            
+                            // Legacy: Usar stock global
+                            return product.stock_disponible || 0
+                          })()}
+                          value={item.cantidad}
+                          onChange={e =>
+                            handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
+                          }
+                          placeholder="Cant."
+                        />
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleRemoveItem(index)}
+                        disabled={items.length === 1}
+                        title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
+                      >
+                        <Trash size={16} />
+                      </Button>
+                    </div>
                   </div>
 
                   {/* IMEI Selector */}
@@ -677,7 +917,7 @@ export function NewOrderDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
+                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', color: '', capacidad: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Agregar Retoma
@@ -706,6 +946,26 @@ export function NewOrderDialog({
                         setTradeIns(newTradeIns)
                       }}
                     />
+                    <div className="grid grid-cols-2 gap-1">
+                      <Input
+                        placeholder="Color"
+                        value={tradeIn.color || ''}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].color = e.target.value
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                      <Input
+                        placeholder="Capacidad (GB)"
+                        value={tradeIn.capacidad || ''}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].capacidad = e.target.value
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="col-span-4 space-y-1">
                     <Input

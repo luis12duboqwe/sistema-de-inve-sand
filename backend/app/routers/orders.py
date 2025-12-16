@@ -7,7 +7,7 @@ import math
 import uuid
 import json
 from app.database import get_db
-from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory
+from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory, Bank, FinancingOption
 from app.schemas import (
     OrderCreate,
     OrderResponse,
@@ -532,6 +532,75 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         if total_final < 0:
             total_final = Decimal("0.00")
 
+        # V2.1: Procesar Financiamiento (Extrafinanciamiento y Tarjeta Normal)
+        financing_details_json = None
+        if order.financing_data:
+            # Validar que el método de pago sea compatible
+            if order.metodo_pago not in ['tarjeta', 'financiamiento']:
+                 raise HTTPException(status_code=400, detail="Datos de financiamiento solo válidos para pago con Tarjeta o Financiamiento")
+            
+            bank_id = order.financing_data.get('bank_id')
+            months = order.financing_data.get('months')
+            down_payment = Decimal(str(order.financing_data.get('down_payment', 0)))
+            
+            if not bank_id:
+                raise HTTPException(status_code=400, detail="Falta seleccionar el banco")
+            
+            # Obtener Banco
+            bank = db.query(Bank).filter(Bank.id == bank_id).first()
+            if not bank:
+                raise HTTPException(status_code=404, detail="Banco no encontrado")
+
+            # Calcular monto a financiar
+            # Base = (Items - TradeIns) - Prima
+            amount_to_finance = total_final - down_payment
+            if amount_to_finance < 0:
+                amount_to_finance = Decimal("0.00")
+
+            rate = Decimal("0.00")
+            monthly_payment = Decimal("0.00")
+            
+            # Caso 1: Extrafinanciamiento (months > 0)
+            if months and months > 0:
+                # Buscar opción
+                option = db.query(FinancingOption).filter(
+                    FinancingOption.bank_id == bank_id,
+                    FinancingOption.months == months,
+                    FinancingOption.active == True
+                ).first()
+                
+                if not option:
+                    raise HTTPException(status_code=400, detail="Opción de financiamiento no válida o inactiva")
+                
+                rate = option.rate
+                surcharge_amount = amount_to_finance * rate
+                total_with_surcharge = amount_to_finance + surcharge_amount
+                monthly_payment = total_with_surcharge / months
+                
+            # Caso 2: Tarjeta Normal (months == 0)
+            else:
+                rate = bank.normal_card_rate
+                surcharge_amount = amount_to_finance * rate
+                total_with_surcharge = amount_to_finance + surcharge_amount
+                monthly_payment = total_with_surcharge # Pago único
+            
+            # Actualizar total final de la orden
+            # Total Orden = Prima + (Monto a Financiar + Recargo)
+            total_final = down_payment + total_with_surcharge
+            
+            # Guardar detalles
+            financing_details_json = json.dumps({
+                "bank_id": bank_id,
+                "bank_name": bank.name,
+                "months": months or 0,
+                "rate": float(rate),
+                "surcharge": float(surcharge_amount),
+                "monthly_payment": float(monthly_payment),
+                "original_total": float(total - trade_in_total),
+                "down_payment": float(down_payment),
+                "financed_amount": float(amount_to_finance)
+            })
+
         # Crear orden con nuevos campos V2.0
         db_order = Order(
             profile_id=profile_id_for_order,  # Legacy, puede ser None
@@ -542,6 +611,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             canal=order.canal,
             metodo_pago=order.metodo_pago,
             total=total_final,
+            financing_details=financing_details_json, # V2.1
             estado="pendiente",
             notes=order.notes,
             delivery_date=order.delivery_date
@@ -556,6 +626,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     order_id=db_order.id,
                     marca=trade_in_item.marca,
                     modelo=trade_in_item.modelo,
+                    color=trade_in_item.color,          # V2.1
+                    capacidad=trade_in_item.capacidad,  # V2.1
                     imei=trade_in_item.imei,
                     condicion=trade_in_item.condicion,
                     valor_estimado=trade_in_item.valor_estimado,
@@ -565,12 +637,21 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
                 # 🔴 LOGICA NUEVA: Ingresar Trade-In al inventario automáticamente
                 # 1. Buscar si ya existe un producto compatible (mismo modelo/condición)
-                existing_product = db.query(Product).filter(
+                # V2.1: Incluir color y capacidad en la búsqueda para evitar mezclar variantes
+                query_existing = db.query(Product).filter(
                     Product.marca == trade_in_item.marca,
                     Product.modelo == trade_in_item.modelo,
                     Product.condicion == trade_in_item.condicion,
                     Product.activo == True
-                ).first()
+                )
+                
+                if trade_in_item.color:
+                    query_existing = query_existing.filter(Product.color == trade_in_item.color)
+                
+                if trade_in_item.capacidad:
+                    query_existing = query_existing.filter(Product.capacidad == trade_in_item.capacidad)
+                    
+                existing_product = query_existing.first()
 
                 if existing_product:
                     new_product = existing_product
@@ -583,19 +664,34 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     # V2.0: Usar precio de venta sugerido si se proporciona, sino calcular margen 30%
                     precio_venta = trade_in_item.precio_venta if trade_in_item.precio_venta else trade_in_item.valor_estimado * Decimal("1.3")
                     
+                    # Construir nombre descriptivo
+                    nombre_producto = f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}"
+                    if trade_in_item.capacidad:
+                        nombre_producto += f" {trade_in_item.capacidad}"
+                    if trade_in_item.color:
+                        nombre_producto += f" ({trade_in_item.color})"
+
+                    # V2.2: Lógica de "Pendiente de Revisión"
+                    # Si no tiene IMEI o es explícitamente una retoma, entra como inactivo y categoría especial
+                    es_pendiente = True # Siempre pendiente para revisión
+                    categoria_inicial = "pendiente_revision"
+                    activo_inicial = False
+
                     new_product = Product(
                         sku=new_sku,
-                        nombre=f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}",
-                        categoria="celular" if trade_in_item.imei else "accesorio",
+                        nombre=nombre_producto,
+                        categoria=categoria_inicial,
                         marca=trade_in_item.marca,
                         modelo=trade_in_item.modelo,
+                        color=trade_in_item.color,          # V2.1
+                        capacidad=trade_in_item.capacidad,  # V2.1
                         condicion=trade_in_item.condicion,
                         precio=precio_venta,
                         costo=trade_in_item.valor_estimado, # Costo real = valor de retoma
                         moneda="HNL",
-                        activo=True,
+                        activo=activo_inicial, # V2.2: Inactivo hasta revisión
                         profile_id=profile_id_for_order,
-                        is_serialized=True if trade_in_item.imei else False # V2.0: Si tiene IMEI, es serializado
+                        is_serialized=True # V2.2: Asumimos que será serializado al activarse
                     )
                     db.add(new_product)
                     db.flush() # Obtener ID

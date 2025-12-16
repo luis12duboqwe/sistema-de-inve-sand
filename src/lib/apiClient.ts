@@ -119,6 +119,22 @@ interface ApiOrderResponse {
 }
 
 class ApiClient {
+  private token: string | null = localStorage.getItem('auth_token')
+
+  setToken(token: string) {
+    this.token = token
+    localStorage.setItem('auth_token', token)
+  }
+
+  getToken(): string | null {
+    return this.token
+  }
+
+  logout() {
+    this.token = null
+    localStorage.removeItem('auth_token')
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -131,13 +147,25 @@ class ApiClient {
         const apiBaseUrl = await getApiUrl()
         const url = `${apiBaseUrl}${endpoint}`
         
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...(options.headers as Record<string, string>),
+        }
+
+        if (this.token) {
+          headers['Authorization'] = `Bearer ${this.token}`
+        }
+
         const response = await fetch(url, {
           ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...options.headers,
-          },
+          headers,
         })
+
+        if (response.status === 401) {
+          this.logout()
+          window.dispatchEvent(new Event('auth:unauthorized'))
+          throw new Error('Sesión expirada o credenciales inválidas. Por favor inicie sesión nuevamente.')
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -187,6 +215,37 @@ class ApiClient {
     }
     
     throw lastError || new Error('Request failed after retries')
+  }
+
+  async login(username: string, password: string): Promise<import('./types').AuthResponse> {
+    const formData = new URLSearchParams()
+    formData.append('username', username)
+    formData.append('password', password)
+
+    // Note: request method adds Content-Type: application/json by default, so we override it
+    const response = await this.request<import('./types').AuthResponse>('/auth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    })
+    
+    if (response.access_token) {
+      this.setToken(response.access_token)
+    }
+    
+    // Fetch user details separately if not provided in token response
+    if (!response.user) {
+      try {
+        const user = await this.request<import('./types').User>('/auth/me')
+        response.user = user
+      } catch (e) {
+        console.error('Failed to fetch user details after login', e)
+      }
+    }
+    
+    return response
   }
 
   async listProfiles(): Promise<Profile[]> {
@@ -411,6 +470,31 @@ class ApiClient {
     } catch (error) {
       console.error('Error updating profile via API:', error)
       throw new Error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getProducts(params?: { 
+    profile_slug?: string, 
+    search?: string, 
+    include_inactive?: boolean,
+    per_page?: number,
+    page?: number
+  }): Promise<{ items: ProductWithStock[]; total: number }> {
+    try {
+      const queryParams = new URLSearchParams()
+      if (params?.profile_slug) queryParams.append('profile_slug', params.profile_slug)
+      if (params?.search) queryParams.append('search', params.search)
+      if (params?.include_inactive) queryParams.append('include_inactive', 'true')
+      if (params?.per_page) queryParams.append('per_page', params.per_page.toString())
+      if (params?.page) queryParams.append('page', params.page.toString())
+
+      const query = queryParams.toString()
+      const endpoint = query ? `/products?${query}` : '/products'
+      
+      return await this.request<{ items: ProductWithStock[]; total: number }>(endpoint)
+    } catch (error) {
+      console.error('Error getting products from API:', error)
+      throw new Error(`Failed to get products: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -1066,6 +1150,88 @@ class ApiClient {
       console.error('Error fetching interactions:', error)
       return []
     }
+  }
+
+  async getBanks(activeOnly: boolean = true): Promise<Bank[]> {
+    try {
+      return this.request<Bank[]>(`/financing/banks?active_only=${activeOnly}`)
+    } catch (error) {
+      console.error('Error fetching banks:', error)
+      return []
+    }
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    return this.request<Bank>('/financing/banks', {
+      method: 'POST',
+      body: JSON.stringify(bank)
+    })
+  }
+
+  async updateBank(id: number, bank: Partial<Bank>): Promise<Bank> {
+    return this.request<Bank>(`/financing/banks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(bank)
+    })
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    return this.request<FinancingOption>(`/financing/options?bank_id=${bankId}`, {
+      method: 'POST',
+      body: JSON.stringify(option)
+    })
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    return this.request<void>(`/financing/options/${optionId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // User Management
+  async listUsers(): Promise<import('./types').User[]> {
+    return this.request<import('./types').User[]>('/auth/users')
+  }
+
+  async createUser(user: Partial<import('./types').User> & { password?: string }): Promise<import('./types').User> {
+    return this.request<import('./types').User>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(user)
+    })
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    return this.request<void>(`/auth/users/${userId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async listRoles(): Promise<import('./types').Role[]> {
+    return this.request<import('./types').Role[]>('/auth/roles')
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<import('./types').User> {
+    return this.request<import('./types').User>(`/auth/users/${userId}/role?role_id=${roleId}`, {
+      method: 'PUT'
+    })
+  }
+
+  // Trade-In Policies
+  async getTradeInPolicies(): Promise<import('./types').TradeInPolicy[]> {
+    return this.request<import('./types').TradeInPolicy[]>('/ai/trade-in-policies')
+  }
+
+  async createTradeInPolicy(policy: Omit<import('./types').TradeInPolicy, 'id' | 'created_at'>): Promise<import('./types').TradeInPolicy> {
+    return this.request<import('./types').TradeInPolicy>('/ai/trade-in-policies', {
+      method: 'POST',
+      body: JSON.stringify(policy)
+    })
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    return this.request<void>(`/ai/trade-in-policies/${id}`, {
+      method: 'DELETE'
+    })
   }
 }
 

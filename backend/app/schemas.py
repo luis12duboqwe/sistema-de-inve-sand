@@ -97,6 +97,75 @@ class LocationBase(BaseModel):
 class LocationCreate(LocationBase):
     pass
 
+# ============= RBAC SCHEMAS =============
+class PermissionBase(BaseModel):
+    slug: str
+    description: str
+    module: str
+
+class PermissionResponse(PermissionBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+class RoleBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RoleCreate(RoleBase):
+    permissions: List[str] # List of permission slugs
+
+class RoleResponse(RoleBase):
+    id: int
+    is_system_role: bool
+    permissions: List[PermissionResponse]
+    class Config:
+        from_attributes = True
+
+class UserBase(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = True
+
+class UserCreate(UserBase):
+    password: str
+    role_id: Optional[int] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str):
+        if len(value) < 6:
+            raise ValueError("Password must be at least 6 characters long")
+        return value
+    
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str):
+        if len(value) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if not value.isalnum():
+            raise ValueError("Username must contain only alphanumeric characters")
+        return value
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+    role_id: Optional[int] = None
+
+class UserResponse(UserBase):
+    id: int
+    is_superuser: bool
+    role: Optional[RoleResponse] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+
+
 
 class LocationUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
@@ -397,7 +466,9 @@ class TradeInCreate(BaseModel):
     """Schema para crear un registro de Trade-In"""
     marca: str = Field(..., min_length=1)
     modelo: str = Field(..., min_length=1)
-    imei: Optional[str] = None
+    color: Optional[str] = None      # V2.1
+    capacidad: Optional[str] = None  # V2.1
+    imei: Optional[str] = None       # V2.1: Opcional al ingreso (se valida en revisión)
     condicion: str = Field(..., description="usado, dañado, para_repuestos")
     precio_venta: Optional[Decimal] = Field(None, gt=0, description="Precio de venta sugerido para el producto resultante")
     valor_estimado: Decimal = Field(..., gt=0)
@@ -416,6 +487,8 @@ class TradeInResponse(BaseModel):
     id: int
     marca: str
     modelo: str
+    color: Optional[str] = None
+    capacidad: Optional[str] = None
     imei: Optional[str]
     condicion: str
     valor_estimado: Decimal
@@ -436,6 +509,9 @@ class OrderCreate(BaseModel):
     trade_ins: Optional[List[TradeInCreate]] = None  # V2.0: Equipos recibidos en parte de pago
     notes: Optional[str] = None  # Notas adicionales de la orden
     delivery_date: Optional[datetime] = None  # Fecha de entrega programada
+    
+    # V2.1: Datos de financiamiento (opcional)
+    financing_data: Optional[dict] = Field(None, description="Datos de financiamiento: {bank_id, months}")
     
     @field_validator('customer_phone')
     @classmethod
@@ -467,6 +543,7 @@ class OrderResponse(BaseModel):
     canal: str
     metodo_pago: str
     total: Decimal
+    financing_details: Optional[str] = None # JSON string
     estado: str
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
@@ -687,56 +764,6 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 
-class UserBase(BaseModel):
-    """Base user schema"""
-    username: str
-    email: str
-    full_name: Optional[str] = None
-
-
-class UserCreate(UserBase):
-    """Schema for creating a new user"""
-    password: str
-    
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, value: str):
-        if len(value) < 6:
-            raise ValueError("Password must be at least 6 characters long")
-        return value
-    
-    @field_validator("username")
-    @classmethod
-    def validate_username(cls, value: str):
-        if len(value) < 3:
-            raise ValueError("Username must be at least 3 characters long")
-        if not value.isalnum():
-            raise ValueError("Username must contain only alphanumeric characters")
-        return value
-
-
-class UserUpdate(BaseModel):
-    """Schema for updating user information"""
-    email: Optional[str] = None
-    full_name: Optional[str] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
-
-
-class UserResponse(UserBase):
-    """Schema for user responses"""
-    id: int
-    is_active: bool
-    is_superuser: bool
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class UserInDB(UserResponse):
-    """User schema as stored in database"""
-    hashed_password: str
 
 
 # Stock Transfer Schemas
@@ -863,3 +890,61 @@ class IMEIHistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============= FINANCING SCHEMAS =============
+
+class FinancingOptionBase(BaseModel):
+    months: int = Field(..., gt=0, description="Plazo en meses")
+    rate: Decimal = Field(..., ge=0, description="Tasa de recargo (ej. 0.05 para 5%)")
+    active: bool = True
+
+class FinancingOptionCreate(FinancingOptionBase):
+    pass
+
+class FinancingOptionResponse(FinancingOptionBase):
+    id: int
+    bank_id: int
+    
+    class Config:
+        from_attributes = True
+
+class BankBase(BaseModel):
+    name: str = Field(..., min_length=1)
+    active: bool = True
+    normal_card_rate: float = Field(0.0, ge=0, le=1, description="Tasa para tarjeta normal (0.0 - 1.0)")
+
+class BankCreate(BankBase):
+    financing_options: Optional[List[FinancingOptionCreate]] = None
+
+class BankUpdate(BaseModel):
+    name: Optional[str] = None
+    active: Optional[bool] = None
+    normal_card_rate: Optional[float] = Field(None, ge=0, le=1)
+
+class BankResponse(BankBase):
+    id: int
+    financing_options: List[FinancingOptionResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+
+# Trade-In Policies
+class TradeInPolicyBase(BaseModel):
+    rule_type: str = Field(..., description="model_rejection, brand_rejection, condition_rejection")
+    pattern: str = Field(..., min_length=1, description="Patrón a buscar (ej. 'iPhone 7', 'Xiaomi')")
+    action: str = Field("reject", description="reject, accept_with_conditions")
+    reason: Optional[str] = None
+    is_active: bool = True
+
+class TradeInPolicyCreate(TradeInPolicyBase):
+    pass
+
+class TradeInPolicyResponse(TradeInPolicyBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
