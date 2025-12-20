@@ -156,7 +156,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     if customer.is_troll:
         troll_instruction = "\n[MODO TROLL DETECTADO]: Este usuario ha sido marcado como problemático. Sé extremadamente cortante, directo y no ofrezcas descuentos ni pierdas tiempo. Responde solo lo estrictamente necesario."
     elif customer.reputation_score < 50:
-        troll_instruction = "\n[ADVERTENCIA DE REPUTACIÓN]: Este cliente tiene baja reputación. Sé cauteloso, no ofrezcas créditos ni facilidades de pago excepcionales. Mantén la conversación estrictamente profesional."
+        troll_instruction = "\n[ADVERTENCIA DE REPUTACIÓN]: Este cliente tiene baja reputación. Sé cauteloso, recuerda que NO damos crédito bajo ninguna circunstancia. Mantén la conversación estrictamente profesional."
 
     # 4. Obtener Inventario Relevante (Búsqueda Híbrida Mejorada)
     # Estrategia de Embudo: 
@@ -303,6 +303,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     financing_text += "\nNOTA PARA EL BOT: Para calcular cuota mensual: (Precio + (Precio * %Recargo)) / Meses.\n"
     financing_text += "EJEMPLO: Precio 10,000, Recargo 5% (0.05), 12 Meses -> (10000 + 500) / 12 = 875 mensual.\n"
     financing_text += "Si el cliente paga prima, restar prima antes de calcular recargo.\n"
+    financing_text += "IMPORTANTE: NO ofrecemos crédito directo, fiado, ni pagos parciales sin tarjeta. Todo es de contado o con tarjeta de crédito.\n"
 
     # --- PROTOCOLO DE RETOMAS (TRADE-IN) ---
     # Obtener políticas dinámicas de la base de datos
