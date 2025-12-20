@@ -8,7 +8,6 @@ import { MapPin, Package, Pencil, Check, Barcode } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { StockByLocation, Location, Product } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import { apiClient } from '@/lib/apiClient'
 import { IMEIListDialog } from './IMEIListDialog'
 
 interface StockByLocationDialogProps {
@@ -76,7 +75,8 @@ export function StockByLocationDialog({
     }
 
     try {
-      await apiClient.updateStockByLocation(productId, locationId, editingQuantity)
+      // 🔒 FIX: Usar inventoryServiceInstance para soportar modo local y API
+      await inventoryServiceInstance.updateStock(productId, editingQuantity, locationId)
       toast.success('Stock actualizado exitosamente')
       setEditingLocationId(null)
       loadStockByLocation()

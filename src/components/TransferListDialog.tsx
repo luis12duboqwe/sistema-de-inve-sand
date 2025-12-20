@@ -32,7 +32,6 @@ export function TransferListDialog({
   const [transfers, setTransfers] = useState<StockTransfer[]>([])
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
-  const [rejectionReason, setRejectionReason] = useState('')
   const [confirmedBy, setConfirmedBy] = useState('')
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
 
@@ -68,10 +67,23 @@ export function TransferListDialog({
       return
     }
     
+    // V2.0: Check for serialized items
+    let scannedImeis: string[] | undefined = undefined;
+    if (transfer.imeis && transfer.imeis.length > 0) {
+        const message = `Esta transferencia incluye ${transfer.imeis.length} productos serializados (IMEIs).\n\n` +
+                        `IMEIs esperados:\n${transfer.imeis.join('\\n')}\n\n` +
+                        `¿Confirma que ha verificado físicamente estos seriales?`;
+        
+        if (!confirm(message)) {
+            return;
+        }
+        scannedImeis = transfer.imeis;
+    }
+
     setActionLoading(true)
     try {
       const service = inventoryServiceInstance
-      await service.confirmStockTransfer(transfer.id, confirmedBy)
+      await service.confirmStockTransfer(transfer.id, confirmedBy, scannedImeis)
       toast.success('Transferencia confirmada exitosamente')
       setSelectedTransfer(null)
       setConfirmedBy('')
@@ -411,7 +423,6 @@ export function TransferListDialog({
               onClick={() => {
                 setSelectedTransfer(null)
                 setConfirmedBy('')
-                setRejectionReason('')
               }}
               disabled={actionLoading}
             >

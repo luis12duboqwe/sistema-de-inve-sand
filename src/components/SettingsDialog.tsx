@@ -43,7 +43,9 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
     if (userStr) {
       try {
         setCurrentUser(JSON.parse(userStr))
-      } catch {}
+      } catch (err) {
+        console.error('Error parseando usuario de auth_user', err)
+      }
     }
   }, [apiUrl])
 

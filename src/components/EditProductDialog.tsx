@@ -49,7 +49,6 @@ export function EditProductDialog({
   const [isSerialized, setIsSerialized] = useState(false)
   const [stock, setStock] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showStockDialog, setShowStockDialog] = useState(false)
   const [stockRefreshKey, setStockRefreshKey] = useState(0)
 
   useEffect(() => {

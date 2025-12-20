@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index, Table
+from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index, Table, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -158,7 +158,7 @@ class Product(Base):
     condicion = Column(String, nullable=False)
     precio = Column(Numeric(10, 2), nullable=False)
     costo = Column(Numeric(10, 2), default=0, nullable=False)  # V2.0: Costo para reportes financieros
-    moneda = Column(String, default="HNL", nullable=False)
+    moneda = Column(String, default="Lps", nullable=False)
     garantia_meses = Column(Integer, default=0, nullable=False)
     garantia_condiciones = Column(Text, nullable=True)
     activo = Column(Boolean, default=True, nullable=False, index=True)
@@ -200,8 +200,9 @@ class Stock(Base):
         Index('idx_stock_product_location', 'product_id', 'location_id', unique=True),
         Index('idx_stock_location', 'location_id'),
         # CRÍTICO: Evitar stock negativo
-        # Nota: SQLite no soporta CHECK constraints nativamente en todas las versiones
-        # Se debe validar en la lógica de aplicación ANTES de cada db.commit()
+        CheckConstraint('cantidad_disponible >= 0', name='check_stock_positive'),
+        CheckConstraint('cantidad_reservada >= 0', name='check_reserved_positive'),
+        CheckConstraint('cantidad_defectuosa >= 0', name='check_defective_positive'),
     )
 
 

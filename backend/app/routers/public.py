@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 import math
 
@@ -24,9 +24,8 @@ class PublicProductResponse(BaseModel):
     capacidad: Optional[str] = None
     color: Optional[str] = None
     in_stock: bool
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/catalog", response_model=PaginatedResponse[PublicProductResponse])
 def get_public_catalog(

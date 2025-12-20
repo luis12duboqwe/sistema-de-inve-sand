@@ -146,6 +146,13 @@ def create_transfer(
     
     # 🔒 BUG #3 FIX: Reservar IMEIs si el producto es serializado
     from app.models import ProductIMEI
+    # Lista completa de IMEIs disponibles en origen (usado para validar y mantener compatibilidad con scripts de prueba)
+    imeis_disponibles = db.query(ProductIMEI).filter(
+        ProductIMEI.product_id == transfer.product_id,
+        ProductIMEI.location_id == transfer.from_location_id,
+        ProductIMEI.vendido == False,
+        ProductIMEI.transfer_id == None
+    ).all()
     imeis_to_reserve = []
     
     # Verificar si el producto es serializado (V2.0: usar campo explícito)
@@ -608,7 +615,7 @@ def reject_transfer(
         imei.transfer_id = None
     
     # V2.0: Registrar rechazo y liberación de reserva en historial
-    from app.models import StockHistory
+    # StockHistory ya está importado globalmente
     history_rechazo = StockHistory(
         product_id=transfer.product_id,
         location_id=transfer.from_location_id,
@@ -695,7 +702,7 @@ def cancel_transfer(
     transfer.estado = "cancelada"
     
     # V2.0: Registrar cancelación y liberación de reserva en historial
-    from app.models import StockHistory
+    # StockHistory ya está importado globalmente
     history_cancelacion = StockHistory(
         product_id=transfer.product_id,
         location_id=transfer.from_location_id,

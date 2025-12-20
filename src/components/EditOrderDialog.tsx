@@ -128,7 +128,7 @@ export function EditOrderDialog({
     }
     
     fetchIMEIs()
-  }, [open, items, order.source_location_id, products])
+  }, [open, items, order.source_location_id, products, order.items])
 
   const addItem = () => {
     setItems([...items, { product_id: 0, cantidad: 1 }])
@@ -424,6 +424,73 @@ export function EditOrderDialog({
               )
             })}
           </div>
+
+          {/* V2.1: Detalles Financieros y Trade-Ins (Solo Lectura) */}
+          {((order.trade_ins && order.trade_ins.length > 0) || order.financing_details) && (
+            <div className="border rounded-md p-4 bg-muted/20 space-y-4">
+              <h3 className="font-medium text-sm flex items-center gap-2">
+                <span className="w-1 h-4 bg-primary rounded-full"></span>
+                Detalles de la Transacción
+              </h3>
+              
+              {/* Trade-Ins */}
+              {order.trade_ins && order.trade_ins.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Retomas (Trade-In)</Label>
+                  <div className="space-y-1">
+                    {order.trade_ins.map((trade, idx) => (
+                      <div key={idx} className="flex justify-between text-sm bg-background p-2 rounded border shadow-sm">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{trade.marca} {trade.modelo}</span>
+                          <span className="text-xs text-muted-foreground capitalize">{trade.condicion} • {trade.color || 'N/A'} • {trade.capacidad || 'N/A'}</span>
+                        </div>
+                        <span className="font-medium text-red-600 flex items-center">- HNL {trade.valor_estimado.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Financiamiento */}
+              {order.financing_details && (() => {
+                try {
+                  const details = JSON.parse(order.financing_details)
+                  return (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Financiamiento ({details.bank_name})</Label>
+                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm bg-background p-3 rounded border shadow-sm">
+                        <div className="text-muted-foreground">Plazo:</div>
+                        <div className="text-right font-medium">{details.months > 0 ? `${details.months} meses` : 'Contado'}</div>
+                        
+                        <div className="text-muted-foreground">Prima:</div>
+                        <div className="text-right font-medium">HNL {details.down_payment?.toLocaleString() || '0.00'}</div>
+                        
+                        <div className="text-muted-foreground">Monto a Financiar:</div>
+                        <div className="text-right font-medium">HNL {details.financed_amount?.toLocaleString() || '0.00'}</div>
+                        
+                        <div className="text-muted-foreground">Recargo ({((details.rate || 0) * 100).toFixed(1)}%):</div>
+                        <div className="text-right font-medium text-orange-600">+ HNL {details.surcharge?.toLocaleString() || '0.00'}</div>
+                        
+                        <div className="col-span-2 border-t pt-2 mt-1 flex justify-between items-center">
+                          <span className="font-bold text-primary">Cuota Mensual:</span>
+                          <span className="font-bold text-lg">HNL {details.monthly_payment?.toLocaleString() || '0.00'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                } catch (error) {
+                  console.error('Error parsing financing_details', error)
+                  return null
+                }
+              })()}
+              
+              {/* Resumen Total */}
+              <div className="flex justify-between items-center pt-3 border-t border-dashed">
+                <span className="font-bold text-base">Total Final Orden:</span>
+                <span className="font-bold text-xl text-primary">HNL {order.total.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="edit-notas">Notas (opcional)</Label>

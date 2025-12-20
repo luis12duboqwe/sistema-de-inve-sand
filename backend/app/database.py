@@ -1,14 +1,22 @@
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import StaticPool
 from app.config import settings
 
-engine = create_engine(
-    settings.database_url, 
-    connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {},
-    pool_pre_ping=True  # Enables automatic reconnection
-)
+_is_sqlite = settings.database_url.startswith("sqlite")
+_is_sqlite_memory = settings.database_url in {"sqlite:///:memory:", "sqlite+pysqlite:///:memory:"}
+
+_engine_kwargs: dict = {
+    "connect_args": {"check_same_thread": False} if _is_sqlite else {},
+    # pool_pre_ping es innecesario para :memory:
+    "pool_pre_ping": not _is_sqlite_memory,
+}
+
+if _is_sqlite_memory:
+    _engine_kwargs["poolclass"] = StaticPool
+
+engine = create_engine(settings.database_url, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

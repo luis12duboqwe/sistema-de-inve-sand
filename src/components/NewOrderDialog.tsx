@@ -19,11 +19,12 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Plus, Trash, Robot, MapPin, WarningCircle, CreditCard } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank, FinancingOption } from '@/lib/types'
+import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
+import { calculateLuhnCheckDigit } from '@/lib/utils'
 
 interface NewOrderDialogProps {
   open: boolean
@@ -267,38 +268,43 @@ export function NewOrderDialog({
     setItems(newItems)
   }
 
-  const calculateTotal = () => {
-    const itemsTotal = items.reduce((total, item) => {
-      const product = products.find(p => p.id === item.product_id)
-      if (!product) return total
-      // V2.1: Usar precio personalizado si existe
-      const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
-      return total + price * item.cantidad
-    }, 0)
+    const calculateTotal = () => {
+      const itemsTotal = items.reduce((total, item) => {
+        const product = products.find(p => p.id === item.product_id)
+        if (!product) return total
+        // V2.1: Usar precio personalizado si existe
+        const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+        return total + price * item.cantidad
+      }, 0)
 
-    const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
-    
-    let baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
+      const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+      const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
 
-    // V2.1: Calcular recargo por financiamiento
-    if (selectedBankId) {
-       const bank = banks.find(b => b.id === selectedBankId)
-       
-       if (metodoPago === 'financiamiento' && selectedMonths) {
+      // Base para financiamiento = (Productos - TradeIns - Prima)
+      // La prima se resta ANTES de calcular el recargo, porque eso se paga en efectivo
+      const downPayment = parseFloat(cashDownPayment) || 0
+      const amountToFinance = Math.max(0, baseTotal - downPayment)
+
+      let surcharge = 0
+
+      // V2.1: Calcular recargo por financiamiento
+      if (selectedBankId) {
+        const bank = banks.find(b => b.id === selectedBankId)
+      
+        if (metodoPago === 'financiamiento' && selectedMonths) {
           const option = bank?.financing_options.find(o => o.months === selectedMonths)
           if (option) {
-             const surcharge = baseTotal * Number(option.rate)
-             baseTotal += surcharge
+            surcharge = amountToFinance * Number(option.rate)
           }
-       } else if (metodoPago === 'tarjeta') {
+        } else if (metodoPago === 'tarjeta') {
           // Tarjeta normal: aplicar tasa base del banco
-          const surcharge = baseTotal * Number(bank?.normal_card_rate || 0)
-          baseTotal += surcharge
-       }
-    }
+          surcharge = amountToFinance * Number(bank?.normal_card_rate || 0)
+        }
+      }
 
-    return baseTotal
-  }
+      // Total Orden (alineado con backend): downPayment + monto a financiar + recargo
+      return downPayment + amountToFinance + surcharge
+    }
 
   const handleSubmit = async () => {
     // Validación V2.0
@@ -526,536 +532,556 @@ export function NewOrderDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="canal">Canal</Label>
-              <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
-                <SelectTrigger id="canal">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="facebook">Facebook</SelectItem>
-                  <SelectItem value="instagram">Instagram</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Productos</Label>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="metodo-pago">Método de Pago</Label>
-              <Select
-                value={metodoPago}
-                onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
-              >
-                <SelectTrigger id="metodo-pago">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
-                  <SelectItem value="transferencia">Transferencia</SelectItem>
-                  <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                  <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+              {/* Alerta de filtrado por ubicación */}
+              {sourceLocationId && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-sm">
+                  <p className="text-blue-800">
+                    📍 Mostrando solo productos con stock en{' '}
+                    <strong>{locations.find(l => l.id === sourceLocationId)?.nombre}</strong>
+                  </p>
+                  {availableProducts.length === 0 && (
+                    <p className="text-blue-700 mt-1 text-xs">
+                      ⚠️ Esta ubicación no tiene productos con stock. Selecciona otra ubicación o transfiere stock primero.
+                    </p>
+                  )}
+                </div>
+              )}
+              {!sourceLocationId && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm text-amber-800">
+                  ⚠️ Selecciona primero una ubicación origen para ver los productos disponibles
+                </div>
+              )}
 
-          {/* V2.1: Financing Options */}
-          {(metodoPago === 'tarjeta' || metodoPago === 'financiamiento') && (
-            <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
-               <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    <CreditCard className="w-4 h-4" />
-                    {metodoPago === 'financiamiento' ? 'Opciones de Extrafinanciamiento' : 'Cobro con Tarjeta'}
-                 </div>
-               </div>
-               
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                     <Label className="text-xs">Banco</Label>
-                     <Select 
-                        value={selectedBankId?.toString() || ''} 
-                        onValueChange={(v) => {
-                           setSelectedBankId(Number(v))
-                           setSelectedMonths(null) // Reset months
-                        }}
-                     >
-                        <SelectTrigger className="h-8 text-xs">
-                           <SelectValue placeholder="Seleccionar Banco" />
-                        </SelectTrigger>
-                        <SelectContent>
-                           {banks.map(bank => (
-                              <SelectItem key={bank.id} value={bank.id.toString()}>
-                                 {bank.name} {metodoPago === 'tarjeta' && Number(bank.normal_card_rate) > 0 ? `(${Number(bank.normal_card_rate * 100).toFixed(2)}%)` : ''}
-                              </SelectItem>
-                           ))}
-                        </SelectContent>
-                     </Select>
-                  </div>
-                  
-                  {metodoPago === 'financiamiento' && (
-                    <div className="space-y-1">
-                       <Label className="text-xs">Plazo</Label>
-                       <Select 
-                          value={selectedMonths?.toString() || ''} 
-                          onValueChange={(v) => setSelectedMonths(Number(v))}
-                          disabled={!selectedBankId}
-                       >
-                          <SelectTrigger className="h-8 text-xs">
-                             <SelectValue placeholder="Meses" />
+              <div className="space-y-2">
+                {items.map((item, index) => (
+                  <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
+                    <div className="flex flex-col md:flex-row md:items-end gap-2">
+                      <div className="flex-1 space-y-2 w-full">
+                        <Select
+                          value={item.product_id.toString()}
+                          onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar producto" />
                           </SelectTrigger>
                           <SelectContent>
-                             {selectedBankId && banks.find(b => b.id === selectedBankId)?.financing_options.map(opt => (
-                                <SelectItem key={opt.id} value={opt.months.toString()}>
-                                   {opt.months} Meses ({Number(opt.rate) * 100}%)
+                            {availableProducts.length === 0 ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground">
+                                {sourceLocationId 
+                                  ? 'No hay productos con stock en esta ubicación'
+                                  : 'Selecciona primero una ubicación'}
+                              </div>
+                            ) : (
+                              availableProducts.map(product => {
+                                // Obtener stock en la ubicación seleccionada
+                                const stockInLocation = product.stock_items?.find(
+                                  s => s.location_id === sourceLocationId
+                                )
+                                const stockDisplay = stockInLocation 
+                                  ? (stockInLocation.cantidad_disponible - (stockInLocation.cantidad_reservada || 0))
+                                  : product.stock_disponible
+                                
+                                return (
+                                  <SelectItem key={product.id} value={product.id.toString()}>
+                                    {product.nombre} - HNL {product.precio.toLocaleString()} 
+                                    <span className="ml-2 text-muted-foreground">
+                                      (Stock: {stockDisplay})
+                                    </span>
+                                  </SelectItem>
+                                )
+                              })
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-end gap-2 w-full md:w-auto">
+                        <div className="flex-1 md:w-32 space-y-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.precio_unitario ?? ''}
+                            onChange={e =>
+                              handleItemChange(index, 'precio_unitario', e.target.value)
+                            }
+                            placeholder={(() => {
+                              const product = products.find(p => p.id === item.product_id)
+                              return product ? product.precio.toString() : "Precio"
+                            })()}
+                            title="Precio unitario (dejar vacío para usar precio de lista)"
+                          />
+                        </div>
+
+                        <div className="w-24 space-y-2">
+                          <Input
+                            type="number"
+                            min="1"
+                            max={(() => {
+                              const product = products.find(p => p.id === item.product_id)
+                              if (!product) return 999
+                              
+                              // V2.0: Usar stock de ubicación específica si existe
+                              if (product.stock_items && product.stock_items.length > 0) {
+                                const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
+                                return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
+                              }
+                              
+                              // Legacy: Usar stock global
+                              return product.stock_disponible || 0
+                            })()}
+                            value={item.cantidad}
+                            onChange={e =>
+                              handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
+                            }
+                            placeholder="Cant."
+                          />
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleRemoveItem(index)}
+                          disabled={items.length === 1}
+                          title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
+                        >
+                          <Trash size={16} />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* IMEI Selector */}
+                    {(() => {
+                      const product = products.find(p => p.id === item.product_id)
+                      const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
+                      
+                      if (isSerialized) {
+                        const imeis = availableIMEIs[item.product_id] || []
+                        return (
+                          <div className="w-full bg-muted/30 p-2 rounded border border-dashed">
+                            <div className="flex justify-between items-center mb-2">
+                              <Label className="text-xs font-medium">
+                                Seleccionar IMEIs ({item.imeis?.length || 0}/{item.cantidad})
+                              </Label>
+                              <span className="text-xs text-muted-foreground">
+                                {imeis.length} disponibles
+                              </span>
+                            </div>
+                            
+                            {imeis.length === 0 ? (
+                              <div className="text-xs text-muted-foreground italic">
+                                No hay IMEIs disponibles en esta ubicación.
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {imeis.map(imei => {
+                                  const isSelected = item.imeis?.includes(imei)
+                                  return (
+                                    <div 
+                                      key={imei}
+                                      onClick={() => {
+                                        const currentImeis = item.imeis || []
+                                        let newImeis
+                                        if (isSelected) {
+                                          newImeis = currentImeis.filter(i => i !== imei)
+                                        } else {
+                                          if (currentImeis.length >= item.cantidad) {
+                                            toast.error(`Solo puedes seleccionar ${item.cantidad} IMEIs`)
+                                            return
+                                          }
+                                          newImeis = [...currentImeis, imei]
+                                        }
+                                        handleItemChange(index, 'imeis', newImeis)
+                                      }}
+                                      className={`cursor-pointer px-2 py-1 text-xs rounded border transition-colors ${
+                                        isSelected
+                                          ? 'bg-primary text-primary-foreground border-primary font-medium' 
+                                          : 'bg-background hover:bg-muted border-input'
+                                      }`}
+                                    >
+                                      {imei}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                            {item.cantidad > (item.imeis?.length || 0) && (
+                              <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                                <WarningCircle className="w-3 h-3" />
+                                Faltan seleccionar {item.cantidad - (item.imeis?.length || 0)} IMEIs
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+                    })()}
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem} disabled={!sourceLocationId} className="w-full mt-2">
+                  <Plus size={16} className="mr-1" />
+                  Agregar Producto
+                </Button>
+              </div>
+            </div>
+
+            {/* Trade-Ins Section */}
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Retomas (Trade-Ins)</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', color: '', capacidad: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar Retoma
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {tradeIns.map((tradeIn, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-2 items-start border p-2 rounded-md">
+                    <div className="col-span-4 space-y-1">
+                      <Input
+                        placeholder="Marca"
+                        value={tradeIn.marca}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].marca = e.target.value
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                      <Input
+                        placeholder="Modelo"
+                        value={tradeIn.modelo}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].modelo = e.target.value
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                      <div className="grid grid-cols-2 gap-1">
+                        <Input
+                          placeholder="Color"
+                          value={tradeIn.color || ''}
+                          onChange={e => {
+                            const newTradeIns = [...tradeIns]
+                            newTradeIns[index].color = e.target.value
+                            setTradeIns(newTradeIns)
+                          }}
+                        />
+                        <Input
+                          placeholder="Capacidad (GB)"
+                          value={tradeIn.capacidad || ''}
+                          onChange={e => {
+                            const newTradeIns = [...tradeIns]
+                            newTradeIns[index].capacidad = e.target.value
+                            setTradeIns(newTradeIns)
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="col-span-4 space-y-1">
+                      <Input
+                        placeholder="IMEI (Opcional)"
+                        value={tradeIn.imei}
+                        onChange={e => {
+                          const val = e.target.value.replace(/\D/g, '')
+                          let finalVal = val
+                          if (val.length === 14) {
+                              try {
+                                const check = calculateLuhnCheckDigit(val)
+                                finalVal = val + check
+                                toast.success(`Dígito verificador generado: ${check}`)
+                              } catch (err) {
+                                console.error('Error calculando dígito IMEI', err)
+                              }
+                          }
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].imei = finalVal
+                          setTradeIns(newTradeIns)
+                        }}
+                        maxLength={15}
+                      />
+                      <Select
+                        value={tradeIn.condicion}
+                        onValueChange={value => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].condicion = value as any
+                          setTradeIns(newTradeIns)
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Condición" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="usado">Usado</SelectItem>
+                          <SelectItem value="dañado">Dañado</SelectItem>
+                          <SelectItem value="para_repuestos">Para Repuestos</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-3 space-y-1">
+                      <Input
+                        type="number"
+                        placeholder="Valor Estimado"
+                        value={tradeIn.valor_estimado || ''}
+                        onChange={e => {
+                          const val = parseFloat(e.target.value) || 0
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].valor_estimado = val
+                          // Auto-calcular precio sugerido (30%) si no se ha editado manualmente
+                          if (!newTradeIns[index].precio_venta || newTradeIns[index].precio_venta === 0) {
+                             newTradeIns[index].precio_venta = Math.round(val * 1.3)
+                          }
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                      <Input
+                        type="number"
+                        placeholder="Precio Venta (Sugerido)"
+                        value={tradeIn.precio_venta || ''}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].precio_venta = parseFloat(e.target.value) || 0
+                          setTradeIns(newTradeIns)
+                        }}
+                        className="bg-green-50 border-green-200"
+                        title="Precio de venta sugerido para el nuevo producto"
+                      />
+                      <Input
+                        placeholder="Notas"
+                        value={tradeIn.notas}
+                        onChange={e => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns[index].notas = e.target.value
+                          setTradeIns(newTradeIns)
+                        }}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-center pt-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          const newTradeIns = [...tradeIns]
+                          newTradeIns.splice(index, 1)
+                          setTradeIns(newTradeIns)
+                        }}
+                      >
+                        <Trash className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {tradeIns.length === 0 && (
+                  <div className="text-sm text-muted-foreground text-center py-2">
+                    No hay equipos en retoma
+                  </div>
+                )}
+              </div>
+            </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="canal">Canal</Label>
+                <Select value={canal} onValueChange={(v) => setCanal(v as typeof canal)}>
+                  <SelectTrigger id="canal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="metodo-pago">Método de Pago</Label>
+                <Select
+                  value={metodoPago}
+                  onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
+                >
+                  <SelectTrigger id="metodo-pago">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efectivo">Efectivo</SelectItem>
+                    <SelectItem value="transferencia">Transferencia</SelectItem>
+                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                    <SelectItem value="financiamiento">Financiamiento</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* V2.1: Financing Options */}
+            {(metodoPago === 'tarjeta' || metodoPago === 'financiamiento') && (
+              <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
+                 <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                      <CreditCard className="w-4 h-4" />
+                      {metodoPago === 'financiamiento' ? 'Opciones de Extrafinanciamiento' : 'Cobro con Tarjeta'}
+                   </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                       <Label className="text-xs">Banco</Label>
+                       <Select 
+                          value={selectedBankId?.toString() || ''} 
+                          onValueChange={(v) => {
+                             setSelectedBankId(Number(v))
+                             setSelectedMonths(null) // Reset months
+                          }}
+                       >
+                          <SelectTrigger className="h-8 text-xs">
+                             <SelectValue placeholder="Seleccionar Banco" />
+                          </SelectTrigger>
+                          <SelectContent>
+                             {banks.map(bank => (
+                                <SelectItem key={bank.id} value={bank.id.toString()}>
+                                   {bank.name} {metodoPago === 'tarjeta' && Number(bank.normal_card_rate) > 0 ? `(${Number(bank.normal_card_rate * 100).toFixed(2)}%)` : ''}
                                 </SelectItem>
                              ))}
                           </SelectContent>
                        </Select>
                     </div>
-                  )}
-
-                  <div className="space-y-1 col-span-2 border-t pt-2 mt-1">
-                     <Label className="text-xs">Prima / Pago Inicial (Efectivo/Transf.)</Label>
-                     <Input 
-                        type="number" 
-                        className="h-8 text-xs" 
-                        placeholder="0.00"
-                        value={cashDownPayment}
-                        onChange={(e) => setCashDownPayment(e.target.value)}
-                     />
-                  </div>
-               </div>
-
-               {selectedBankId && (
-                  <div className="text-xs bg-background p-2 rounded border space-y-1">
-                     {metodoPago === 'tarjeta' && (
-                        <div className="text-blue-600 font-medium mb-1">
-                           Cobro con tarjeta aplica tasa normal
-                        </div>
-                     )}
-                     {(() => {
-                        const bank = banks.find(b => b.id === selectedBankId)
-                        if (!bank) return null
-
-                        // Calcular base total (items - tradeins)
-                        const itemsTotal = items.reduce((total, item) => {
-                           const product = products.find(p => p.id === item.product_id)
-                           if (!product) return total
-                           const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
-                           return total + price * item.cantidad
-                        }, 0)
-                        const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
-                        const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
-                        
-                        // V2.1: Split Payment Logic
-                        const downPayment = parseFloat(cashDownPayment) || 0
-                        const financedAmount = Math.max(0, baseTotal - downPayment)
-
-                        let surcharge = 0
-                        let rate = 0
-                        let monthly = 0
-
-                        if (metodoPago === 'financiamiento' && selectedMonths) {
-                           const option = bank.financing_options.find(o => o.months === selectedMonths)
-                           if (option) {
-                              rate = Number(option.rate)
-                              surcharge = financedAmount * rate
-                              monthly = (financedAmount + surcharge) / selectedMonths
-                           }
-                        } else if (metodoPago === 'tarjeta') {
-                           rate = Number(bank.normal_card_rate || 0)
-                           surcharge = financedAmount * rate
-                        }
-                        
-                        return (
-                           <>
-                              <div className="flex justify-between text-muted-foreground">
-                                 <span>Subtotal Productos:</span>
-                                 <span>HNL {baseTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                              </div>
-                              
-                              {downPayment > 0 && (
-                                 <div className="flex justify-between text-green-600 font-medium">
-                                    <span>(-) Prima / Efectivo:</span>
-                                    <span>HNL {downPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                 </div>
-                              )}
-
-                              <div className="flex justify-between font-medium border-t border-dashed pt-1">
-                                 <span>Monto a Financiar:</span>
-                                 <span>HNL {financedAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                              </div>
-
-                              <div className="flex justify-between text-red-500">
-                                 <span>(+) Recargo ({Number(rate*100).toFixed(2)}%):</span>
-                                 <span>HNL {surcharge.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                              </div>
-
-                              <div className="flex justify-between font-bold border-t pt-1 mt-1">
-                                 <span>A Cobrar en POS:</span>
-                                 <span>HNL {(financedAmount + surcharge).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                              </div>
-
-                              {monthly > 0 && (
-                                <div className="mt-3 bg-blue-50 p-3 rounded text-center border border-blue-100">
-                                   <div className="text-xs text-blue-600 uppercase font-bold tracking-wider">Cuota Mensual ({selectedMonths} meses)</div>
-                                   <div className="text-xl font-bold text-blue-700">HNL {monthly.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                </div>
-                              )}
-                           </>
-                        )
-                     })()}
-                  </div>
-               )}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Productos</Label>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddItem} disabled={!sourceLocationId}>
-                <Plus size={16} className="mr-1" />
-                Agregar Producto
-              </Button>
-            </div>
-
-            {/* Alerta de filtrado por ubicación */}
-            {sourceLocationId && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-sm">
-                <p className="text-blue-800">
-                  📍 Mostrando solo productos con stock en{' '}
-                  <strong>{locations.find(l => l.id === sourceLocationId)?.nombre}</strong>
-                </p>
-                {availableProducts.length === 0 && (
-                  <p className="text-blue-700 mt-1 text-xs">
-                    ⚠️ Esta ubicación no tiene productos con stock. Selecciona otra ubicación o transfiere stock primero.
-                  </p>
-                )}
-              </div>
-            )}
-            {!sourceLocationId && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm text-amber-800">
-                ⚠️ Selecciona primero una ubicación origen para ver los productos disponibles
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {items.map((item, index) => (
-                <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
-                  <div className="flex flex-col md:flex-row md:items-end gap-2">
-                    <div className="flex-1 space-y-2 w-full">
-                      <Select
-                        value={item.product_id.toString()}
-                        onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar producto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableProducts.length === 0 ? (
-                            <div className="p-4 text-center text-sm text-muted-foreground">
-                              {sourceLocationId 
-                                ? 'No hay productos con stock en esta ubicación'
-                                : 'Selecciona primero una ubicación'}
-                            </div>
-                          ) : (
-                            availableProducts.map(product => {
-                              // Obtener stock en la ubicación seleccionada
-                              const stockInLocation = product.stock_items?.find(
-                                s => s.location_id === sourceLocationId
-                              )
-                              const stockDisplay = stockInLocation 
-                                ? (stockInLocation.cantidad_disponible - (stockInLocation.cantidad_reservada || 0))
-                                : product.stock_disponible
-                              
-                              return (
-                                <SelectItem key={product.id} value={product.id.toString()}>
-                                  {product.nombre} - HNL {product.precio.toLocaleString()} 
-                                  <span className="ml-2 text-muted-foreground">
-                                    (Stock: {stockDisplay})
-                                  </span>
-                                </SelectItem>
-                              )
-                            })
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-end gap-2 w-full md:w-auto">
-                      <div className="flex-1 md:w-32 space-y-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.precio_unitario ?? ''}
-                          onChange={e =>
-                            handleItemChange(index, 'precio_unitario', e.target.value)
-                          }
-                          placeholder={(() => {
-                            const product = products.find(p => p.id === item.product_id)
-                            return product ? product.precio.toString() : "Precio"
-                          })()}
-                          title="Precio unitario (dejar vacío para usar precio de lista)"
-                        />
-                      </div>
-
-                      <div className="w-24 space-y-2">
-                        <Input
-                          type="number"
-                          min="1"
-                          max={(() => {
-                            const product = products.find(p => p.id === item.product_id)
-                            if (!product) return 999
-                            
-                            // V2.0: Usar stock de ubicación específica si existe
-                            if (product.stock_items && product.stock_items.length > 0) {
-                              const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-                              return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
-                            }
-                            
-                            // Legacy: Usar stock global
-                            return product.stock_disponible || 0
-                          })()}
-                          value={item.cantidad}
-                          onChange={e =>
-                            handleItemChange(index, 'cantidad', parseInt(e.target.value) || 1)
-                          }
-                          placeholder="Cant."
-                        />
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleRemoveItem(index)}
-                        disabled={items.length === 1}
-                        title={items.length === 1 ? 'Debe haber al menos un producto' : 'Eliminar producto'}
-                      >
-                        <Trash size={16} />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* IMEI Selector */}
-                  {(() => {
-                    const product = products.find(p => p.id === item.product_id)
-                    const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
                     
-                    if (isSerialized) {
-                      const imeis = availableIMEIs[item.product_id] || []
-                      return (
-                        <div className="w-full bg-muted/30 p-2 rounded border border-dashed">
-                          <div className="flex justify-between items-center mb-2">
-                            <Label className="text-xs font-medium">
-                              Seleccionar IMEIs ({item.imeis?.length || 0}/{item.cantidad})
-                            </Label>
-                            <span className="text-xs text-muted-foreground">
-                              {imeis.length} disponibles
-                            </span>
-                          </div>
-                          
-                          {imeis.length === 0 ? (
-                            <div className="text-xs text-muted-foreground italic">
-                              No hay IMEIs disponibles en esta ubicación.
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap gap-2">
-                              {imeis.map(imei => {
-                                const isSelected = item.imeis?.includes(imei)
-                                return (
-                                  <div 
-                                    key={imei}
-                                    onClick={() => {
-                                      const currentImeis = item.imeis || []
-                                      let newImeis
-                                      if (isSelected) {
-                                        newImeis = currentImeis.filter(i => i !== imei)
-                                      } else {
-                                        if (currentImeis.length >= item.cantidad) {
-                                          toast.error(`Solo puedes seleccionar ${item.cantidad} IMEIs`)
-                                          return
-                                        }
-                                        newImeis = [...currentImeis, imei]
-                                      }
-                                      handleItemChange(index, 'imeis', newImeis)
-                                    }}
-                                    className={`cursor-pointer px-2 py-1 text-xs rounded border transition-colors ${
-                                      isSelected
-                                        ? 'bg-primary text-primary-foreground border-primary font-medium' 
-                                        : 'bg-background hover:bg-muted border-input'
-                                    }`}
-                                  >
-                                    {imei}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                          {item.cantidad > (item.imeis?.length || 0) && (
-                            <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
-                              <WarningCircle className="w-3 h-3" />
-                              Faltan seleccionar {item.cantidad - (item.imeis?.length || 0)} IMEIs
-                            </div>
-                          )}
-                        </div>
-                      )
-                    }
-                  })()}
-                </div>
-              ))}
-            </div>
-          </div>
+                    {metodoPago === 'financiamiento' && (
+                      <div className="space-y-1">
+                         <Label className="text-xs">Plazo</Label>
+                         <Select 
+                            value={selectedMonths?.toString() || ''} 
+                            onValueChange={(v) => setSelectedMonths(Number(v))}
+                            disabled={!selectedBankId}
+                         >
+                            <SelectTrigger className="h-8 text-xs">
+                               <SelectValue placeholder="Meses" />
+                            </SelectTrigger>
+                            <SelectContent>
+                               {selectedBankId && banks.find(b => b.id === selectedBankId)?.financing_options.map(opt => (
+                                  <SelectItem key={opt.id} value={opt.months.toString()}>
+                                     {opt.months} Meses ({Number(opt.rate) * 100}%)
+                                  </SelectItem>
+                               ))}
+                            </SelectContent>
+                         </Select>
+                      </div>
+                    )}
 
-          {/* Trade-Ins Section */}
-          <div className="space-y-4 border-t pt-4">
-            <div className="flex items-center justify-between">
-              <Label className="text-base font-semibold">Retomas (Trade-Ins)</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', color: '', capacidad: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Agregar Retoma
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              {tradeIns.map((tradeIn, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-start border p-2 rounded-md">
-                  <div className="col-span-4 space-y-1">
-                    <Input
-                      placeholder="Marca"
-                      value={tradeIn.marca}
-                      onChange={e => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].marca = e.target.value
-                        setTradeIns(newTradeIns)
-                      }}
-                    />
-                    <Input
-                      placeholder="Modelo"
-                      value={tradeIn.modelo}
-                      onChange={e => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].modelo = e.target.value
-                        setTradeIns(newTradeIns)
-                      }}
-                    />
-                    <div className="grid grid-cols-2 gap-1">
-                      <Input
-                        placeholder="Color"
-                        value={tradeIn.color || ''}
-                        onChange={e => {
-                          const newTradeIns = [...tradeIns]
-                          newTradeIns[index].color = e.target.value
-                          setTradeIns(newTradeIns)
-                        }}
-                      />
-                      <Input
-                        placeholder="Capacidad (GB)"
-                        value={tradeIn.capacidad || ''}
-                        onChange={e => {
-                          const newTradeIns = [...tradeIns]
-                          newTradeIns[index].capacidad = e.target.value
-                          setTradeIns(newTradeIns)
-                        }}
-                      />
+                    <div className="space-y-1 col-span-2 border-t pt-2 mt-1">
+                       <Label className="text-xs">Prima / Pago Inicial (Efectivo/Transf.)</Label>
+                       <Input 
+                          type="number" 
+                          className="h-8 text-xs" 
+                          placeholder="0.00"
+                          value={cashDownPayment}
+                          onChange={(e) => setCashDownPayment(e.target.value)}
+                       />
                     </div>
-                  </div>
-                  <div className="col-span-4 space-y-1">
-                    <Input
-                      placeholder="IMEI (Opcional)"
-                      value={tradeIn.imei}
-                      onChange={e => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].imei = e.target.value
-                        setTradeIns(newTradeIns)
-                      }}
-                    />
-                    <Select
-                      value={tradeIn.condicion}
-                      onValueChange={value => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].condicion = value as any
-                        setTradeIns(newTradeIns)
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Condición" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="usado">Usado</SelectItem>
-                        <SelectItem value="dañado">Dañado</SelectItem>
-                        <SelectItem value="para_repuestos">Para Repuestos</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-3 space-y-1">
-                    <Input
-                      type="number"
-                      placeholder="Valor Estimado"
-                      value={tradeIn.valor_estimado || ''}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value) || 0
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].valor_estimado = val
-                        // Auto-calcular precio sugerido (30%) si no se ha editado manualmente
-                        if (!newTradeIns[index].precio_venta || newTradeIns[index].precio_venta === 0) {
-                           newTradeIns[index].precio_venta = Math.round(val * 1.3)
-                        }
-                        setTradeIns(newTradeIns)
-                      }}
-                    />
-                    <Input
-                      type="number"
-                      placeholder="Precio Venta (Sugerido)"
-                      value={tradeIn.precio_venta || ''}
-                      onChange={e => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].precio_venta = parseFloat(e.target.value) || 0
-                        setTradeIns(newTradeIns)
-                      }}
-                      className="bg-green-50 border-green-200"
-                      title="Precio de venta sugerido para el nuevo producto"
-                    />
-                    <Input
-                      placeholder="Notas"
-                      value={tradeIn.notas}
-                      onChange={e => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns[index].notas = e.target.value
-                        setTradeIns(newTradeIns)
-                      }}
-                    />
-                  </div>
-                  <div className="col-span-1 flex justify-center pt-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        const newTradeIns = [...tradeIns]
-                        newTradeIns.splice(index, 1)
-                        setTradeIns(newTradeIns)
-                      }}
-                    >
-                      <Trash className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {tradeIns.length === 0 && (
-                <div className="text-sm text-muted-foreground text-center py-2">
-                  No hay equipos en retoma
-                </div>
-              )}
-            </div>
-          </div>
+                 </div>
+
+                 {selectedBankId && (
+                    <div className="text-xs bg-background p-2 rounded border space-y-1">
+                       {metodoPago === 'tarjeta' && (
+                          <div className="text-blue-600 font-medium mb-1">
+                             Cobro con tarjeta aplica tasa normal
+                          </div>
+                       )}
+                       {(() => {
+                          const bank = banks.find(b => b.id === selectedBankId)
+                          if (!bank) return null
+
+                          // Calcular base total (items - tradeins)
+                          const itemsTotal = items.reduce((total, item) => {
+                             const product = products.find(p => p.id === item.product_id)
+                             if (!product) return total
+                             const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+                             return total + price * item.cantidad
+                          }, 0)
+                          const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+                          
+                          // V2.1: Split Payment Logic
+                          const downPayment = parseFloat(cashDownPayment) || 0
+                          
+                          // Base para cálculo de intereses = Total Productos - TradeIns - Prima
+                          const financedAmount = Math.max(0, itemsTotal - tradeInsTotal - downPayment)
+
+                          let surcharge = 0
+                          let rate = 0
+                          let monthly = 0
+
+                          if (metodoPago === 'financiamiento' && selectedMonths) {
+                             const option = bank.financing_options.find(o => o.months === selectedMonths)
+                             if (option) {
+                                rate = Number(option.rate)
+                                surcharge = financedAmount * rate
+                                monthly = (financedAmount + surcharge) / selectedMonths
+                             }
+                          } else if (metodoPago === 'tarjeta') {
+                             rate = Number(bank.normal_card_rate || 0)
+                             surcharge = financedAmount * rate
+                          }
+                          
+                          return (
+                             <>
+                                <div className="flex justify-between text-muted-foreground">
+                                   <span>Subtotal Productos:</span>
+                                   <span>HNL {itemsTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+                                
+                                {tradeInsTotal > 0 && (
+                                   <div className="flex justify-between text-green-600 font-medium">
+                                      <span>(-) Trade-In (Retoma):</span>
+                                      <span>HNL {tradeInsTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                   </div>
+                                )}
+                                
+                                {downPayment > 0 && (
+                                   <div className="flex justify-between text-green-600 font-medium">
+                                      <span>(-) Prima / Efectivo:</span>
+                                      <span>HNL {downPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                   </div>
+                                )}
+
+                                <div className="flex justify-between font-medium border-t border-dashed pt-1">
+                                   <span>Monto a Financiar:</span>
+                                   <span>HNL {financedAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+
+                                <div className="flex justify-between text-red-500">
+                                   <span>(+) Recargo ({Number(rate*100).toFixed(2)}%):</span>
+                                   <span>HNL {surcharge.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+
+                                <div className="flex justify-between font-bold border-t pt-1 mt-1">
+                                   <span>A Cobrar en POS:</span>
+                                   <span>HNL {(financedAmount + surcharge).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+
+                                {monthly > 0 && (
+                                  <div className="mt-3 bg-blue-50 p-3 rounded text-center border border-blue-100">
+                                     <div className="text-xs text-blue-600 uppercase font-bold tracking-wider">Cuota Mensual ({selectedMonths} meses)</div>
+                                     <div className="text-xl font-bold text-blue-700">HNL {monthly.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                  </div>
+                                )}
+                             </>
+                          )
+                       })()}
+                    </div>
+                 )}
+              </div>
+            )}
 
           <div className="space-y-2">
             <Label htmlFor="notas">Notas (opcional)</Label>

@@ -18,7 +18,13 @@ import type {
   TradeIn,
   CreateReturnRequest,
   Return,
-  IMEIHistory
+  IMEIHistory,
+  TrainingQueueItem,
+  Customer,
+  AIProfileConfig,
+  Bank,
+  FinancingOption,
+  TradeInPolicy
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -55,7 +61,13 @@ const STORAGE_KEYS = {
   PRODUCT_IMEIS: 'inventory-product-imeis',   // V2.0
   RETURNS: 'inventory-returns',               // V2.0
   RETURN_ITEMS: 'inventory-return-items',     // V2.0
-  IMEI_HISTORY: 'inventory-imei-history'      // V2.0
+  IMEI_HISTORY: 'inventory-imei-history',      // V2.0
+  TRAINING_QUEUE: 'inventory-training-queue', // V2.1
+  CUSTOMERS: 'inventory-customers',           // V2.1
+  AI_CONFIG: 'inventory-ai-config',           // V2.1
+  BANKS: 'inventory-banks',                   // V2.1
+  FINANCING_OPTIONS: 'inventory-financing-options', // V2.1
+  TRADE_IN_POLICIES: 'inventory-trade-in-policies' // V2.1
 }
 
 export class InventoryService {
@@ -379,6 +391,9 @@ export class InventoryService {
       if (!existingLocation) {
         throw new Error(`Location with ID ${request.source_location_id} not found.`)
       }
+      if (!existingLocation.activo) {
+        throw new Error(`Location ${existingLocation.nombre} is inactive.`)
+      }
 
       // V2.0: Permitir sales_profile_slug; mantener profile_slug para compatibilidad
       const profile = request.profile_slug ? profiles.find(p => p.slug === request.profile_slug) : undefined
@@ -391,11 +406,41 @@ export class InventoryService {
       }
 
       const phoneAsString = String(request.customer_phone || '').trim()
+      
+      // ✅ VALIDACIÓN DE TELÉFONO
+      const phoneRegex = /^[0-9\s\-+()]{7,20}$/
+      
       if (!phoneAsString) {
-        throw new Error('Customer phone number is required')
+        throw new Error('El número de teléfono es requerido')
+      }
+
+      if (!phoneRegex.test(phoneAsString)) {
+        throw new Error(
+          `Teléfono inválido: "${phoneAsString}". ` +
+          `Debe tener entre 7 y 20 caracteres (números, espacios, guiones, paréntesis, +)`
+        )
+      }
+      
+      const digitCount = (phoneAsString.match(/\d/g) || []).length
+      if (digitCount < 7) {
+        throw new Error(
+          `Teléfono debe contener al menos 7 dígitos. ` +
+          `Recibido: ${digitCount} dígitos`
+        )
       }
 
       for (const item of request.items) {
+        // ✅ VALIDACIÓN DE CANTIDAD
+        if (!item.cantidad || item.cantidad <= 0) {
+          throw new Error(`La cantidad debe ser mayor a 0 para el producto ID ${item.product_id}`)
+        }
+        if (item.cantidad > 9999) {
+          throw new Error(`La cantidad máxima por item es 9999.`)
+        }
+        if (!Number.isInteger(item.cantidad)) {
+          throw new Error(`La cantidad debe ser un número entero.`)
+        }
+
         const product = products.find(p => p.id === item.product_id && p.activo)
         if (!product) {
           throw new Error(`Product with id ${item.product_id} not found or inactive`)
@@ -416,6 +461,29 @@ export class InventoryService {
             `Insufficient stock for product "${product.nombre}" at location ${request.source_location_id}. Free: ${stockLibre}, Reserved: ${reservado}, Requested: ${item.cantidad}`
           )
         }
+      }
+
+      // ✅ VALIDACIÓN DE MÉTODO DE PAGO Y CANAL
+      const METODOS_PAGO_VALIDOS = ['efectivo', 'transferencia', 'tarjeta', 'financiamiento']
+      if (!request.metodo_pago || !METODOS_PAGO_VALIDOS.includes(request.metodo_pago)) {
+        throw new Error(
+          `Método de pago inválido: "${request.metodo_pago}". ` +
+          `Válidos: ${METODOS_PAGO_VALIDOS.join(', ')}`
+        )
+      }
+
+      const CANALES_VALIDOS = ['whatsapp', 'facebook', 'instagram']
+      if (!request.canal || !CANALES_VALIDOS.includes(request.canal)) {
+        throw new Error(
+          `Canal inválido: "${request.canal}". ` +
+          `Válidos: ${CANALES_VALIDOS.join(', ')}`
+        )
+      }
+
+      if (request.financing_data && request.metodo_pago !== 'financiamiento') {
+        throw new Error(
+          `Financiamiento solo es compatible con metodo_pago='financiamiento'.`
+        )
       }
 
       let total = 0
@@ -473,26 +541,18 @@ export class InventoryService {
               }
               
               // REGLA 1: Límite de descuento dinámico (5% normal, 2% con regalías)
-              const hasGifts = request.items.some(i => {
-                  // En request.items no viene es_regalo_promocion explícito a veces, 
-                  // pero si viniera, lo checamos. 
-                  // En la UI actual no se manda es_regalo_promocion en el request principal, 
-                  // pero asumiremos que si el precio es 0 es regalo.
-                  // O mejor, si implementamos la UI de regalos después.
-                  // Por ahora, usaremos 5% como base estricta.
-                  return false 
-              })
+              const hasGifts = request.items.some(i => i.es_regalo_promocion)
+              const MAX_DISCOUNT_PERCENT = hasGifts ? 0.02 : 0.05
               
-              // TODO: Detectar regalos en frontend request si se implementa UI de regalos
-              const MAX_DISCOUNT_PERCENT = 0.05 
               const minPriceAllowed = precioBaseLocal * (1 - MAX_DISCOUNT_PERCENT)
               
               if (precioFinal < minPriceAllowed) {
-                 throw new Error(`El bot no está autorizado a dar descuentos mayores al ${MAX_DISCOUNT_PERCENT*100}%. Precio mínimo: ${minPriceAllowed}`)
+                 throw new Error(`El bot no está autorizado a dar descuentos mayores al ${MAX_DISCOUNT_PERCENT*100}%${hasGifts ? ' (por incluir regalías)' : ''}. Precio mínimo: ${minPriceAllowed}`)
               }
 
               // REGLA 2: Números cerrados
-              if (precioFinal % 100 !== 0) {
+              const remainder = precioFinal % 100
+              if (Math.abs(remainder) > 0.01 && Math.abs(remainder - 100) > 0.01) {
                   throw new Error(`El bot solo puede negociar números cerrados (ej. 21500). Precio inválido: ${precioFinal}`)
               }
            }
@@ -507,7 +567,11 @@ export class InventoryService {
            }
         }
         
-        total += precioFinal * item.cantidad
+        const esRegalo = item.es_regalo_promocion === true || precioFinal === 0
+
+        if (!esRegalo) {
+          total += precioFinal * item.cantidad
+        }
 
         const stockEntry = updatedStock.find(
           s => s.product_id === item.product_id && s.location_id === request.source_location_id
@@ -531,6 +595,30 @@ export class InventoryService {
           let imeisToSell: ProductIMEI[] = []
 
           if (item.imeis && item.imeis.length > 0) {
+             // ✅ VALIDACIÓN DE IMEIS DUPLICADOS
+             for (const imeiStr of item.imeis) {
+               const alreadySold = updatedIMEIs.find(i => 
+                 i.imei === imeiStr && 
+                 i.product_id === item.product_id && 
+                 i.vendido
+               )
+               if (alreadySold) {
+                 throw new Error(
+                   `IMEI "${imeiStr}" ya fue vendido en orden #${alreadySold.order_id}.`
+                 )
+               }
+               const isInTransfer = updatedIMEIs.find(i =>
+                 i.imei === imeiStr &&
+                 i.product_id === item.product_id &&
+                 i.transfer_id
+               )
+               if (isInTransfer) {
+                 throw new Error(
+                   `IMEI "${imeiStr}" está reservado para transferencia #${isInTransfer.transfer_id}.`
+                 )
+               }
+             }
+
              // Use provided IMEIs
              if (item.imeis.length !== item.cantidad) {
                 throw new Error(`Mismatch between quantity and selected IMEIs for ${product.nombre}`)
@@ -600,7 +688,7 @@ export class InventoryService {
           product_id: item.product_id,
           cantidad: item.cantidad,
           precio_unitario: precioFinal,
-          es_regalo_promocion: false
+          es_regalo_promocion: esRegalo
         }
         newOrderItems.push(newOrderItem)
       }
@@ -617,7 +705,36 @@ export class InventoryService {
       // Any changes here must be reflected in the backend and vice-versa.
       // ⚠️ CRITICAL: KEEP IN SYNC WITH BACKEND LOGIC ⚠️
       if (request.trade_ins) {
+        // Load policies
+        const policies = await this.getTradeInPolicies()
+        const activePolicies = policies.filter(p => p.is_active)
+
         for (const tradeIn of request.trade_ins) {
+          // VALIDATION: Trade-In Condition
+          const validConditions = ['usado', 'dañado', 'para_repuestos', 'nuevo']
+          if (!validConditions.includes(tradeIn.condicion)) {
+             throw new Error(`Condición de trade-in inválida: ${tradeIn.condicion}. Permitidos: ${validConditions.join(', ')}`)
+          }
+
+          // VALIDATION: Policies (V2.1)
+          for (const policy of activePolicies) {
+             if (policy.rule_type === 'model_rejection' && tradeIn.modelo.toLowerCase().includes(policy.pattern.toLowerCase())) {
+                if (policy.action === 'reject') {
+                   throw new Error(`Trade-in rechazado por política: ${policy.reason || 'Modelo no aceptado'}`)
+                }
+             }
+             if (policy.rule_type === 'brand_rejection' && tradeIn.marca.toLowerCase().includes(policy.pattern.toLowerCase())) {
+                if (policy.action === 'reject') {
+                   throw new Error(`Trade-in rechazado por política: ${policy.reason || 'Marca no aceptada'}`)
+                }
+             }
+             if (policy.rule_type === 'condition_rejection' && tradeIn.condicion === policy.pattern) {
+                if (policy.action === 'reject') {
+                   throw new Error(`Trade-in rechazado por política: ${policy.reason || 'Condición no aceptada'}`)
+                }
+             }
+          }
+
           tradeInTotal += Number(tradeIn.valor_estimado) || 0
           newTradeIns.push({
             ...tradeIn,
@@ -632,6 +749,8 @@ export class InventoryService {
             p.marca === tradeIn.marca && 
             p.modelo === tradeIn.modelo && 
             p.condicion === tradeIn.condicion &&
+            (tradeIn.color ? p.color === tradeIn.color : true) &&
+            (tradeIn.capacidad ? p.capacidad === tradeIn.capacidad : true) &&
             p.activo
           )
 
@@ -654,64 +773,43 @@ export class InventoryService {
                 id: nextProductId,
                 profile_id: profile?.id,
                 sku: newSku,
-                nombre: `RETOMA: ${tradeIn.marca} ${tradeIn.modelo}`,
-                categoria: tradeIn.imei ? 'celular' : 'accesorio',
+               nombre: `RETOMA: ${tradeIn.marca} ${tradeIn.modelo}`,
+                categoria: 'pendiente_revision', // V2.2 Match backend logic
                 marca: tradeIn.marca,
                 modelo: tradeIn.modelo,
+               color: tradeIn.color,
+               capacidad: tradeIn.capacidad,
                 condicion: tradeIn.condicion as any,
                 precio: tradeIn.precio_venta ? Number(tradeIn.precio_venta) : Number(tradeIn.valor_estimado) * 1.3,
                 costo: Number(tradeIn.valor_estimado),
                 moneda: 'HNL',
-                activo: true,
+               activo: false, // V2.2 Match backend logic (requires review)
                 garantia_meses: 0,
-                is_serialized: !!tradeIn.imei,
-                capacidad: ''
+               is_serialized: true
              }
              tradeInProducts.push(newProduct)
           }
 
-          // 2. Crear o Actualizar Stock
-          // Check if we already have a stock entry for this product in the current transaction (tradeInStock)
-          let stockEntry = tradeInStock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
+          // 2. Crear o Actualizar Stock (SYNC con backend)
+          // Buscar en updatedStock (puede contener cambios previos de este mismo loop)
+          let stockEntry = updatedStock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
+          const stockAnterior = stockEntry?.cantidad_disponible || 0
           
-          // If not in current transaction, check existing stock
-          if (!stockEntry) {
-             const existingStock = stock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
-             if (existingStock) {
-                // Clone it to avoid mutating original array directly before commit
-                stockEntry = { ...existingStock }
-                // Remove from original stock array in memory to avoid duplicates when merging later? 
-                // Actually, we should just update the existing one in `stock` array, but here we are building `tradeInStock` list.
-                // Let's just use `tradeInStock` for NEW entries, and update `stock` directly for existing ones.
-                
-                // Better approach: Update `updatedStock` directly
-                const updatedStockEntry = updatedStock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)
-                if (updatedStockEntry) {
-                   updatedStockEntry.cantidad_disponible += 1
-                } else {
-                   // Should not happen if we found it in `stock`
-                }
-             } else {
-                // Create new stock entry
-                const nextStockId = Math.max(0, ...stock.map(s => s.id), ...tradeInStock.map(s => s.id)) + 1
-                stockEntry = {
-                    id: nextStockId,
-                    product_id: newProduct.id,
-                    location_id: request.source_location_id,
-                    cantidad_disponible: 1,
-                    cantidad_reservada: 0
-                }
-                tradeInStock.push(stockEntry)
-             }
+          if (stockEntry) {
+            // Actualizar cantidad disponible
+            stockEntry.cantidad_disponible += 1
           } else {
-             // Already added to tradeInStock in this loop (multiple trade-ins of same new product)
-             stockEntry.cantidad_disponible += 1
+            // Crear nueva entrada de stock
+            const nextStockId = Math.max(0, ...updatedStock.map(s => s.id)) + 1
+            stockEntry = {
+              id: nextStockId,
+              product_id: newProduct.id,
+              location_id: request.source_location_id,
+              cantidad_disponible: 1,
+              cantidad_reservada: 0
+            }
+            updatedStock.push(stockEntry)
           }
-          
-          // Calculate previous stock for history
-          const stockAnterior = isNewProduct ? 0 : (
-             stock.find(s => s.product_id === newProduct.id && s.location_id === request.source_location_id)?.cantidad_disponible || 0
-          )
 
           // 3. Registrar IMEI
           if (tradeIn.imei) {
@@ -771,7 +869,55 @@ export class InventoryService {
         }
       }
 
+      // Aplicar retomas
       total = Math.max(0, total - tradeInTotal)
+
+      // Financiamiento (SYNC con backend).
+      let financingDetailsString: string | undefined
+      if (request.financing_data) {
+        const downPayment = Number(request.financing_data.down_payment || 0)
+        const amountToFinance = Math.max(0, total - downPayment)
+        const months = request.financing_data.months || 0
+        const bankId = request.financing_data.bank_id
+
+        // Load banks to get real rates
+        const banks = await this.getBanks(true)
+        const bank = banks.find(b => b.id === bankId)
+        
+        if (!bank) {
+           throw new Error(`Banco con ID ${bankId} no encontrado o inactivo`)
+        }
+
+        let rate = bank.normal_card_rate || 0.04 // Default fallback
+        let bankName = bank.name
+
+        if (months > 0) {
+           const option = bank.financing_options.find(o => o.months === months && o.active)
+           if (!option) {
+              throw new Error(`Opción de financiamiento de ${months} meses no encontrada para ${bank.name}`)
+           }
+           rate = option.rate
+        }
+        
+        const surcharge = amountToFinance * rate
+        const totalWithSurcharge = amountToFinance + surcharge
+        const monthlyPayment = months > 0 ? totalWithSurcharge / months : totalWithSurcharge
+
+        // Total final = prima + (monto a financiar + recargo)
+        total = downPayment + totalWithSurcharge
+
+        financingDetailsString = JSON.stringify({
+          bank_id: bankId,
+          bank_name: bankName,
+          months,
+          rate: Number(rate.toFixed(4)),
+          surcharge: Number(surcharge.toFixed(2)),
+          monthly_payment: Number(monthlyPayment.toFixed(2)),
+          original_total: Number((total + tradeInTotal).toFixed(2)),
+          down_payment: downPayment,
+          financed_amount: Number(amountToFinance.toFixed(2))
+        })
+      }
 
       const newOrder: Order = {
         id: newOrderId,
@@ -783,6 +929,7 @@ export class InventoryService {
         canal: request.canal,
         metodo_pago: request.metodo_pago,
         total,
+        financing_details: financingDetailsString,
         estado: 'pendiente',
         created_at: new Date().toISOString(),
         notas: request.notas,
@@ -939,6 +1086,112 @@ export class InventoryService {
     }
   }
 
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
+    const release = await inventoryLock.acquire()
+    try {
+      const [orders, orderItems, stock, imeis, stockHistory] = await Promise.all([
+        this.loadOrders(),
+        this.getOrderItems(),
+        this.getStock(),
+        this.loadProductIMEIs(),
+        this.loadStockHistory()
+      ])
+
+      const orderIndex = orders.findIndex(o => o.id === orderId)
+      if (orderIndex === -1) {
+        throw new Error(`Order with id ${orderId} not found`)
+      }
+
+      const order = orders[orderIndex]
+      if (order.estado === 'cancelada') {
+        throw new Error('Order is already cancelled')
+      }
+
+      const items = orderItems.filter(oi => oi.order_id === orderId)
+      const locationId = order.source_location_id
+
+      if (!locationId) {
+         console.warn(`Order ${orderId} has no source_location_id. Stock restoration might be inaccurate.`)
+      }
+
+      // 1. Restore Stock
+      for (const item of items) {
+        // Determine location (fallback to first available if legacy)
+        let targetLocationId = locationId
+        if (!targetLocationId) {
+           // Try to find where stock exists for this product
+           const stockEntry = stock.find(s => s.product_id === item.product_id && s.cantidad_disponible > 0)
+           targetLocationId = stockEntry?.location_id
+        }
+
+        if (targetLocationId) {
+            const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === targetLocationId)
+            if (stockEntry) {
+                const stockAnterior = stockEntry.cantidad_disponible
+                stockEntry.cantidad_disponible += item.cantidad
+                
+                // Record History
+                stockHistory.push({
+                    id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+                    product_id: item.product_id,
+                    location_id: targetLocationId,
+                    tipo_cambio: 'devolucion', 
+                    cantidad: item.cantidad,
+                    stock_anterior: stockAnterior,
+                    stock_nuevo: stockEntry.cantidad_disponible,
+                    referencia_id: orderId,
+                    referencia_tipo: 'order_cancelled',
+                    notas: `Cancelación de orden #${orderId}: ${reason || 'Sin razón'}`,
+                    usuario: 'Sistema Local',
+                    created_at: new Date().toISOString()
+                })
+            } else {
+                console.error(`Stock entry not found for product ${item.product_id} at location ${targetLocationId}`)
+            }
+        }
+      }
+
+      // 2. Release IMEIs
+      for (let i = 0; i < imeis.length; i++) {
+        if (imeis[i].order_id === orderId && imeis[i].vendido) {
+            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+        }
+      }
+
+      // 3. Update Order Status
+      orders[orderIndex] = {
+        ...order,
+        estado: 'cancelada',
+        notes: reason ? (order.notes ? `${order.notes}\nCancelación: ${reason}` : `Cancelación: ${reason}`) : order.notes,
+        updated_at: new Date().toISOString()
+      }
+
+      // 4. Save All
+      await this.setOrders(orders)
+      await this.setStock(stock)
+      await this.setProductIMEIs(imeis)
+      await this.setStockHistory(stockHistory)
+
+      // 5. Return updated order
+      // We need to release the lock before calling fetchOrders because fetchOrders might try to acquire it?
+      // No, fetchOrders calls loadOrders which uses getKV, which is fine.
+      // But fetchOrders is public and doesn't acquire lock.
+      
+    } catch (error) {
+      console.error('Error cancelling order:', error)
+      throw error instanceof Error ? error : new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
+    }
+
+    // Fetch updated order outside the lock to avoid potential issues if fetchOrders grew complex
+    return this.fetchOrders().then(orders => {
+        const found = orders.find(o => o.id === orderId)
+        if (!found) throw new Error('Order not found after update')
+        return found
+    })
+  }
+
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']
@@ -982,9 +1235,11 @@ export class InventoryService {
         product_id: number
         cantidad: number
         imeis?: string[]
+        es_regalo_promocion?: boolean
       }>
     }
   ): Promise<OrderWithItems> {
+    const release = await inventoryLock.acquire()
     try {
       const [orders, orderItems, products, stock, imeis, stockHistory] = await Promise.all([
         this.loadOrders(),
@@ -1001,6 +1256,32 @@ export class InventoryService {
       }
 
       const currentOrder = orders[orderIndex]
+      
+      // VALIDATION: Phone Format
+      if (updates.customer_phone) {
+        const phoneRegex = /^\+?[0-9]{8,15}$/
+        const phoneAsString = String(updates.customer_phone).trim()
+        if (!phoneRegex.test(phoneAsString)) {
+          throw new Error('El número de teléfono debe tener entre 8 y 15 dígitos.')
+        }
+      }
+
+      // VALIDATION: Payment Method
+      if (updates.metodo_pago) {
+        const validPaymentMethods = ['efectivo', 'transferencia', 'tarjeta', 'financiamiento']
+        if (!validPaymentMethods.includes(updates.metodo_pago)) {
+          throw new Error(`Método de pago inválido: ${updates.metodo_pago}`)
+        }
+      }
+
+      // VALIDATION: Channel
+      if (updates.canal) {
+        const validChannels = ['whatsapp', 'facebook', 'instagram']
+        if (!validChannels.includes(updates.canal)) {
+          throw new Error(`Canal inválido: ${updates.canal}`)
+        }
+      }
+
       const currentItems = orderItems.filter(oi => oi.order_id === orderId)
       const locationId = currentOrder.source_location_id
       if (!locationId) {
@@ -1008,6 +1289,19 @@ export class InventoryService {
       }
 
       if (updates.items) {
+        // VALIDATION: Items Quantity
+        for (const item of updates.items) {
+           if (item.cantidad <= 0) {
+             throw new Error(`La cantidad para el producto ID ${item.product_id} debe ser mayor a 0.`)
+           }
+           if (item.cantidad > 9999) {
+             throw new Error(`La cantidad para el producto ID ${item.product_id} no puede exceder 9999.`)
+           }
+           if (!Number.isInteger(item.cantidad)) {
+             throw new Error(`La cantidad para el producto ID ${item.product_id} debe ser un número entero.`)
+           }
+        }
+
         // 1. Restaurar stock de los items actuales
         for (const item of currentItems) {
           const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === locationId)
@@ -1091,7 +1385,10 @@ export class InventoryService {
           if (!product) {
             throw new Error(`Product with id ${item.product_id} not found`)
           }
-          total += product.precio * item.cantidad
+          const esRegalo = item.es_regalo_promocion === true
+          if (!esRegalo) {
+            total += product.precio * item.cantidad
+          }
 
           const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === locationId)
           if (!stockEntry) {
@@ -1135,7 +1432,7 @@ export class InventoryService {
             product_id: item.product_id,
             cantidad: item.cantidad,
             precio_unitario: product.precio,
-            es_regalo_promocion: false,
+            es_regalo_promocion: esRegalo,
             imeis: item.imeis // Guardar IMEIs en el item para referencia local si es soportado
           }
           newOrderItems.push(newOrderItem)
@@ -1178,10 +1475,13 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async addProduct(product: Omit<Product, 'id'>, initialStock: number, locationId?: number): Promise<ProductWithStock> {
+    const release = await inventoryLock.acquire()
     try {
       const [products, stock, locations, stockHistory] = await Promise.all([
         this.loadProducts(),
@@ -1197,6 +1497,12 @@ export class InventoryService {
       const locationExists = locations.some(l => l.id === locationId)
       if (!locationExists) {
         throw new Error(`Location ${locationId} not found; cannot assign initial stock`)
+      }
+
+      // V2.0 FIX: Validar que SKU no sea duplicado
+      const skuLower = (product.sku || '').toLowerCase().trim()
+      if (skuLower && products.some(p => p.sku && p.sku.toLowerCase() === skuLower)) {
+        throw new Error(`SKU '${product.sku}' ya existe. Los SKUs deben ser únicos.`)
       }
 
       const newProduct: Product = {
@@ -1241,6 +1547,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error adding product:', error)
       throw new Error(`Failed to add product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -1255,6 +1563,7 @@ export class InventoryService {
   }
 
   async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
+    const release = await inventoryLock.acquire()
     try {
       // 🔒 Validar cantidad >= 0 (Bug #29 fix)
       if (cantidad < 0) {
@@ -1322,10 +1631,13 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async updateProduct(productId: number, updates: Partial<ProductWithStock>): Promise<ProductWithStock> {
+    const release = await inventoryLock.acquire()
     try {
       const products = await this.loadProducts()
       const productIndex = products.findIndex(p => p.id === productId)
@@ -1343,21 +1655,21 @@ export class InventoryService {
 
       await this.setProducts(products)
 
+      // V2.0 FIX: Do NOT update stock implicitly from updateProduct.
+      // Stock updates must be explicit via updateStock with locationId.
       if (stock_disponible !== undefined) {
-        const stockList = await this.getStock()
-        const targetStock = stockList.find(s => s.product_id === productId)
-        if (!targetStock || !targetStock.location_id) {
-          throw new Error('No stock record found for this product. Use updateStock with a valid location first.')
-        }
-        await this.updateStock(productId, stock_disponible, targetStock.location_id)
+         console.warn('updateProduct: stock_disponible ignored in V2.0. Use updateStock(productId, quantity, locationId) instead.')
       }
 
       const stock = await this.getStock()
-      const stockEntry = stock.find(s => s.product_id === productId)
+      // Calculate total stock across all locations for the return value
+      const totalStock = stock
+        .filter(s => s.product_id === productId)
+        .reduce((sum, s) => sum + s.cantidad_disponible, 0)
 
       return {
         ...products[productIndex],
-        stock_disponible: stockEntry?.cantidad_disponible || 0
+        stock_disponible: totalStock
       }
     } catch (error) {
       console.error('Error updating product:', error)
@@ -1365,10 +1677,13 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async deleteProduct(productId: number): Promise<void> {
+    const release = await inventoryLock.acquire()
     try {
       const [products, stock, orderItems] = await Promise.all([
         this.loadProducts(),
@@ -1396,15 +1711,20 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async deleteOrder(orderId: number): Promise<void> {
+    const release = await inventoryLock.acquire()
     try {
-      const [orders, orderItems, stock] = await Promise.all([
+      const [orders, orderItems, stock, productIMEIs, stockHistory] = await Promise.all([
         this.loadOrders(),
         this.getOrderItems(),
-        this.getStock()
+        this.getStock(),
+        this.loadProductIMEIs(),
+        this.loadStockHistory()
       ])
 
       const order = orders.find(o => o.id === orderId)
@@ -1419,13 +1739,52 @@ export class InventoryService {
 
       const itemsToRestore = orderItems.filter(item => item.order_id === orderId)
       const updatedStock = [...stock]
+      const updatedIMEIs = [...productIMEIs]
+      const newStockHistory: StockHistory[] = []
       
       for (const item of itemsToRestore) {
         const stockItem = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
         if (!stockItem) {
           throw new Error(`No se encontró stock para el producto ${item.product_id} en la ubicación ${locationId} al eliminar la orden`)
         }
+        
+        const stockAnterior = stockItem.cantidad_disponible
         stockItem.cantidad_disponible += item.cantidad
+        
+        // Registrar en historial de stock (reversión)
+        newStockHistory.push({
+          id: Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id)) + 1,
+          product_id: item.product_id,
+          location_id: locationId,
+          tipo_cambio: 'reversa_venta',
+          cantidad: item.cantidad,
+          stock_anterior: stockAnterior,
+          stock_nuevo: stockItem.cantidad_disponible,
+          referencia_id: orderId,
+          referencia_tipo: 'order_deleted',
+          notas: `Reversión de orden #${orderId} eliminada`,
+          usuario: 'Sistema Local',
+          created_at: new Date().toISOString()
+        })
+        
+        // Liberar IMEIs vendidos en esta orden (marcar como no vendidos)
+        if (item.imeis && item.imeis.length > 0) {
+          for (const imeiStr of item.imeis) {
+            const imeiIndex = updatedIMEIs.findIndex(i => 
+              i.imei === imeiStr && 
+              i.product_id === item.product_id && 
+              i.vendido && 
+              i.order_id === orderId
+            )
+            if (imeiIndex !== -1) {
+              updatedIMEIs[imeiIndex] = {
+                ...updatedIMEIs[imeiIndex],
+                vendido: false,
+                order_id: undefined
+              }
+            }
+          }
+        }
       }
 
       const updatedOrders = orders.filter(o => o.id !== orderId)
@@ -1434,7 +1793,9 @@ export class InventoryService {
       await Promise.all([
         this.setOrders(updatedOrders),
         this.setOrderItems(updatedOrderItems),
-        this.setStock(updatedStock)
+        this.setStock(updatedStock),
+        this.setProductIMEIs(updatedIMEIs),
+        this.setStockHistory([...stockHistory, ...newStockHistory])
       ])
     } catch (error) {
       console.error('Error deleting order:', error)
@@ -1442,10 +1803,13 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
+    const release = await inventoryLock.acquire()
     try {
       const [products, stock, locations] = await Promise.all([
         this.loadProducts(),
@@ -1483,7 +1847,7 @@ export class InventoryService {
           capacidad: productFields.capacidad || '',
           condicion: productFields.condicion!,
           precio: productFields.precio!,
-          moneda: productFields.moneda || 'HNL',
+          moneda: 'Lps', // Force Lps
           garantia_meses: productFields.garantia_meses || 0,
           activo: productFields.activo ?? true
         }
@@ -1521,6 +1885,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error bulk creating products:', error)
       throw new Error(`Failed to bulk create products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -1578,7 +1944,24 @@ export class InventoryService {
   }
 
   async getLocations(): Promise<Location[]> {
-    return this.loadLocations()
+    const locations = await this.loadLocations()
+    if (locations.length === 0) {
+      const now = new Date().toISOString()
+      // BUG #4: Auto-create default location in local mode to ensure V2.0 flows work without manual setup
+      const newLocation = {
+        id: 1,
+        nombre: 'Ubicación Principal',
+        tipo: 'tienda',
+        direccion: 'Por definir',
+        telefono: '',
+        activo: true,
+        created_at: now,
+        updated_at: now
+      }
+      await this.setLocations([newLocation])
+      return [newLocation]
+    }
+    return locations
   }
 
   async getLocation(id: number): Promise<Location> {
@@ -1693,9 +2076,11 @@ export class InventoryService {
 
       const fromLocation = locations.find(l => l.id === request.from_location_id)
       if (!fromLocation) throw new Error(`Source location ${request.from_location_id} not found`)
+      if (!fromLocation.activo) throw new Error(`Source location ${fromLocation.nombre} is inactive`)
 
       const toLocation = locations.find(l => l.id === request.to_location_id)
       if (!toLocation) throw new Error(`Destination location ${request.to_location_id} not found`)
+      if (!toLocation.activo) throw new Error(`Destination location ${toLocation.nombre} is inactive`)
 
       const stockEntry = stock.find(s => s.product_id === request.product_id && s.location_id === request.from_location_id)
       if (!stockEntry) throw new Error(`No stock entry for product ${request.product_id} at location ${request.from_location_id}`)
@@ -1821,7 +2206,7 @@ export class InventoryService {
     }
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
     try {
       const [transfers, stock, productIMEIs, imeiHistory, stockHistory] = await Promise.all([
         this.loadStockTransfers(),
@@ -1836,6 +2221,29 @@ export class InventoryService {
       
       const transfer = transfers[transferIndex]
       if (transfer.estado !== 'pendiente') throw new Error(`Transfer ${id} is not pending`)
+
+      // V2.0: Validate IMEIs if provided
+      const imeisEnTransito = productIMEIs.filter(pi => pi.transfer_id === id)
+      
+      if (imeisEnTransito.length > 0) {
+          if (scannedImeis && scannedImeis.length > 0) {
+              // Verify all scanned IMEIs are in the transfer
+              const transferImeiSet = new Set(imeisEnTransito.map(pi => pi.imei))
+              for (const scanned of scannedImeis) {
+                  if (!transferImeiSet.has(scanned)) {
+                      throw new Error(`IMEI ${scanned} no es parte de esta transferencia`)
+                  }
+              }
+              
+              // Verify all transfer IMEIs are scanned
+              if (scannedImeis.length !== imeisEnTransito.length) {
+                   throw new Error(`Debe escanear todos los IMEIs (${imeisEnTransito.length}) para confirmar`)
+              }
+          } else {
+              // If serialized (has imeis in transfer) and no scanned imeis provided
+              throw new Error("Este producto es serializado. Debe escanear los IMEIs recibidos para confirmar la transferencia.")
+          }
+      }
 
       // Update stock
       const fromStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.from_location_id)
@@ -2073,6 +2481,73 @@ export class InventoryService {
     return suppliers.filter(s => s.activo)
   }
 
+  private async setSuppliers(suppliers: Supplier[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.SUPPLIERS, suppliers)
+    } catch (error) {
+      console.error('Error saving suppliers:', error)
+      throw new Error(`Failed to save suppliers: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createSupplier(supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>): Promise<Supplier> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const nextId = suppliers.length > 0 ? Math.max(...suppliers.map(s => s.id)) + 1 : 1
+      
+      const now = new Date().toISOString()
+      const newSupplier: Supplier = {
+        ...supplier,
+        id: nextId,
+        created_at: now,
+        updated_at: now
+      }
+
+      await this.setSuppliers([...suppliers, newSupplier])
+      return newSupplier
+    } catch (error) {
+      console.error('Error creating supplier:', error)
+      throw new Error(`Failed to create supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateSupplier(id: number, updates: Partial<Supplier>): Promise<Supplier> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const index = suppliers.findIndex(s => s.id === id)
+      
+      if (index === -1) {
+        throw new Error(`Supplier with ID ${id} not found`)
+      }
+
+      const updatedSupplier: Supplier = {
+        ...suppliers[index],
+        ...updates,
+        id,
+        updated_at: new Date().toISOString()
+      }
+
+      suppliers[index] = updatedSupplier
+      await this.setSuppliers(suppliers)
+      return updatedSupplier
+    } catch (error) {
+      console.error('Error updating supplier:', error)
+      throw new Error(`Failed to update supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    try {
+      const suppliers = await this.loadSuppliers()
+      const filtered = suppliers.filter(s => s.id !== id)
+      await this.setSuppliers(filtered)
+    } catch (error) {
+      console.error('Error deleting supplier:', error)
+      throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   // ============================================================================
   // V2.0: SALES PROFILES (Perfiles de Ventas)
   // ============================================================================
@@ -2236,23 +2711,32 @@ export class InventoryService {
 
           const stockEntry = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
           
+          const isDefective = item.condition === 'defectuoso'
+          const stockField: 'cantidad_disponible' | 'cantidad_defectuosa' = isDefective
+            ? 'cantidad_defectuosa'
+            : 'cantidad_disponible'
+
+          let stockAnterior = 0
+          let stockNuevo = item.quantity
+
           if (stockEntry) {
-            // Solo reingresar al stock disponible si NO es defectuoso
-            if (item.condition !== 'defectuoso') {
-              stockEntry.cantidad_disponible += item.quantity
-            }
+            stockAnterior = stockEntry[stockField] || 0
+            stockEntry[stockField] = (stockEntry[stockField] || 0) + item.quantity
+            stockNuevo = stockEntry[stockField]
           } else {
             const nextStockId = Math.max(0, ...updatedStock.map(s => s.id)) + 1
-            updatedStock.push({
+            const newEntry: Stock = {
               id: nextStockId,
               product_id: item.product_id,
               location_id: locationId,
-              cantidad_disponible: item.condition !== 'defectuoso' ? item.quantity : 0,
-              cantidad_reservada: 0
-            })
+              cantidad_disponible: isDefective ? 0 : item.quantity,
+              cantidad_reservada: 0,
+              cantidad_defectuosa: isDefective ? item.quantity : 0
+            }
+            updatedStock.push(newEntry)
+            stockNuevo = newEntry[stockField]
           }
 
-          // Add history
           const nextHistoryId = Math.max(0, ...newStockHistory.map(h => h.id)) + 1
           newStockHistory.push({
             id: nextHistoryId,
@@ -2260,8 +2744,8 @@ export class InventoryService {
             location_id: locationId,
             tipo_cambio: 'devolucion',
             cantidad: item.quantity,
-            stock_anterior: stockEntry ? stockEntry.cantidad_disponible - item.quantity : 0,
-            stock_nuevo: stockEntry ? stockEntry.cantidad_disponible : item.quantity,
+            stock_anterior: stockAnterior,
+            stock_nuevo: stockNuevo,
             referencia_id: nextReturnId,
             referencia_tipo: 'return',
             notas: `Devolución orden #${order.id}: ${item.condition}`,
@@ -2315,6 +2799,275 @@ export class InventoryService {
     } catch (error) {
       console.error('Error getting IMEI history:', error)
       return []
+    }
+  }
+
+  // --- AI & Customer Methods (V2.1) ---
+
+  async listTrainingQueue(status: string = 'pending'): Promise<TrainingQueueItem[]> {
+    try {
+      const kv = getKV()
+      const items = await kv.get<TrainingQueueItem[]>(STORAGE_KEYS.TRAINING_QUEUE) || []
+      return items.filter(i => i.status === status).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    } catch (error) {
+      console.error('Error listing training queue:', error)
+      return []
+    }
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem> {
+    try {
+      const kv = getKV()
+      const items = await kv.get<TrainingQueueItem[]>(STORAGE_KEYS.TRAINING_QUEUE) || []
+      const index = items.findIndex(i => i.id === id)
+      if (index === -1) throw new Error(`Training queue item ${id} not found`)
+      
+      const updatedItem = { ...items[index], ...updates }
+      items[index] = updatedItem
+      await kv.set(STORAGE_KEYS.TRAINING_QUEUE, items)
+      return updatedItem
+    } catch (error) {
+      console.error('Error updating training queue item:', error)
+      throw error
+    }
+  }
+
+  async getCustomers(): Promise<Customer[]> {
+    try {
+      const kv = getKV()
+      return await kv.get<Customer[]>(STORAGE_KEYS.CUSTOMERS) || []
+    } catch (error) {
+      console.error('Error getting customers:', error)
+      return []
+    }
+  }
+
+  async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
+    try {
+      const kv = getKV()
+      const customers = await kv.get<Customer[]>(STORAGE_KEYS.CUSTOMERS) || []
+      const index = customers.findIndex(c => c.id === id)
+      if (index === -1) throw new Error(`Customer ${id} not found`)
+      
+      const updatedCustomer = { ...customers[index], ...updates }
+      customers[index] = updatedCustomer
+      await kv.set(STORAGE_KEYS.CUSTOMERS, customers)
+      return updatedCustomer
+    } catch (error) {
+      console.error('Error updating customer:', error)
+      throw error
+    }
+  }
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    try {
+      const kv = getKV()
+      const configs = await kv.get<AIProfileConfig[]>(STORAGE_KEYS.AI_CONFIG) || []
+      return configs.find(c => c.sales_profile_id === salesProfileId) || null
+    } catch (error) {
+      console.error('Error getting AI config:', error)
+      return null
+    }
+  }
+
+  async updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    try {
+      const kv = getKV()
+      const configs = await kv.get<AIProfileConfig[]>(STORAGE_KEYS.AI_CONFIG) || []
+      const index = configs.findIndex(c => c.id === id)
+      
+      if (index === -1) {
+        // Create if not exists
+        const newConfig: AIProfileConfig = {
+            id: Math.max(0, ...configs.map(c => c.id || 0)) + 1,
+            sales_profile_id: updates.sales_profile_id!,
+            model_name: updates.model_name || 'gpt-4o',
+            temperature: updates.temperature || 0.7,
+            system_prompt: updates.system_prompt || '',
+            is_active: updates.is_active ?? true,
+            ...updates
+        } as AIProfileConfig
+        configs.push(newConfig)
+        await kv.set(STORAGE_KEYS.AI_CONFIG, configs)
+        return newConfig
+      }
+      
+      const updatedConfig = { ...configs[index], ...updates }
+      configs[index] = updatedConfig
+      await kv.set(STORAGE_KEYS.AI_CONFIG, configs)
+      return updatedConfig
+    } catch (error) {
+      console.error('Error updating AI config:', error)
+      throw error
+    }
+  }
+
+  // ============================================================================
+  // V2.1: FINANCING (Financiamiento)
+  // ============================================================================
+
+  async getBanks(activeOnly: boolean = true): Promise<Bank[]> {
+    try {
+      const kv = getKV()
+      const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
+      if (activeOnly) {
+        return banks.filter(b => b.active)
+      }
+      return banks
+    } catch (error) {
+      console.error('Error getting banks:', error)
+      return []
+    }
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    try {
+      const kv = getKV()
+      const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
+      const nextId = banks.length > 0 ? Math.max(...banks.map(b => b.id)) + 1 : 1
+      
+      const newBank: Bank = {
+        id: nextId,
+        name: bank.name || 'Nuevo Banco',
+        active: bank.active ?? true,
+        normal_card_rate: bank.normal_card_rate || 0.04,
+        financing_options: []
+      }
+
+      await kv.set(STORAGE_KEYS.BANKS, [...banks, newBank])
+      return newBank
+    } catch (error) {
+      console.error('Error creating bank:', error)
+      throw error
+    }
+  }
+
+  async updateBank(id: number, updates: Partial<Bank>): Promise<Bank> {
+    try {
+      const kv = getKV()
+      const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
+      const index = banks.findIndex(b => b.id === id)
+      
+      if (index === -1) {
+        throw new Error(`Bank with ID ${id} not found`)
+      }
+
+      const updatedBank = { ...banks[index], ...updates }
+      banks[index] = updatedBank
+      await kv.set(STORAGE_KEYS.BANKS, banks)
+      return updatedBank
+    } catch (error) {
+      console.error('Error updating bank:', error)
+      throw error
+    }
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    try {
+      const kv = getKV()
+      const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
+      const bankIndex = banks.findIndex(b => b.id === bankId)
+      
+      if (bankIndex === -1) {
+        throw new Error(`Bank with ID ${bankId} not found`)
+      }
+
+      // Calculate next global ID
+      let maxId = 0
+      for (const b of banks) {
+        for (const o of b.financing_options) {
+          if (o.id > maxId) maxId = o.id
+        }
+      }
+      const nextId = maxId + 1
+
+      const newOption: FinancingOption = {
+        id: nextId,
+        bank_id: bankId,
+        months: option.months || 0,
+        rate: option.rate || 0,
+        active: option.active ?? true
+      }
+
+      banks[bankIndex].financing_options.push(newOption)
+      await kv.set(STORAGE_KEYS.BANKS, banks)
+      return newOption
+    } catch (error) {
+      console.error('Error creating financing option:', error)
+      throw error
+    }
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    try {
+      const kv = getKV()
+      const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
+      
+      let found = false
+      for (let i = 0; i < banks.length; i++) {
+        const bank = banks[i]
+        const optionIndex = bank.financing_options.findIndex(o => o.id === optionId)
+        if (optionIndex !== -1) {
+          bank.financing_options.splice(optionIndex, 1)
+          found = true
+          break 
+        }
+      }
+
+      if (!found) {
+         console.warn(`Financing option ${optionId} not found to delete`)
+      }
+
+      await kv.set(STORAGE_KEYS.BANKS, banks)
+    } catch (error) {
+      console.error('Error deleting financing option:', error)
+      throw error
+    }
+  }
+
+  // ============================================================================
+  // V2.1: TRADE-IN POLICIES
+  // ============================================================================
+
+  async getTradeInPolicies(): Promise<TradeInPolicy[]> {
+    try {
+      const kv = getKV()
+      return await kv.get<TradeInPolicy[]>(STORAGE_KEYS.TRADE_IN_POLICIES) || []
+    } catch (error) {
+      console.error('Error getting trade-in policies:', error)
+      return []
+    }
+  }
+
+  async createTradeInPolicy(policy: Omit<TradeInPolicy, 'id' | 'created_at'>): Promise<TradeInPolicy> {
+    try {
+      const kv = getKV()
+      const policies = await kv.get<TradeInPolicy[]>(STORAGE_KEYS.TRADE_IN_POLICIES) || []
+      const nextId = policies.length > 0 ? Math.max(...policies.map(p => p.id)) + 1 : 1
+      
+      const newPolicy: TradeInPolicy = {
+        ...policy,
+        id: nextId,
+        created_at: new Date().toISOString()
+      }
+
+      await kv.set(STORAGE_KEYS.TRADE_IN_POLICIES, [...policies, newPolicy])
+      return newPolicy
+    } catch (error) {
+      console.error('Error creating trade-in policy:', error)
+      throw error
+    }
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    try {
+      const kv = getKV()
+      const policies = await kv.get<TradeInPolicy[]>(STORAGE_KEYS.TRADE_IN_POLICIES) || []
+      const filtered = policies.filter(p => p.id !== id)
+      await kv.set(STORAGE_KEYS.TRADE_IN_POLICIES, filtered)
+    } catch (error) {
+      console.error('Error deleting trade-in policy:', error)
+      throw error
     }
   }
 }

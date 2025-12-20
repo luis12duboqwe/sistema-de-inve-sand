@@ -22,6 +22,7 @@ import {
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { Profile, Product, Supplier, Location } from '@/lib/types'
 import { toast } from 'sonner'
+import { calculateLuhnCheckDigit } from '@/lib/utils'
 
 // Datos predeterminados para celulares
 const MARCAS_CELULAR = [
@@ -164,7 +165,7 @@ export function NewProductDialog({
     } else {
       setAvailableColors(COLORES_GENERICOS)
     }
-  }, [modelo, modeloOtro])
+  }, [modelo, modeloOtro, color])
 
   // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
@@ -230,7 +231,7 @@ export function NewProductDialog({
         setSku(skuGenerado)
       }
     }
-  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
+  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color, colorOtro])
 
   // Auto-generar nombre del producto
   useEffect(() => {
@@ -252,7 +253,7 @@ export function NewProductDialog({
         setNombre(nombreGenerado)
       }
     }
-  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
+  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color, colorOtro])
 
   const resetForm = () => {
     setSku('')
@@ -298,9 +299,25 @@ export function NewProductDialog({
   }, [stockInicial])
 
   const handleImeiChange = (index: number, value: string) => {
+    // Solo permitir números
+    const cleanValue = value.replace(/\D/g, '')
+    
+    let finalValue = cleanValue
+    
+    // Auto-completar dígito 15 si hay 14
+    if (cleanValue.length === 14) {
+      try {
+        const checkDigit = calculateLuhnCheckDigit(cleanValue)
+        finalValue = cleanValue + checkDigit
+        toast.success(`Dígito verificador generado: ${checkDigit}`)
+      } catch {
+        // Ignorar error
+      }
+    }
+
     setImeis(prev => {
       const newImeis = [...prev]
-      newImeis[index] = value
+      newImeis[index] = finalValue
       return newImeis
     })
   }

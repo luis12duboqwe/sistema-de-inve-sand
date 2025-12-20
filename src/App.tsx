@@ -134,7 +134,8 @@ function MainApp() {
       if (token && storedUser) {
         try {
           setCurrentUser(JSON.parse(storedUser))
-        } catch (e) {
+        } catch (error) {
+          console.error('Error parsing auth_user from storage', error)
           setShowLoginDialog(true)
         }
       } else {
@@ -151,7 +152,7 @@ function MainApp() {
     }
   }, [currentUser])
 
-  const handleLoginSuccess = (user: User, token: string) => {
+  const handleLoginSuccess = (user: User, _token: string) => {
     console.log('✅ Login Success:', user)
     setCurrentUser(user)
     localStorage.setItem('auth_user', JSON.stringify(user))
@@ -270,8 +271,17 @@ function MainApp() {
     
     try {
       markSyncStart()
-      const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
-      setProducts(updatedProducts)
+      if (useAPI) {
+        // En modo API, eliminar en el backend para evitar deriva de estado
+        for (const productId of selectedProducts) {
+          await service.deleteProduct(productId)
+        }
+        const refreshed = await inventoryServiceInstance.getProducts()
+        setProducts(refreshed)
+      } else {
+        const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
+        setProducts(updatedProducts)
+      }
       toast.success(`${selectedProducts.size} productos eliminados`)
       setSelectedProducts(new Set())
       setBulkActionMode(false)
@@ -286,10 +296,21 @@ function MainApp() {
     if (selectedProducts.size === 0) return
     
     try {
-      const updatedProducts = (products ?? []).map(p =>
-        selectedProducts.has(p.id) ? { ...p, activo: !p.activo } : p
-      )
-      setProducts(updatedProducts)
+      if (useAPI) {
+        // Sin endpoint bulk: actualizar uno por uno para mantener consistencia
+        for (const product of products ?? []) {
+          if (selectedProducts.has(product.id)) {
+            await service.updateProduct(product.id, { activo: !product.activo })
+          }
+        }
+        const refreshed = await inventoryServiceInstance.getProducts()
+        setProducts(refreshed)
+      } else {
+        const updatedProducts = (products ?? []).map(p =>
+          selectedProducts.has(p.id) ? { ...p, activo: !p.activo } : p
+        )
+        setProducts(updatedProducts)
+      }
       toast.success(`Estado actualizado para ${selectedProducts.size} productos`)
       setSelectedProducts(new Set())
       setBulkActionMode(false)
@@ -303,10 +324,18 @@ function MainApp() {
     if (selectedOrders.size === 0) return
     
     try {
-      const updatedOrders = (orders ?? []).map(o =>
-        selectedOrders.has(o.id) ? { ...o, estado: newStatus } : o
-      )
-      setOrders(updatedOrders)
+      if (useAPI) {
+        for (const orderId of selectedOrders) {
+          await service.updateOrderStatus(orderId, newStatus)
+        }
+        const refreshed = await inventoryServiceInstance.getOrders()
+        setOrders(refreshed)
+      } else {
+        const updatedOrders = (orders ?? []).map(o =>
+          selectedOrders.has(o.id) ? { ...o, estado: newStatus } : o
+        )
+        setOrders(updatedOrders)
+      }
       toast.success(`${selectedOrders.size} órdenes actualizadas a ${newStatus}`)
       setSelectedOrders(new Set())
       setBulkActionMode(false)
@@ -320,8 +349,16 @@ function MainApp() {
     if (selectedOrders.size === 0) return
     
     try {
-      const updatedOrders = (orders ?? []).filter(o => !selectedOrders.has(o.id))
-      setOrders(updatedOrders)
+      if (useAPI) {
+        for (const orderId of selectedOrders) {
+          await service.deleteOrder(orderId)
+        }
+        const refreshed = await inventoryServiceInstance.getOrders()
+        setOrders(refreshed)
+      } else {
+        const updatedOrders = (orders ?? []).filter(o => !selectedOrders.has(o.id))
+        setOrders(updatedOrders)
+      }
       toast.success(`${selectedOrders.size} órdenes eliminadas`)
       setSelectedOrders(new Set())
       setBulkActionMode(false)
@@ -1404,7 +1441,40 @@ function MainApp() {
                         setShowCustomerHistory(true)
                       }}
                       onExportPDF={(order) => {
-                        const profile = (profiles ?? []).find(p => p.id === order.profile_id)
+                        // V2.0 FIX: Soporte para órdenes sin perfil legacy (basadas en ubicación)
+                        let profile = (profiles ?? []).find(p => p.id === order.profile_id)
+                        
+                        if (!profile && order.source_location_id) {
+                          const location = (locations ?? []).find(l => l.id === order.source_location_id)
+                          if (location) {
+                            // Construir perfil temporal basado en la ubicación
+                            profile = {
+                              id: 0,
+                              slug: `location-${location.id}`,
+                              name: location.nombre,
+                              type: 'tienda',
+                              theme: { primary: '#4f46e5', secondary: '#ffffff' },
+                              settings: {
+                                address: location.direccion || '',
+                                phone: '',
+                                footer_text: 'Gracias por su preferencia'
+                              }
+                            } as any
+                          }
+                        }
+
+                        // Fallback final
+                        if (!profile) {
+                           profile = {
+                              id: 0,
+                              slug: 'default',
+                              name: 'Mi Negocio',
+                              type: 'tienda',
+                              theme: { primary: '#4f46e5', secondary: '#ffffff' },
+                              settings: {}
+                           } as any
+                        }
+
                         if (profile) {
                           generateOrderPDF(order, profile)
                         }

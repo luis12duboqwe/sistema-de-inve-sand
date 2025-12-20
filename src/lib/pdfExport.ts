@@ -310,6 +310,82 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
       </tbody>
     </table>
   </div>
+
+  ${order.trade_ins && order.trade_ins.length > 0 ? `
+    <div class="section">
+      <h2 class="section-title">Retomas (Trade-In)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Dispositivo Recibido</th>
+            <th style="text-align: center;">Condición</th>
+            <th style="text-align: right;">Valor Estimado</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.trade_ins.map(trade => `
+            <tr>
+              <td>
+                <div class="product-name">${trade.marca} ${trade.modelo}</div>
+                <div class="product-details">
+                  ${trade.color || ''} ${trade.capacidad || ''}
+                  ${trade.imei ? `• IMEI: ${trade.imei}` : ''}
+                </div>
+              </td>
+              <td style="text-align: center; text-transform: capitalize;">${trade.condicion}</td>
+              <td style="text-align: right; color: #dc2626;">- ${formatCurrency(trade.valor_estimado, profile.settings?.currency || 'USD')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  ` : ''}
+
+  ${order.financing_details ? (() => {
+    try {
+      let details;
+      if (typeof order.financing_details === 'string') {
+        details = JSON.parse(order.financing_details);
+      } else {
+        details = order.financing_details;
+      }
+
+      return `
+        <div class="section">
+          <h2 class="section-title">Detalles de Financiamiento</h2>
+          <div class="customer-info" style="background: #f9fafb; padding: 15px; border-radius: 8px;">
+            <div class="info-row">
+              <span class="info-label">Banco</span>
+              <span class="info-value">${details.bank_name || 'N/A'}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Plazo</span>
+              <span class="info-value">${details.months > 0 ? `${details.months} meses` : 'Contado'}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Prima (Down Payment)</span>
+              <span class="info-value">${formatCurrency(details.down_payment || 0, profile.settings?.currency || 'USD')}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Monto a Financiar</span>
+              <span class="info-value">${formatCurrency(details.financed_amount || 0, profile.settings?.currency || 'USD')}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Recargo Bancario (${((details.rate || 0) * 100).toFixed(1)}%)</span>
+              <span class="info-value text-orange-600">+ ${formatCurrency(details.surcharge || 0, profile.settings?.currency || 'USD')}</span>
+            </div>
+            <div class="info-row" style="border-top: 1px solid #e5e7eb; margin-top: 8px; padding-top: 8px;">
+              <span class="info-label" style="font-weight: 700;">Cuota Mensual</span>
+              <span class="info-value" style="font-weight: 700; font-size: 1.1em;">${formatCurrency(details.monthly_payment || 0, profile.settings?.currency || 'USD')}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (e) { 
+      console.error('Error parsing financing details for PDF:', e);
+      return `<div class="section"><p style="color: red;">Error al cargar detalles de financiamiento</p></div>`; 
+    }
+  })() : ''}
   
   ${order.notas ? `
     <div class="notes">
@@ -320,20 +396,59 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
   
   <div class="total-section">
     <div class="total-box">
-      ${profile.settings?.autoCalculateTax && profile.settings?.taxRate ? `
-        <div class="total-row">
-          <span>Subtotal</span>
-          <span>${formatCurrency(order.total / (1 + profile.settings.taxRate / 100), profile.settings?.currency || 'USD')}</span>
-        </div>
-        <div class="total-row">
-          <span>Impuesto (${profile.settings.taxRate}%)</span>
-          <span>${formatCurrency(order.total - (order.total / (1 + profile.settings.taxRate / 100)), profile.settings?.currency || 'USD')}</span>
-        </div>
-      ` : ''}
-      <div class="total-row final">
-        <span>Total</span>
-        <span>${formatCurrency(order.total, profile.settings?.currency || 'USD')}</span>
-      </div>
+      ${(() => {
+        // Calcular subtotales para mostrar desglose claro
+        const subtotalItems = order.items.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
+        const totalTradeIns = order.trade_ins ? order.trade_ins.reduce((sum, t) => sum + t.valor_estimado, 0) : 0;
+        let surcharge = 0;
+        
+        if (order.financing_details) {
+          try {
+            let d;
+            if (typeof order.financing_details === 'string') {
+              d = JSON.parse(order.financing_details);
+            } else {
+              d = order.financing_details;
+            }
+            surcharge = d.surcharge || 0;
+          } catch (e) {
+            console.error('Error parseando financing_details en pdfExport', e);
+          }
+        }
+
+        return `
+          <div class="total-row">
+            <span>Subtotal Productos</span>
+            <span>${formatCurrency(subtotalItems, profile.settings?.currency || 'USD')}</span>
+          </div>
+          
+          ${totalTradeIns > 0 ? `
+            <div class="total-row" style="color: #dc2626;">
+              <span>(-) Retomas / Trade-In</span>
+              <span>- ${formatCurrency(totalTradeIns, profile.settings?.currency || 'USD')}</span>
+            </div>
+          ` : ''}
+          
+          ${surcharge > 0 ? `
+            <div class="total-row" style="color: #d97706;">
+              <span>(+) Recargo Financiero</span>
+              <span>+ ${formatCurrency(surcharge, profile.settings?.currency || 'USD')}</span>
+            </div>
+          ` : ''}
+
+          ${profile.settings?.autoCalculateTax && profile.settings?.taxRate ? `
+            <div class="total-row">
+              <span>Impuesto (${profile.settings.taxRate}%)</span>
+              <span>${formatCurrency(order.total - (order.total / (1 + profile.settings.taxRate / 100)), profile.settings?.currency || 'USD')}</span>
+            </div>
+          ` : ''}
+          
+          <div class="total-row final">
+            <span>Total a Pagar</span>
+            <span>${formatCurrency(order.total, profile.settings?.currency || 'USD')}</span>
+          </div>
+        `;
+      })()}
     </div>
   </div>
   

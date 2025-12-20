@@ -75,14 +75,28 @@ def search_faq_entries(
         raise HTTPException(status_code=400, detail="El parámetro 'query' no puede estar vacío")
 
     try:
-        search_term = f"%{query.strip().lower()}%"
+        # V2.1: Búsqueda inteligente de FAQs
+        # 1. Filtrar stop words
+        stop_words = {'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'pero', 'si', 'no', 'en', 'a', 'de', 'del', 'al', 'con', 'por', 'para', 'es', 'son', 'que', 'como', 'cuando', 'donde', 'quien', 'cual', 'cuanto', 'cuantos', 'tengo', 'tienes', 'tiene', 'hay', 'hacer', 'puedo', 'puedes', 'puede', 'soy', 'eres', 'esta', 'estan', 'estamos', 'ser', 'estar', 'haber', 'tener', 'hola', 'buenos', 'dias', 'tardes', 'noches'}
+        
+        keywords = [w.lower() for w in query.split() if len(w) > 2 and w.lower() not in stop_words]
+        
+        if not keywords:
+            # Fallback si todo eran stop words
+            keywords = [query.strip().lower()]
+
+        # 2. Construir condiciones OR (basta que coincida una palabra clave importante)
+        conditions = []
+        for k in keywords:
+            term = f"%{k}%"
+            conditions.append(func.lower(FAQEntry.pregunta_clave).like(term))
+            conditions.append(func.lower(FAQEntry.ejemplo_pregunta_cliente).like(term))
+            # Opcional: buscar en respuesta también, pero puede dar falsos positivos
+            # conditions.append(func.lower(FAQEntry.respuesta).like(term))
 
         results = db.query(FAQEntry).filter(
             FAQEntry.activa == True,
-            or_(
-                func.lower(FAQEntry.pregunta_clave).like(search_term),
-                func.lower(FAQEntry.ejemplo_pregunta_cliente).like(search_term)
-            )
+            or_(*conditions)
         ).order_by(FAQEntry.veces_usada.desc(), FAQEntry.created_at.desc()).limit(limit).all()
 
         for faq in results:

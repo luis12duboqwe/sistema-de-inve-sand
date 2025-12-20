@@ -31,7 +31,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    # Evitar "*" + credenciales (riesgo CORS). La API usa Authorization header,
+    # no cookies, así que no se requieren credenciales.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -54,13 +56,6 @@ app.include_router(financing.router)
 app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
 
-@app.get("/api/health", tags=["Health"])
-def health_check():
-    """
-    Health check endpoint to verify backend connectivity.
-    """
-    return {"status": "ok", "version": "2.0.0"}
-
 @app.get("/")
 def read_root():
     """
@@ -71,7 +66,7 @@ def read_root():
     """
     return {
         "message": "Sistema de Inventario API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs"
     }
 

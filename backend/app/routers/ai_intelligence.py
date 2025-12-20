@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from app.database import get_db
@@ -55,8 +55,7 @@ class AIConfigSchema(BaseModel):
     is_active: bool = True
     admin_notification_phone: Optional[str] = None  # Nuevo campo
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Endpoints ---
 
@@ -110,10 +109,23 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     
     # 2. Obtener Configuración de IA
     ai_config = db.query(AIProfileConfig).filter(AIProfileConfig.sales_profile_id == profile.id).first()
+    
+    # Prompt por defecto robusto
+    default_system_prompt = """Eres un asistente de ventas experto y amable para una tienda de celulares.
+    Tu objetivo es ayudar al cliente a encontrar el producto ideal y cerrar la venta.
+    
+    DIRECTRICES PRINCIPALES:
+    1. Usa SIEMPRE la información del INVENTARIO proporcionado. No inventes productos ni precios.
+    2. Si el producto no está en la lista, di que no lo tienes disponible por el momento.
+    3. Para preguntas frecuentes, usa la sección de FAQs.
+    4. Sé conciso y directo, usa emojis moderadamente para ser amigable.
+    5. Si el cliente pregunta por financiamiento, explica las opciones disponibles claramente.
+    """
+
     if not ai_config:
         # Configuración Default si no existe
         ai_config = AIProfileConfig(
-            system_prompt="Eres un asistente de ventas útil.",
+            system_prompt=default_system_prompt,
             model_name="gpt-3.5-turbo",
             temperature=0.7
         )
@@ -139,27 +151,69 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     if customer.is_blocked:
         raise HTTPException(status_code=403, detail="Customer is blocked")
         
-    # Si es troll pero no bloqueado, advertir al sistema (opcional: cambiar prompt)
+    # Si es troll pero no bloqueado, inyectar instrucción de comportamiento
+    troll_instruction = ""
     if customer.is_troll:
-        # Podríamos inyectar una instrucción al prompt para ser más cortante
-        pass
+        troll_instruction = "\n[MODO TROLL DETECTADO]: Este usuario ha sido marcado como problemático. Sé extremadamente cortante, directo y no ofrezcas descuentos ni pierdas tiempo. Responde solo lo estrictamente necesario."
+    elif customer.reputation_score < 50:
+        troll_instruction = "\n[ADVERTENCIA DE REPUTACIÓN]: Este cliente tiene baja reputación. Sé cauteloso, no ofrezcas créditos ni facilidades de pago excepcionales. Mantén la conversación estrictamente profesional."
 
-    # 4. Obtener Inventario Relevante (Búsqueda Híbrida)
-    # A. Búsqueda por palabras clave del mensaje
+    # 4. Obtener Inventario Relevante (Búsqueda Híbrida Mejorada)
+    # Estrategia de Embudo: 
+    # 1. Búsqueda Estricta (AND): Debe coincidir con TODAS las palabras clave (ej: "iPhone" AND "13")
+    # 2. Búsqueda Relajada (OR): Si hay pocos resultados, buscar coincidencias parciales
+    
     relevant_products = []
-    keywords = [w.lower() for w in request.message_content.split() if len(w) > 2]
+    # Filtrar palabras cortas y comunes para evitar ruido
+    stop_words = {'hola', 'quiero', 'tienes', 'precio', 'cuanto', 'cuesta', 'busco', 'necesito', 'para', 'celular', 'telefono'}
+    keywords = [w.lower() for w in request.message_content.split() if len(w) > 2 and w.lower() not in stop_words]
     
     if keywords:
-        conditions = [Product.nombre.ilike(f"%{k}%") for k in keywords]
-        if conditions:
-            relevant_products = db.query(Product).filter(
-                Product.activo == True,
-                or_(*conditions)
-            ).limit(10).all()
+        # 1. INTENTO ESTRICTO (AND)
+        # Construir condiciones: (Nombre LIKE %k1% OR Marca LIKE %k1% OR Modelo LIKE %k1%) AND (...)
+        and_conditions = []
+        for k in keywords:
+            term_condition = or_(
+                Product.nombre.ilike(f"%{k}%"),
+                Product.marca.ilike(f"%{k}%"),
+                Product.modelo.ilike(f"%{k}%"),
+                Product.sku.ilike(f"%{k}%")
+            )
+            and_conditions.append(term_condition)
             
-    # B. Rellenar con Top Stock (lo más vendido/disponible)
+        relevant_products = db.query(Product).options(
+            joinedload(Product.stock_items).joinedload(Stock.location)
+        ).filter(
+            Product.activo == True,
+            *and_conditions
+        ).limit(10).all()
+        
+        # 2. INTENTO RELAJADO (OR) - Relleno si hay pocos resultados
+        if len(relevant_products) < 5:
+            existing_ids = [p.id for p in relevant_products]
+            
+            # Aplanar condiciones para un OR gigante
+            or_conditions = []
+            for k in keywords:
+                or_conditions.append(Product.nombre.ilike(f"%{k}%"))
+                or_conditions.append(Product.modelo.ilike(f"%{k}%"))
+            
+            more_products = db.query(Product).options(
+                joinedload(Product.stock_items).joinedload(Stock.location)
+            ).filter(
+                Product.activo == True,
+                Product.id.notin_(existing_ids),
+                or_(*or_conditions)
+            ).limit(10 - len(relevant_products)).all()
+            
+            relevant_products.extend(more_products)
+            
+    # B. Rellenar con Top Stock (lo más vendido/disponible) si aún faltan
     if len(relevant_products) < 10:
-        top_products = db.query(Product).filter(Product.activo == True).limit(20).all()
+        # Optimización: Cargar relaciones para evitar N+1
+        top_products = db.query(Product).options(
+            joinedload(Product.stock_items).joinedload(Stock.location)
+        ).filter(Product.activo == True).limit(20).all()
         # Ordenar por stock total (en Python porque es propiedad computada o relación)
         # Nota: Para eficiencia real, esto debería ser una query SQL con join, pero por ahora:
         top_products.sort(key=lambda p: sum(s.cantidad_disponible for s in p.stock_items), reverse=True)
@@ -171,18 +225,28 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     inventory_text = "INVENTARIO DISPONIBLE (Ubicación: ID):\n"
     for p in relevant_products:
         stock_details = []
-        total_stock = 0
-        for s in p.stock_items:
-            if s.cantidad_disponible > 0:
+        total_stock_real = 0
+        
+        # Ordenar stock items para mostrar primero los que tienen más stock
+        # (Esto se hace en memoria porque ya se cargaron con joinedload)
+        sorted_stock = sorted(p.stock_items, key=lambda s: (s.cantidad_disponible - s.cantidad_reservada), reverse=True)
+        
+        for s in sorted_stock:
+            # CÁLCULO DE STOCK REAL: Disponible - Reservado
+            stock_libre = (s.cantidad_disponible or 0) - (s.cantidad_reservada or 0)
+            
+            if stock_libre > 0:
                 # Intentar obtener nombre de ubicación de forma segura
                 loc_name = s.location.nombre if s.location else f"Ubicación {s.location_id}"
-                stock_details.append(f"{s.cantidad_disponible} en {loc_name} (ID:{s.location_id})")
-                total_stock += s.cantidad_disponible
+                stock_details.append(f"{stock_libre} en {loc_name} (ID:{s.location_id})")
+                total_stock_real += stock_libre
         
-        if total_stock > 0:
+        if total_stock_real > 0:
             details_str = ", ".join(stock_details)
             color_info = f" Color: {p.color}" if p.color else ""
-            inventory_text += f"- {p.nombre} ({p.capacidad or ''}){color_info}: {p.moneda} {p.precio} | Total: {total_stock} [{details_str}]\n"
+            # Formato de precio mejorado
+            precio_fmt = f"{p.precio:,.2f}"
+            inventory_text += f"- {p.nombre} ({p.capacidad or ''}){color_info}: {p.moneda} {precio_fmt} | Disp: {total_stock_real} [{details_str}]\n"
             
     # 5. Obtener FAQs Relevantes
     # Estrategia Híbrida: Palabras clave + Recientes + Populares
@@ -237,6 +301,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
                     financing_text += f"  * {opt.months} Meses: {opt_rate_pct:.2f}% recargo total\n"
     
     financing_text += "\nNOTA PARA EL BOT: Para calcular cuota mensual: (Precio + (Precio * %Recargo)) / Meses.\n"
+    financing_text += "EJEMPLO: Precio 10,000, Recargo 5% (0.05), 12 Meses -> (10000 + 500) / 12 = 875 mensual.\n"
     financing_text += "Si el cliente paga prima, restar prima antes de calcular recargo.\n"
 
     # --- PROTOCOLO DE RETOMAS (TRADE-IN) ---
@@ -278,15 +343,20 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     financing_text += "6. Si paga la diferencia con TARJETA/FINANCIAMIENTO: El recargo se aplica SOLO a la Diferencia a Pagar.\n"
     financing_text += "   Fórmula: (Diferencia + (Diferencia * %Recargo)) / Meses.\n"
 
-    # 7. Historial Reciente (Últimos 5 mensajes)
+    # 7. Historial Reciente (Últimos 10 mensajes)
     recent_logs = db.query(InteractionLog).filter(
         InteractionLog.customer_id == customer.id
-    ).order_by(InteractionLog.created_at.desc()).limit(5).all()
+    ).order_by(InteractionLog.created_at.desc()).limit(10).all()
     
     context_history = [{"role": log.role, "content": log.content} for log in reversed(recent_logs)]
 
+    # Combinar prompt del sistema con instrucción troll si aplica
+    final_system_prompt = ai_config.system_prompt
+    if troll_instruction:
+        final_system_prompt += troll_instruction
+
     return AIContextResponse(
-        system_prompt=ai_config.system_prompt,
+        system_prompt=final_system_prompt,
         bot_config={
             "model": ai_config.model_name,
             "temperature": ai_config.temperature,
@@ -467,6 +537,42 @@ def create_trade_in_policy(policy: TradeInPolicyCreate, db: Session = Depends(ge
     new_policy = TradeInPolicy(**policy.dict())
     db.add(new_policy)
     db.commit()
+    db.refresh(new_policy)
+    return new_policy
+
+@router.delete("/trade-in-policies/{policy_id}")
+def delete_trade_in_policy(policy_id: int, db: Session = Depends(get_db)):
+    """Elimina una política de retoma"""
+    policy = db.query(TradeInPolicy).filter(TradeInPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    db.delete(policy)
+    db.commit()
+    return {"status": "deleted"}
+
+class LinkOrderRequest(BaseModel):
+    customer_phone: str
+    order_id: int
+
+@router.post("/link-order")
+def link_order_to_interaction(request: LinkOrderRequest, db: Session = Depends(get_db)):
+    """Vincula la última interacción de un cliente con una orden creada (Atribución de Venta)"""
+    customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+        
+    # Buscar la última interacción del cliente
+    last_interaction = db.query(InteractionLog).filter(
+        InteractionLog.customer_id == customer.id
+    ).order_by(InteractionLog.created_at.desc()).first()
+    
+    if last_interaction:
+        last_interaction.converted_order_id = request.order_id
+        db.commit()
+        return {"status": "linked", "interaction_id": last_interaction.id}
+        
+    return {"status": "no_interaction_found"}
     db.refresh(new_policy)
     return new_policy
 

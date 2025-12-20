@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import List, Optional, Generic, TypeVar
 from datetime import datetime, date
 from decimal import Decimal
@@ -105,8 +105,7 @@ class PermissionBase(BaseModel):
 
 class PermissionResponse(PermissionBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RoleBase(BaseModel):
     name: str
@@ -119,8 +118,7 @@ class RoleResponse(RoleBase):
     id: int
     is_system_role: bool
     permissions: List[PermissionResponse]
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class UserBase(BaseModel):
     username: str
@@ -162,8 +160,7 @@ class UserResponse(UserBase):
     role: Optional[RoleResponse] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -180,8 +177,7 @@ class LocationResponse(LocationBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= SALES PROFILE SCHEMAS =============
@@ -212,8 +208,7 @@ class SalesProfileResponse(SalesProfileBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= STOCK BY LOCATION SCHEMAS =============
@@ -238,8 +233,7 @@ class StockByLocationResponse(StockByLocationBase):
     id: int
     location: Optional[LocationResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileBase(BaseModel):
@@ -254,8 +248,7 @@ class ProfileCreate(ProfileBase):
 class ProfileResponse(ProfileBase):
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileUpdate(BaseModel):
@@ -296,8 +289,7 @@ class SupplierResponse(SupplierBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= IMEI SCHEMAS =============
@@ -320,8 +312,8 @@ class ProductBase(BaseModel):
     capacidad: Optional[str] = None
     condicion: CondicionEnum
     precio: Decimal = Field(..., gt=0, le=1000000, description="Precio debe ser mayor a 0 y menor a 1,000,000")
-    costo: Decimal = Field(0, ge=0, description="Costo del producto")
-    moneda: str = "HNL"
+    costo: Decimal = Field(Decimal("0.00"), ge=0, description="Costo del producto")
+    moneda: str = "Lps"
     garantia_meses: int = Field(0, ge=0, le=120, description="Garantía en meses debe ser entre 0 y 120 (10 años)")
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool = True
@@ -352,9 +344,7 @@ class ProductCreate(ProductBase):
             raise ValueError('El stock inicial máximo permitido es 100,000 unidades. Verifique el valor.')
         return v
 
-    model_config = {
-        "populate_by_name": True
-    }
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ProductUpdate(BaseModel):
@@ -377,8 +367,7 @@ class ProductUpdate(BaseModel):
     imei: Optional[str] = None
     imeis: Optional[List[str]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StockUpdate(BaseModel):
@@ -408,8 +397,7 @@ class ProductResponse(BaseModel):
     stock_disponible: int
     stock_items: Optional[List[StockByLocationResponse]] = None  # V2.0: Stock por ubicación
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
@@ -436,8 +424,7 @@ class OrderItemResponse(BaseModel):
     product: ProductResponse
     imeis: Optional[List[str]] = None  # V2.0: IMEIs vendidos en este item
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderItemUpdate(BaseModel):
@@ -494,8 +481,7 @@ class TradeInResponse(BaseModel):
     valor_estimado: Decimal
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderCreate(BaseModel):
     profile_slug: Optional[str] = None  # LEGACY: Compatibilidad con V1, usar sales_profile_slug en su lugar
@@ -551,8 +537,7 @@ class OrderResponse(BaseModel):
     items: List[OrderItemResponse]
     trade_ins: Optional[List[TradeInResponse]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderListResponse(BaseModel):
     id: int
@@ -569,8 +554,7 @@ class OrderListResponse(BaseModel):
     delivery_date: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderStatusUpdate(BaseModel):
@@ -636,8 +620,7 @@ class FAQEntryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Stock History Schemas
@@ -664,8 +647,7 @@ class StockHistoryResponse(StockHistoryBase):
     id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Pagination schema
@@ -820,8 +802,7 @@ class StockTransferResponse(BaseModel):
     from_profile_name: Optional[str] = None
     to_profile_name: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StockTransferConfirm(BaseModel):
@@ -859,8 +840,7 @@ class ReturnItemResponse(BaseModel):
     action: str
     imei: Optional[str]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ReturnResponse(BaseModel):
     id: int
@@ -871,8 +851,7 @@ class ReturnResponse(BaseModel):
     created_by: Optional[str]
     items: List[ReturnItemResponse]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class IMEIHistoryResponse(BaseModel):
     id: int
@@ -888,8 +867,7 @@ class IMEIHistoryResponse(BaseModel):
     product_name: Optional[str] = None
     location_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= FINANCING SCHEMAS =============
@@ -906,8 +884,7 @@ class FinancingOptionResponse(FinancingOptionBase):
     id: int
     bank_id: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class BankBase(BaseModel):
     name: str = Field(..., min_length=1)
@@ -926,8 +903,7 @@ class BankResponse(BankBase):
     id: int
     financing_options: List[FinancingOptionResponse] = []
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Trade-In Policies
@@ -945,6 +921,5 @@ class TradeInPolicyResponse(TradeInPolicyBase):
     id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 

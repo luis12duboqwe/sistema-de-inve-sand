@@ -145,6 +145,7 @@ export interface StockByLocation {
   location_id: number
   cantidad_disponible: number
   cantidad_reservada: number  // V2.0: Stock reservado en transferencias pendientes
+  cantidad_defectuosa?: number // V2.0: Stock defectuoso/merma
   stock_libre?: number  // Computed: cantidad_disponible - cantidad_reservada
   location?: Location
 }
@@ -180,6 +181,7 @@ export interface Stock {
   location_id?: number
   cantidad_disponible: number
   cantidad_reservada?: number
+  cantidad_defectuosa?: number // V2.0: Stock defectuoso/merma
 }
 
 export interface Order {
@@ -192,6 +194,7 @@ export interface Order {
   canal: 'whatsapp' | 'facebook' | 'instagram'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
   total: number
+  financing_details?: string // JSON con datos de financiamiento (V2.1)
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
   notes?: string
@@ -251,6 +254,7 @@ export interface CreateOrderRequest {
     cantidad: number
     imeis?: string[]
     precio_unitario?: number
+    es_regalo_promocion?: boolean // V2.1: Regalos/promos no suman al total
   }[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
   notes?: string
