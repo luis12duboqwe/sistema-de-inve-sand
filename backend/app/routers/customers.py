@@ -4,9 +4,10 @@ from sqlalchemy import func, case, desc, distinct
 from typing import List, Optional
 from decimal import Decimal
 from app.database import get_db
-from app.models import Order, Profile, SalesProfile
+from app.models import Order, Profile, SalesProfile, Customer, User
 from app.schemas import CustomerStats, CustomerHistory, OrderListResponse
 from app.routers.orders import _serialize_order
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -16,7 +17,8 @@ def list_customers(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Lista clientes únicos con sus estadísticas básicas.
@@ -66,12 +68,21 @@ def list_customers(
     offset = (page - 1) * per_page
     results = query.offset(offset).limit(per_page).all()
     
+    # Fetch AI Customer data
+    phones = [row.customer_phone for row in results]
+    ai_customers = {}
+    if phones:
+        customers_db = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
+        ai_customers = {c.phone_number: c for c in customers_db}
+    
     # Transform results to schema
     response = []
     for row in results:
         # row is a KeyedTuple
         total_spent = row.total_spent or Decimal("0.00")
         completed_count = row.completed_orders_count or 0
+        
+        ai_data = ai_customers.get(row.customer_phone)
         
         response.append(CustomerStats(
             customer_phone=row.customer_phone,
@@ -80,7 +91,13 @@ def list_customers(
             total_spent=total_spent,
             average_order=total_spent / completed_count if completed_count > 0 else Decimal("0.00"),
             first_order_date=row.first_order_date,
-            last_order_date=row.last_order_date
+            last_order_date=row.last_order_date,
+            # AI Fields
+            id=ai_data.id if ai_data else None,
+            is_troll=ai_data.is_troll if ai_data else False,
+            is_blocked=ai_data.is_blocked if ai_data else False,
+            reputation_score=ai_data.reputation_score if ai_data else 100,
+            daily_message_count=ai_data.daily_message_count if ai_data else 0
         ))
     
     return response
@@ -90,7 +107,8 @@ def list_customers(
 def get_customer_stats(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Obtiene estadísticas de un cliente específico por su teléfono.
@@ -133,6 +151,9 @@ def get_customer_stats(
     completed_orders = [o for o in orders if o.estado != 'cancelada']
     total_spent = sum(o.total for o in completed_orders)
     
+    # Fetch AI Customer data
+    ai_data = db.query(Customer).filter(Customer.phone_number == customer_phone).first()
+    
     return CustomerStats(
         customer_phone=customer_phone,
         customer_name=orders[0].customer_name,
@@ -140,7 +161,13 @@ def get_customer_stats(
         total_spent=total_spent,
         average_order=total_spent / len(completed_orders) if completed_orders else Decimal("0.00"),
         first_order_date=min(o.created_at for o in orders),
-        last_order_date=max(o.created_at for o in orders)
+        last_order_date=max(o.created_at for o in orders),
+        # AI Fields
+        id=ai_data.id if ai_data else None,
+        is_troll=ai_data.is_troll if ai_data else False,
+        is_blocked=ai_data.is_blocked if ai_data else False,
+        reputation_score=ai_data.reputation_score if ai_data else 100,
+        daily_message_count=ai_data.daily_message_count if ai_data else 0
     )
 
 
@@ -148,7 +175,8 @@ def get_customer_stats(
 def get_customer_history(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Obtiene el historial completo de órdenes de un cliente.
@@ -191,6 +219,9 @@ def get_customer_history(
     completed_orders = [o for o in orders if o.estado != 'cancelada']
     total_spent = sum(o.total for o in completed_orders)
     
+    # Fetch AI Customer data
+    ai_data = db.query(Customer).filter(Customer.phone_number == customer_phone).first()
+    
     return CustomerHistory(
         customer_phone=customer_phone,
         customer_name=orders[0].customer_name,
@@ -199,6 +230,12 @@ def get_customer_history(
         average_order=total_spent / len(completed_orders) if completed_orders else Decimal("0.00"),
         first_order_date=min(o.created_at for o in orders),
         last_order_date=max(o.created_at for o in orders),
+        # AI Fields
+        id=ai_data.id if ai_data else None,
+        is_troll=ai_data.is_troll if ai_data else False,
+        is_blocked=ai_data.is_blocked if ai_data else False,
+        reputation_score=ai_data.reputation_score if ai_data else 100,
+        daily_message_count=ai_data.daily_message_count if ai_data else 0,
         orders=[OrderListResponse(
             id=o.id,
             profile_id=o.profile_id,

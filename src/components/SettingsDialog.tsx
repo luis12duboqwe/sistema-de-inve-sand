@@ -16,6 +16,7 @@ import { useKV } from '@/hooks/use-kv'
 import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { clearAllData } from '@/lib/dataInitializer'
+import { syncService } from '@/lib/syncService'
 import { toast } from 'sonner'
 import { ManageUsersDialog } from '@/components/ManageUsersDialog'
 
@@ -87,6 +88,24 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
       toast.success('Base de datos inicializada con datos de prueba')
     } catch {
       toast.error('Error al inicializar base de datos')
+    }
+  }
+
+  const handleSyncLocalToRemote = async () => {
+    if (!useApi) {
+      toast.error('Debe activar el modo API primero')
+      return
+    }
+    
+    const toastId = toast.loading('Sincronizando datos locales a la nube...')
+    try {
+      const result = await syncService.syncLocalToRemote()
+      toast.dismiss(toastId)
+      toast.success(`Sincronización completada: ${result.counts.products} productos, ${result.counts.locations} ubicaciones`)
+    } catch (error) {
+      toast.dismiss(toastId)
+      toast.error('Error durante la sincronización')
+      console.error(error)
     }
   }
 
@@ -259,6 +278,24 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
                   size="sm"
                 >
                   Cargar Datos de Prueba
+                </Button>
+              </div>
+
+              <div className="rounded-lg border border-dashed p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium mb-1">Sincronización</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Sube tus datos locales (productos, ubicaciones) al servidor.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleSyncLocalToRemote}
+                  variant="secondary"
+                  className="w-full"
+                  size="sm"
+                >
+                  <ArrowsClockwise className="mr-2 h-4 w-4" />
+                  Sincronizar Local -&gt; Nube
                 </Button>
               </div>
             </>

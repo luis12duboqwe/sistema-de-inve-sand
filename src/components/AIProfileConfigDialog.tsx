@@ -153,18 +153,127 @@ export function AIProfileConfigDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Sparkle className="h-4 w-4 text-yellow-500" />
-                System Prompt (Personalidad)
-              </Label>
+            {/* V2.2: Personalización Avanzada */}
+            <div className="space-y-4 border-t pt-4 mt-4">
+              <h3 className="font-medium text-gray-900">Personalización del Negocio</h3>
+              
+              <div className="space-y-2">
+                <Label>Descripción del Negocio</Label>
+                <Textarea 
+                  placeholder="Ej: Tienda especializada en iPhone seminuevos con garantía..."
+                  value={config.business_description || ''}
+                  onChange={(e) => setConfig(prev => ({ ...prev, business_description: e.target.value }))}
+                  className="h-20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Objetivo Principal</Label>
+                  <Select 
+                    value={config.sales_goal} 
+                    onValueChange={(val) => setConfig(prev => ({ ...prev, sales_goal: val }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar objetivo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cerrar_venta">Cerrar Venta Rápida</SelectItem>
+                      <SelectItem value="agendar_cita">Agendar Cita/Visita</SelectItem>
+                      <SelectItem value="resolver_dudas">Resolver Dudas (Soporte)</SelectItem>
+                      <SelectItem value="captar_lead">Captar Datos (Lead Gen)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Estilo de Negociación</Label>
+                  <Select 
+                    value={config.negotiation_style} 
+                    onValueChange={(val) => setConfig(prev => ({ ...prev, negotiation_style: val }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar estilo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flexible">Flexible (Ofrece descuentos)</SelectItem>
+                      <SelectItem value="estricto">Estricto (Precio fijo)</SelectItem>
+                      <SelectItem value="consultivo">Consultivo (Asesor)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {config.negotiation_style === 'flexible' && (
+                <div className="space-y-2 bg-yellow-50 p-3 rounded-md border border-yellow-100">
+                  <Label className="text-yellow-800">Margen Máximo de Descuento (%)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input 
+                      type="number"
+                      min="0"
+                      max="50"
+                      step="1"
+                      value={config.max_discount_rate ? config.max_discount_rate * 100 : 0}
+                      onChange={(e) => setConfig(prev => ({ ...prev, max_discount_rate: parseFloat(e.target.value) / 100 }))}
+                      className="w-24"
+                    />
+                    <span className="text-sm text-gray-600">% sobre el precio de lista</span>
+                  </div>
+                  <p className="text-xs text-yellow-700">
+                    El bot podrá ofrecer hasta este porcentaje de descuento si el cliente insiste.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Transferir a Humano si...</Label>
+                <Input 
+                  placeholder="Ej: cliente enojado, pide hablar con gerente, devolución..."
+                  value={config.fallback_human_trigger || ''}
+                  onChange={(e) => setConfig(prev => ({ ...prev, fallback_human_trigger: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-4 border-t">
+              <div className="flex justify-between items-center">
+                <Label className="flex items-center gap-2">
+                  <Sparkle className="h-4 w-4 text-yellow-500" />
+                  System Prompt (Personalidad)
+                </Label>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-xs text-purple-600 h-6"
+                  onClick={() => {
+                    const prompt = `Eres un asistente de ventas virtual para ${config.business_description || 'una tienda de tecnología'}.
+Tu tono de voz es ${config.voice_tone || 'profesional'}.
+Tu objetivo principal es: ${config.sales_goal?.replace('_', ' ') || 'ayudar al cliente'}.
+Estilo de negociación: ${config.negotiation_style || 'estándar'}.
+${config.negotiation_style === 'flexible' && config.max_discount_rate ? `AUTORIZACIÓN DE DESCUENTO: Tienes permiso para ofrecer hasta un ${(config.max_discount_rate * 100).toFixed(0)}% de descuento si es necesario para cerrar la venta. Úsalo con discreción.` : ''}
+
+${config.fallback_human_trigger ? `IMPORTANTE: Si el cliente menciona o detectas "${config.fallback_human_trigger}", debes indicar que transferirás a un agente humano inmediatamente.` : ''}
+
+INSTRUCCIONES CLAVE:
+1. Usa SIEMPRE la información del inventario proporcionada en el contexto.
+2. Si no hay stock, ofrece alternativas similares.
+3. Sé conciso y directo en WhatsApp.
+4. No inventes características que no están en la ficha técnica.`
+                    setConfig(prev => ({ ...prev, system_prompt: prompt }))
+                    toast.success("Prompt generado basado en tu configuración")
+                  }}
+                >
+                  <Sparkle className="w-3 h-3 mr-1" />
+                  Generar Prompt Automático
+                </Button>
+              </div>
               <p className="text-xs text-gray-500">
-                Instrucciones base que definen cómo se comporta el bot. Sé específico sobre qué puede y no puede hacer.
+                Instrucciones base que definen cómo se comporta el bot. Puedes editarlo manualmente o generarlo automáticamente.
               </p>
               <Textarea
                 value={config.system_prompt}
                 onChange={(e) => setConfig(prev => ({ ...prev, system_prompt: e.target.value }))}
-                className="min-h-[150px] font-mono text-sm"
+                className="min-h-[200px] font-mono text-sm"
                 placeholder="Eres un asistente experto en celulares..."
               />
             </div>

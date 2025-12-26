@@ -6,7 +6,7 @@ from app.routers import (
     profiles, products, orders, faq, customers, reports, 
     auth_router, stock_transfers, suppliers, stock_history,
     locations, sales_profiles, returns, imeis, ai_intelligence,
-    financing, public
+    financing, public, forecasting
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
@@ -55,6 +55,7 @@ app.include_router(suppliers.router)
 app.include_router(financing.router)
 app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
+app.include_router(forecasting.router)
 
 @app.get("/")
 def read_root():

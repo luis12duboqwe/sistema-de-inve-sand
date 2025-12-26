@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,11 +18,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash } from '@phosphor-icons/react'
+import { Plus, Trash, Barcode, CheckCircle, Warning } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { OrderWithItems, ProductWithStock } from '@/lib/types'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { apiClient } from '@/lib/apiClient'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -74,6 +75,78 @@ export function EditOrderDialog({
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
+
+  const [scanInput, setScanInput] = useState('')
+  const scanInputRef = useRef<HTMLInputElement>(null)
+
+  const handleScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const imei = scanInput.trim()
+      if (!imei) return
+
+      try {
+        // 1. Buscar producto por IMEI
+        const product = await inventoryServiceInstance.getProductByIMEI(imei)
+        
+        // 2. Buscar si el producto ya está en la orden
+        const existingItemIndex = items.findIndex(i => i.product_id === product.id)
+        
+        if (existingItemIndex >= 0) {
+          // El producto está en la orden. Asignar IMEI si falta.
+          const item = items[existingItemIndex]
+          const currentImeis = item.imeis || []
+          
+          if (currentImeis.includes(imei)) {
+            toast.info('Este IMEI ya está asignado a la orden')
+          } else if (currentImeis.length < item.cantidad) {
+            updateItemIMEIs(existingItemIndex, [...currentImeis, imei])
+            toast.success(`IMEI asignado a ${product.nombre}`)
+          } else {
+            toast.warning(`La cantidad para ${product.nombre} ya está completa. Aumenta la cantidad si deseas agregar más.`)
+          }
+        } else {
+          // El producto NO está en la orden. ¿Es un reemplazo?
+          // Buscar si hay algún item pendiente de IMEI que sea "compatible" (mismo precio/modelo?)
+          // Por ahora, simplemente preguntamos si quiere agregarlo o reemplazar el primer item sin IMEIs
+          
+          const pendingItemIndex = items.findIndex(i => 
+            (!i.imeis || i.imeis.length < i.cantidad) && 
+            products.find(p => p.id === i.product_id)?.categoria === 'celular'
+          )
+
+          if (pendingItemIndex >= 0) {
+            const pendingItem = items[pendingItemIndex]
+            const pendingProduct = products.find(p => p.id === pendingItem.product_id)
+            
+            // Lógica de reemplazo automático si es "similar" o confirmación
+            // Aquí asumimos que si escanea algo diferente, quiere cambiarlo
+            if (confirm(`El IMEI escaneado es de un ${product.nombre}, pero la orden espera ${pendingProduct?.nombre}. ¿Deseas cambiar el producto en la orden?`)) {
+               // Reemplazar producto
+               const newItems = [...items]
+               newItems[pendingItemIndex] = {
+                 ...newItems[pendingItemIndex],
+                 product_id: product.id,
+                 imeis: [imei] // Asignar el nuevo IMEI
+               }
+               setItems(newItems)
+               toast.success(`Producto cambiado a ${product.nombre} y asignado`)
+            }
+          } else {
+             // No hay items pendientes, preguntar si agregar
+             if (confirm(`El producto ${product.nombre} no está en la orden. ¿Deseas agregarlo?`)) {
+               setItems([...items, { product_id: product.id, cantidad: 1, imeis: [imei] }])
+               toast.success('Producto agregado')
+             }
+          }
+        }
+      } catch (error) {
+        toast.error('IMEI no encontrado o error al buscar producto')
+      }
+      
+      setScanInput('')
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -308,6 +381,27 @@ export function EditOrderDialog({
           </div>
 
           <div className="space-y-2">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Barcode className="w-5 h-5 text-blue-600" />
+                <Label className="text-blue-800 font-medium">Escaneo de Fulfillment</Label>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  ref={scanInputRef}
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  onKeyDown={handleScan}
+                  placeholder="Escanea el código de barras del IMEI aquí..."
+                  className="bg-white"
+                  autoFocus
+                />
+              </div>
+              <p className="text-xs text-blue-600 mt-1">
+                Escanea un IMEI para asignarlo automáticamente o reemplazar productos.
+              </p>
+            </div>
+
             <div className="flex items-center justify-between">
               <Label>Productos</Label>
               <Button type="button" variant="outline" size="sm" onClick={addItem}>

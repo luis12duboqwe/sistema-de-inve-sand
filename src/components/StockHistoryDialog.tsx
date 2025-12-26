@@ -10,8 +10,8 @@ import { Card } from '@/components/ui/card'
 import { ArrowUp, ArrowDown, Download, Calendar } from '@phosphor-icons/react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import type { StockHistory, ProductWithStock } from '@/lib/types'
-import { toast } from 'sonner'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { ProductWithStock, StockHistory } from '@/lib/types'
 
 interface StockHistoryDialogProps {
   open: boolean
@@ -21,6 +21,8 @@ interface StockHistoryDialogProps {
 
 const TIPO_CAMBIO_LABELS: Record<string, string> = {
   'venta': 'Venta',
+  'compra': 'Compra',
+  'inicial': 'Inventario Inicial',
   'transferencia_salida': 'Transfer. Salida',
   'transferencia_entrada': 'Transfer. Entrada',
   'ajuste': 'Ajuste Manual',
@@ -29,6 +31,8 @@ const TIPO_CAMBIO_LABELS: Record<string, string> = {
 
 const TIPO_CAMBIO_COLORS: Record<string, string> = {
   'venta': 'bg-blue-500',
+  'compra': 'bg-emerald-600',
+  'inicial': 'bg-gray-500',
   'transferencia_salida': 'bg-orange-500',
   'transferencia_entrada': 'bg-green-500',
   'ajuste': 'bg-purple-500',
@@ -46,44 +50,20 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
   const loadHistory = useCallback(async () => {
     setLoading(true)
     try {
-      // Por ahora simulamos datos porque el endpoint necesita estar configurado
-      // En producción, esto llamaría a: GET /api/stock-history/product/{product.id}
-      
-      // Simular datos de ejemplo
-      const mockHistory: StockHistory[] = [
-        {
-          id: 1,
-          product_id: product.id,
-          tipo_cambio: 'ajuste',
-          cantidad: product.stock_disponible,
-          stock_anterior: 0,
-          stock_nuevo: product.stock_disponible,
-          notas: 'Stock inicial',
-          usuario: 'Sistema',
-          created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-        }
-      ]
-      
-      setHistory(mockHistory)
-      
-      // TODO: Implementar llamada real a API cuando esté disponible
-      // const params = new URLSearchParams()
-      // if (tipoFilter !== 'all') params.append('tipo_cambio', tipoFilter)
-      // if (dateFrom) params.append('date_from', dateFrom)
-      // if (dateTo) params.append('date_to', dateTo)
-      // params.append('limit', '100')
-      // 
-      // const response = await fetch(`/api/stock-history/product/${product.id}?${params}`)
-      // const data = await response.json()
-      // setHistory(data)
-      
+      const params: any = { limit: 100 }
+      if (tipoFilter !== 'all') params.tipo_cambio = tipoFilter
+      if (dateFrom) params.date_from = dateFrom
+      if (dateTo) params.date_to = dateTo
+
+      const data = await inventoryServiceInstance.getStockHistory(product.id, params)
+      setHistory(data)
     } catch (error) {
       console.error('Error loading stock history:', error)
       toast.error('Error al cargar historial de stock')
     } finally {
       setLoading(false)
     }
-  }, [product.id, product.stock_disponible])
+  }, [product.id, tipoFilter, dateFrom, dateTo])
 
   useEffect(() => {
     if (open) {
@@ -91,24 +71,8 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
     }
   }, [open, loadHistory])
 
-  const filteredHistory = history.filter(h => {
-    if (tipoFilter !== 'all' && h.tipo_cambio !== tipoFilter) return false
-    
-    if (dateFrom) {
-      const hDate = new Date(h.created_at)
-      const fromDate = new Date(dateFrom)
-      if (hDate < fromDate) return false
-    }
-    
-    if (dateTo) {
-      const hDate = new Date(h.created_at)
-      const toDate = new Date(dateTo)
-      toDate.setHours(23, 59, 59, 999)
-      if (hDate > toDate) return false
-    }
-    
-    return true
-  })
+  // El filtrado ya se realiza en el backend via loadHistory
+  const filteredHistory = history
 
   const stats = {
     totalMovements: filteredHistory.length,

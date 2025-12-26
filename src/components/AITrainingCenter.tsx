@@ -6,7 +6,8 @@ import { Badge } from './ui/badge'
 import { apiClient } from '../lib/apiClient'
 import { TrainingQueueItem } from '../lib/types'
 import { toast } from 'sonner'
-import { Spinner, CheckCircle, XCircle, BookOpen, Robot } from '@phosphor-icons/react'
+import { Spinner, CheckCircle, XCircle, BookOpen, Robot, ListDashes } from '@phosphor-icons/react'
+import { ManageFAQsDialog } from './ManageFAQsDialog'
 
 interface AITrainingCenterProps {
   open: boolean
@@ -19,6 +20,7 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
   const [selectedItem, setSelectedItem] = useState<TrainingQueueItem | null>(null)
   const [correction, setCorrection] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [showFAQs, setShowFAQs] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -64,19 +66,26 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-blue-600" />
-            Centro de Entrenamiento IA
-          </DialogTitle>
-          <DialogDescription>
-            Revisa las preguntas que la IA no supo responder y enséñale la respuesta correcta.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex justify-between items-center">
+              <DialogTitle className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5 text-blue-600" />
+                Centro de Entrenamiento IA
+              </DialogTitle>
+              <Button variant="outline" size="sm" onClick={() => setShowFAQs(true)}>
+                <ListDashes className="mr-2 h-4 w-4" />
+                Gestionar FAQs
+              </Button>
+            </div>
+            <DialogDescription>
+              Revisa las preguntas que la IA no supo responder y enséñale la respuesta correcta.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="flex flex-1 gap-4 overflow-hidden mt-4">
+          <div className="flex flex-1 gap-4 overflow-hidden mt-4">
           {/* Lista de Items */}
           <div className="w-1/3 border-r pr-4 overflow-y-auto space-y-2">
             {loading ? (
@@ -175,5 +184,11 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
         </div>
       </DialogContent>
     </Dialog>
+
+    <ManageFAQsDialog 
+      open={showFAQs} 
+      onOpenChange={setShowFAQs} 
+    />
+    </>
   )
 }

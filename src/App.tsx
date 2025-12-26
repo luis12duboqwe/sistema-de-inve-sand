@@ -7,12 +7,14 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User, GraduationCap, ShieldCheck, CreditCard, Wrench } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 // import { ProfileCard } from '@/components/ProfileCard' // DEPRECATED V1.0
 import { ManageSuppliersDialog } from '@/components/ManageSuppliersDialog'
+import { ReturnsListDialog } from '@/components/ReturnsListDialog'
+import { WarrantyCheckDialog } from '@/components/WarrantyCheckDialog'
 import { FinancingSettings } from '@/components/FinancingSettings'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
@@ -110,6 +112,8 @@ function MainApp() {
   const [showCustomerInsights, setShowCustomerInsights] = useState(false)
   const [showManageUsersDialog, setShowManageUsersDialog] = useState(false)
   const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
+  const [showReturnsListDialog, setShowReturnsListDialog] = useState(false)
+  const [showWarrantyCheck, setShowWarrantyCheck] = useState(false)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
   // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -812,6 +816,7 @@ function MainApp() {
               <NotificationCenter
                 products={products ?? []}
                 profiles={profiles ?? []}
+                locations={locations ?? []}
                 orders={orders ?? []}
                 onOpenOptimization={() => setShowOptimizationDialog(true)}
               />
@@ -981,17 +986,12 @@ function MainApp() {
               </div>
             </div>
             
-            {/* V2.0 TODO: LowStockAlert should filter by LOCATION not sales channel */}
-            {selectedSalesChannel !== 'all' && (() => {
-              const profile = (profiles ?? []).find(p => p.slug === selectedSalesChannel)
-              return profile ? (
-                <LowStockAlert
-                  products={products ?? []}
-                  profile={profile}
-                  onProductClick={setEditingProduct}
-                />
-              ) : null
-            })()}
+            {/* V2.0: LowStockAlert filters by LOCATION */}
+            <LowStockAlert
+              products={products ?? []}
+              locations={locations ?? []}
+              onProductClick={setEditingProduct}
+            />
             
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
@@ -1037,6 +1037,15 @@ function MainApp() {
                     <Download size={18} />
                   </Button>
                 )}
+
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowWarrantyCheck(true)}
+                  title="Verificar Garantía"
+                >
+                  <ShieldCheck size={18} />
+                </Button>
                 
                 {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) && (
                   <>
@@ -1292,6 +1301,14 @@ function MainApp() {
                   title="Ver reportes"
                 >
                   <ChartLine size={18} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowReturnsListDialog(true)}
+                  title="Ver devoluciones"
+                >
+                  <ArrowCounterClockwise size={18} />
                 </Button>
                 <Button
                   variant={bulkActionMode && activeTab === 'orders' ? "default" : "outline"}
@@ -1724,7 +1741,9 @@ function MainApp() {
             setProducts(updatedProducts)
             
             toast.success(`Producto creado: ${newProduct.nombre}`)
-            setShowNewProductDialog(false)
+            // No cerramos aquí, lo maneja el diálogo si hay impresión
+            // setShowNewProductDialog(false) 
+            return created
           } catch (error) {
             console.error('❌ Error al crear producto:', error)
             toast.error(`Error al crear producto: ${error instanceof Error ? error.message : 'Error desconocido'}`)
@@ -1740,14 +1759,30 @@ function MainApp() {
         locations={locations.filter(l => l.activo)}
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
-          const created = await service.createOrder(newOrder)
-          setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
-          
-          const updatedProducts = await service.getProducts()
-          setProducts(updatedProducts)
-          
-          toast.success('Orden creada exitosamente')
-          setShowNewOrderDialog(false)
+          try {
+            const created = await service.createOrder(newOrder)
+            setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
+            
+            const updatedProducts = await service.getProducts()
+            setProducts(updatedProducts)
+            
+            // Try to link order to AI interaction if phone number exists
+            if (newOrder.customer_phone) {
+              try {
+                await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
+                console.log('✅ Orden vinculada a interacción AI')
+              } catch (e) {
+                console.warn('⚠️ No se pudo vincular orden a interacción:', e)
+                // Don't fail the whole operation if linking fails
+              }
+            }
+            
+            toast.success('Orden creada exitosamente')
+            setShowNewOrderDialog(false)
+          } catch (error) {
+            console.error('❌ Error al crear orden:', error)
+            toast.error(`Error al crear orden: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          }
         }}
       />
 
@@ -1946,6 +1981,7 @@ function MainApp() {
         onOpenChange={setShowLowStockReport}
         products={products ?? []}
         profiles={profiles ?? []}
+        locations={locations ?? []}
         onProductClick={(product) => {
           setShowLowStockReport(false)
           setEditingProduct(product)
@@ -2054,6 +2090,16 @@ function MainApp() {
       <PendingTradeInsDialog
         open={showPendingTradeIns}
         onOpenChange={setShowPendingTradeIns}
+      />
+
+      <ReturnsListDialog
+        open={showReturnsListDialog}
+        onOpenChange={setShowReturnsListDialog}
+      />
+
+      <WarrantyCheckDialog
+        open={showWarrantyCheck}
+        onOpenChange={setShowWarrantyCheck}
       />
     </div>
   )

@@ -242,6 +242,9 @@ export function StockByLocationDialog({
           productId={productId}
           productName={productName}
           locationId={selectedLocationId}
+          productSku={product?.sku || ''}
+          productColor={product?.color || ''}
+          productCapacity={product?.capacidad || ''}
         />
       )}
     </>

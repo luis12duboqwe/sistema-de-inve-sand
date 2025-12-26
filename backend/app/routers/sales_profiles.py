@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
 from app.database import get_db
+from app.auth import check_permission
 import json
 
 router = APIRouter(prefix="/api/sales-profiles", tags=["sales_profiles"])
@@ -53,24 +54,33 @@ def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
     if not profile:
         raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
     
+    # Convertir a diccionario para evitar modificar el objeto ORM
+    profile_dict = {
+        "id": profile.id,
+        "name": profile.name,
+        "slug": profile.slug,
+        "tipo": profile.tipo,
+        "active": profile.active,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+        "canales": [],
+        "configuracion": {}
+    }
+
     # Convertir JSON strings a objetos
     if profile.canales:
         try:
-            profile.canales = json.loads(profile.canales)
+            profile_dict["canales"] = json.loads(profile.canales)
         except:
-            profile.canales = []
-    else:
-        profile.canales = []
+            pass
     
     if profile.configuracion:
         try:
-            profile.configuracion = json.loads(profile.configuracion)
+            profile_dict["configuracion"] = json.loads(profile.configuracion)
         except:
-            profile.configuracion = {}
-    else:
-        profile.configuracion = {}
+            pass
     
-    return profile
+    return profile_dict
 
 
 @router.get("/slug/{slug}", response_model=schemas.SalesProfileResponse)
@@ -80,30 +90,40 @@ def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
     if not profile:
         raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
     
+    # Convertir a diccionario para evitar modificar el objeto ORM
+    profile_dict = {
+        "id": profile.id,
+        "name": profile.name,
+        "slug": profile.slug,
+        "tipo": profile.tipo,
+        "active": profile.active,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+        "canales": [],
+        "configuracion": {}
+    }
+
     # Convertir JSON strings a objetos
     if profile.canales:
         try:
-            profile.canales = json.loads(profile.canales)
+            profile_dict["canales"] = json.loads(profile.canales)
         except:
-            profile.canales = []
-    else:
-        profile.canales = []
+            pass
     
     if profile.configuracion:
         try:
-            profile.configuracion = json.loads(profile.configuracion)
+            profile_dict["configuracion"] = json.loads(profile.configuracion)
         except:
-            profile.configuracion = {}
-    else:
-        profile.configuracion = {}
+            pass
     
-    return profile
+    return profile_dict
 
 
 @router.post("", response_model=schemas.SalesProfileResponse, status_code=201)
 def create_sales_profile(
     profile: schemas.SalesProfileCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(check_permission("settings:edit"))
 ):
     """Crear un nuevo perfil de venta"""
     # Verificar que el slug sea único (case-insensitive para evitar duplicados tipo 'Bot-1' vs 'bot-1')
@@ -153,7 +173,8 @@ def create_sales_profile(
 def update_sales_profile(
     profile_id: int,
     profile: schemas.SalesProfileUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(check_permission("settings:edit"))
 ):
     """Actualizar un perfil de venta existente"""
     db_profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
@@ -208,7 +229,11 @@ def update_sales_profile(
 
 
 @router.delete("/{profile_id}", status_code=204)
-def delete_sales_profile(profile_id: int, db: Session = Depends(get_db)):
+def delete_sales_profile(
+    profile_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(check_permission("settings:edit"))
+):
     """Eliminar un perfil de venta"""
     db_profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
     if not db_profile:

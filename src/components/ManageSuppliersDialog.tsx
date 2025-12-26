@@ -111,9 +111,10 @@ export function ManageSuppliersDialog({
         toast.success('Proveedor actualizado exitosamente')
       } else {
         // Create
+        // V2.0: Suppliers are global, profile_id is optional/legacy
         await inventoryServiceInstance.createSupplier({
           ...supplierData,
-          profile_id: profile.id
+          profile_id: profile?.id || null
         } as any)
         toast.success('Proveedor creado exitosamente')
       }

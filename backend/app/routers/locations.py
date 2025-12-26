@@ -4,6 +4,9 @@ from typing import List, Optional
 from app import models, schemas
 from app.database import get_db
 
+from app.auth import get_current_active_user, check_permission
+from app.models import User
+
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 
 
@@ -40,7 +43,8 @@ def get_location(location_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=schemas.LocationResponse, status_code=201)
 def create_location(
     location: schemas.LocationCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Crear una nueva ubicación"""
     try:
@@ -58,7 +62,8 @@ def create_location(
 def update_location(
     location_id: int,
     location: schemas.LocationUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Actualizar una ubicación existente"""
     db_location = db.query(models.Location).filter(models.Location.id == location_id).first()
@@ -79,7 +84,11 @@ def update_location(
 
 
 @router.delete("/{location_id}", status_code=204)
-def delete_location(location_id: int, db: Session = Depends(get_db)):
+def delete_location(
+    location_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
+):
     """Eliminar una ubicación"""
     db_location = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not db_location:

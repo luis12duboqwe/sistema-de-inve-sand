@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 import math
 from app.database import get_db
-from app.models import FAQEntry
+from app.models import FAQEntry, User
 from app.schemas import FAQEntryCreate, FAQEntryResponse, FAQEntryUpdate, PaginatedResponse
+from app.auth import check_permission
 
 router = APIRouter()
 
@@ -113,7 +114,11 @@ def search_faq_entries(
 
 
 @router.post("", response_model=FAQEntryResponse, status_code=201)
-def create_faq_entry(faq_entry: FAQEntryCreate, db: Session = Depends(get_db)):
+def create_faq_entry(
+    faq_entry: FAQEntryCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Crea una nueva entrada FAQ.
     
@@ -165,7 +170,12 @@ def get_faq_entry(faq_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{faq_id}", response_model=FAQEntryResponse)
-def update_faq_entry(faq_id: int, updates: FAQEntryUpdate, db: Session = Depends(get_db)):
+def update_faq_entry(
+    faq_id: int, 
+    updates: FAQEntryUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Actualiza una entrada FAQ existente.
     
@@ -212,7 +222,11 @@ def update_faq_entry(faq_id: int, updates: FAQEntryUpdate, db: Session = Depends
 
 
 @router.delete("/{faq_id}", status_code=204)
-def delete_faq_entry(faq_id: int, db: Session = Depends(get_db)):
+def delete_faq_entry(
+    faq_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Elimina una entrada FAQ del sistema.
     

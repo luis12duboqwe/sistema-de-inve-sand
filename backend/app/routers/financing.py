@@ -11,6 +11,9 @@ from app.schemas import (
     FinancingOptionResponse
 )
 
+from app.auth import get_current_active_user, check_permission
+from app.models import User
+
 router = APIRouter(prefix="/api/financing", tags=["financing"])
 
 @router.get("/banks", response_model=List[BankResponse])
@@ -24,7 +27,11 @@ def list_banks(active_only: bool = False, db: Session = Depends(get_db)):
     return banks
 
 @router.post("/banks", response_model=BankResponse)
-def create_bank(bank: BankCreate, db: Session = Depends(get_db)):
+def create_bank(
+    bank: BankCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """Crea un nuevo banco"""
     existing = db.query(Bank).filter(Bank.name == bank.name).first()
     if existing:
@@ -53,7 +60,12 @@ def create_bank(bank: BankCreate, db: Session = Depends(get_db)):
     return new_bank
 
 @router.put("/banks/{bank_id}", response_model=BankResponse)
-def update_bank(bank_id: int, bank_update: BankUpdate, db: Session = Depends(get_db)):
+def update_bank(
+    bank_id: int, 
+    bank_update: BankUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """Actualiza un banco"""
     bank = db.query(Bank).filter(Bank.id == bank_id).first()
     if not bank:
@@ -71,7 +83,12 @@ def update_bank(bank_id: int, bank_update: BankUpdate, db: Session = Depends(get
     return bank
 
 @router.post("/options", response_model=FinancingOptionResponse)
-def create_option(option: FinancingOptionCreate, bank_id: int = Query(..., description="ID del banco"), db: Session = Depends(get_db)):
+def create_option(
+    option: FinancingOptionCreate, 
+    bank_id: int = Query(..., description="ID del banco"), 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """Agrega una opción de financiamiento a un banco"""
     bank = db.query(Bank).filter(Bank.id == bank_id).first()
     if not bank:
@@ -89,7 +106,11 @@ def create_option(option: FinancingOptionCreate, bank_id: int = Query(..., descr
     return new_opt
 
 @router.delete("/options/{option_id}")
-def delete_option(option_id: int, db: Session = Depends(get_db)):
+def delete_option(
+    option_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """Elimina una opción de financiamiento"""
     opt = db.query(FinancingOption).filter(FinancingOption.id == option_id).first()
     if not opt:

@@ -5,10 +5,11 @@ from typing import Optional, List
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from app.database import get_db
-from app.models import Order, Product, Stock, Profile, OrderItem, SalesProfile, Location
+from app.models import Order, Product, Stock, Profile, OrderItem, SalesProfile, Location, User
 from app.schemas import (
     DashboardStats, SalesReport, TopProduct, InventoryAlert
 )
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -17,7 +18,8 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 def get_dashboard_stats(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar ventas por canal de venta"),
     location_id: Optional[int] = Query(None, description="Filtrar stock por ubicación"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Obtiene KPIs del dashboard.
@@ -129,7 +131,8 @@ def get_sales_report(
     date_from: Optional[date] = Query(None, description="Fecha inicial (default: hace 30 días)"),
     date_to: Optional[date] = Query(None, description="Fecha final (default: hoy)"),
     top_limit: int = Query(10, ge=1, le=50, description="Número de top products a retornar"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Genera reporte de ventas para un período específico.
@@ -220,7 +223,8 @@ def get_sales_report(
 @router.get("/inventory/alerts", response_model=List[InventoryAlert])
 def get_inventory_alerts(
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
 ):
     """
     Obtiene alertas de inventario para productos con stock bajo o agotado.
@@ -281,7 +285,8 @@ def get_inventory_alerts(
 @router.get("/stock-summary-by-location")
 def get_stock_summary_by_location(
     active_only: bool = Query(True, description="Solo ubicaciones activas"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Resumen de stock agregado por ubicación.
@@ -336,7 +341,8 @@ def get_stock_summary_by_location(
 def get_sales_summary_by_location(
     start_date: Optional[date] = Query(None, description="Fecha inicial (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="Fecha final (YYYY-MM-DD)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Resumen de ventas por ubicación en un período.
@@ -390,7 +396,8 @@ def get_top_products_by_location(
     limit: int = Query(10, ge=1, le=50, description="Cantidad de productos"),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Top N productos más vendidos de una ubicación específica.

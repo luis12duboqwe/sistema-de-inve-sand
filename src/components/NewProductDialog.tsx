@@ -20,9 +20,10 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import type { Profile, Product, Supplier, Location } from '@/lib/types'
+import type { Profile, Product, Supplier, Location, ProductWithStock } from '@/lib/types'
 import { toast } from 'sonner'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
+import { PrintLabelsDialog } from './PrintLabelsDialog'
 
 // Datos predeterminados para celulares
 const MARCAS_CELULAR = [
@@ -103,7 +104,7 @@ interface NewProductDialogProps {
   onOpenChange: (open: boolean) => void
   profiles: Profile[]
   locations?: Location[]  // V2.0: Ubicaciones disponibles
-  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<void>
+  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<ProductWithStock | void>
 }
 
 export function NewProductDialog({
@@ -126,6 +127,7 @@ export function NewProductDialog({
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [isSerialized, setIsSerialized] = useState(true)
   const [precio, setPrecio] = useState('')
+  const [costo, setCosto] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('12')
   const [stockInicial, setStockInicial] = useState('1')
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined)
@@ -143,6 +145,10 @@ export function NewProductDialog({
 
   // Moneda configurable
   const [moneda, setMoneda] = useState('HNL')
+
+  // V2.5: Print Labels
+  const [createdProduct, setCreatedProduct] = useState<ProductWithStock | null>(null)
+  const [showPrintDialog, setShowPrintDialog] = useState(false)
 
   // Auto-set serialized flag based on category
   useEffect(() => {
@@ -267,6 +273,7 @@ export function NewProductDialog({
     setColor('Negro')
     setCondicion('nuevo')
     setPrecio('')
+    setCosto('')
     setMoneda('HNL')
     setGarantiaMeses('12')
     setStockInicial('1')
@@ -365,9 +372,9 @@ export function NewProductDialog({
 
     setIsSubmitting(true)
     try {
-      await onSubmit(
+      const result = await onSubmit(
         {
-          profile_id: profiles[0]?.id || 1, // Legacy: usar primer perfil para compatibilidad backend
+          profile_id: null, // V2.0: Productos globales
           supplier_id: supplierId,
           sku,
           nombre,
@@ -378,6 +385,7 @@ export function NewProductDialog({
           capacidad: categoria === 'celular' ? capacidad : 'N/A',
           condicion,
           precio: parseFloat(precio),
+          costo: parseFloat(costo) || 0,
           moneda,
           garantia_meses: parseInt(garantiaMeses),
           garantia_condiciones: garantiaCondiciones.trim() || undefined,
@@ -388,8 +396,17 @@ export function NewProductDialog({
         selectedLocationId  // V2.0: Pasar ubicación seleccionada
       )
 
-      resetForm()
-      onOpenChange(false)
+      // V2.5: Si es serializado, ofrecer imprimir etiquetas
+      if (isSerialized && result) {
+        setCreatedProduct(result)
+        setShowPrintDialog(true)
+        toast.success('Producto creado. Abriendo impresión de etiquetas...')
+        resetForm()
+        // No cerramos el diálogo principal todavía, lo hará el PrintLabelsDialog al cerrar
+      } else {
+        resetForm()
+        onOpenChange(false)
+      }
     } catch (error) {
       console.error('Error creating product:', error)
     } finally {
@@ -398,6 +415,7 @@ export function NewProductDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -643,7 +661,7 @@ export function NewProductDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="precio">Precio *</Label>
+                <Label htmlFor="precio">Precio Venta *</Label>
                 <Input
                   id="precio"
                   type="number"
@@ -669,15 +687,28 @@ export function NewProductDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="garantia">Garantía (meses)</Label>
+              <Label htmlFor="costo">Costo (Reportes)</Label>
               <Input
-                id="garantia"
+                id="costo"
                 type="number"
                 min="0"
-                value={garantiaMeses}
-                onChange={e => setGarantiaMeses(e.target.value)}
+                step="0.01"
+                value={costo}
+                onChange={e => setCosto(e.target.value)}
+                placeholder="0.00"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="garantia">Garantía (meses)</Label>
+            <Input
+              id="garantia"
+              type="number"
+              min="0"
+              value={garantiaMeses}
+              onChange={e => setGarantiaMeses(e.target.value)}
+            />
           </div>
 
           {/* Campos nuevos: Proveedor e IMEI */}
@@ -758,5 +789,20 @@ export function NewProductDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {createdProduct && (
+      <PrintLabelsDialog
+        open={showPrintDialog}
+        onOpenChange={(open) => {
+          setShowPrintDialog(open)
+          if (!open) {
+            setCreatedProduct(null)
+            onOpenChange(false) // Close parent dialog when print dialog closes
+          }
+        }}
+        product={createdProduct}
+      />
+    )}
+    </>
   )
 }

@@ -7,7 +7,7 @@ import math
 import uuid
 import json
 from app.database import get_db
-from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory, Bank, FinancingOption
+from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory, Bank, FinancingOption, InteractionLog, Customer, User
 from app.schemas import (
     OrderCreate,
     OrderResponse,
@@ -19,6 +19,7 @@ from app.schemas import (
     PaginatedResponse,
     TradeInResponse
 )
+from app.auth import get_current_active_user, get_current_user_optional, check_permission
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -265,7 +266,8 @@ def _get_and_validate_stock(
     product_id: int,
     location_id: int,
     quantity: int,
-    imeis_requested: Optional[List[str]]
+    imeis_requested: Optional[List[str]],
+    allow_pending_imei: bool = False
 ):
     """
     Helper para validar stock e IMEIs con bloqueo pesimista.
@@ -315,6 +317,10 @@ def _get_and_validate_stock(
     # V2.0: Usar campo explícito is_serialized
     if product.is_serialized:
         if not imeis_requested:
+            # V2.5: Permitir órdenes pendientes de asignación de IMEI (ej. Bots, Envíos)
+            if allow_pending_imei:
+                return product, stock, []
+            
             raise HTTPException(
                 status_code=400,
                 detail=f"El producto '{product.nombre}' es serializado. Debe seleccionar los IMEIs a vender."
@@ -332,7 +338,7 @@ def _get_and_validate_stock(
             ProductIMEI.location_id == location_id,
             ProductIMEI.vendido == False,
             ProductIMEI.imei.in_(imeis_requested)
-        ).all()
+        ).with_for_update().all()
         
         if len(imeis_found) != len(imeis_requested):
             found_set = {i.imei for i in imeis_found}
@@ -346,7 +352,11 @@ def _get_and_validate_stock(
 
 
 @router.post("", response_model=OrderResponse, status_code=201)
-def create_order(order: OrderCreate, db: Session = Depends(get_db)):
+def create_order(
+    order: OrderCreate, 
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     """
     Crea una nueva orden y descuenta el stock de los productos.
     
@@ -437,8 +447,10 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         
         for item in order.items:
             # VALIDAR IMEIs PRIMERO antes de cualquier cambio de stock (Bug #26)
+            # V2.5: Permitir pending IMEI si no se envían (allow_pending_imei=True si item.imeis está vacío)
+            allow_pending = not item.imeis
             product, stock, imeis_to_sell = _get_and_validate_stock(
-                db, item.product_id, order.source_location_id, item.cantidad, item.imeis
+                db, item.product_id, order.source_location_id, item.cantidad, item.imeis, allow_pending_imei=allow_pending
             )
             
             # Definir Tasa de Cambio (necesaria para validaciones y conversiones)
@@ -758,7 +770,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                         reference_id=db_order.id,
                         reference_type='order',
                         notes=f"Ingreso por retoma en orden #{db_order.id}",
-                        created_by=sales_profile.name if sales_profile else (profile.name if profile else 'Sistema')
+                        created_by=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
                     )
                     db.add(imei_history)
                 
@@ -773,7 +785,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     referencia_id=db_order.id,
                     referencia_tipo='order',
                     notas=f"Ingreso por retoma de {trade_in_item.marca} {trade_in_item.modelo}",
-                    usuario=sales_profile.name if sales_profile else (profile.name if profile else 'Sistema')
+                    usuario=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
                 )
                 db.add(stock_history_retoma)
         
@@ -804,7 +816,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                     reference_id=db_order.id,
                     reference_type='order',
                     notes=f"Venta en orden #{db_order.id}",
-                    created_by=sales_profile.name if sales_profile else (profile.name if profile else 'Sistema')
+                    created_by=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
                 )
                 db.add(imei_history_venta)
             
@@ -839,10 +851,34 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
                 referencia_id=db_order.id,
                 referencia_tipo='order',
                 notas=f"Venta a {order.customer_name} - Canal: {order.canal} - IMEIs: {len(item_data.get('imeis_to_sell', []))} marcados",
-                usuario=sales_profile.name if sales_profile else (profile.name if profile else 'Sistema')
+                usuario=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
             )
             db.add(stock_history)
         
+        # V2.5: Atribución de Venta a Interacción de IA
+        if sales_profile_id_for_order and order.customer_phone:
+            try:
+                # Normalizar teléfono para buscar cliente
+                normalized_phone = "".join(filter(str.isdigit, str(order.customer_phone)))
+                
+                # Buscar cliente
+                customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+                
+                if customer:
+                    # Buscar última interacción no convertida de este cliente con este perfil
+                    last_interaction = db.query(InteractionLog).filter(
+                        InteractionLog.customer_id == customer.id,
+                        InteractionLog.sales_profile_id == sales_profile_id_for_order,
+                        InteractionLog.converted_order_id == None
+                    ).order_by(InteractionLog.created_at.desc()).first()
+                    
+                    if last_interaction:
+                        last_interaction.converted_order_id = db_order.id
+                        db.add(last_interaction)
+            except Exception as e:
+                print(f"Error linking order to interaction: {e}")
+                # No fallar la orden por esto
+
         # ✅ Commit transacción
         db.commit()
         
@@ -869,7 +905,12 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
-def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session = Depends(get_db)):
+def update_order_status(
+    order_id: int, 
+    payload: OrderStatusUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Actualiza el estado de una orden.
     
@@ -906,7 +947,12 @@ def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session =
 
 
 @router.put("/{order_id}", response_model=OrderResponse)
-def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_db)):
+def update_order(
+    order_id: int, 
+    updates: OrderUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Actualiza una orden existente con transaccionalidad garantizada (Bug #1 fix).
     
@@ -1004,7 +1050,7 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                         referencia_id=order.id,
                         referencia_tipo="order_update",
                         notas=f"Actualización de orden #{order.id} - Items removidos/modificados",
-                        usuario="Sistema"
+                        usuario=current_user.username
                     )
                     db.add(stock_history)
 
@@ -1020,8 +1066,10 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                      # Fallback para legacy orders sin location (no debería ocurrir en V2)
                      raise HTTPException(status_code=400, detail="No se puede actualizar una orden legacy sin ubicación de origen en V2.0")
 
+                # V2.5: Permitir pending IMEI en updates también
+                allow_pending = not item_update.imeis
                 product, stock, imeis_to_sell = _get_and_validate_stock(
-                    db, item_update.product_id, target_location_id, item_update.cantidad, item_update.imeis
+                    db, item_update.product_id, target_location_id, item_update.cantidad, item_update.imeis, allow_pending_imei=allow_pending
                 )
 
                 price = Decimal(str(product.precio))
@@ -1043,7 +1091,7 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                         reference_id=order.id,
                         reference_type='order_update',
                         notes=f"Venta en actualización de orden #{order.id}",
-                        created_by="Sistema" # TODO: Obtener usuario actual si es posible
+                        created_by=current_user.username
                     )
                     db.add(imei_history_venta)
 
@@ -1081,7 +1129,7 @@ def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_
                     referencia_id=order.id,
                     referencia_tipo='order_update',
                     notas=f"Actualización de orden #{order.id} - Item añadido/modificado",
-                    usuario='sistema'
+                    usuario=current_user.username
                 )
                 db.add(stock_history)
 
@@ -1214,7 +1262,8 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
 def cancel_order(
     order_id: int,
     reason: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
 ):
     """
     Cancela una orden y libera los recursos (stock e IMEIs).
@@ -1304,7 +1353,7 @@ def cancel_order(
                     referencia_id=order_id,
                     referencia_tipo='order_cancelled',
                     notas=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
-                    usuario='sistema'  # TODO: Usar usuario autenticado
+                    usuario=current_user.username
                 )
                 db.add(history)
             
@@ -1371,7 +1420,7 @@ def cancel_order(
                         referencia_id=order_id,
                         referencia_tipo='order_cancelled',
                         notas=f"Reversa de retoma para orden #{order_id}",
-                        usuario='sistema'
+                        usuario=current_user.username
                     )
                     db.add(history_retoma_cancel)
 
@@ -1385,7 +1434,7 @@ def cancel_order(
                         reference_id=order_id,
                         reference_type='order_cancelled',
                         notes=f"IMEI revertido por cancelación de orden #{order_id}",
-                        created_by='sistema'
+                        created_by=current_user.username
                     )
                     db.add(imei_history_cancel)
                     db.delete(imei_record)

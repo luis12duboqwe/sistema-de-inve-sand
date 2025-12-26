@@ -5,12 +5,12 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI
+from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, User
 from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
 )
-from app.auth import check_permission
+from app.auth import check_permission, get_current_active_user
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -109,6 +109,23 @@ def get_product_imeis(
     return [i.imei for i in imeis]
 
 
+@router.get("/imei/{imei}", response_model=ProductResponse)
+def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
+    """
+    Busca un producto por su IMEI.
+    Útil para escaneo de códigos de barras en fulfillment.
+    """
+    product_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == imei).first()
+    if not product_imei:
+        raise HTTPException(status_code=404, detail=f"IMEI {imei} no encontrado")
+    
+    product = db.query(Product).filter(Product.id == product_imei.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto asociado al IMEI no encontrado")
+        
+    return _serialize_product(product)
+
+
 @router.get("", response_model=PaginatedResponse[ProductResponse])
 def list_products(
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
@@ -189,7 +206,11 @@ def list_products(
     )
 
 @router.post("", response_model=ProductResponse, status_code=201, dependencies=[Depends(check_permission("inventory:create"))])
-def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+def create_product(
+    product: ProductCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Crea un nuevo producto con stock inicial.
     
@@ -319,7 +340,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
                 referencia_id=db_product.id,
                 referencia_tipo='product_creation',
                 notas=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
-                usuario='sistema'
+                usuario=current_user.username
             )
             db.add(stock_history)
         
@@ -587,7 +608,8 @@ def update_product_stock(
     product_id: int, 
     update: StockUpdate, 
     location_id: int = Query(..., description="ID de la ubicación donde actualizar el stock"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Actualiza la cantidad disponible de stock para un producto en una ubicación específica.
@@ -645,7 +667,7 @@ def update_product_stock(
         referencia_id=None,
         referencia_tipo='manual_adjustment',
         notas=f"Ajuste manual de stock: {stock_anterior} → {update.cantidad_disponible}",
-        usuario='sistema'  # TODO: Usar usuario autenticado
+        usuario=current_user.username
     )
     db.add(history)
 
@@ -658,7 +680,11 @@ def update_product_stock(
 
 
 @router.post("/bulk", response_model=List[ProductResponse], status_code=201)
-def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
+def bulk_create_products(
+    payload: dict, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:create"))
+):
     """
     Crea múltiples productos en una sola operación.
     
@@ -811,6 +837,31 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"No se puede eliminar el producto porque está referenciado en {historical_order_items} órdenes históricas. Use 'activo=false' para desactivarlo sin perder trazabilidad."
         )
+
+    # Verificar stock reservado y transferencias pendientes
+    from app.models import StockTransfer
+
+    reserved_stock = db.query(Stock).filter(
+        Stock.product_id == product_id,
+        Stock.cantidad_reservada > 0
+    ).first()
+
+    if reserved_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar el producto porque tiene stock reservado en transferencias pendientes."
+        )
+
+    pending_transfer = db.query(StockTransfer).filter(
+        StockTransfer.product_id == product_id,
+        StockTransfer.estado == 'pendiente'
+    ).first()
+
+    if pending_transfer:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el producto porque tiene una transferencia pendiente (ID {pending_transfer.id})."
+        )
     
     try:
         # V2.0: Eliminar IMEIs asociados primero
@@ -838,7 +889,8 @@ def set_product_stock_at_location(
     product_id: int,
     location_id: int,
     cantidad: int = Query(..., ge=0, description="Cantidad de stock en esta ubicación"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Establecer o actualizar el stock de un producto en una ubicación específica.
@@ -904,7 +956,7 @@ def set_product_stock_at_location(
         stock_nuevo=cantidad,
         referencia_tipo="manual_adjustment",
         notas="Ajuste manual de stock",
-        usuario="Sistema"
+        usuario=current_user.username
     )
     db.add(stock_history)
     db.commit()

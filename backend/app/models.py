@@ -496,6 +496,13 @@ class AIProfileConfig(Base):
     # Reglas de Negocio
     context_rules = Column(Text, nullable=True)  # JSON: filtros de inventario, etc.
     is_active = Column(Boolean, default=True)
+
+    # Personalización Avanzada (V2.2)
+    business_description = Column(Text, nullable=True)
+    sales_goal = Column(String, nullable=True)
+    negotiation_style = Column(String, nullable=True)
+    max_discount_rate = Column(Numeric(5, 4), default=0.0) # 0.10 = 10%
+    fallback_human_trigger = Column(String, nullable=True)
     
     # Notificaciones (V2.1)
     admin_notification_phone = Column(String, nullable=True)  # WhatsApp del admin para alertas

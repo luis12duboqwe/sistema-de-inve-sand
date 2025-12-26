@@ -110,6 +110,13 @@ export interface AIProfileConfig {
   voice_tone?: string
   context_rules?: string
   is_active: boolean
+  
+  // V2.2: Personalización Avanzada
+  business_description?: string
+  sales_goal?: string
+  negotiation_style?: string
+  max_discount_rate?: number
+  fallback_human_trigger?: string
 }
 
 // V2.1: Gestión de Clientes e IA
@@ -424,20 +431,6 @@ export interface Customer {
   updated_at?: string
 }
 
-export interface AIProfileConfig {
-  id: number
-  sales_profile_id: number
-  model_name: string
-  temperature: number
-  system_prompt: string
-  initial_greeting?: string
-  voice_tone?: string
-  context_rules?: string
-  is_active: boolean
-  created_at: string
-  updated_at?: string
-}
-
 export interface InteractionLog {
   id: number
   customer_id: number
@@ -503,4 +496,25 @@ export interface TradeInPolicy {
   reason?: string
   is_active: boolean
   created_at: string
+}
+
+export interface FAQEntry {
+  id: number
+  pregunta_clave: string
+  respuesta: string
+  categoria?: string
+  activa: boolean
+  veces_usada: number
+  created_at: string
+  updated_at?: string
+}
+
+export interface WarrantyStatus {
+  imei: string
+  product?: string
+  status: 'vigente' | 'vencida' | 'sin_garantia' | 'en_stock'
+  sale_date?: string
+  expiration_date?: string
+  days_remaining?: number
+  detail: string
 }

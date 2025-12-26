@@ -17,16 +17,29 @@ import { Button } from '@/components/ui/button'
 import { ClockCounterClockwise } from '@phosphor-icons/react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { IMEIHistoryDialog } from './IMEIHistoryDialog'
+import { PrintButton } from './ProductLabel'
 
 interface IMEIListDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   productId: number
   productName: string
+  productSku?: string
+  productColor?: string
+  productCapacity?: string
   locationId?: number
 }
 
-export function IMEIListDialog({ open, onOpenChange, productId, productName, locationId }: IMEIListDialogProps) {
+export function IMEIListDialog({ 
+  open, 
+  onOpenChange, 
+  productId, 
+  productName, 
+  productSku = '',
+  productColor,
+  productCapacity,
+  locationId 
+}: IMEIListDialogProps) {
   const [imeis, setImeis] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedImei, setSelectedImei] = useState<string | null>(null)
@@ -77,7 +90,7 @@ export function IMEIListDialog({ open, onOpenChange, productId, productName, loc
                   {imeis.map((imei) => (
                     <TableRow key={imei}>
                       <TableCell className="font-mono">{imei}</TableCell>
-                      <TableCell>
+                      <TableCell className="flex gap-1">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -86,6 +99,15 @@ export function IMEIListDialog({ open, onOpenChange, productId, productName, loc
                         >
                           <ClockCounterClockwise size={16} />
                         </Button>
+                        <PrintButton 
+                          product={{
+                            nombre: productName,
+                            sku: productSku,
+                            color: productColor,
+                            capacidad: productCapacity
+                          }}
+                          imei={imei}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

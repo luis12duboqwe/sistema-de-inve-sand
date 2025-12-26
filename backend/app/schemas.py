@@ -672,6 +672,12 @@ class CustomerStats(BaseModel):
     average_order: Decimal
     first_order_date: datetime
     last_order_date: datetime
+    # AI Fields (V2.1)
+    id: Optional[int] = None
+    is_troll: bool = False
+    is_blocked: bool = False
+    reputation_score: int = 100
+    daily_message_count: int = 0
 
 
 class CustomerHistory(CustomerStats):

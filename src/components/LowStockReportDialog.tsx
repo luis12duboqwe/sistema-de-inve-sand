@@ -19,13 +19,14 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Warning, Package, Download, TrendDown } from '@phosphor-icons/react'
-import type { ProductWithStock, Profile } from '@/lib/types'
+import type { ProductWithStock, Profile, Location } from '@/lib/types'
 
 interface LowStockReportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   products: ProductWithStock[]
   profiles: Profile[]
+  locations: Location[]
   onProductClick?: (product: ProductWithStock) => void
 }
 
@@ -34,44 +35,46 @@ export function LowStockReportDialog({
   onOpenChange,
   products,
   profiles,
+  locations,
   onProductClick
 }: LowStockReportDialogProps) {
-  // V2.0: Stock alerts should be by LOCATION not profile
-  // TODO: Refactor to use locations from API instead of profiles
-  // For now, showing all products globally as interim solution
-  const [selectedProfile, setSelectedProfile] = useState<string>('all')
+  // V2.0: Stock alerts by LOCATION
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('all')
   const [severityFilter, setSeverityFilter] = useState<'all' | 'out' | 'critical' | 'low'>('all')
 
-  const activeProfiles = profiles.filter(p => p.active && p.settings?.enableNotifications)
+  const activeLocations = locations.filter(l => l.activo)
 
   const getLowStockProducts = () => {
     const lowStockMap: Record<string, {
-      profile: Profile
+      location: Location
       outOfStock: ProductWithStock[]
       critical: ProductWithStock[]
       low: ProductWithStock[]
     }> = {}
 
-    activeProfiles.forEach(profile => {
-      const threshold = profile.settings?.lowStockThreshold || 5
-      // V2.0 INTERIM: Products are global - this should check stock by location
-      const profileProducts = products.filter(
-        p => p.activo
-      )
+    activeLocations.forEach(location => {
+      const threshold = 5 // Default threshold for locations
+      
+      const locationProducts = products.filter(p => p.activo).map(p => {
+        // Find stock for this location
+        const stockItem = p.stock_items?.find(s => s.location_id === location.id)
+        const quantity = stockItem?.cantidad_disponible || 0
+        return { ...p, _locationStock: quantity }
+      })
 
-      const lowStockProducts = profileProducts.filter(
-        p => p.stock_disponible <= threshold
+      const lowStockProducts = locationProducts.filter(
+        p => p._locationStock <= threshold
       )
 
       if (lowStockProducts.length > 0) {
-        lowStockMap[profile.slug] = {
-          profile,
-          outOfStock: lowStockProducts.filter(p => p.stock_disponible === 0),
+        lowStockMap[location.id] = {
+          location,
+          outOfStock: lowStockProducts.filter(p => p._locationStock === 0),
           critical: lowStockProducts.filter(
-            p => p.stock_disponible > 0 && p.stock_disponible <= Math.floor(threshold / 2)
+            p => p._locationStock > 0 && p._locationStock <= Math.floor(threshold / 2)
           ),
           low: lowStockProducts.filter(
-            p => p.stock_disponible > Math.floor(threshold / 2)
+            p => p._locationStock > Math.floor(threshold / 2)
           )
         }
       }
@@ -85,15 +88,15 @@ export function LowStockReportDialog({
   const getFilteredProducts = () => {
     let allProducts: Array<{
       product: ProductWithStock
-      profile: Profile
+      location: Location
       severity: 'out' | 'critical' | 'low'
     }> = []
 
-    Object.values(lowStockMap).forEach(({ profile, outOfStock, critical, low }) => {
-      if (selectedProfile === 'all' || profile.slug === selectedProfile) {
-        outOfStock.forEach(p => allProducts.push({ product: p, profile, severity: 'out' }))
-        critical.forEach(p => allProducts.push({ product: p, profile, severity: 'critical' }))
-        low.forEach(p => allProducts.push({ product: p, profile, severity: 'low' }))
+    Object.values(lowStockMap).forEach(({ location, outOfStock, critical, low }) => {
+      if (selectedLocationId === 'all' || location.id.toString() === selectedLocationId) {
+        outOfStock.forEach(p => allProducts.push({ product: p, location, severity: 'out' }))
+        critical.forEach(p => allProducts.push({ product: p, location, severity: 'critical' }))
+        low.forEach(p => allProducts.push({ product: p, location, severity: 'low' }))
       }
     })
 
@@ -106,9 +109,9 @@ export function LowStockReportDialog({
 
   const filteredProducts = getFilteredProducts()
 
-  const getTotalsByProfile = () => {
-    return Object.values(lowStockMap).map(({ profile, outOfStock, critical, low }) => ({
-      profile,
+  const getTotalsByLocation = () => {
+    return Object.values(lowStockMap).map(({ location, outOfStock, critical, low }) => ({
+      location,
       total: outOfStock.length + critical.length + low.length,
       outOfStock: outOfStock.length,
       critical: critical.length,
@@ -118,16 +121,16 @@ export function LowStockReportDialog({
 
   const exportReport = () => {
     const csvContent = [
-      ['Perfil', 'Producto', 'SKU', 'Marca', 'Modelo', 'Stock Actual', 'Umbral', 'Severidad'].join(','),
-      ...filteredProducts.map(({ product, profile, severity }) =>
+      ['Ubicación', 'Producto', 'SKU', 'Marca', 'Modelo', 'Stock Actual', 'Umbral', 'Severidad'].join(','),
+      ...filteredProducts.map(({ product, location, severity }) =>
         [
-          profile.name,
+          location.nombre,
           product.nombre,
           product.sku,
           product.marca,
           product.modelo,
-          product.stock_disponible,
-          profile.settings?.lowStockThreshold || 5,
+          (product as any)._locationStock,
+          5, // Default threshold
           severity === 'out' ? 'Agotado' : severity === 'critical' ? 'Crítico' : 'Bajo'
         ].join(',')
       )
@@ -173,15 +176,15 @@ export function LowStockReportDialog({
 
           <TabsContent value="products" className="space-y-4 mt-4">
             <div className="flex flex-col sm:flex-row gap-3">
-              <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+              <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
                 <SelectTrigger className="w-full sm:w-[200px]">
-                  <SelectValue placeholder="Perfil" />
+                  <SelectValue placeholder="Ubicación" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos los perfiles</SelectItem>
-                  {activeProfiles.map(profile => (
-                    <SelectItem key={profile.id} value={profile.slug}>
-                      {profile.name}
+                  <SelectItem value="all">Todas las ubicaciones</SelectItem>
+                  {activeLocations.map(location => (
+                    <SelectItem key={location.id} value={location.id.toString()}>
+                      {location.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -231,9 +234,9 @@ export function LowStockReportDialog({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredProducts.map(({ product, profile, severity }) => (
+                  {filteredProducts.map(({ product, location, severity }) => (
                     <Card
-                      key={product.id}
+                      key={`${location.id}-${product.id}`}
                       className="p-4 cursor-pointer hover:bg-accent/20 transition-colors"
                       onClick={() => onProductClick?.(product)}
                     >
@@ -262,10 +265,10 @@ export function LowStockReportDialog({
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
-                                {profile.name}
+                                {location.nombre}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                Stock: {product.stock_disponible} / Umbral: {profile.settings?.lowStockThreshold || 5}
+                                Stock: {(product as any)._locationStock} / Umbral: 5
                               </span>
                             </div>
                           </div>
@@ -280,7 +283,7 @@ export function LowStockReportDialog({
 
           <TabsContent value="summary" className="space-y-4 mt-4">
             <ScrollArea className="h-[500px] pr-4">
-              {getTotalsByProfile().length === 0 ? (
+              {getTotalsByLocation().length === 0 ? (
                 <div className="text-center py-12">
                   <Package size={48} className="mx-auto text-muted-foreground mb-3" weight="duotone" />
                   <p className="text-sm text-muted-foreground">
@@ -289,11 +292,11 @@ export function LowStockReportDialog({
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {getTotalsByProfile().map(({ profile, total, outOfStock, critical, low }) => (
-                    <Card key={profile.id} className="p-4">
+                  {getTotalsByLocation().map(({ location, total, outOfStock, critical, low }) => (
+                    <Card key={location.id} className="p-4">
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-semibold">{profile.name}</h3>
+                          <h3 className="text-lg font-semibold">{location.nombre}</h3>
                           <Badge variant="outline">
                             {total} producto{total !== 1 ? 's' : ''}
                           </Badge>
@@ -317,11 +320,11 @@ export function LowStockReportDialog({
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
-                          <span>Umbral configurado: {profile.settings?.lowStockThreshold || 5} unidades</span>
+                          <span>Umbral configurado: 5 unidades</span>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedProfile(profile.slug)}
+                            onClick={() => setSelectedLocationId(location.id.toString())}
                             className="h-7"
                           >
                             Ver detalles

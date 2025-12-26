@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Wrench, CheckCircle, Gear } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
+import { getUseApiSetting, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { ProductWithStock, Location } from '@/lib/types'
 import { useKV } from '@/hooks/use-kv'
 import { TradeInPoliciesDialog } from './TradeInPoliciesDialog'
@@ -35,15 +36,21 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
 
   const loadPendingProducts = async () => {
     try {
-      // Fetch inactive products and filter by category 'pendiente_revision'
-      // Note: The backend list_products endpoint supports include_inactive=true
-      const response = await apiClient.getProducts({ 
-        include_inactive: true,
-        per_page: 100 
-      })
-      
-      const pending = response.items.filter(p => p.categoria === 'pendiente_revision')
-      setProducts(pending)
+      const useApi = await getUseApiSetting()
+
+      if (useApi) {
+        // Fetch inactive products and filter by category 'pendiente_revision'
+        const response = await apiClient.getProducts({ 
+          include_inactive: true,
+          per_page: 100 
+        })
+        const pending = response.items.filter(p => p.categoria === 'pendiente_revision')
+        setProducts(pending)
+      } else {
+        const pending = (await inventoryServiceInstance.fetchProducts(undefined, undefined, true))
+          .filter(p => p.categoria === 'pendiente_revision')
+        setProducts(pending)
+      }
     } catch (error) {
       console.error(error)
       toast.error('Error al cargar retomas pendientes')
@@ -82,45 +89,52 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
     }
 
     try {
-      // 1. Update Product Details (Active=True, Category=Celular)
-      await apiClient.updateProduct(selectedProduct.id, {
-        ...selectedProduct,
-        imei: activationForm.imei, // Legacy field update
-        color: activationForm.color,
-        capacidad: activationForm.capacidad,
-        precio: parseFloat(activationForm.precio),
-        categoria: 'celular', // Move to active category
-        activo: true,
-        is_serialized: true
-      })
+      const useApi = await getUseApiSetting()
 
-      // 2. Handle Location Transfer if needed
-      // Logic: If target location is different from current stock location, we need to move it.
-      // For V1 simplicity: We assume the user physically moves it or it's just a logical assignment.
-      // If the backend supports stock transfer via update, great. If not, we might need a separate call.
-      // Current backend `updateProduct` doesn't move stock. 
-      // We will rely on the user using the "Transfer" feature separately if they want to move it, 
-      // OR we can implement a transfer call here.
-      
-      // Let's check if location changed
+      if (useApi) {
+        await apiClient.updateProduct(selectedProduct.id, {
+          ...selectedProduct,
+          imei: activationForm.imei, // Legacy field update
+          color: activationForm.color,
+          capacidad: activationForm.capacidad,
+          precio: parseFloat(activationForm.precio),
+          categoria: 'celular',
+          activo: true,
+          is_serialized: true
+        })
+      } else {
+        await inventoryServiceInstance.updateProduct(selectedProduct.id, {
+          ...selectedProduct,
+          imei: activationForm.imei,
+          color: activationForm.color,
+          capacidad: activationForm.capacidad,
+          precio: parseFloat(activationForm.precio),
+          categoria: 'celular',
+          activo: true,
+          is_serialized: true
+        })
+      }
+
       const currentLocationId = selectedProduct.stock_items?.find(s => s.cantidad_disponible > 0)?.location_id
       const targetLocationId = parseInt(activationForm.targetLocationId)
 
       if (currentLocationId && currentLocationId !== targetLocationId) {
-        // Perform transfer
-        await apiClient.createStockTransfer({
-           product_id: selectedProduct.id,
-           from_location_id: currentLocationId,
-           to_location_id: targetLocationId,
-           cantidad: 1,
-           notas: 'Transferencia automática por activación de retoma',
-           imeis: [activationForm.imei]
-        })
+        const transferPayload = {
+          product_id: selectedProduct.id,
+          from_location_id: currentLocationId,
+          to_location_id: targetLocationId,
+          cantidad: 1,
+          notas: 'Transferencia automática por activación de retoma',
+          imeis: [activationForm.imei]
+        }
+
+        if (useApi) {
+          await apiClient.createStockTransfer(transferPayload)
+        } else {
+          await inventoryServiceInstance.createStockTransfer(transferPayload)
+        }
         toast.success('Producto activado y transferido exitosamente')
       } else {
-        // Just update the IMEI record location if needed
-        // The backend updateProduct might not update the IMEI table location if it was null.
-        // For now, simple activation is a huge step forward.
         toast.success('Producto activado exitosamente')
       }
 

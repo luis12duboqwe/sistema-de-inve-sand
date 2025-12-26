@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import StockTransfer, Product, Location, Stock, StockHistory, IMEIHistory
+from app.models import StockTransfer, Product, Location, Stock, StockHistory, IMEIHistory, User
 from app.schemas import (
     StockTransferCreate, 
     StockTransferResponse, 
@@ -13,6 +13,8 @@ from app.schemas import (
     StockTransferReject,
     PaginatedResponse
 )
+
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock-transfers"])
 
@@ -48,7 +50,8 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
 @router.post("", response_model=StockTransferResponse, status_code=201)
 def create_transfer(
     transfer: StockTransferCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Crea una nueva transferencia de stock entre ubicaciones físicas (V2.0).
@@ -198,7 +201,7 @@ def create_transfer(
         cantidad=transfer.cantidad,
         notas=transfer.notas,
         estado="pendiente",
-        created_by=transfer.created_by
+        created_by=current_user.username
     )
     db.add(db_transfer)
     
@@ -222,7 +225,7 @@ def create_transfer(
         referencia_id=None,  # Se actualizará después del flush
         referencia_tipo='transfer_pending',
         notas=f"Stock reservado para transferencia a '{to_location.nombre}': {transfer.notas or 'Sin notas'}",
-        usuario=transfer.created_by
+        usuario=current_user.username
     )
     db.add(history_reserva)
     
@@ -245,7 +248,7 @@ def create_transfer(
         )
 
 
-@router.get("", response_model=PaginatedResponse[StockTransferResponse])
+@router.get("", response_model=PaginatedResponse[StockTransferResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def list_transfers(
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación (origen o destino)"),
     product_id: Optional[int] = Query(None, description="Filtrar por ID de producto"),
@@ -318,11 +321,12 @@ def get_transfer(
     return _serialize_transfer(transfer)
 
 
-@router.post("/{transfer_id}/confirm", response_model=StockTransferResponse)
+@router.post("/{transfer_id}/confirm", response_model=StockTransferResponse, dependencies=[Depends(check_permission("inventory:edit"))])
 def confirm_transfer(
     transfer_id: int,
     confirm_data: StockTransferConfirm,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Confirma una transferencia pendiente y mueve el stock entre ubicaciones (V2.0).
@@ -472,7 +476,7 @@ def confirm_transfer(
         referencia_id=transfer.id,
         referencia_tipo='transfer',
         notas=f"Transferencia a {transfer.to_location.nombre}: {transfer.notas or ''}",
-        usuario=confirm_data.confirmed_by
+        usuario=current_user.username
     )
     db.add(history_salida)
     
@@ -486,7 +490,7 @@ def confirm_transfer(
         referencia_id=transfer.id,
         referencia_tipo='transfer',
         notas=f"Transferencia desde {transfer.from_location.nombre}: {transfer.notas or ''}",
-        usuario=confirm_data.confirmed_by
+        usuario=current_user.username
     )
     db.add(history_entrada)
     
@@ -528,14 +532,14 @@ def confirm_transfer(
             reference_id=transfer.id,
             reference_type='transfer',
             notes=f"Transferencia confirmada de {transfer.from_location.nombre} a {transfer.to_location.nombre}",
-            created_by=confirm_data.confirmed_by
+            created_by=current_user.username
         )
         db.add(imei_history)
     
     # Actualizar estado de la transferencia
     transfer.estado = "confirmada"
     transfer.confirmed_at = datetime.utcnow()
-    transfer.confirmed_by = confirm_data.confirmed_by
+    transfer.confirmed_by = current_user.username
     
     try:
         db.commit()
@@ -549,11 +553,12 @@ def confirm_transfer(
         )
 
 
-@router.post("/{transfer_id}/reject", response_model=StockTransferResponse)
+@router.post("/{transfer_id}/reject", response_model=StockTransferResponse, dependencies=[Depends(check_permission("inventory:edit"))])
 def reject_transfer(
     transfer_id: int,
     reject_data: StockTransferReject,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Rechaza una transferencia pendiente.
@@ -602,7 +607,7 @@ def reject_transfer(
     # Actualizar estado de la transferencia
     transfer.estado = "rechazada"
     transfer.confirmed_at = datetime.utcnow()
-    transfer.confirmed_by = reject_data.rejected_by
+    transfer.confirmed_by = current_user.username
     transfer.rejection_reason = reject_data.rejection_reason
     
     # V2.0: Liberar IMEIs reservados
@@ -625,8 +630,8 @@ def reject_transfer(
         stock_nuevo=stock_libre_despues,
         referencia_id=transfer.id,
         referencia_tipo='transfer_rejected',
-        notas=f"Transferencia rechazada por {reject_data.rejected_by}: {reject_data.rejection_reason or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
-        usuario=reject_data.rejected_by
+        notas=f"Transferencia rechazada por {current_user.username}: {reject_data.rejection_reason or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
+        usuario=current_user.username
     )
     db.add(history_rechazo)
     
@@ -642,10 +647,11 @@ def reject_transfer(
         )
 
 
-@router.delete("/{transfer_id}", status_code=204)
+@router.delete("/{transfer_id}", status_code=204, dependencies=[Depends(check_permission("inventory:edit"))])
 def cancel_transfer(
     transfer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Cancela una transferencia pendiente.
@@ -713,7 +719,7 @@ def cancel_transfer(
         referencia_id=transfer.id,
         referencia_tipo='transfer_cancelled',
         notas=f"Transferencia cancelada: {transfer.notas or 'Sin motivo especificado'}. Reserva liberada: {transfer.cantidad} unidades",
-        usuario=transfer.created_by or 'sistema'
+        usuario=current_user.username
     )
     db.add(history_cancelacion)
     

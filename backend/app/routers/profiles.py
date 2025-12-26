@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List
 import math
 from app.database import get_db
-from app.models import Profile
+from app.models import Profile, User
 from app.schemas import ProfileCreate, ProfileResponse, ProfileUpdate, PaginatedResponse
+from app.auth import check_permission
 
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -46,7 +47,11 @@ def list_profiles(
     )
 
 @router.post("", response_model=ProfileResponse, status_code=201)
-def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
+def create_profile(
+    profile: ProfileCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Crea un nuevo perfil de negocio.
     
@@ -100,7 +105,12 @@ def get_profile(profile_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{profile_id}", response_model=ProfileResponse)
-def update_profile(profile_id: int, updates: ProfileUpdate, db: Session = Depends(get_db)):
+def update_profile(
+    profile_id: int, 
+    updates: ProfileUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Actualiza un perfil existente.
 
@@ -149,7 +159,11 @@ def update_profile(profile_id: int, updates: ProfileUpdate, db: Session = Depend
 
 
 @router.delete("/{profile_id}", status_code=204)
-def delete_profile(profile_id: int, db: Session = Depends(get_db)):
+def delete_profile(
+    profile_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:edit"))
+):
     """
     Elimina un perfil del sistema.
     

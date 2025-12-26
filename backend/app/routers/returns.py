@@ -1,14 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, StockHistory, IMEIHistory, OrderItem
+from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, StockHistory, IMEIHistory, OrderItem, User
 from app.schemas import ReturnCreate, ReturnResponse, ReturnItemResponse, PaginatedResponse
 from typing import List
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
 
 @router.get("", response_model=PaginatedResponse[ReturnResponse])
-def list_returns(db: Session = Depends(get_db)):
+def list_returns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Lista todas las devoluciones.
     """
@@ -22,7 +26,11 @@ def list_returns(db: Session = Depends(get_db)):
     )
 
 @router.post("", response_model=ReturnResponse, status_code=201)
-def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
+def create_return(
+    return_data: ReturnCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Crea una devolución parcial o total de una orden.
     Maneja el reingreso al stock y la actualización de IMEIs.
@@ -39,7 +47,7 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
     new_return = Return(
         order_id=return_data.order_id,
         reason=return_data.reason,
-        created_by=return_data.created_by,
+        created_by=current_user.username,
         status="completed" # Por ahora procesamos inmediatamente
     )
     db.add(new_return)
@@ -128,7 +136,7 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
                 referencia_id=new_return.id,
                 referencia_tipo='return',
                 notas=f"Devolución Orden #{order.id}: {item.condition}",
-                usuario=return_data.created_by
+                usuario=current_user.username
             )
             db.add(stock_history)
             
@@ -163,7 +171,7 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
                     reference_id=new_return.id,
                     reference_type='return',
                     notes=f"Devolución por {item.condition} - Acción: {item.action}",
-                    created_by=return_data.created_by
+                    created_by=current_user.username
                 )
                 db.add(imei_history)
 

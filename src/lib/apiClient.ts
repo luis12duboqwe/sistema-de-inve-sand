@@ -14,7 +14,8 @@ import type {
   CreateReturnRequest,
   Return,
   IMEIHistory,
-  AIProfileConfig
+  AIProfileConfig,
+  WarrantyStatus
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -279,6 +280,15 @@ class ApiClient {
     }
     
     return response
+  }
+
+  async getProductByIMEI(imei: string): Promise<ProductResponse> {
+    try {
+      return await this.request<ProductResponse>(`/products/imei/${imei}`)
+    } catch (error) {
+      console.error('Error fetching product by IMEI:', error)
+      throw error
+    }
   }
 
   async listProfiles(): Promise<Profile[]> {
@@ -959,6 +969,15 @@ class ApiClient {
     }
   }
 
+  async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
+    try {
+      return this.request<WarrantyStatus>(`/imeis/${imei}/warranty-status`)
+    } catch (error) {
+      console.error('Error checking warranty status:', error)
+      throw new Error(`Failed to check warranty status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   // ==========================================
   // MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
   // ==========================================
@@ -981,6 +1000,18 @@ class ApiClient {
     } catch (error) {
       console.error('Error updating AI config:', error)
       throw new Error(`Failed to update AI config: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+    try {
+      await this.request('/ai/link-order', {
+        method: 'POST',
+        body: JSON.stringify({ customer_phone: customerPhone, order_id: orderId })
+      })
+    } catch (error) {
+      // Non-critical error, just log it
+      console.warn('Failed to link order to interaction:', error)
     }
   }
 
@@ -1008,6 +1039,30 @@ class ApiClient {
       console.error('Error resolving training item:', error)
       throw new Error(`Failed to resolve item: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<import('./types').TrainingQueueItem>): Promise<import('./types').TrainingQueueItem> {
+    if (updates.status && ['approved', 'rejected', 'converted_to_faq'].includes(updates.status)) {
+      const statusToAction: Record<string, 'approve' | 'reject' | 'convert_to_faq'> = {
+        'approved': 'approve',
+        'rejected': 'reject',
+        'converted_to_faq': 'convert_to_faq'
+      }
+      
+      await this.resolveTrainingItem(
+        id, 
+        statusToAction[updates.status], 
+        updates.admin_correction
+      )
+      
+      // Fetch the updated item to return it
+      // Note: The item might move to a different list based on status, so we search in the new status list
+      const queue = await this.listTrainingQueue(updates.status)
+      const item = queue.find(i => i.id === id)
+      if (item) return item
+    }
+    
+    throw new Error("Generic updates to training queue items are not supported in API mode yet. Only status resolution is supported.")
   }
 
   async listCustomers(search?: string): Promise<import('./types').Customer[]> {
@@ -1038,9 +1093,9 @@ class ApiClient {
       return this.listCustomerStats(search)
   }
 
-  async updateCustomerStatus(id: number, updates: { is_troll?: boolean; is_blocked?: boolean; notes?: string }): Promise<void> {
+  async updateCustomerStatus(id: number, updates: { is_troll?: boolean; is_blocked?: boolean; notes?: string }): Promise<import('./types').Customer> {
     try {
-      await this.request(`/ai/customers/${id}`, {
+      return await this.request<import('./types').Customer>(`/ai/customers/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(updates),
         headers: { 'Content-Type': 'application/json' }
@@ -1051,7 +1106,7 @@ class ApiClient {
     }
   }
 
-  async updateCustomer(customerId: number, updates: any): Promise<any> {
+  async updateCustomer(customerId: number, updates: any): Promise<import('./types').Customer> {
     return this.updateCustomerStatus(customerId, updates)
   }
 
@@ -1142,6 +1197,51 @@ class ApiClient {
 
   async deleteTradeInPolicy(id: number): Promise<void> {
     return this.request<void>(`/ai/trade-in-policies/${id}`, {
+      method: 'DELETE'
+    })
+  }
+  async getStockHistory(productId: number, params?: {
+    limit?: number
+    tipo_cambio?: string
+    date_from?: string
+    date_to?: string
+  }): Promise<import('./types').StockHistory[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.limit) queryParams.append('limit', params.limit.toString())
+    if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
+    if (params?.date_from) queryParams.append('date_from', params.date_from)
+    if (params?.date_to) queryParams.append('date_to', params.date_to)
+    
+    return this.request<import('./types').StockHistory[]>(`/stock-history/product/${productId}?${queryParams.toString()}`)
+  }
+
+  // FAQ Management
+  async listFAQs(params?: { activa?: boolean, categoria?: string, page?: number, per_page?: number }): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
+    const queryParams = new URLSearchParams()
+    if (params?.activa !== undefined) queryParams.append('activa', params.activa.toString())
+    if (params?.categoria) queryParams.append('categoria', params.categoria)
+    if (params?.page) queryParams.append('page', params.page.toString())
+    if (params?.per_page) queryParams.append('per_page', params.per_page.toString())
+    
+    return this.request<{ items: import('./types').FAQEntry[], total: number, pages: number }>(`/faq?${queryParams.toString()}`)
+  }
+
+  async createFAQ(faq: Omit<import('./types').FAQEntry, 'id' | 'created_at' | 'updated_at' | 'veces_usada'>): Promise<import('./types').FAQEntry> {
+    return this.request<import('./types').FAQEntry>('/faq', {
+      method: 'POST',
+      body: JSON.stringify(faq)
+    })
+  }
+
+  async updateFAQ(id: number, updates: Partial<import('./types').FAQEntry>): Promise<import('./types').FAQEntry> {
+    return this.request<import('./types').FAQEntry>(`/faq/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    })
+  }
+
+  async deleteFAQ(id: number): Promise<void> {
+    return this.request<void>(`/faq/${id}`, {
       method: 'DELETE'
     })
   }

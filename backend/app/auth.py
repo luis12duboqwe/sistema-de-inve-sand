@@ -14,7 +14,8 @@ from app.schemas import TokenData
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+# Permitir uso opcional del token en dependencias que lo requieren de forma no estricta
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -62,6 +63,8 @@ async def get_current_user(
     )
     
     try:
+        if not token:
+            raise credentials_exception
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: str = payload.get("sub")
         if username is None:
