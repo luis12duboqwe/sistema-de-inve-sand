@@ -227,6 +227,9 @@ export function NewOrderDialog({
     else if (field === 'cantidad') {
       const val = value as number
       const productId = newItems[index].product_id
+
+      // Guard: la cantidad debe ser >= 1
+      const normalizedVal = !Number.isFinite(val) || val < 1 ? 1 : val
       if (productId > 0) {
         const product = products.find(p => p.id === productId)
         
@@ -242,11 +245,11 @@ export function NewOrderDialog({
         }
         
         // Limitar al stock disponible
-        if (val > available) {
+        if (normalizedVal > available) {
           toast.error(`⚠️ Solo hay ${available} unidades de "${product?.nombre}" ${product?.stock_items?.length ? 'en esta ubicación' : 'disponibles'}`)
           newItems[index].cantidad = available
         } else {
-          newItems[index].cantidad = val
+          newItems[index].cantidad = normalizedVal
         }
 
         // Trim IMEIs if quantity reduced
@@ -254,7 +257,7 @@ export function NewOrderDialog({
            newItems[index].imeis = newItems[index].imeis!.slice(0, newItems[index].cantidad)
         }
       } else {
-        newItems[index].cantidad = val
+        newItems[index].cantidad = normalizedVal
       }
     } 
     else if (field === 'imeis') {

@@ -90,7 +90,9 @@ export function TransferStockDialog({
   const getAvailableStock = () => {
     if (!product || !fromLocationId) return 0
     const stockItem = product.stock_items?.find(s => s.location_id === fromLocationId)
-    return stockItem?.cantidad_disponible || 0
+    const disponible = stockItem?.cantidad_disponible || 0
+    const reservado = stockItem?.cantidad_reservada || 0
+    return Math.max(disponible - reservado, 0)
   }
 
   // Ubicaciones de destino disponibles (excluir la de origen)
@@ -224,7 +226,9 @@ export function TransferStockDialog({
                       ) : (
                         locations.map(location => {
                           const stockItem = product.stock_items?.find(s => s.location_id === location.id)
-                          const stock = stockItem?.cantidad_disponible || 0
+                          const disponible = stockItem?.cantidad_disponible || 0
+                          const reservado = stockItem?.cantidad_reservada || 0
+                          const stock = Math.max(disponible - reservado, 0)
                           return (
                             <SelectItem key={location.id} value={location.id.toString()} disabled={stock === 0}>
                               <div className="flex items-center justify-between gap-3 w-full">

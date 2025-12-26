@@ -16,9 +16,13 @@ import uvicorn
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 
+# Forzar base de datos de pruebas a un archivo temporal accesible
+TEST_DB_PATH = Path("/tmp/test_api_usage.db")
+os.environ["DATABASE_URL"] = f"sqlite:////{TEST_DB_PATH}"
+
 # Garantiza un estado limpio de base de datos y que las rutas relativas de SQLite
 # apunten al directorio backend para las pruebas.
-for db_path in (PROJECT_ROOT / "inventory.db", BACKEND_DIR / "inventory.db"):
+for db_path in (PROJECT_ROOT / "inventory.db", BACKEND_DIR / "inventory.db", BACKEND_DIR / "test_api_usage.db", TEST_DB_PATH):
     if db_path.exists():
         db_path.unlink()
 
@@ -28,7 +32,19 @@ os.chdir(BACKEND_DIR)
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.main import app  # noqa: E402  importado después de fijar el cwd
+# Reconstruir engine/SessionLocal con el DATABASE_URL de pruebas aunque app.main
+# se haya cargado antes en otros tests.
+import importlib
+import app.database as _db  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+_db.engine = create_engine(
+    os.environ["DATABASE_URL"], connect_args={"check_same_thread": False}
+)
+_db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_db.engine)
+
+from app.main import app  # noqa: E402  importado después de fijar el cwd y reconfigurar DB
 
 # En algunos entornos, el lifespan de Uvicorn puede no ejecutar init_db
 # antes de que este test llame a /api/init-data. Creamos tablas explícitamente

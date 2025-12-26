@@ -609,9 +609,9 @@ function MainApp() {
     toast.success(`${filtered.length} órdenes exportadas`)
   }
 
-  const handleImportProducts = async (productsData: Partial<ProductWithStock>[]) => {
+  const handleImportProducts = async (productsData: Partial<ProductWithStock>[], locationId: number | null) => {
     try {
-      const importedProducts = await service.bulkCreateProducts(productsData)
+      const importedProducts = await service.bulkCreateProducts(productsData, locationId)
       setProducts((current: ProductWithStock[]) => [...(current ?? []), ...importedProducts])
       toast.success(`${importedProducts.length} productos importados exitosamente`)
     } catch (error) {
@@ -1911,6 +1911,7 @@ function MainApp() {
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         onImport={handleImportProducts}
+        locations={locations}
       />
 
       <ManageSuppliersDialog

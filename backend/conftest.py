@@ -45,13 +45,17 @@ def _enable_test_overrides():
     app.dependency_overrides[get_current_active_user] = _fake_user
     app.dependency_overrides[get_current_superuser] = _fake_user
 
-    # Permisos: permitir siempre (fallback si alguna ruta depende directamente)
+    # Permisos: devolver usuario fake para cualquier permiso crítico usado en tests
     for perm_dep in [
         check_permission("inventory:create"),
         check_permission("inventory:edit"),
         check_permission("inventory:delete"),
+        check_permission("inventory:view"),
+        check_permission("orders:edit"),
+        check_permission("orders:create"),
+        check_permission("reports:view"),
     ]:
-        app.dependency_overrides[perm_dep] = lambda: True
+        app.dependency_overrides[perm_dep] = _fake_user
 
 
 class _FakeUser:

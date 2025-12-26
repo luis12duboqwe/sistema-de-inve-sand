@@ -5,6 +5,7 @@ from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, S
 from app.schemas import ReturnCreate, ReturnResponse, ReturnItemResponse, PaginatedResponse
 from typing import List
 from app.auth import get_current_active_user, check_permission
+from app.utils.order_validators import validate_location_exists
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
 
@@ -43,11 +44,16 @@ def create_return(
     if order.estado == "cancelada":
         raise HTTPException(status_code=400, detail="No se pueden hacer devoluciones de órdenes canceladas")
 
-    # 2. Crear Objeto Return
+    # 2. Validar ubicación de origen de la orden (activa)
+    source_location = validate_location_exists(db, order.source_location_id)
+
+    # 3. Crear Objeto Return
+    user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
+
     new_return = Return(
         order_id=return_data.order_id,
         reason=return_data.reason,
-        created_by=current_user.username,
+        created_by=user_name,
         status="completed" # Por ahora procesamos inmediatamente
     )
     db.add(new_return)
@@ -63,7 +69,7 @@ def create_return(
     for prev in previous_items:
         returned_quantities[prev.product_id] = returned_quantities.get(prev.product_id, 0) + prev.quantity
 
-    # 3. Procesar Items
+    # 4. Procesar Items
     for item in return_data.items:
         # Validar que el producto estaba en la orden
         order_item = db.query(OrderItem).filter(
@@ -95,19 +101,19 @@ def create_return(
         )
         db.add(return_item)
         
-        # 4. Lógica de Inventario (Solo si la acción implica reingreso)
+        # 5. Lógica de Inventario (Solo si la acción implica reingreso)
         if item.action in ["refund", "warranty_exchange", "store_credit"]:
             # Buscar Stock en la ubicación original de la orden
             stock = db.query(Stock).filter(
                 Stock.product_id == item.product_id,
-                Stock.location_id == order.source_location_id
+                Stock.location_id == source_location.id
             ).first()
             
             if not stock:
                 # Si no existe stock (raro), crearlo
                 stock = Stock(
                     product_id=item.product_id,
-                    location_id=order.source_location_id,
+                    location_id=source_location.id,
                     cantidad_disponible=0,
                     cantidad_reservada=0
                 )
@@ -128,7 +134,7 @@ def create_return(
             # Historial Stock
             stock_history = StockHistory(
                 product_id=item.product_id,
-                location_id=order.source_location_id,
+                location_id=source_location.id,
                 tipo_cambio='devolucion',
                 cantidad=item.quantity,
                 stock_anterior=stock_anterior,
@@ -136,7 +142,7 @@ def create_return(
                 referencia_id=new_return.id,
                 referencia_tipo='return',
                 notas=f"Devolución Orden #{order.id}: {item.condition}",
-                usuario=current_user.username
+                usuario=user_name
             )
             db.add(stock_history)
             
@@ -166,12 +172,12 @@ def create_return(
                 imei_history = IMEIHistory(
                     imei=item.imei,
                     product_id=item.product_id,
-                    location_id=order.source_location_id,
+                    location_id=source_location.id,
                     event_type='devolucion',
                     reference_id=new_return.id,
                     reference_type='return',
                     notes=f"Devolución por {item.condition} - Acción: {item.action}",
-                    created_by=current_user.username
+                    created_by=user_name
                 )
                 db.add(imei_history)
 

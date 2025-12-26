@@ -279,7 +279,7 @@ function calculateConfidence(recentOrderCount: number, olderOrderCount: number):
   return 0.3
 }
 
-function generateForecastingSummary(
+export function generateForecastingSummary(
   forecasts: SalesForecast[],
   products: ProductWithStock[]
 ): ForecastingSummary {

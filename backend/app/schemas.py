@@ -430,6 +430,7 @@ class OrderItemResponse(BaseModel):
 class OrderItemUpdate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
+    precio_unitario: Optional[Decimal] = Field(None, ge=0, description="Precio unitario personalizado (descuento/negociación)")
     es_regalo_promocion: bool = False
     imeis: Optional[List[str]] = None  # V2.0: IMEIs específicos para productos serializados
     
@@ -447,6 +448,13 @@ class OrderItemUpdate(BaseModel):
     def validate_product_id_positivo(cls, v):
         if v <= 0:
             raise ValueError('El product_id debe ser mayor a 0')
+        return v
+
+    @field_validator('precio_unitario')
+    @classmethod
+    def validate_precio_no_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError('El precio unitario no puede ser negativo')
         return v
 
 class TradeInCreate(BaseModel):
@@ -569,12 +577,20 @@ class OrderUpdate(BaseModel):
     items: Optional[List[OrderItemUpdate]] = Field(None, min_length=1, description="Si se proporciona, debe contener al menos un producto")
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
+    source_location_id: Optional[int] = None
     
     @field_validator('items')
     @classmethod
     def validate_items_not_empty(cls, v):
         if v is not None and len(v) == 0:
             raise ValueError('Si proporciona items, la lista debe contener al menos un producto')
+        return v
+
+    @field_validator('source_location_id')
+    @classmethod
+    def validate_location_if_present(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('source_location_id debe ser mayor a 0 cuando se envía')
         return v
 
 
@@ -710,6 +726,9 @@ class DashboardStats(BaseModel):
     total_revenue_today: Decimal
     total_revenue_month: Decimal
     total_revenue_last_month: Decimal
+    # V2.1: Nuevos KPIs financieros
+    gross_margin_month: Optional[Decimal] = Field(None, description="Margen bruto del mes actual (%)")
+    average_ticket_month: Optional[Decimal] = Field(None, description="Ticket promedio del mes actual")
 
 
 class TopProduct(BaseModel):
@@ -738,6 +757,32 @@ class InventoryAlert(BaseModel):
     current_stock: int
     category: str
     alert_level: str  # "critical", "low", "out_of_stock"
+
+
+class SalesForecast(BaseModel):
+    """Predicción de ventas por producto"""
+    product_id: int
+    product_name: str
+    current_stock: int
+    average_daily_sales: float
+    predicted_sales_next_7_days: int
+    predicted_sales_next_30_days: int
+    days_until_stockout: int
+    restock_recommendation: int
+    confidence: float
+    trend: str  # 'increasing', 'stable', 'decreasing'
+
+
+class ForecastingSummary(BaseModel):
+    """Resumen de predicciones"""
+    total_products: int
+    products_needing_restock: int
+    critical_stock_alerts: int
+    estimated_revenue_7_days: Decimal
+    estimated_revenue_30_days: Decimal
+    top_performing_products: List[str]
+    slow_moving_products: List[str]
+    forecasts: List[SalesForecast]
 
 
 # Authentication schemas
@@ -778,6 +823,13 @@ class StockTransferCreate(BaseModel):
         if v is not None and 'cantidad' in info.data:
             if len(v) != info.data['cantidad']:
                 raise ValueError(f'La cantidad de IMEIs ({len(v)}) no coincide con la cantidad a transferir ({info.data["cantidad"]})')
+        return v
+
+    @field_validator('notas')
+    @classmethod
+    def validate_notas(cls, v):
+        if v and len(v) > 500:
+            raise ValueError('Las notas no pueden exceder los 500 caracteres')
         return v
 
 
@@ -822,6 +874,13 @@ class StockTransferReject(BaseModel):
     rejection_reason: str = Field(..., min_length=1, description="Razón del rechazo")
     rejected_by: Optional[str] = None
 
+    @field_validator('rejection_reason')
+    @classmethod
+    def validate_reason(cls, v):
+        if len(v) > 500:
+            raise ValueError('La razón del rechazo no puede exceder los 500 caracteres')
+        return v
+
 
 # ============= RETURN SCHEMAS =============
 
@@ -832,11 +891,28 @@ class ReturnItemCreate(BaseModel):
     action: ReturnActionEnum
     imei: Optional[str] = None
 
+    @field_validator("imei")
+    @classmethod
+    def validate_imei(cls, v):
+        if v is None:
+            return v
+        cleaned = v.strip()
+        if not cleaned.isdigit() or not (14 <= len(cleaned) <= 17):
+            raise ValueError("IMEI debe ser numérico y de 14-17 dígitos")
+        return cleaned
+
 class ReturnCreate(BaseModel):
     order_id: int
     reason: Optional[str] = None
     created_by: Optional[str] = None
-    items: List[ReturnItemCreate]
+    items: List[ReturnItemCreate] = Field(..., min_length=1, description="Debe contener al menos un producto")
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason_length(cls, v):
+        if v and len(v) > 500:
+            raise ValueError("La razón no puede exceder 500 caracteres")
+        return v
 
 class ReturnItemResponse(BaseModel):
     id: int

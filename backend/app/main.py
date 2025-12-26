@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import logging
+
 from app.database import init_db, get_db, check_db_connection
 from app.routers import (
     profiles, products, orders, faq, customers, reports, 
@@ -10,15 +13,22 @@ from app.routers import (
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
+from app.utils.logging_config import setup_logging
 from sqlalchemy.orm import Session
+
+# Configurar logging al inicio
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    logger.info("Starting up application...")
     init_db()
     yield
     # Shutdown (if needed in the future)
+    logger.info("Shutting down application...")
 
 
 app = FastAPI(
@@ -27,6 +37,17 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+# Global Exception Handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # No capturar HTTPException (dejar que FastAPI lo maneje)
+    # Pero sí loguear errores inesperados
+    logger.error(f"Unhandled exception in {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error. Please check logs for details."}
+    )
 
 app.add_middleware(
     CORSMiddleware,
