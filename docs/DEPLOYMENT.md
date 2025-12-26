@@ -33,6 +33,11 @@ Archivos: 6
 Líneas: ~125
 Breaking Changes: 0
 Backward Compatible: 100%
+
+### Configuración Crítica (Producción)
+- SECRET_KEY: usar valor fuerte/aleatorio (no usar el ejemplo). Definir en `.env.production`.
+- CORS_ORIGINS: lista explícita de dominios permitidos (evitar `['*']`).
+- BASE DE DATOS: usar PostgreSQL/MySQL en producción (evitar SQLite por concurrencia). Actualizar `DATABASE_URL` y variables relacionadas.
 ```
 
 ---

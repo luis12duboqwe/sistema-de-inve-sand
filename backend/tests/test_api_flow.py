@@ -222,3 +222,163 @@ def test_stock_transfer_confirm_moves_stock(client, db_session):
     assert origin_entry["cantidad_disponible"] == 0
     assert origin_entry["cantidad_reservada"] == 0
     assert dest_entry["cantidad_disponible"] == 1
+
+
+def test_pending_transfer_blocks_sale_until_cancelled(client, db_session):
+    location_from, sales_profile = seed_location_and_sales_profile(db_session)
+
+    from app.models import Location
+
+    location_to = Location(nombre="Bodega Destino", tipo="bodega", direccion="", telefono=None, activo=True)
+    db_session.add(location_to)
+    db_session.commit()
+    db_session.refresh(location_to)
+
+    product = seed_product(client, location_from.id)
+
+    transfer_payload = {
+        "product_id": product["id"],
+        "from_location_id": location_from.id,
+        "to_location_id": location_to.id,
+        "cantidad": 1,
+        "imeis": ["111111111111111"],
+        "created_by": "tester",
+    }
+
+    create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
+    assert create_transfer_res.status_code == 201, create_transfer_res.text
+    transfer = create_transfer_res.json()
+    assert transfer["estado"] == "pendiente"
+
+    order_payload = {
+        "sales_profile_slug": sales_profile.slug,
+        "source_location_id": location_from.id,
+        "canal": "whatsapp",
+        "customer_name": "Cliente Conflicto",
+        "customer_phone": "66666666",
+        "metodo_pago": "efectivo",
+        "items": [
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "imeis": ["111111111111111"],
+                "precio_unitario": 1000,
+            }
+        ],
+    }
+
+    # Mientras la transferencia está pendiente, el stock está reservado y la venta debe fallar
+    sale_res = client.post("/api/orders", json=order_payload)
+    assert sale_res.status_code == 409, sale_res.text
+
+    # Cancelar la transferencia debe liberar la reserva
+    cancel_res = client.delete(f"/api/stock-transfers/{transfer['id']}")
+    assert cancel_res.status_code == 204, cancel_res.text
+
+    # Ahora la venta debe permitirse
+    sale_res_2 = client.post("/api/orders", json=order_payload)
+    assert sale_res_2.status_code == 201, sale_res_2.text
+
+
+def test_pending_transfer_blocks_sale_until_rejected(client, db_session):
+    location_from, sales_profile = seed_location_and_sales_profile(db_session)
+
+    from app.models import Location
+
+    location_to = Location(nombre="Bodega Destino 2", tipo="bodega", direccion="", telefono=None, activo=True)
+    db_session.add(location_to)
+    db_session.commit()
+    db_session.refresh(location_to)
+
+    product = seed_product(client, location_from.id)
+
+    transfer_payload = {
+        "product_id": product["id"],
+        "from_location_id": location_from.id,
+        "to_location_id": location_to.id,
+        "cantidad": 1,
+        "imeis": ["111111111111111"],
+        "created_by": "tester",
+    }
+
+    create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
+    assert create_transfer_res.status_code == 201, create_transfer_res.text
+    transfer = create_transfer_res.json()
+    assert transfer["estado"] == "pendiente"
+
+    order_payload = {
+        "sales_profile_slug": sales_profile.slug,
+        "source_location_id": location_from.id,
+        "canal": "whatsapp",
+        "customer_name": "Cliente Rechazo",
+        "customer_phone": "55555555",
+        "metodo_pago": "efectivo",
+        "items": [
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "imeis": ["111111111111111"],
+                "precio_unitario": 1000,
+            }
+        ],
+    }
+
+    sale_res = client.post("/api/orders", json=order_payload)
+    assert sale_res.status_code == 409, sale_res.text
+
+    reject_payload = {"rejection_reason": "test"}
+    reject_res = client.post(f"/api/stock-transfers/{transfer['id']}/reject", json=reject_payload)
+    assert reject_res.status_code == 200, reject_res.text
+    assert reject_res.json()["estado"] == "rechazada"
+
+    sale_res_2 = client.post("/api/orders", json=order_payload)
+    assert sale_res_2.status_code == 201, sale_res_2.text
+
+
+def test_confirm_transfer_requires_reserved_stock_and_moves_imeis(client, db_session):
+    # Origen y destino
+    location_from, sales_profile = seed_location_and_sales_profile(db_session)
+    from app.models import Location, Stock
+
+    location_to = Location(nombre="Bodega Confirm", tipo="bodega", direccion="", telefono=None, activo=True)
+    db_session.add(location_to)
+    db_session.commit()
+    db_session.refresh(location_to)
+
+    product = seed_product(client, location_from.id)
+
+    transfer_payload = {
+        "product_id": product["id"],
+        "from_location_id": location_from.id,
+        "to_location_id": location_to.id,
+        "cantidad": 1,
+        "imeis": ["111111111111111"],
+        "created_by": "tester",
+    }
+
+    create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
+    assert create_transfer_res.status_code == 201, create_transfer_res.text
+    transfer = create_transfer_res.json()
+    assert transfer["estado"] == "pendiente"
+
+    # Confirmación exitosa con IMEI escaneado
+    confirm_payload = {
+        "confirmed_by": "tester",
+        "scanned_imeis": ["111111111111111"],
+    }
+    confirm_res = client.post(f"/api/stock-transfers/{transfer['id']}/confirm", json=confirm_payload)
+    assert confirm_res.status_code == 200, confirm_res.text
+    assert confirm_res.json()["estado"] == "confirmada"
+
+    # Crear una nueva transferencia para provocar conflicto de reserva faltante
+    transfer_payload_conflict = {
+        "product_id": product["id"],
+        "from_location_id": location_from.id,
+        "to_location_id": location_to.id,
+        "cantidad": 1,
+        "imeis": ["111111111111111"],
+        "created_by": "tester",
+    }
+    create_transfer_conflict = client.post("/api/stock-transfers", json=transfer_payload_conflict)
+    assert create_transfer_conflict.status_code == 409
+    assert "Stock insuficiente" in create_transfer_conflict.json().get("detail", "")

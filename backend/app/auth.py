@@ -117,9 +117,9 @@ async def get_current_user_optional(
 def check_permission(permission_slug: str):
     """Dependency factory to check if user has a specific permission"""
     def _check(user: User = Depends(get_current_active_user)):
-        # Superusers bypass all checks
+        # Superusers bypass all checks but return the user object for downstream handlers
         if user.is_superuser:
-            return True
+            return user
         
         if not user.role:
             raise HTTPException(
@@ -135,5 +135,5 @@ def check_permission(permission_slug: str):
                 status_code=status.HTTP_403_FORBIDDEN, 
                 detail=f"Permission denied. Required: {permission_slug}"
             )
-        return True
+        return user
     return _check

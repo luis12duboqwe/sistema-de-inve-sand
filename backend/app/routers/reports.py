@@ -5,11 +5,13 @@ from typing import Optional, List
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from app.database import get_db
-from app.models import Order, Product, Stock, Profile, OrderItem, SalesProfile, Location, User
+from app.models import Order, Product, Stock, OrderItem, Location, User
 from app.schemas import (
     DashboardStats, SalesReport, TopProduct, InventoryAlert
 )
 from app.auth import get_current_active_user, check_permission
+from app.utils.order_queries import resolve_sales_profile_for_query
+from app.utils.order_validators import validate_location_exists
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -43,7 +45,8 @@ def get_dashboard_stats(
     # Stock alerts - Por ubicación si se especifica, sino global
     stock_query = db.query(Stock).join(Product).filter(Product.activo == True)
     if location_id:
-        stock_query = stock_query.filter(Stock.location_id == location_id)
+        location_obj = validate_location_exists(db, location_id)
+        stock_query = stock_query.filter(Stock.location_id == location_obj.id)
     
     stocks = stock_query.all()
     low_stock_count = sum(1 for s in stocks if 0 < s.cantidad_disponible < 10)
@@ -63,13 +66,9 @@ def get_dashboard_stats(
     today_end = datetime.combine(today, datetime.max.time())
     
     orders_query = db.query(Order)
-    if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
-        if sales_profile:
-            orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
+    if sales_profile:
+        orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
     
     pending_orders = orders_query.filter(Order.estado == "pendiente").count()
     
@@ -94,6 +93,29 @@ def get_dashboard_stats(
     
     total_revenue_month = sum(o.total for o in orders_this_month)
     
+    # V2.1: Calcular Margen Bruto y Ticket Promedio del mes
+    gross_margin_month = Decimal(0)
+    average_ticket_month = Decimal(0)
+    
+    if orders_this_month:
+        total_cost_month = Decimal(0)
+        count_orders = len(orders_this_month)
+        
+        # Calcular costo total de las órdenes del mes
+        # Nota: Esto puede ser costoso si hay muchas órdenes. 
+        # Idealmente se debería tener un campo 'costo_total' en la tabla Order.
+        # Por ahora iteramos items.
+        for order in orders_this_month:
+            for item in order.items:
+                # Usar costo del producto al momento de la consulta (limitación conocida: costo histórico no guardado en OrderItem)
+                costo_unitario = item.product.costo if item.product.costo > 0 else 0
+                total_cost_month += costo_unitario * item.cantidad
+        
+        if total_revenue_month > 0:
+            gross_margin_month = ((total_revenue_month - total_cost_month) / total_revenue_month) * 100
+            
+        average_ticket_month = total_revenue_month / count_orders
+
     # Last month stats
     if month_start.month == 1:
         last_month = month_start.replace(year=month_start.year - 1, month=12)
@@ -121,7 +143,9 @@ def get_dashboard_stats(
         total_orders_today=total_orders_today,
         total_revenue_today=total_revenue_today,
         total_revenue_month=total_revenue_month,
-        total_revenue_last_month=total_revenue_last_month
+        total_revenue_last_month=total_revenue_last_month,
+        gross_margin_month=round(gross_margin_month, 2),
+        average_ticket_month=round(average_ticket_month, 2)
     )
 
 
@@ -167,10 +191,9 @@ def get_sales_report(
         Order.estado != "cancelada"  # Excluir canceladas
     )
     
-    if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(SalesProfile.slug == sales_profile_slug).first()
-        if sales_profile:
-            orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug)
+    if sales_profile:
+        orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
     
     orders = orders_query.all()
     
@@ -243,7 +266,8 @@ def get_inventory_alerts(
     stock_query = db.query(Stock).join(Product).filter(Product.activo == True)
     
     if location_id:
-        stock_query = stock_query.filter(Stock.location_id == location_id)
+        location_obj = validate_location_exists(db, location_id)
+        stock_query = stock_query.filter(Stock.location_id == location_obj.id)
     
     stocks = stock_query.all()
     
@@ -405,9 +429,7 @@ def get_top_products_by_location(
     from sqlalchemy import desc, and_
     
     # Verificar ubicación
-    location = db.query(Location).filter(Location.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Ubicación no encontrada")
+    location = validate_location_exists(db, location_id)
     
     query = db.query(
         Product.id,

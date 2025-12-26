@@ -17,6 +17,7 @@ import type {
   AIProfileConfig,
   WarrantyStatus
 } from './types'
+import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
@@ -1244,6 +1245,15 @@ class ApiClient {
     return this.request<void>(`/faq/${id}`, {
       method: 'DELETE'
     })
+  }
+
+  async getForecasting(): Promise<SalesForecast[]> {
+    try {
+      return this.request<SalesForecast[]>('/forecasting/predict')
+    } catch (error) {
+      console.error('Error fetching forecasting:', error)
+      throw new Error(`Failed to fetch forecasting: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 }
 

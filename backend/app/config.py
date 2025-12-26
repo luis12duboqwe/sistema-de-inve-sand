@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
-import warnings
 
 
 class Settings(BaseSettings):
@@ -26,29 +25,61 @@ class Settings(BaseSettings):
     
     # Environment
     environment: str = "development"
+
+    # Debug
+    # Nota: Se usa en varias partes del código (logging_config, config_production, etc.)
+    # y se puede sobreescribir con env var DEBUG=true/false.
+    debug: bool = False
     
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @classmethod
+    def _split_csv(cls, value: str | List[str]) -> List[str]:
+        if isinstance(value, list):
+            return value
+        return [v.strip() for v in value.split(",") if v.strip()]
+
+    # Permitir CORS_ORIGINS como CSV para despliegues
+    @classmethod
+    def model_validate(cls, value):  # type: ignore[override]
+        if isinstance(value, dict) and "cors_origins" in value and isinstance(value["cors_origins"], str):
+            value = value.copy()
+            value["cors_origins"] = cls._split_csv(value["cors_origins"])
+        return super().model_validate(value)
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Warn if CORS is wildcard in production.
-        if self.environment == "production" and self.cors_origins == ["*"]:
-            warnings.warn(
-                "CORS está configurado como '*' en production. Configure CORS_ORIGINS para limitar orígenes.",
-                UserWarning,
-                stacklevel=2,
+        # Normalize environment for consistent checks
+        env_value = (self.environment or "development").strip().lower()
+        self.environment = env_value
+
+        is_production = env_value == "production"
+        if not is_production:
+            return
+
+        if self.database_url == "sqlite:///./inventory.db":
+            raise ValueError(
+                "DATABASE_URL must be set for production (e.g., postgresql+psycopg2://user:pass@host:5432/inventory)."
             )
-        # Warn if using default secret key in production
-        if self.environment == "production" and "your-secret-key" in self.secret_key:
-            warnings.warn(
-                "Using default SECRET_KEY in production is insecure! "
-                "Generate a new key with: openssl rand -hex 32",
-                UserWarning,
-                stacklevel=2
+
+        if not self.cors_origins or self.cors_origins == ["*"]:
+            raise ValueError(
+                "CORS_ORIGINS must be a comma-separated list in production; wildcard '*' is not allowed."
+            )
+
+        secret_key_lower = self.secret_key.lower()
+        placeholder_tokens = (
+            "your-secret-key",
+            "generate_with_openssl",
+            "change_me",
+        )
+        if any(token in secret_key_lower for token in placeholder_tokens):
+            raise ValueError(
+                "SECRET_KEY must be set for production. Generate a secure key with: openssl rand -hex 32"
             )
 
 

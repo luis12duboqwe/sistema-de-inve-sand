@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useKV } from './use-kv'
 import { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
-import { generateAIForecasts, generateRestockAlerts, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
+import { generateAIForecasts, generateRestockAlerts, generateForecastingSummary, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
+import { apiClient } from '@/lib/apiClient'
 
 export function useForecasting(
   products: ProductWithStock[],
@@ -14,16 +15,24 @@ export function useForecasting(
   const [summary, setSummary] = useKV<ForecastingSummary | null>('forecasting_summary', null)
   const [lastUpdated, setLastUpdated] = useKV<string | null>('forecasting_last_updated', null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [useAPI] = useKV<boolean>('settings_use_api', false)
 
   const generateForecastData = useCallback(async () => {
     if (!profile || products.length === 0) return
 
     setIsGenerating(true)
     try {
-      const { forecasts: newForecasts, summary: newSummary } = await generateAIForecasts(
-        products,
-        orders
-      )
+      let newForecasts: SalesForecast[]
+      let newSummary: ForecastingSummary
+
+      if (useAPI) {
+        newForecasts = await apiClient.getForecasting()
+        newSummary = generateForecastingSummary(newForecasts, products)
+      } else {
+        const { forecasts, summary } = await generateAIForecasts(products, orders)
+        newForecasts = forecasts
+        newSummary = summary
+      }
 
       const newAlerts = await generateRestockAlerts(newForecasts, profile)
 
@@ -39,7 +48,7 @@ export function useForecasting(
     } finally {
       setIsGenerating(false)
     }
-  }, [products, orders, profile, setForecasts, setSummary, setAlerts, setLastUpdated])
+  }, [products, orders, profile, setForecasts, setSummary, setAlerts, setLastUpdated, useAPI])
 
   useEffect(() => {
     if (autoRefresh && profile && products.length > 0) {

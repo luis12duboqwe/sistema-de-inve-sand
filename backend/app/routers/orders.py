@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from decimal import Decimal
 from datetime import datetime, date
 import math
@@ -15,13 +15,281 @@ from app.schemas import (
     ProductResponse,
     OrderStatusUpdate,
     OrderUpdate,
+    OrderItemUpdate,
     OrderSearchParams,
     PaginatedResponse,
     TradeInResponse
 )
 from app.auth import get_current_active_user, get_current_user_optional, check_permission
+from app.utils.order_financing import (
+    compute_financing_from_payload,
+    recompute_financing_from_details,
+)
+from app.utils.order_queries import resolve_sales_profile_for_query
+from app.utils.order_tradeins import compute_trade_in_total
+from app.utils.order_validators import (
+    resolve_sales_profile,
+    validate_location_and_phone,
+    validate_location_exists,
+    normalize_customer_phone,
+)
+from app.utils.stock_manager import StockManager, StockValidationError
+from app.utils.validators import InputValidator, ValidationError
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+def _resolve_user_label(
+    current_user: Optional[User],
+    sales_profile: Optional[SalesProfile] = None,
+    profile: Optional[Profile] = None,
+    fallback: str = "Sistema",
+) -> str:
+    """Returns a human-friendly identifier for auditing/logging without assuming a full User object."""
+    if hasattr(current_user, "username"):
+        return current_user.username  # type: ignore[attr-defined]
+    if sales_profile and getattr(sales_profile, "name", None):
+        return sales_profile.name  # type: ignore[return-value]
+    if profile and getattr(profile, "name", None):
+        return profile.name  # type: ignore[return-value]
+    return fallback
+
+
+def _process_order_items(
+    db: Session,
+    order: OrderCreate,
+    sales_profile: Optional[SalesProfile],
+    stock_manager: StockManager
+) -> Tuple[Decimal, List[dict]]:
+    """Valida y prepara items de la orden: bloqueo de stock/IMEIs y cálculo de totales."""
+    total = Decimal("0.00")
+    order_items_data: List[dict] = []
+
+    for item in order.items:
+        # No permitir cantidades vacías (ya validado en schema, se refuerza)
+        if item.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+
+        allow_pending_imei = False  # Ventas requieren IMEIs para serializados
+
+        try:
+            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
+                product_id=item.product_id,
+                location_id=order.source_location_id,
+                quantity=item.cantidad,
+                imeis_requested=item.imeis,
+                allow_pending_imei=allow_pending_imei,
+                operation_type="sale"
+            )
+        except StockValidationError as e:
+            # Consistencia rota
+            raise HTTPException(status_code=409, detail=str(e))
+
+        # Precio: usar el personalizado si viene; si no, precio del producto
+        if item.precio_unitario is not None:
+            precio_unitario = Decimal(str(item.precio_unitario))
+            if precio_unitario < 0:
+                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
+        else:
+            precio_unitario = Decimal(str(product.precio))
+
+        subtotal = precio_unitario * item.cantidad
+        if not item.es_regalo_promocion:
+            total += subtotal
+
+        order_items_data.append({
+            "product": product,
+            "stock": stock,
+            "cantidad": item.cantidad,
+            "precio_unitario": precio_unitario,
+            "es_regalo_promocion": item.es_regalo_promocion,
+            "imeis_to_sell": imeis_to_sell
+        })
+
+    return total, order_items_data
+
+
+def _process_items_for_update(
+    db: Session,
+    items_payload: List[OrderItemUpdate],
+    location_id: int,
+    stock_manager: StockManager
+) -> Tuple[Decimal, List[dict]]:
+    """Prepara items para update de orden usando validación centralizada de stock/IMEIs."""
+    total = Decimal("0.00")
+    prepared: List[dict] = []
+
+    for item_update in items_payload:
+        if item_update.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+
+        try:
+            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
+                product_id=item_update.product_id,
+                location_id=location_id,
+                quantity=item_update.cantidad,
+                imeis_requested=item_update.imeis,
+                allow_pending_imei=False,  # Mantener requerimiento de IMEIs igual que en creación
+                operation_type="sale"
+            )
+        except StockValidationError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+        if item_update.precio_unitario is not None:
+            price = Decimal(str(item_update.precio_unitario))
+            if price < 0:
+                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
+        else:
+            price = Decimal(str(product.precio))
+        if not item_update.es_regalo_promocion:
+            total += price * item_update.cantidad
+
+        prepared.append({
+            "product": product,
+            "stock": stock,
+            "cantidad": item_update.cantidad,
+            "precio_unitario": price,
+            "es_regalo_promocion": item_update.es_regalo_promocion,
+            "imeis_to_sell": imeis_to_sell
+        })
+
+    return total, prepared
+def _process_trade_ins(
+    db: Session,
+    order: OrderCreate,
+    db_order: Optional[Order],
+    profile_id_for_order: Optional[int],
+    current_user: Optional[User],
+    sales_profile: Optional[SalesProfile],
+    profile: Optional[Profile]
+) -> Decimal:
+    """Procesa trade-ins. Si db_order es None, solo calcula total; si no, escribe efectos en DB."""
+    trade_in_total = compute_trade_in_total(order.trade_ins)
+
+    if not order.trade_ins or db_order is None:
+        return trade_in_total
+
+    for trade_in_item in order.trade_ins:
+        db_trade_in = TradeIn(
+            order_id=db_order.id,
+            marca=trade_in_item.marca,
+            modelo=trade_in_item.modelo,
+            color=trade_in_item.color,
+            capacidad=trade_in_item.capacidad,
+            imei=trade_in_item.imei,
+            condicion=trade_in_item.condicion,
+            valor_estimado=trade_in_item.valor_estimado,
+            notas=trade_in_item.notas
+        )
+        db.add(db_trade_in)
+
+        query_existing = db.query(Product).filter(
+            Product.marca == trade_in_item.marca,
+            Product.modelo == trade_in_item.modelo,
+            Product.condicion == trade_in_item.condicion,
+            Product.activo == True
+        )
+        if trade_in_item.color:
+            query_existing = query_existing.filter(Product.color == trade_in_item.color)
+        if trade_in_item.capacidad:
+            query_existing = query_existing.filter(Product.capacidad == trade_in_item.capacidad)
+
+        existing_product = query_existing.first()
+
+        if existing_product:
+            new_product = existing_product
+        else:
+            sku_suffix = trade_in_item.imei[-6:] if trade_in_item.imei else uuid.uuid4().hex[:6]
+            new_sku = f"RET-{sku_suffix}-{uuid.uuid4().hex[:4]}"
+            precio_venta = trade_in_item.precio_venta if trade_in_item.precio_venta else trade_in_item.valor_estimado * Decimal("1.3")
+
+            nombre_producto = f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}"
+            if trade_in_item.capacidad:
+                nombre_producto += f" {trade_in_item.capacidad}"
+            if trade_in_item.color:
+                nombre_producto += f" ({trade_in_item.color})"
+
+            new_product = Product(
+                sku=new_sku,
+                nombre=nombre_producto,
+                categoria="pendiente_revision",
+                marca=trade_in_item.marca,
+                modelo=trade_in_item.modelo,
+                color=trade_in_item.color,
+                capacidad=trade_in_item.capacidad,
+                condicion=trade_in_item.condicion,
+                precio=precio_venta,
+                costo=trade_in_item.valor_estimado,
+                moneda="HNL",
+                activo=False,
+                profile_id=profile_id_for_order,
+                is_serialized=True
+            )
+            db.add(new_product)
+            db.flush()
+
+        stock_retoma = db.query(Stock).filter(
+            Stock.product_id == new_product.id,
+            Stock.location_id == order.source_location_id
+        ).with_for_update().first()
+
+        stock_anterior_retoma = 0
+        if stock_retoma:
+            stock_anterior_retoma = stock_retoma.cantidad_disponible
+            stock_retoma.cantidad_disponible += 1
+        else:
+            stock_retoma = Stock(
+                product_id=new_product.id,
+                location_id=order.source_location_id,
+                cantidad_disponible=1,
+                cantidad_reservada=0
+            )
+            db.add(stock_retoma)
+
+        if trade_in_item.imei:
+            existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == trade_in_item.imei).first()
+            if existing_imei:
+                existing_imei.product_id = new_product.id
+                existing_imei.location_id = order.source_location_id
+                existing_imei.vendido = False
+                existing_imei.order_id = None
+                db.add(existing_imei)
+            else:
+                new_imei = ProductIMEI(
+                    product_id=new_product.id,
+                    location_id=order.source_location_id,
+                    imei=trade_in_item.imei,
+                    vendido=False
+                )
+                db.add(new_imei)
+
+            user_label = _resolve_user_label(current_user, sales_profile, profile)
+
+            imei_history = IMEIHistory(
+                imei=trade_in_item.imei,
+                product_id=new_product.id,
+                location_id=order.source_location_id,
+                event_type='retoma',
+                reference_id=db_order.id,
+                reference_type='order',
+                notes=f"Ingreso por retoma en orden #{db_order.id}",
+                created_by=user_label
+            )
+            db.add(imei_history)
+
+        stock_history_retoma = StockHistory(
+            product_id=new_product.id,
+            location_id=order.source_location_id,
+            tipo_cambio='retoma',
+            cantidad=1,
+            stock_anterior=stock_anterior_retoma,
+            stock_nuevo=stock_anterior_retoma + 1,
+            referencia_id=db_order.id,
+            referencia_tipo='order',
+            notas=f"Ingreso por retoma de {trade_in_item.marca} {trade_in_item.modelo}",
+            usuario=user_label
+        )
+        db.add(stock_history_retoma)
+
+    return trade_in_total
 
 
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
@@ -143,14 +411,8 @@ def list_orders(
         - 404: Si el sales_profile_slug especificado no existe
     """
     query = db.query(Order)
-    
-    if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(SalesProfile.slug == sales_profile_slug).first()
-        if not sales_profile:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado"
-            )
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug)
+    if sales_profile:
         query = query.filter(Order.sales_profile_id == sales_profile.id)
     
     total = query.count()
@@ -201,16 +463,8 @@ def search_orders(
     query = db.query(Order)
     
     # Filter by sales profile (V2.0)
-    if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
-        if not sales_profile:
-            raise HTTPException(
-                status_code=404,
-                detail=f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado o está inactivo"
-            )
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
+    if sales_profile:
         query = query.filter(Order.sales_profile_id == sales_profile.id)
     
     # Filter by date range
@@ -261,383 +515,76 @@ def search_orders(
     )
 
 
-def _get_and_validate_stock(
-    db: Session,
-    product_id: int,
-    location_id: int,
-    quantity: int,
-    imeis_requested: Optional[List[str]],
-    allow_pending_imei: bool = False
-):
-    """
-    Helper para validar stock e IMEIs con bloqueo pesimista.
-    Retorna (product, stock, imeis_found).
-    """
-    # 1. Validar Producto
-    product = db.query(Product).filter(
-        Product.id == product_id,
-        Product.activo == True
-    ).first()
-    
-    if not product:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"El producto con ID {product_id} no fue encontrado o está inactivo"
-        )
-    
-    # 2. Obtener Stock con LOCK
-    stock = db.query(Stock).filter(
-        Stock.product_id == product_id,
-        Stock.location_id == location_id
-    ).with_for_update().first()
-    
-    if not stock:
-        # Intentar obtener nombre de ubicación para error más claro
-        loc_name = db.query(Location.nombre).filter(Location.id == location_id).scalar() or "la ubicación"
-        raise HTTPException(
-            status_code=400,
-            detail=f"El producto '{product.nombre}' no tiene stock en '{loc_name}'"
-        )
-
-    # 3. Validar Cantidad Disponible
-    stock_libre = stock.cantidad_disponible - stock.cantidad_reservada
-    if stock_libre < quantity:
-        loc_name = db.query(Location.nombre).filter(Location.id == location_id).scalar() or "la ubicación"
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Stock insuficiente para '{product.nombre}' (SKU: {product.sku}) en {loc_name}. "
-                f"Libre: {stock_libre} (Disponible: {stock.cantidad_disponible}, Reservado: {stock.cantidad_reservada}), "
-                f"Solicitado: {quantity}."
-            )
-        )
-
-    # 4. Validar IMEIs (si es serializado)
-    imeis_found = []
-    # V2.0: Usar campo explícito is_serialized
-    if product.is_serialized:
-        if not imeis_requested:
-            # V2.5: Permitir órdenes pendientes de asignación de IMEI (ej. Bots, Envíos)
-            if allow_pending_imei:
-                return product, stock, []
-            
-            raise HTTPException(
-                status_code=400,
-                detail=f"El producto '{product.nombre}' es serializado. Debe seleccionar los IMEIs a vender."
-            )
-        
-        if len(imeis_requested) != quantity:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cantidad de IMEIs ({len(imeis_requested)}) no coincide con cantidad vendida ({quantity}) para '{product.nombre}'"
-            )
-        
-        # Buscar y validar IMEIs
-        imeis_found = db.query(ProductIMEI).filter(
-            ProductIMEI.product_id == product_id,
-            ProductIMEI.location_id == location_id,
-            ProductIMEI.vendido == False,
-            ProductIMEI.imei.in_(imeis_requested)
-        ).with_for_update().all()
-        
-        if len(imeis_found) != len(imeis_requested):
-            found_set = {i.imei for i in imeis_found}
-            missing = set(imeis_requested) - found_set
-            raise HTTPException(
-                status_code=400,
-                detail=f"IMEIs no disponibles o vendidos en esta ubicación: {', '.join(missing)}"
-            )
-            
-    return product, stock, imeis_found
-
-
 @router.post("", response_model=OrderResponse, status_code=201)
 def create_order(
     order: OrderCreate, 
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """
-    Crea una nueva orden y descuenta el stock de los productos.
-    
-    V2.0: Soporta sales_profile_slug (perfil de venta) y source_location_id (ubicación de stock).
-    V1 (Legacy): Usa profile_slug para compatibilidad con sistema antiguo.
-    
-    Args:
-        - order: Datos de la orden con items, perfil de venta y ubicación origen
-        
-    Returns:
-        Orden creada con trazabilidad completa
-        
-    Raises:
-        - 404: Si el sales_profile_slug/profile_slug o source_location_id no existen
-        - 400: Si no hay stock suficiente en la ubicación especificada
-        - 400: Si la orden no contiene items o el teléfono está vacío
-    """
+    """Crea una orden aplicando las validaciones V2.0 (stock/IMEIs, trade-ins, financiamiento)."""
     try:
-        # V2.0: Determinar perfil de venta o perfil legacy
-        sales_profile = None
-        profile = None
-        profile_id_for_order = None
-        sales_profile_id_for_order = None
-        
-        if order.sales_profile_slug:
-            # V2.0: Usar SalesProfile
-            sales_profile = db.query(SalesProfile).filter(
-                SalesProfile.slug == order.sales_profile_slug,
-                SalesProfile.active == True
-            ).first()
-            if not sales_profile:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"El perfil de venta con slug '{order.sales_profile_slug}' no fue encontrado o está inactivo"
-                )
-            sales_profile_id_for_order = sales_profile.id
-        elif order.profile_slug:
-            # V1 Legacy: Usar Profile antiguo
-            profile = db.query(Profile).filter(Profile.slug == order.profile_slug).first()
-            if not profile:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"El perfil con slug '{order.profile_slug}' no fue encontrado"
-                )
-            profile_id_for_order = profile.id
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Debe especificar un canal de venta. "
-                    "Use 'sales_profile_slug' para V2.0 (ejemplo: 'bot-whatsapp') "
-                    "o 'profile_slug' para modo legacy."
-                )
-            )
-        
-        # V2.0: Validar ubicación de origen del stock (OBLIGATORIO)
-        if not order.source_location_id or order.source_location_id <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="source_location_id es obligatorio en V2.0 y debe ser un ID válido (mayor a 0)"
-            )
+        sales_profile, profile, sales_profile_id_for_order, profile_id_for_order = resolve_sales_profile(
+            db=db,
+            sales_profile_slug=order.sales_profile_slug,
+            profile_slug=order.profile_slug
+        )
+        source_location, customer_phone_str = validate_location_and_phone(
+            db=db,
+            source_location_id=order.source_location_id,
+            customer_phone=order.customer_phone
+        )
 
-        source_location = db.query(Location).filter(
-            Location.id == order.source_location_id,
-            Location.activo == True
-        ).first()
-        if not source_location:
-            raise HTTPException(
-                status_code=404,
-                detail=f"La ubicación con ID {order.source_location_id} no fue encontrada o está inactiva. Verifique que la ubicación existe y está activa antes de crear la orden."
-            )
-        
         if not order.items:
-            raise HTTPException(
-                status_code=400, 
-                detail="La orden debe contener al menos un producto"
-            )
-        
-        customer_phone_str = str(order.customer_phone).strip()
-        if not customer_phone_str:
-            raise HTTPException(
-                status_code=400,
-                detail="El número de teléfono del cliente es requerido"
-            )
-        
-        total = Decimal("0.00")
-        order_items_data = []
-        
-        for item in order.items:
-            # VALIDAR IMEIs PRIMERO antes de cualquier cambio de stock (Bug #26)
-            # V2.5: Permitir pending IMEI si no se envían (allow_pending_imei=True si item.imeis está vacío)
-            allow_pending = not item.imeis
-            product, stock, imeis_to_sell = _get_and_validate_stock(
-                db, item.product_id, order.source_location_id, item.cantidad, item.imeis, allow_pending_imei=allow_pending
-            )
-            
-            # Definir Tasa de Cambio (necesaria para validaciones y conversiones)
-            TASA_CAMBIO = Decimal("25.0")
-            if sales_profile and sales_profile.configuracion:
-                try:
-                    config = json.loads(sales_profile.configuracion)
-                    if 'exchange_rate' in config:
-                        TASA_CAMBIO = Decimal(str(config['exchange_rate']))
-                except Exception:
-                    pass # Fallback to default
+            raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
 
-            # V2.1: Permitir precio personalizado (negociación)
-            if item.precio_unitario is not None:
-                precio_unitario = item.precio_unitario
-                
-                # --- VALIDACIONES DE SEGURIDAD PARA PRECIOS PERSONALIZADOS ---
-                
-                # Calcular costo en moneda local para comparación
-                costo_local = product.costo
-                # if product.moneda == 'USD': # Asumiendo que costo está en la misma moneda que precio base
-                #      # Nota: Si el costo está en USD, convertir a HNL
-                #      costo_local = product.costo * TASA_CAMBIO
-                
-                # 1. No vender bajo costo (Hard Limit)
-                # Permitimos un margen de error de 0.01 por redondeo
-                if precio_unitario < costo_local:
-                     raise HTTPException(
-                        status_code=400,
-                        detail=f"El precio negociado ({precio_unitario:.2f}) para '{product.nombre}' es menor al costo ({costo_local:.2f}). Operación no permitida."
-                    )
-                
-                # 2. Reglas específicas para Bots (Soft Limit)
-                if sales_profile and sales_profile.tipo == 'bot_ia':
-                    # Calcular precio base en moneda local
-                    precio_base_local = product.precio
-                    # if product.moneda == 'USD':
-                    #      precio_base_local = product.precio * TASA_CAMBIO
-                    
-                    # REGLA 1: Límite de descuento dinámico
-                    # Si hay regalías en la orden, el descuento máximo baja al 2%. Si no, es 5%.
-                    has_gifts = any(i.es_regalo_promocion for i in order.items)
-                    MAX_DISCOUNT_PERCENT = Decimal("0.02") if has_gifts else Decimal("0.05")
-                    
-                    min_price_allowed = precio_base_local * (1 - MAX_DISCOUNT_PERCENT)
-                    
-                    if precio_unitario < min_price_allowed:
-                         msg_extra = " (reducido por incluir regalías)" if has_gifts else ""
-                         raise HTTPException(
-                            status_code=400,
-                            detail=f"El bot no está autorizado a dar descuentos mayores al {int(MAX_DISCOUNT_PERCENT*100)}%{msg_extra}. Precio mínimo permitido: {min_price_allowed:.2f}"
-                        )
+        stock_manager = StockManager(db)
 
-                    # REGLA 2: Números cerrados (Round Numbers)
-                    # El precio debe ser divisible por 100 (ej. 21500, 21800). No 21550 ni 21501.
-                    # Fix: Usar epsilon para evitar errores de precisión
-                    remainder = precio_unitario % 100
-                    if remainder > Decimal("0.01") and (Decimal("100") - remainder) > Decimal("0.01"):
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"El bot solo puede negociar números cerrados (ej. 21500, 21800). Precio inválido: {precio_unitario}"
-                        )
-                # -------------------------------------------------------------
+        # Procesar items (valida stock/IMEIs con bloqueo pesimista)
+        total, order_items_data = _process_order_items(db, order, sales_profile, stock_manager)
 
-            else:
-                precio_unitario = Decimal(str(product.precio))
-                
-                # V2.0 FIX: Conversión de moneda (USD -> HNL)
-                # if product.moneda == 'USD':
-                #     precio_unitario = precio_unitario * TASA_CAMBIO
-            
-            subtotal = precio_unitario * item.cantidad
-            
-            if not item.es_regalo_promocion:
-                total += subtotal
-
-            order_items_data.append({
-                "product": product,
-                "stock": stock,
-                "cantidad": item.cantidad,
-                "precio_unitario": precio_unitario,
-                "es_regalo_promocion": item.es_regalo_promocion,
-                "imeis_to_sell": imeis_to_sell
-            })
-        
-        # Validar que la orden tenga al menos un item con valor (no solo regalos)
+        # Validar que exista al menos un item con valor (no solo regalos)
         if total == Decimal("0.00"):
-            # Verificar si todos son regalos
             all_gifts = all(item_data["es_regalo_promocion"] for item_data in order_items_data)
             if all_gifts:
                 raise HTTPException(
                     status_code=400,
                     detail="La orden debe tener al menos un producto con valor. No se pueden crear órdenes solo con regalos/promociones."
                 )
-        
-        # V2.0: Procesar Trade-Ins (Retomas)
-        # ⚠️ CRITICAL: KEEP IN SYNC WITH FRONTEND LOGIC (src/lib/inventoryService.ts) ⚠️
-        trade_in_total = Decimal("0.00")
-        if order.trade_ins:
-            for trade_in in order.trade_ins:
-                trade_in_total += trade_in.valor_estimado
-        
-        # El total a pagar es el subtotal de items menos el valor de las retomas
+
+        # Calcular retomas (solo total en esta fase)
+        trade_in_total = _process_trade_ins(
+            db=db,
+            order=order,
+            db_order=None,
+            profile_id_for_order=profile_id_for_order,
+            current_user=current_user,
+            sales_profile=sales_profile,
+            profile=profile
+        )
+
         total_final = total - trade_in_total
         if total_final < 0:
             total_final = Decimal("0.00")
 
-        # V2.1: Procesar Financiamiento (Extrafinanciamiento y Tarjeta Normal)
-        financing_details_json = None
-        if order.financing_data:
-            # Validar que el método de pago sea compatible
-            if order.metodo_pago not in ['tarjeta', 'financiamiento']:
-                 raise HTTPException(status_code=400, detail="Datos de financiamiento solo válidos para pago con Tarjeta o Financiamiento")
-            
-            bank_id = order.financing_data.get('bank_id')
-            months = order.financing_data.get('months')
-            down_payment = Decimal(str(order.financing_data.get('down_payment', 0)))
-            
-            if not bank_id:
-                raise HTTPException(status_code=400, detail="Falta seleccionar el banco")
-            
-            # Obtener Banco
-            bank = db.query(Bank).filter(Bank.id == bank_id).first()
-            if not bank:
-                raise HTTPException(status_code=404, detail="Banco no encontrado")
+        total_final, financing_details_json = compute_financing_from_payload(
+            db=db,
+            financing_data=order.financing_data,
+            metodo_pago=order.metodo_pago,
+            total_after_tradeins=total_final,
+            trade_in_total=trade_in_total,
+        )
 
-            # Calcular monto a financiar
-            # Base = (Items - TradeIns) - Prima
-            amount_to_finance = total_final - down_payment
-            if amount_to_finance < 0:
-                amount_to_finance = Decimal("0.00")
-
-            rate = Decimal("0.00")
-            monthly_payment = Decimal("0.00")
-            
-            # Caso 1: Extrafinanciamiento (months > 0)
-            if months and months > 0:
-                # Buscar opción
-                option = db.query(FinancingOption).filter(
-                    FinancingOption.bank_id == bank_id,
-                    FinancingOption.months == months,
-                    FinancingOption.active == True
-                ).first()
-                
-                if not option:
-                    raise HTTPException(status_code=400, detail="Opción de financiamiento no válida o inactiva")
-                
-                rate = option.rate
-                surcharge_amount = amount_to_finance * rate
-                total_with_surcharge = amount_to_finance + surcharge_amount
-                monthly_payment = total_with_surcharge / months
-                
-            # Caso 2: Tarjeta Normal (months == 0)
-            else:
-                rate = bank.normal_card_rate
-                surcharge_amount = amount_to_finance * rate
-                total_with_surcharge = amount_to_finance + surcharge_amount
-                monthly_payment = total_with_surcharge # Pago único
-            
-            # Actualizar total final de la orden
-            # Total Orden = Prima + (Monto a Financiar + Recargo)
-            total_final = down_payment + total_with_surcharge
-            
-            # Guardar detalles
-            financing_details_json = json.dumps({
-                "bank_id": bank_id,
-                "bank_name": bank.name,
-                "months": months or 0,
-                "rate": float(rate),
-                "surcharge": float(surcharge_amount),
-                "monthly_payment": float(monthly_payment),
-                "original_total": float(total - trade_in_total),
-                "down_payment": float(down_payment),
-                "financed_amount": float(amount_to_finance)
-            })
-
-        # Crear orden con nuevos campos V2.0
+        # Crear orden con campos V2.0
         db_order = Order(
             profile_id=profile_id_for_order,  # Legacy, puede ser None
             sales_profile_id=sales_profile_id_for_order,  # V2.0, puede ser None
-            source_location_id=order.source_location_id,  # V2.0, puede ser None
+            source_location_id=order.source_location_id,
             customer_name=order.customer_name,
             customer_phone=customer_phone_str,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
             total=total_final,
-            financing_details=financing_details_json, # V2.1
+            financing_details=financing_details_json,  # V2.1
             estado="pendiente",
             notes=order.notes,
             delivery_date=order.delivery_date
@@ -645,151 +592,21 @@ def create_order(
         db.add(db_order)
         db.flush()
 
-        # Guardar Trade-Ins
+        # Persistir Trade-Ins (ya con order_id)
         if order.trade_ins:
-            for trade_in_item in order.trade_ins:
-                db_trade_in = TradeIn(
-                    order_id=db_order.id,
-                    marca=trade_in_item.marca,
-                    modelo=trade_in_item.modelo,
-                    color=trade_in_item.color,          # V2.1
-                    capacidad=trade_in_item.capacidad,  # V2.1
-                    imei=trade_in_item.imei,
-                    condicion=trade_in_item.condicion,
-                    valor_estimado=trade_in_item.valor_estimado,
-                    notas=trade_in_item.notas
-                )
-                db.add(db_trade_in)
-
-                # 🔴 LOGICA NUEVA: Ingresar Trade-In al inventario automáticamente
-                # 1. Buscar si ya existe un producto compatible (mismo modelo/condición)
-                # V2.1: Incluir color y capacidad en la búsqueda para evitar mezclar variantes
-                query_existing = db.query(Product).filter(
-                    Product.marca == trade_in_item.marca,
-                    Product.modelo == trade_in_item.modelo,
-                    Product.condicion == trade_in_item.condicion,
-                    Product.activo == True
-                )
-                
-                if trade_in_item.color:
-                    query_existing = query_existing.filter(Product.color == trade_in_item.color)
-                
-                if trade_in_item.capacidad:
-                    query_existing = query_existing.filter(Product.capacidad == trade_in_item.capacidad)
-                    
-                existing_product = query_existing.first()
-
-                if existing_product:
-                    new_product = existing_product
-                    # No actualizamos precio ni costo del producto existente para no afectar inventario previo
-                else:
-                    # Crear Producto Nuevo si no existe
-                    sku_suffix = trade_in_item.imei[-6:] if trade_in_item.imei else uuid.uuid4().hex[:6]
-                    new_sku = f"RET-{sku_suffix}-{uuid.uuid4().hex[:4]}"
-                    
-                    # V2.0: Usar precio de venta sugerido si se proporciona, sino calcular margen 30%
-                    precio_venta = trade_in_item.precio_venta if trade_in_item.precio_venta else trade_in_item.valor_estimado * Decimal("1.3")
-                    
-                    # Construir nombre descriptivo
-                    nombre_producto = f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}"
-                    if trade_in_item.capacidad:
-                        nombre_producto += f" {trade_in_item.capacidad}"
-                    if trade_in_item.color:
-                        nombre_producto += f" ({trade_in_item.color})"
-
-                    # V2.2: Lógica de "Pendiente de Revisión"
-                    # Si no tiene IMEI o es explícitamente una retoma, entra como inactivo y categoría especial
-                    es_pendiente = True # Siempre pendiente para revisión
-                    categoria_inicial = "pendiente_revision"
-                    activo_inicial = False
-
-                    new_product = Product(
-                        sku=new_sku,
-                        nombre=nombre_producto,
-                        categoria=categoria_inicial,
-                        marca=trade_in_item.marca,
-                        modelo=trade_in_item.modelo,
-                        color=trade_in_item.color,          # V2.1
-                        capacidad=trade_in_item.capacidad,  # V2.1
-                        condicion=trade_in_item.condicion,
-                        precio=precio_venta,
-                        costo=trade_in_item.valor_estimado, # Costo real = valor de retoma
-                        moneda="HNL",
-                        activo=activo_inicial, # V2.2: Inactivo hasta revisión
-                        profile_id=profile_id_for_order,
-                        is_serialized=True # V2.2: Asumimos que será serializado al activarse
-                    )
-                    db.add(new_product)
-                    db.flush() # Obtener ID
-                
-                # 2. Crear o Actualizar Stock en la ubicación donde se recibió
-                stock_retoma = db.query(Stock).filter(
-                    Stock.product_id == new_product.id,
-                    Stock.location_id == order.source_location_id
-                ).with_for_update().first()
-
-                stock_anterior_retoma = 0
-                if stock_retoma:
-                    stock_anterior_retoma = stock_retoma.cantidad_disponible
-                    stock_retoma.cantidad_disponible += 1
-                else:
-                    stock_retoma = Stock(
-                        product_id=new_product.id,
-                        location_id=order.source_location_id,
-                        cantidad_disponible=1,
-                        cantidad_reservada=0
-                    )
-                    db.add(stock_retoma)
-                
-                # 3. Registrar IMEI si existe
-                if trade_in_item.imei:
-                    # Verificar si el IMEI ya existe (para evitar duplicados)
-                    existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == trade_in_item.imei).first()
-                    if existing_imei:
-                        # Si existe, reactivarlo y moverlo (caso raro de recompra del mismo equipo)
-                        existing_imei.product_id = new_product.id
-                        existing_imei.location_id = order.source_location_id
-                        existing_imei.vendido = False
-                        existing_imei.order_id = None
-                        db.add(existing_imei)
-                    else:
-                        new_imei = ProductIMEI(
-                            product_id=new_product.id,
-                            location_id=order.source_location_id,
-                            imei=trade_in_item.imei,
-                            vendido=False
-                        )
-                        db.add(new_imei)
-                    
-                    # 🟡 IMEI History: Ingreso por Retoma
-                    imei_history = IMEIHistory(
-                        imei=trade_in_item.imei,
-                        product_id=new_product.id,
-                        location_id=order.source_location_id,
-                        event_type='retoma',
-                        reference_id=db_order.id,
-                        reference_type='order',
-                        notes=f"Ingreso por retoma en orden #{db_order.id}",
-                        created_by=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
-                    )
-                    db.add(imei_history)
-                
-                # 4. Registrar Historial de Stock
-                stock_history_retoma = StockHistory(
-                    product_id=new_product.id,
-                    location_id=order.source_location_id,
-                    tipo_cambio='retoma',
-                    cantidad=1,
-                    stock_anterior=stock_anterior_retoma,
-                    stock_nuevo=stock_anterior_retoma + 1,
-                    referencia_id=db_order.id,
-                    referencia_tipo='order',
-                    notas=f"Ingreso por retoma de {trade_in_item.marca} {trade_in_item.modelo}",
-                    usuario=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
-                )
-                db.add(stock_history_retoma)
+            _process_trade_ins(
+                db=db,
+                order=order,
+                db_order=db_order,
+                profile_id_for_order=profile_id_for_order,
+                current_user=current_user,
+                sales_profile=sales_profile,
+                profile=profile
+            )
         
         db_order_items = []
+        user_identifier = _resolve_user_label(current_user, sales_profile, profile)
+        
         for item_data in order_items_data:
             db_order_item = OrderItem(
                 order_id=db_order.id,
@@ -801,71 +618,37 @@ def create_order(
             db.add(db_order_item)
             db_order_items.append(db_order_item)
             
-            # Marcar IMEIs como vendidos
-            for imei_obj in item_data.get("imeis_to_sell", []):
-                imei_obj.vendido = True
-                imei_obj.order_id = db_order.id
-                db.add(imei_obj)
-                
-                # 🟡 IMEI History: Venta
-                imei_history_venta = IMEIHistory(
-                    imei=imei_obj.imei,
-                    product_id=item_data["product"].id,
-                    location_id=order.source_location_id,
-                    event_type='venta',
-                    reference_id=db_order.id,
-                    reference_type='order',
+            # Marcar IMEIs como vendidos usando StockManager
+            if item_data.get("imeis_to_sell"):
+                stock_manager.mark_imeis_as_sold(
+                    imeis=item_data["imeis_to_sell"],
+                    order_id=db_order.id,
                     notes=f"Venta en orden #{db_order.id}",
-                    created_by=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
+                    user_id=user_identifier
                 )
-                db.add(imei_history_venta)
             
-            # Descontar stock con validación de no negativos
-            stock_anterior = item_data["stock"].cantidad_disponible
-            stock_nuevo = stock_anterior - item_data["cantidad"]
-            
-            # CRÍTICO: Validar stock no negativo ni por debajo de reservado antes de commit
-            if stock_nuevo < 0 or stock_nuevo < item_data["stock"].cantidad_reservada:
+            # Descontar stock usando StockManager
+            try:
+                stock_manager.decrease_stock(
+                    stock=item_data["stock"],
+                    quantity=item_data["cantidad"],
+                    operation_type="venta",
+                    notes=f"Venta a {order.customer_name} - Canal: {order.canal}",
+                    user_id=user_identifier,
+                    order_id=db_order.id
+                )
+            except StockValidationError as e:
+                # Esto no debería ocurrir si validate_and_lock_stock funcionó, pero por seguridad
                 db.rollback()
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Error crítico: Stock quedaría por debajo de la reserva para '{item_data['product'].nombre}'. "
-                        f"Disponible proyectado: {stock_nuevo}, Reservado: {item_data['stock'].cantidad_reservada}"
-                    )
-                )
-            
-            # ✅ SOLO DESPUÉS de validar IMEIs (ya hecho arriba), descontar stock
-            item_data["stock"].cantidad_disponible = stock_nuevo
-            
-            # ✅ TRAZABILIDAD: Registrar en historial de stock
-            # StockHistory ya está importado globalmente
-            
-            stock_history = StockHistory(
-                product_id=item_data["product"].id,
-                location_id=order.source_location_id,  # V2.0: Ubicación de donde salió el stock
-                tipo_cambio='venta',
-                cantidad=-item_data["cantidad"],  # Negativo = salida de stock
-                stock_anterior=stock_anterior,
-                stock_nuevo=stock_nuevo,
-                referencia_id=db_order.id,
-                referencia_tipo='order',
-                notas=f"Venta a {order.customer_name} - Canal: {order.canal} - IMEIs: {len(item_data.get('imeis_to_sell', []))} marcados",
-                usuario=current_user.username if current_user else (sales_profile.name if sales_profile else (profile.name if profile else 'Sistema'))
-            )
-            db.add(stock_history)
+                raise HTTPException(status_code=409, detail=str(e))
         
         # V2.5: Atribución de Venta a Interacción de IA
         if sales_profile_id_for_order and order.customer_phone:
             try:
-                # Normalizar teléfono para buscar cliente
                 normalized_phone = "".join(filter(str.isdigit, str(order.customer_phone)))
-                
-                # Buscar cliente
                 customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
                 
                 if customer:
-                    # Buscar última interacción no convertida de este cliente con este perfil
                     last_interaction = db.query(InteractionLog).filter(
                         InteractionLog.customer_id == customer.id,
                         InteractionLog.sales_profile_id == sales_profile_id_for_order,
@@ -879,19 +662,14 @@ def create_order(
                 print(f"Error linking order to interaction: {e}")
                 # No fallar la orden por esto
 
-        # ✅ Commit transacción
+        # Commit transacción
         db.commit()
         
-        # ✅ Refresh con manejo de errores (Bug #28 fix)
-        try:
-            db.refresh(db_order)
-            for item in db_order_items:
-                db.refresh(item)
-        except Exception as refresh_error:
-            # Si refresh falla, los datos ya fueron guardados, pero loguear
-            print(f"⚠️ Warning: Error durante refresh: {refresh_error}")
-            # Continuar con los datos que tenemos
-        
+        # Refresh seguro (Bug #28 fix)
+        db.refresh(db_order)
+        for item in db_order_items:
+            db.refresh(item)
+
         return _serialize_order(db_order)
     except HTTPException:
         db.rollback()
@@ -977,17 +755,10 @@ def update_order(
                 detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
             )
 
+        user_identifier = _resolve_user_label(current_user)
+
         # 🔒 BUG #1 FIX: Obtener snapshot de items antiguos PRIMERO
         # StockHistory y ProductIMEI ya están importados globalmente
-        current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
-        old_items_data = [
-            {
-                'product_id': item.product_id,
-                'cantidad': item.cantidad,
-                'location_id': order.source_location_id
-            }
-            for item in current_items
-        ]
         current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
 
         items_total = None  # Usado para recalcular total + financiamiento
@@ -996,23 +767,14 @@ def update_order(
         # Si se actualiza la ubicación, usar la nueva; de lo contrario, usar la actual
         target_location_id = order.source_location_id
         if hasattr(updates, 'source_location_id') and updates.source_location_id:
-            # Validar nueva ubicación antes de procesar items
-            new_location = db.query(Location).filter(Location.id == updates.source_location_id).first()
-            if not new_location:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Ubicación con ID {updates.source_location_id} no encontrada"
-                )
-            if not new_location.activo:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Ubicación '{new_location.nombre}' está inactiva"
-                )
-            target_location_id = updates.source_location_id
+            new_location = validate_location_exists(db, updates.source_location_id)
+            target_location_id = new_location.id
 
         if updates.items is not None:
             # Liberar IMEIs de los items actuales antes de reemplazarlos
             # ProductIMEI ya está importado globalmente
+            stock_manager = StockManager(db)
+            
             for item in current_items:
                 # Liberar IMEIs asociados a este item
                 imeis_item = db.query(ProductIMEI).filter(
@@ -1021,129 +783,98 @@ def update_order(
                     ProductIMEI.vendido == True
                 ).all()
                 
-                for imei_obj in imeis_item:
-                    imei_obj.vendido = False
-                    imei_obj.order_id = None
+                if imeis_item:
+                    stock_manager.release_imeis(
+                        imeis=imeis_item,
+                        notes=f"Actualización de orden #{order.id} - Items removidos",
+                        user_id=user_identifier
+                    )
                 
                 # V2.0: Devolver stock a la ubicación de origen
                 if order.source_location_id:
-                    stock = db.query(Stock).filter(
-                        Stock.product_id == item.product_id,
-                        Stock.location_id == order.source_location_id
-                    ).first()
-                else:
-                    # Legacy: Sin ubicación específica
-                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-                
-                if stock:
-                    stock.cantidad_disponible += item.cantidad
-                    
-                    # Registrar en historial de stock
-                    # StockHistory ya está importado globalmente
-                    stock_history = StockHistory(
+                    stock_manager.increase_stock(
                         product_id=item.product_id,
                         location_id=order.source_location_id,
-                        tipo_cambio="devolucion",
-                        cantidad=item.cantidad,  # Positivo porque es entrada (devolución)
-                        stock_anterior=stock.cantidad_disponible - item.cantidad,
-                        stock_nuevo=stock.cantidad_disponible,
-                        referencia_id=order.id,
-                        referencia_tipo="order_update",
-                        notas=f"Actualización de orden #{order.id} - Items removidos/modificados",
-                        usuario=current_user.username
+                        quantity=item.cantidad,
+                        operation_type="devolucion",
+                        notes=f"Actualización de orden #{order.id} - Items removidos/modificados",
+                            user_id=user_identifier,
+                        create_if_missing=True
                     )
-                    db.add(stock_history)
+                else:
+                    # Legacy: Sin ubicación específica - Mantener lógica manual limitada
+                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+                    if stock:
+                        stock.cantidad_disponible += item.cantidad
+                        # Registrar historial manual (legacy)
+                        stock_history = StockHistory(
+                            product_id=item.product_id,
+                            location_id=None,
+                            tipo_cambio="devolucion",
+                            cantidad=item.cantidad,
+                            stock_anterior=stock.cantidad_disponible - item.cantidad,
+                            stock_nuevo=stock.cantidad_disponible,
+                            referencia_id=order.id,
+                            referencia_tipo="order_update",
+                            notas=f"Actualización de orden #{order.id} (Legacy)",
+                                usuario=user_identifier
+                        )
+                        db.add(stock_history)
 
             if len(updates.items) == 0:
                 raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
 
-            total = Decimal("0.00")
+            if not target_location_id:
+                raise HTTPException(status_code=400, detail="No se puede actualizar una orden legacy sin ubicación de origen en V2.0")
+
+            # Borrar items existentes y recalcular con helper centralizado
             db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
 
-            for item_update in updates.items:
-                # V2.0: Usar helper unificado con bloqueo pesimista
-                if not target_location_id:
-                     # Fallback para legacy orders sin location (no debería ocurrir en V2)
-                     raise HTTPException(status_code=400, detail="No se puede actualizar una orden legacy sin ubicación de origen en V2.0")
+            total, prepared_items = _process_items_for_update(
+                db=db,
+                items_payload=updates.items,
+                location_id=target_location_id,
+                stock_manager=stock_manager
+            )
 
-                # V2.5: Permitir pending IMEI en updates también
-                allow_pending = not item_update.imeis
-                product, stock, imeis_to_sell = _get_and_validate_stock(
-                    db, item_update.product_id, target_location_id, item_update.cantidad, item_update.imeis, allow_pending_imei=allow_pending
-                )
-
-                price = Decimal(str(product.precio))
-                if not item_update.es_regalo_promocion:
-                    total += price * item_update.cantidad
-
-                # Marcar IMEIs como vendidos
-                for imei_obj in imeis_to_sell:
-                    imei_obj.vendido = True
-                    imei_obj.order_id = order.id
-                    db.add(imei_obj)
-                    
-                    # 🟡 IMEI History: Venta (Update)
-                    imei_history_venta = IMEIHistory(
-                        imei=imei_obj.imei,
-                        product_id=item_update.product_id,
-                        location_id=target_location_id,
-                        event_type='venta',
-                        reference_id=order.id,
-                        reference_type='order_update',
+            for item_data in prepared_items:
+                if item_data.get("imeis_to_sell"):
+                    stock_manager.mark_imeis_as_sold(
+                        imeis=item_data["imeis_to_sell"],
+                        order_id=order.id,
                         notes=f"Venta en actualización de orden #{order.id}",
-                        created_by=current_user.username
+                        user_id=user_identifier
                     )
-                    db.add(imei_history_venta)
 
                 new_item = OrderItem(
                     order_id=order.id,
-                    product_id=item_update.product_id,
-                    cantidad=item_update.cantidad,
-                    precio_unitario=price,
-                    es_regalo_promocion=item_update.es_regalo_promocion
+                    product_id=item_data["product"].id,
+                    cantidad=item_data["cantidad"],
+                    precio_unitario=item_data["precio_unitario"],
+                    es_regalo_promocion=item_data["es_regalo_promocion"]
                 )
                 db.add(new_item)
 
-                # Decrementar stock (ya validado arriba)
-                stock_anterior = stock.cantidad_disponible
-                stock.cantidad_disponible -= item_update.cantidad
-                
-                # VALIDACIÓN POST-OPERACIÓN: Detectar race conditions
-                if stock.cantidad_disponible < 0 or stock.cantidad_disponible < stock.cantidad_reservada:
-                    db.rollback()
-                    raise HTTPException(
-                        status_code=500,
-                        detail=(
-                            f"Error crítico: Stock por debajo de reservas detectado (Disponible: {stock.cantidad_disponible}, Reservado: {stock.cantidad_reservada})."
-                        )
+                try:
+                    stock_manager.decrease_stock(
+                        stock=item_data["stock"],
+                        quantity=item_data["cantidad"],
+                        operation_type="venta",
+                        notes=f"Actualización de orden #{order.id} - Item añadido/modificado",
+                        user_id=user_identifier,
+                        order_id=order.id
                     )
-                
-                # TRAZABILIDAD: Registrar cambio de stock en historial
-                stock_history = StockHistory(
-                    product_id=item_update.product_id,
-                    location_id=target_location_id,
-                    tipo_cambio='venta',
-                    cantidad=-item_update.cantidad,  # Negativo = salida de stock
-                    stock_anterior=stock_anterior,
-                    stock_nuevo=stock.cantidad_disponible,
-                    referencia_id=order.id,
-                    referencia_tipo='order_update',
-                    notas=f"Actualización de orden #{order.id} - Item añadido/modificado",
-                    usuario=current_user.username
-                )
-                db.add(stock_history)
+                except StockValidationError as e:
+                    db.rollback()
+                    raise HTTPException(status_code=409, detail=str(e))
 
-            # Guardar subtotal de items (antes de trade-ins/financiamiento)
             items_total = total
 
         if updates.customer_name is not None:
             order.customer_name = updates.customer_name
 
         if updates.customer_phone is not None:
-            phone = str(updates.customer_phone).strip()
-            if not phone:
-                raise HTTPException(status_code=400, detail="El número de teléfono del cliente es requerido")
-            order.customer_phone = phone
+            order.customer_phone = normalize_customer_phone(updates.customer_phone)
 
         if updates.canal is not None:
             order.canal = updates.canal
@@ -1163,60 +894,18 @@ def update_order(
 
         # Recalcular total considerando trade-ins y financiamiento existentes
         if items_total is not None:
-            trade_in_total = Decimal("0.00")
-            if order.trade_ins:
-                for trade_in in order.trade_ins:
-                    trade_in_total += Decimal(str(trade_in.valor_estimado or 0))
+            trade_in_total = compute_trade_in_total(order.trade_ins)
 
             total_after_tradeins = items_total - trade_in_total
             if total_after_tradeins < 0:
                 total_after_tradeins = Decimal("0.00")
 
-            recomputed_financing = None
-            metodo_pago_actual = order.metodo_pago
+            total_final, recomputed_financing = recompute_financing_from_details(
+                financing_details=order.financing_details,
+                metodo_pago=order.metodo_pago,
+                total_after_tradeins=total_after_tradeins,
+            )
 
-            if metodo_pago_actual in ['tarjeta', 'financiamiento'] and order.financing_details:
-                try:
-                    financing_data = json.loads(order.financing_details or "{}")
-                except Exception:
-                    financing_data = {}
-
-                down_payment = Decimal(str(financing_data.get('down_payment', financing_data.get('prima', 0) or 0)))
-                rate = Decimal(str(financing_data.get('rate', 0)))
-                months = int(financing_data.get('months', financing_data.get('plazo', 0) or 0))
-                bank_id = financing_data.get('bank_id')
-                bank_name = financing_data.get('bank_name')
-
-                amount_to_finance = total_after_tradeins - down_payment
-                if amount_to_finance < 0:
-                    amount_to_finance = Decimal("0.00")
-
-                if months and months > 0:
-                    surcharge_amount = amount_to_finance * rate
-                    total_with_surcharge = amount_to_finance + surcharge_amount
-                    monthly_payment = total_with_surcharge / Decimal(months)
-                else:
-                    surcharge_amount = amount_to_finance * rate
-                    total_with_surcharge = amount_to_finance + surcharge_amount
-                    monthly_payment = total_with_surcharge
-
-                total_final = down_payment + total_with_surcharge
-
-                recomputed_financing = json.dumps({
-                    "bank_id": bank_id,
-                    "bank_name": bank_name,
-                    "months": months or 0,
-                    "rate": float(rate),
-                    "surcharge": float(surcharge_amount),
-                    "monthly_payment": float(monthly_payment),
-                    "original_total": float(items_total - trade_in_total),
-                    "down_payment": float(down_payment),
-                    "financed_amount": float(amount_to_finance)
-                })
-            else:
-                total_final = total_after_tradeins
-
-            # Si hubo financiamiento recomputado, usar total_final calculado; de lo contrario, ya se asignó arriba
             if recomputed_financing is not None:
                 order.total = total_final
                 order.financing_details = recomputed_financing
@@ -1314,48 +1003,25 @@ def cancel_order(
         print(f"🔄 Cancelando orden {order_id} - Estado actual: {order.estado}")
         print(f"  📋 Orden tiene {len(order.items)} items")
         
+        # Inicializar StockManager
+        stock_manager = StockManager(db)
+        user_identifier = _resolve_user_label(current_user)
+        
         # Procesar cada item de la orden
         for idx, item in enumerate(order.items):
             print(f"  🔢 Item {idx + 1}/{len(order.items)}: Producto {item.product_id}, Cantidad {item.cantidad}")
             
             # 1. Devolver stock a la ubicación de origen
             if order.source_location_id:
-                stock = db.query(Stock).filter(
-                    Stock.product_id == item.product_id,
-                    Stock.location_id == order.source_location_id
-                ).first()
-
-                # Crear el registro de stock si fue eliminado accidentalmente
-                if not stock:
-                    stock = Stock(
-                        product_id=item.product_id,
-                        location_id=order.source_location_id,
-                        cantidad_disponible=0,
-                        cantidad_reservada=0
-                    )
-                    db.add(stock)
-                    db.flush()
-                    stock_anterior = 0
-                else:
-                    stock_anterior = stock.cantidad_disponible
-
-                stock.cantidad_disponible += item.cantidad
-                print(f"  📦 Producto {item.product_id}: Stock {stock_anterior} → {stock.cantidad_disponible} (+{item.cantidad})")
-
-                # Registrar en historial
-                history = StockHistory(
+                stock_manager.increase_stock(
                     product_id=item.product_id,
                     location_id=order.source_location_id,
-                    tipo_cambio='devolucion',
-                    cantidad=item.cantidad,  # Positivo = entrada
-                    stock_anterior=stock_anterior,
-                    stock_nuevo=stock.cantidad_disponible,
-                    referencia_id=order_id,
-                    referencia_tipo='order_cancelled',
-                    notas=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
-                    usuario=current_user.username
+                    quantity=item.cantidad,
+                    operation_type="devolucion",
+                    notes=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
+                    user_id=user_identifier,
+                    create_if_missing=True
                 )
-                db.add(history)
             
             # 2. Liberar IMEIs asociados a esta orden
             imeis_vendidos = db.query(ProductIMEI).filter(
@@ -1364,9 +1030,12 @@ def cancel_order(
                 ProductIMEI.vendido == True
             ).all()
             
-            for imei_obj in imeis_vendidos:
-                imei_obj.vendido = False
-                imei_obj.order_id = None
+            if imeis_vendidos:
+                stock_manager.release_imeis(
+                    imeis=imeis_vendidos,
+                    notes=f"Cancelación de orden #{order_id}",
+                        user_id=user_identifier
+                )
 
         # Revertir retomas ingresadas automáticamente al crear la orden
         if order.trade_ins:
@@ -1405,24 +1074,19 @@ def cancel_order(
                         ).with_for_update().first()
 
                 # Ajustar stock de la retoma
-                if target_product and stock_entry:
-                    stock_anterior_retoma = stock_entry.cantidad_disponible
-                    stock_entry.cantidad_disponible = max(stock_entry.cantidad_disponible - 1, 0)
-                    stock_nuevo_retoma = stock_entry.cantidad_disponible
-
-                    history_retoma_cancel = StockHistory(
-                        product_id=target_product.id,
-                        location_id=order.source_location_id,
-                        tipo_cambio='retoma_cancelada',
-                        cantidad=-1,
-                        stock_anterior=stock_anterior_retoma,
-                        stock_nuevo=stock_nuevo_retoma,
-                        referencia_id=order_id,
-                        referencia_tipo='order_cancelled',
-                        notas=f"Reversa de retoma para orden #{order_id}",
-                        usuario=current_user.username
-                    )
-                    db.add(history_retoma_cancel)
+                if target_product and stock_entry and stock_entry.cantidad_disponible > 0:
+                    try:
+                        stock_manager.decrease_stock(
+                            stock=stock_entry,
+                            quantity=1,
+                            operation_type="retoma_cancelada",
+                            notes=f"Reversa de retoma para orden #{order_id}",
+                            user_id=user_identifier,
+                            order_id=order_id
+                        )
+                    except StockValidationError:
+                        # Si falla por reservas u otro motivo, loguear y continuar (no bloquear cancelación)
+                        print(f"⚠️ No se pudo revertir stock de retoma para producto {target_product.id}")
 
                 # Eliminar IMEI ingresado por la retoma (si se creó)
                 if imei_record:
@@ -1434,7 +1098,7 @@ def cancel_order(
                         reference_id=order_id,
                         reference_type='order_cancelled',
                         notes=f"IMEI revertido por cancelación de orden #{order_id}",
-                        created_by=current_user.username
+                        created_by=user_identifier
                     )
                     db.add(imei_history_cancel)
                     db.delete(imei_record)

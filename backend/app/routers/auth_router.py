@@ -241,6 +241,63 @@ def update_user_role(
     return user
 
 
+@router.put("/users/{user_id}", response_model=UserResponse)
+def update_user_admin(
+    user_id: int,
+    updates: UserUpdate,
+    current_user: User = Depends(get_current_superuser),
+    db: Session = Depends(get_db)
+):
+    """
+    Update any user information (superuser only).
+    Can update role, active status, password, etc.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found"
+        )
+    
+    if updates.email is not None:
+        existing = db.query(User).filter(User.email == updates.email, User.id != user_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = updates.email
+        
+    if updates.username is not None:
+        existing = db.query(User).filter(User.username == updates.username, User.id != user_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        user.username = updates.username
+
+    if updates.full_name is not None:
+        user.full_name = updates.full_name
+        
+    if updates.is_active is not None:
+        # Prevent deactivating yourself
+        if user.id == current_user.id and not updates.is_active:
+             raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+        user.is_active = updates.is_active
+        
+    if updates.role_id is not None:
+        role = db.query(Role).filter(Role.id == updates.role_id).first()
+        if not role:
+            raise HTTPException(status_code=404, detail=f"Role {updates.role_id} not found")
+        user.role_id = updates.role_id
+        
+    if updates.password is not None:
+        user.hashed_password = get_password_hash(updates.password)
+        
+    try:
+        db.commit()
+        db.refresh(user)
+        return user
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/users", response_model=List[UserResponse])
 def list_users(
     skip: int = 0,
