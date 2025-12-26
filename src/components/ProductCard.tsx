@@ -1,11 +1,12 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise, MapPin } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise, MapPin, Printer } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { StockByLocationDialog } from './StockByLocationDialog'
+import { PrintLabelsDialog } from './PrintLabelsDialog'
 
 interface ProductCardProps {
   product: ProductWithStock
@@ -18,6 +19,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTransfer, onViewHistory }: ProductCardProps) {
   const [showStockDialog, setShowStockDialog] = useState(false)
+  const [showPrintDialog, setShowPrintDialog] = useState(false)
   
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
@@ -113,6 +115,17 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
                 <ClockCounterClockwise size={18} />
               </Button>
             )}
+            {product.is_serialized && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPrintDialog(true)}
+                className="h-8 w-8 hover:scale-110 transition-transform"
+                title="Imprimir etiquetas"
+              >
+                <Printer size={18} />
+              </Button>
+            )}
             {onToggleActive && (
               <Button
                 variant="ghost"
@@ -204,6 +217,12 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
         productId={product.id}
         productName={product.nombre}
         editable={false}
+      />
+
+      <PrintLabelsDialog
+        open={showPrintDialog}
+        onOpenChange={setShowPrintDialog}
+        product={product}
       />
     </Card>
   )

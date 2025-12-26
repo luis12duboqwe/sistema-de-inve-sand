@@ -20,8 +20,10 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import type { Profile, Product, Supplier, Location } from '@/lib/types'
+import type { Profile, Product, Supplier, Location, ProductWithStock } from '@/lib/types'
 import { toast } from 'sonner'
+import { calculateLuhnCheckDigit } from '@/lib/utils'
+import { PrintLabelsDialog } from './PrintLabelsDialog'
 
 // Datos predeterminados para celulares
 const MARCAS_CELULAR = [
@@ -59,7 +61,32 @@ const MODELOS_POR_MARCA: Record<string, string[]> = {
 
 const CAPACIDADES = ['64GB', '128GB', '256GB', '512GB', '1TB']
 
-const COLORES = [
+// V2.1: Colores específicos por modelo para evitar sugerencias incorrectas
+const COLORES_POR_MODELO: Record<string, string[]> = {
+  // Apple
+  'iPhone 15 Pro Max': ['Titanio Natural', 'Titanio Azul', 'Titanio Blanco', 'Titanio Negro'],
+  'iPhone 15 Pro': ['Titanio Natural', 'Titanio Azul', 'Titanio Blanco', 'Titanio Negro'],
+  'iPhone 15 Plus': ['Negro', 'Azul', 'Verde', 'Amarillo', 'Rosa'],
+  'iPhone 15': ['Negro', 'Azul', 'Verde', 'Amarillo', 'Rosa'],
+  'iPhone 14 Pro Max': ['Morado Oscuro', 'Oro', 'Plata', 'Negro Espacial'],
+  'iPhone 14 Pro': ['Morado Oscuro', 'Oro', 'Plata', 'Negro Espacial'],
+  'iPhone 14': ['Medianoche', 'Blanco Estelar', 'Azul', 'Púrpura', 'Rojo', 'Amarillo'],
+  'iPhone 13': ['Medianoche', 'Blanco Estelar', 'Azul', 'Rosa', 'Verde', 'Rojo'],
+  'iPhone 12': ['Negro', 'Blanco', 'Rojo', 'Verde', 'Azul', 'Púrpura'],
+  'iPhone SE': ['Medianoche', 'Blanco Estelar', 'Rojo'],
+  
+  // Samsung
+  'Galaxy S24 Ultra': ['Titanium Gray', 'Titanium Black', 'Titanium Violet', 'Titanium Yellow'],
+  'Galaxy S24+': ['Onyx Black', 'Marble Gray', 'Cobalt Violet', 'Amber Yellow'],
+  'Galaxy S24': ['Onyx Black', 'Marble Gray', 'Cobalt Violet', 'Amber Yellow'],
+  'Galaxy S23 Ultra': ['Green', 'Phantom Black', 'Lavender', 'Cream'],
+  
+  // Xiaomi
+  'Xiaomi 14': ['Black', 'White', 'Jade Green', 'Pink'],
+  'Redmi Note 13 Pro': ['Midnight Black', 'Aurora Purple', 'Ocean Teal']
+}
+
+const COLORES_GENERICOS = [
   'Negro',
   'Blanco',
   'Azul',
@@ -69,9 +96,7 @@ const COLORES = [
   'Rosa',
   'Dorado',
   'Plateado',
-  'Gris',
-  'Titanio',
-  'Natural'
+  'Gris'
 ]
 
 interface NewProductDialogProps {
@@ -79,7 +104,7 @@ interface NewProductDialogProps {
   onOpenChange: (open: boolean) => void
   profiles: Profile[]
   locations?: Location[]  // V2.0: Ubicaciones disponibles
-  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<void>
+  onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<ProductWithStock | void>
 }
 
 export function NewProductDialog({
@@ -98,9 +123,11 @@ export function NewProductDialog({
   const [modeloOtro, setModeloOtro] = useState('')
   const [capacidad, setCapacidad] = useState('128GB')
   const [color, setColor] = useState('Negro')
+  const [colorOtro, setColorOtro] = useState('')
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [isSerialized, setIsSerialized] = useState(true)
   const [precio, setPrecio] = useState('')
+  const [costo, setCosto] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('12')
   const [stockInicial, setStockInicial] = useState('1')
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined)
@@ -112,9 +139,16 @@ export function NewProductDialog({
   // V2.0: Stock por ubicación
   const [locations, setLocations] = useState<Location[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState<number | undefined>(undefined)
+  
+  // V2.1: Colores dinámicos
+  const [availableColors, setAvailableColors] = useState<string[]>(COLORES_GENERICOS)
 
   // Moneda configurable
   const [moneda, setMoneda] = useState('HNL')
+
+  // V2.5: Print Labels
+  const [createdProduct, setCreatedProduct] = useState<ProductWithStock | null>(null)
+  const [showPrintDialog, setShowPrintDialog] = useState(false)
 
   // Auto-set serialized flag based on category
   useEffect(() => {
@@ -124,6 +158,20 @@ export function NewProductDialog({
       setIsSerialized(false)
     }
   }, [categoria])
+
+  // V2.1: Actualizar colores disponibles según modelo
+  useEffect(() => {
+    const modeloActual = modelo === 'otro' ? modeloOtro : modelo
+    if (modeloActual && COLORES_POR_MODELO[modeloActual]) {
+      setAvailableColors(COLORES_POR_MODELO[modeloActual])
+      // Resetear color si el actual no está en la lista nueva
+      if (!COLORES_POR_MODELO[modeloActual].includes(color) && color !== 'Otro') {
+        setColor(COLORES_POR_MODELO[modeloActual][0])
+      }
+    } else {
+      setAvailableColors(COLORES_GENERICOS)
+    }
+  }, [modelo, modeloOtro, color])
 
   // Cargar proveedores y ubicaciones globalmente
   useEffect(() => {
@@ -172,7 +220,8 @@ export function NewProductDialog({
         const marcaCode = marcaActual.substring(0, 3).toUpperCase()
         const modeloCode = modeloActual.replace(/\s+/g, '').substring(0, 8).toUpperCase()
         const capacidadCode = capacidad.replace('GB', '').replace('TB', '000')
-        const colorCode = color.substring(0, 3).toUpperCase()
+        const colorActual = color === 'Otro' ? colorOtro : color
+        const colorCode = colorActual.substring(0, 3).toUpperCase()
         const skuGenerado = `${marcaCode}-${modeloCode}-${capacidadCode}-${colorCode}`
         setSku(skuGenerado)
       }
@@ -188,7 +237,7 @@ export function NewProductDialog({
         setSku(skuGenerado)
       }
     }
-  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
+  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color, colorOtro])
 
   // Auto-generar nombre del producto
   useEffect(() => {
@@ -197,7 +246,8 @@ export function NewProductDialog({
       const modeloActual = modelo === 'otro' ? modeloOtro : modelo
       
       if (marcaActual && modeloActual) {
-        const nombreGenerado = `${marcaActual} ${modeloActual} ${capacidad} ${color}`
+        const colorActual = color === 'Otro' ? colorOtro : color
+        const nombreGenerado = `${marcaActual} ${modeloActual} ${capacidad} ${colorActual}`
         setNombre(nombreGenerado)
       }
     } else if (categoria === 'accesorio' && marca && modelo) {
@@ -209,7 +259,7 @@ export function NewProductDialog({
         setNombre(nombreGenerado)
       }
     }
-  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color])
+  }, [categoria, marca, marcaOtra, modelo, modeloOtro, capacidad, color, colorOtro])
 
   const resetForm = () => {
     setSku('')
@@ -223,6 +273,7 @@ export function NewProductDialog({
     setColor('Negro')
     setCondicion('nuevo')
     setPrecio('')
+    setCosto('')
     setMoneda('HNL')
     setGarantiaMeses('12')
     setStockInicial('1')
@@ -255,9 +306,25 @@ export function NewProductDialog({
   }, [stockInicial])
 
   const handleImeiChange = (index: number, value: string) => {
+    // Solo permitir números
+    const cleanValue = value.replace(/\D/g, '')
+    
+    let finalValue = cleanValue
+    
+    // Auto-completar dígito 15 si hay 14
+    if (cleanValue.length === 14) {
+      try {
+        const checkDigit = calculateLuhnCheckDigit(cleanValue)
+        finalValue = cleanValue + checkDigit
+        toast.success(`Dígito verificador generado: ${checkDigit}`)
+      } catch {
+        // Ignorar error
+      }
+    }
+
     setImeis(prev => {
       const newImeis = [...prev]
-      newImeis[index] = value
+      newImeis[index] = finalValue
       return newImeis
     })
   }
@@ -275,6 +342,7 @@ export function NewProductDialog({
     
     const marcaFinal = marca === 'Otra' ? marcaOtra : marca
     const modeloFinal = modelo === 'otro' ? modeloOtro : modelo
+    const colorFinal = color === 'Otro' ? colorOtro : color
     
     if (!marcaFinal.trim()) {
       toast.error('Por favor ingresa la marca del producto')
@@ -283,6 +351,11 @@ export function NewProductDialog({
     
     if (!modeloFinal.trim()) {
       toast.error('Por favor ingresa el modelo del producto')
+      return
+    }
+
+    if (categoria === 'celular' && !colorFinal.trim()) {
+      toast.error('Por favor ingresa el color del producto')
       return
     }
     
@@ -299,18 +372,20 @@ export function NewProductDialog({
 
     setIsSubmitting(true)
     try {
-      await onSubmit(
+      const result = await onSubmit(
         {
-          profile_id: profiles[0]?.id || 1, // Legacy: usar primer perfil para compatibilidad backend
+          profile_id: null, // V2.0: Productos globales
           supplier_id: supplierId,
           sku,
           nombre,
           categoria,
           marca: marcaFinal,
           modelo: modeloFinal,
+          color: colorFinal,
           capacidad: categoria === 'celular' ? capacidad : 'N/A',
           condicion,
           precio: parseFloat(precio),
+          costo: parseFloat(costo) || 0,
           moneda,
           garantia_meses: parseInt(garantiaMeses),
           garantia_condiciones: garantiaCondiciones.trim() || undefined,
@@ -321,8 +396,17 @@ export function NewProductDialog({
         selectedLocationId  // V2.0: Pasar ubicación seleccionada
       )
 
-      resetForm()
-      onOpenChange(false)
+      // V2.5: Si es serializado, ofrecer imprimir etiquetas
+      if (isSerialized && result) {
+        setCreatedProduct(result)
+        setShowPrintDialog(true)
+        toast.success('Producto creado. Abriendo impresión de etiquetas...')
+        resetForm()
+        // No cerramos el diálogo principal todavía, lo hará el PrintLabelsDialog al cerrar
+      } else {
+        resetForm()
+        onOpenChange(false)
+      }
     } catch (error) {
       console.error('Error creating product:', error)
     } finally {
@@ -331,6 +415,7 @@ export function NewProductDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -446,11 +531,20 @@ export function NewProductDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {COLORES.map(c => (
+                      {availableColors.map(c => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
+                      <SelectItem value="Otro">Otro color...</SelectItem>
                     </SelectContent>
                   </Select>
+                  {color === 'Otro' && (
+                    <Input
+                      value={colorOtro}
+                      onChange={e => setColorOtro(e.target.value)}
+                      placeholder="Ej. Sierra Blue, Deep Purple"
+                      className="mt-2"
+                    />
+                  )}
                 </div>
               </div>
             </>
@@ -567,7 +661,7 @@ export function NewProductDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="precio">Precio *</Label>
+                <Label htmlFor="precio">Precio Venta *</Label>
                 <Input
                   id="precio"
                   type="number"
@@ -593,15 +687,28 @@ export function NewProductDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="garantia">Garantía (meses)</Label>
+              <Label htmlFor="costo">Costo (Reportes)</Label>
               <Input
-                id="garantia"
+                id="costo"
                 type="number"
                 min="0"
-                value={garantiaMeses}
-                onChange={e => setGarantiaMeses(e.target.value)}
+                step="0.01"
+                value={costo}
+                onChange={e => setCosto(e.target.value)}
+                placeholder="0.00"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="garantia">Garantía (meses)</Label>
+            <Input
+              id="garantia"
+              type="number"
+              min="0"
+              value={garantiaMeses}
+              onChange={e => setGarantiaMeses(e.target.value)}
+            />
           </div>
 
           {/* Campos nuevos: Proveedor e IMEI */}
@@ -682,5 +789,20 @@ export function NewProductDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {createdProduct && (
+      <PrintLabelsDialog
+        open={showPrintDialog}
+        onOpenChange={(open) => {
+          setShowPrintDialog(open)
+          if (!open) {
+            setCreatedProduct(null)
+            onOpenChange(false) // Close parent dialog when print dialog closes
+          }
+        }}
+        product={createdProduct}
+      />
+    )}
+    </>
   )
 }

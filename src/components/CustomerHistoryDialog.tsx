@@ -139,7 +139,7 @@ export function CustomerHistoryDialog({
             <div className="space-y-3">
               {history.orders.map(order => (
                 <Card key={order.id} className="p-4 hover:bg-accent/50 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-semibold">Orden #{order.id}</span>
@@ -157,8 +157,8 @@ export function CustomerHistoryDialog({
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <p className="text-lg font-bold mb-2">{formatCurrency(order.total)}</p>
+                    <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start w-full sm:w-auto mt-2 sm:mt-0">
+                      <p className="text-lg font-bold sm:mb-2">{formatCurrency(order.total)}</p>
                       <Button
                         variant="outline"
                         size="sm"

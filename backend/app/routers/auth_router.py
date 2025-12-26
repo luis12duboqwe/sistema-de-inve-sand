@@ -1,11 +1,11 @@
 from datetime import timedelta
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User
-from app.schemas import Token, UserCreate, UserResponse, UserUpdate
+from app.models import User, Role
+from app.schemas import Token, UserCreate, UserResponse, UserUpdate, RoleResponse
 from app.auth import (
     authenticate_user,
     create_access_token,
@@ -17,20 +17,49 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
+@router.post("/setup", response_model=Token)
+def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Setup the first Super Admin user.
+    Only works if no users exist in the database.
+    """
+    if db.query(User).count() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="System already initialized. Use login."
+        )
+    
+    # Create Super Admin
+    hashed_password = get_password_hash(user.password)
+    
+    # Find Super Admin Role
+    admin_role = db.query(Role).filter(Role.name == "Super Admin").first()
+    
+    db_user = User(
+        username=user.username,
+        email=user.email,
+        hashed_password=hashed_password,
+        full_name=user.full_name,
+        is_superuser=True,
+        is_active=True,
+        role_id=admin_role.id if admin_role else None
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    # Login automatically
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": db_user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": db_user}
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(user: UserCreate, db: Session = Depends(get_db)):
+def register_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_superuser)):
     """
-    Register a new user.
-    
-    Args:
-        - user: User registration data
-        
-    Returns:
-        Created user information
-        
-    Raises:
-        - 400: If username or email already exists
+    Register a new user. Requires Superuser privileges.
     """
     # Check if username exists
     db_user = db.query(User).filter(User.username == user.username).first()
@@ -41,12 +70,13 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
         )
     
     # Check if email exists
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+    if user.email:
+        db_user = db.query(User).filter(User.email == user.email).first()
+        if db_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
     
     # Create new user
     hashed_password = get_password_hash(user.password)
@@ -54,7 +84,8 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
         username=user.username,
         email=user.email,
         full_name=user.full_name,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        role_id=user.role_id
     )
     
     try:
@@ -74,39 +105,36 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """
     Login and get an access token.
-    
-    OAuth2 compatible token login, get an access token for future requests.
-    
-    Args:
-        - form_data: OAuth2 form with username and password
-        
-    Returns:
-        Access token
-        
-    Raises:
-        - 401: If credentials are incorrect
     """
-    user = authenticate_user(db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+        user = authenticate_user(db, form_data.username, form_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Inactive user",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive user",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        import traceback
+        with open("login_error.log", "w") as f:
+            f.write(str(e))
+            f.write("\n")
+            f.write(traceback.format_exc())
+        raise e
 
 
 @router.get("/me", response_model=UserResponse)
@@ -164,6 +192,53 @@ def update_user_me(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating user: {str(e)}"
         )
+
+
+from app.schemas import Token, UserCreate, UserResponse, UserUpdate, RoleResponse
+from app.models import User, Role
+
+# ... existing imports ...
+
+@router.get("/roles", response_model=List[RoleResponse])
+def list_roles(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all available roles.
+    """
+    roles = db.query(Role).all()
+    return roles
+
+
+@router.put("/users/{user_id}/role", response_model=UserResponse)
+def update_user_role(
+    user_id: int,
+    role_id: int = Query(..., description="ID of the new role"),
+    current_user: User = Depends(get_current_superuser),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a user's role (superuser only).
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found"
+        )
+    
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Role with ID {role_id} not found"
+        )
+        
+    user.role_id = role_id
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.get("/users", response_model=List[UserResponse])

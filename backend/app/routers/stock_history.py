@@ -8,8 +8,9 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.database import get_db
-from app.models import StockHistory, Product
+from app.models import StockHistory, Product, User
 from app.schemas import StockHistoryResponse, StockHistoryCreate
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/stock-history", tags=["stock-history"])
 
@@ -21,7 +22,8 @@ def get_product_stock_history(
     tipo_cambio: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
 ):
     """
     Obtener historial de cambios de stock para un producto específico
@@ -62,7 +64,8 @@ def get_location_stock_history(
     limit: int = Query(100, ge=1, le=1000),
     tipo_cambio: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
 ):
     """
     Obtener historial de cambios de stock para una ubicación específica (V2.0)
@@ -103,7 +106,8 @@ def get_profile_stock_history(
     limit: int = Query(100, ge=1, le=1000),
     tipo_cambio: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     LEGACY: Obtener historial de cambios de stock para todos los productos de un perfil V1.0
@@ -139,7 +143,8 @@ def get_profile_stock_history(
 @router.post("/", response_model=StockHistoryResponse)
 def create_stock_history_entry(
     entry: StockHistoryCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Crear un registro manual de historial de stock
@@ -164,7 +169,8 @@ def create_stock_history_entry(
 def get_product_stock_stats(
     product_id: int,
     days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Obtener estadísticas de movimientos de stock para un producto

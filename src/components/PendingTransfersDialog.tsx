@@ -64,13 +64,29 @@ export function PendingTransfersDialog({
   }, [open, locations])
 
   const handleConfirm = async (transfer: StockTransfer) => {
-    if (!confirm(`¿Confirmar la recepción de ${transfer.cantidad} unidad(es) de "${transfer.product_nombre}"?`)) {
-      return
+    // V2.0: Check for serialized items
+    let scannedImeis: string[] | undefined = undefined;
+    
+    if (transfer.imeis && transfer.imeis.length > 0) {
+        // For now, we'll just auto-confirm with the expected IMEIs if the user agrees.
+        // In a real app, we would open a scanning dialog.
+        const message = `Esta transferencia incluye ${transfer.imeis.length} productos serializados (IMEIs).\n\n` +
+                        `IMEIs esperados:\n${transfer.imeis.join('\\n')}\n\n` +
+                        `¿Confirma que ha verificado físicamente estos seriales?`;
+        
+        if (!confirm(message)) {
+            return;
+        }
+        scannedImeis = transfer.imeis;
+    } else {
+        if (!confirm(`¿Confirmar la recepción de ${transfer.cantidad} unidad(es) de "${transfer.product_nombre}"?`)) {
+            return
+        }
     }
 
     setProcessingId(transfer.id)
     try {
-      await inventoryServiceInstance.confirmStockTransfer(transfer.id, 'Sistema')
+      await inventoryServiceInstance.confirmStockTransfer(transfer.id, 'Sistema', scannedImeis)
 
       toast.success(
         `Transferencia confirmada. ${transfer.cantidad} unidad(es) agregadas al inventario.`

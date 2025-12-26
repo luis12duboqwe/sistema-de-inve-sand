@@ -14,7 +14,8 @@ from app.schemas import TokenData
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+# Permitir uso opcional del token en dependencias que lo requieren de forma no estricta
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -62,6 +63,8 @@ async def get_current_user(
     )
     
     try:
+        if not token:
+            raise credentials_exception
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: str = payload.get("sub")
         if username is None:
@@ -110,3 +113,27 @@ async def get_current_user_optional(
         return await get_current_user(token, db)
     except HTTPException:
         return None
+
+def check_permission(permission_slug: str):
+    """Dependency factory to check if user has a specific permission"""
+    def _check(user: User = Depends(get_current_active_user)):
+        # Superusers bypass all checks
+        if user.is_superuser:
+            return True
+        
+        if not user.role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="User has no role assigned"
+            )
+            
+        # Check if role has permission
+        # Note: This assumes user.role.permissions is eager loaded or lazy loaded within session
+        has_perm = any(p.slug == permission_slug for p in user.role.permissions)
+        if not has_perm:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail=f"Permission denied. Required: {permission_slug}"
+            )
+        return True
+    return _check

@@ -30,6 +30,38 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.main import app  # noqa: E402  importado después de fijar el cwd
 
+# En algunos entornos, el lifespan de Uvicorn puede no ejecutar init_db
+# antes de que este test llame a /api/init-data. Creamos tablas explícitamente
+# para evitar 500 por "no such table" en SQLite.
+from app import models as _models  # noqa: E402,F401
+from app.database import init_db  # noqa: E402
+
+# Este archivo levanta Uvicorn real y usa la DB en archivo.
+# Aun así, varias rutas (ej: POST /api/products) requieren permisos.
+# Para evitar manejar tokens aquí, forzamos un usuario superusuario.
+from app.auth import get_current_active_user, get_current_superuser, get_current_user  # noqa: E402
+
+
+class _FakeUser:
+    def __init__(self):
+        self.id = 1
+        self.username = "test"
+        self.is_active = True
+        self.is_superuser = True
+        self.role = None
+
+
+def _fake_user():
+    return _FakeUser()
+
+
+app.dependency_overrides[get_current_user] = _fake_user
+app.dependency_overrides[get_current_active_user] = _fake_user
+app.dependency_overrides[get_current_superuser] = _fake_user
+
+# Crea tablas explícitamente para evitar 500 por "no such table"
+init_db()
+
 
 def _http_json(method: str, url: str, payload: dict | None = None) -> tuple[int, dict]:
     data_bytes = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -66,8 +98,14 @@ class ApiUsageTests(unittest.TestCase):
         else:
             raise RuntimeError("El servidor no inició correctamente para las pruebas")
 
-        status, _ = _http_json("POST", f"{base_url}/api/init-data")
-        assert status == 200
+        status, init_payload = _http_json("POST", f"{base_url}/api/init-data")
+        assert status == 200, init_payload
+
+        status, locations_response = _http_json("GET", f"{base_url}/api/locations")
+        assert status == 200, locations_response
+        locations = locations_response.get("items", locations_response) if isinstance(locations_response, dict) else locations_response
+        assert locations, "Se esperaba al menos una ubicación para las pruebas"
+        cls.location_id = locations[0]["id"]
 
         status, profiles_response = _http_json("GET", f"{base_url}/api/profiles")
         assert status == 200 and profiles_response, "Se esperaba al menos un perfil de prueba"
@@ -82,7 +120,7 @@ class ApiUsageTests(unittest.TestCase):
         cls.server.should_exit = True
         cls.thread.join(timeout=5)
 
-    def _create_product(self, *, price: Decimal = Decimal("99.99"), stock: int = 5, categoria: str = "celular"):
+    def _create_product(self, *, price: Decimal = Decimal("99.99"), stock: int = 5, categoria: str = "accesorio"):
         sku = f"TEST-{uuid.uuid4().hex[:8]}"
         payload = {
             "profile_id": self.profile["id"],
@@ -94,10 +132,14 @@ class ApiUsageTests(unittest.TestCase):
             "capacidad": "128GB" if categoria == "celular" else None,
             "condicion": "nuevo",
             "precio": float(price),
-            "moneda": "HNL",
+            "moneda": "Lps",
             "garantia_meses": 0,
             "stock_inicial": stock,
         }
+
+        # V2.x: celulares son serializados y requieren IMEIs si stock > 0
+        if categoria == "celular" and stock > 0:
+            payload["imeis"] = [f"{uuid.uuid4().int % 10**15:015d}" for _ in range(stock)]
 
         status, data = _http_json("POST", f"{self.base_url}/api/products", payload)
         self.assertEqual(status, 201, data)
@@ -106,6 +148,7 @@ class ApiUsageTests(unittest.TestCase):
     def _create_order(self, product_id: int, *, quantity: int = 1, es_regalo_promocion: bool = False):
         payload = {
             "profile_slug": self.profile["slug"],
+            "source_location_id": type(self).location_id,
             "canal": "whatsapp",
             "customer_name": "Cliente Test",
             "customer_phone": "+50411111111",
@@ -152,9 +195,10 @@ class ApiUsageTests(unittest.TestCase):
             "capacidad": "256GB",
             "condicion": "nuevo",
             "precio": 15000,
-            "moneda": "HNL",
+            "moneda": "Lps",
             "garantia_meses": 0,
             "stock_inicial": 7,
+            "imeis": [f"{uuid.uuid4().int % 10**15:015d}" for _ in range(7)],
         }
 
         status, data = _http_json("POST", f"{self.base_url}/api/products", payload)
@@ -175,7 +219,7 @@ class ApiUsageTests(unittest.TestCase):
                     "capacidad": None,
                     "condicion": "nuevo",
                     "precio": 250,
-                    "moneda": "HNL",
+                    "moneda": "Lps",
                     "garantia_meses": 0,
                     "stock_inicial": 4,
                 },
@@ -189,7 +233,7 @@ class ApiUsageTests(unittest.TestCase):
                     "capacidad": None,
                     "condicion": "nuevo",
                     "precio": 275,
-                    "moneda": "HNL",
+                    "moneda": "Lps",
                     "garantia_meses": 0,
                     "stock_inicial": 6,
                 },

@@ -7,12 +7,15 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
 // import { ProfileCard } from '@/components/ProfileCard' // DEPRECATED V1.0
 import { ManageSuppliersDialog } from '@/components/ManageSuppliersDialog'
+import { ReturnsListDialog } from '@/components/ReturnsListDialog'
+import { WarrantyCheckDialog } from '@/components/WarrantyCheckDialog'
+import { FinancingSettings } from '@/components/FinancingSettings'
 import { NewProductDialog } from '@/components/NewProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
 // import { NewProfileDialog } from '@/components/NewProfileDialog' // DEPRECATED V1.0
@@ -45,6 +48,12 @@ import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
 import { StockHistoryDialog } from '@/components/StockHistoryDialog'
 import { LocationsList } from '@/components/LocationsList'
 import { SalesProfilesList } from '@/components/SalesProfilesList'
+import { AITrainingCenter } from '@/components/AITrainingCenter'
+import { CustomerInsights } from '@/components/CustomerInsights'
+import { ManageUsersDialog } from '@/components/ManageUsersDialog'
+import { LoginDialog } from '@/components/LoginDialog'
+import { PendingTradeInsDialog } from '@/components/PendingTradeInsDialog'
+import { apiClient } from '@/lib/apiClient'
 import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
@@ -57,8 +66,9 @@ import { generateOrderPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
 import { inventoryServiceFactory, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { motion } from 'framer-motion'
+import PublicCatalog from '@/components/PublicCatalog'
 
-export default function App() {
+function MainApp() {
   const [backendConnected, setBackendConnected] = useState(false)
   const { isInitialized, isLoading } = useInitializeData()
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
@@ -98,6 +108,12 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
   const [showTransferListDialog, setShowTransferListDialog] = useState(false)
+  const [showAITraining, setShowAITraining] = useState(false)
+  const [showCustomerInsights, setShowCustomerInsights] = useState(false)
+  const [showManageUsersDialog, setShowManageUsersDialog] = useState(false)
+  const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
+  const [showReturnsListDialog, setShowReturnsListDialog] = useState(false)
+  const [showWarrantyCheck, setShowWarrantyCheck] = useState(false)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
   // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
@@ -108,6 +124,65 @@ export default function App() {
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
+  
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [showLoginDialog, setShowLoginDialog] = useState(false)
+
+  useEffect(() => {
+    const token = apiClient.getToken()
+    const storedUser = localStorage.getItem('auth_user')
+    
+    // Only show login if using API mode
+    if (useAPI) {
+      if (token && storedUser) {
+        try {
+          setCurrentUser(JSON.parse(storedUser))
+        } catch (error) {
+          console.error('Error parsing auth_user from storage', error)
+          setShowLoginDialog(true)
+        }
+      } else {
+        setShowLoginDialog(true)
+      }
+    }
+  }, [useAPI])
+
+  useEffect(() => {
+    if (currentUser) {
+      console.log('👤 Current User:', currentUser)
+      console.log('🛡️ Role:', currentUser.role?.name)
+      console.log('🔐 Is System Role:', currentUser.role?.is_system_role)
+    }
+  }, [currentUser])
+
+  const handleLoginSuccess = (user: User, _token: string) => {
+    console.log('✅ Login Success:', user)
+    setCurrentUser(user)
+    localStorage.setItem('auth_user', JSON.stringify(user))
+    setShowLoginDialog(false)
+  }
+
+  const handleLogout = () => {
+    apiClient.logout()
+    localStorage.removeItem('auth_user')
+    setCurrentUser(null)
+    setShowLoginDialog(true)
+  }
+
+  // Listen for unauthorized events from apiClient
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      console.log('🔒 Sesión expirada detectada, cerrando sesión...')
+      handleLogout()
+      toast.error('Tu sesión ha expirado. Por favor inicia sesión nuevamente.')
+    }
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized)
+    }
+  }, [])
 
   const { result: healthCheckResult, isRunning: isHealthCheckRunning, runCheck, performAutoFix } = useHealthCheck(
     products ?? [],
@@ -200,8 +275,17 @@ export default function App() {
     
     try {
       markSyncStart()
-      const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
-      setProducts(updatedProducts)
+      if (useAPI) {
+        // En modo API, eliminar en el backend para evitar deriva de estado
+        for (const productId of selectedProducts) {
+          await service.deleteProduct(productId)
+        }
+        const refreshed = await inventoryServiceInstance.getProducts()
+        setProducts(refreshed)
+      } else {
+        const updatedProducts = (products ?? []).filter(p => !selectedProducts.has(p.id))
+        setProducts(updatedProducts)
+      }
       toast.success(`${selectedProducts.size} productos eliminados`)
       setSelectedProducts(new Set())
       setBulkActionMode(false)
@@ -216,10 +300,21 @@ export default function App() {
     if (selectedProducts.size === 0) return
     
     try {
-      const updatedProducts = (products ?? []).map(p =>
-        selectedProducts.has(p.id) ? { ...p, activo: !p.activo } : p
-      )
-      setProducts(updatedProducts)
+      if (useAPI) {
+        // Sin endpoint bulk: actualizar uno por uno para mantener consistencia
+        for (const product of products ?? []) {
+          if (selectedProducts.has(product.id)) {
+            await service.updateProduct(product.id, { activo: !product.activo })
+          }
+        }
+        const refreshed = await inventoryServiceInstance.getProducts()
+        setProducts(refreshed)
+      } else {
+        const updatedProducts = (products ?? []).map(p =>
+          selectedProducts.has(p.id) ? { ...p, activo: !p.activo } : p
+        )
+        setProducts(updatedProducts)
+      }
       toast.success(`Estado actualizado para ${selectedProducts.size} productos`)
       setSelectedProducts(new Set())
       setBulkActionMode(false)
@@ -233,10 +328,18 @@ export default function App() {
     if (selectedOrders.size === 0) return
     
     try {
-      const updatedOrders = (orders ?? []).map(o =>
-        selectedOrders.has(o.id) ? { ...o, estado: newStatus } : o
-      )
-      setOrders(updatedOrders)
+      if (useAPI) {
+        for (const orderId of selectedOrders) {
+          await service.updateOrderStatus(orderId, newStatus)
+        }
+        const refreshed = await inventoryServiceInstance.getOrders()
+        setOrders(refreshed)
+      } else {
+        const updatedOrders = (orders ?? []).map(o =>
+          selectedOrders.has(o.id) ? { ...o, estado: newStatus } : o
+        )
+        setOrders(updatedOrders)
+      }
       toast.success(`${selectedOrders.size} órdenes actualizadas a ${newStatus}`)
       setSelectedOrders(new Set())
       setBulkActionMode(false)
@@ -250,8 +353,16 @@ export default function App() {
     if (selectedOrders.size === 0) return
     
     try {
-      const updatedOrders = (orders ?? []).filter(o => !selectedOrders.has(o.id))
-      setOrders(updatedOrders)
+      if (useAPI) {
+        for (const orderId of selectedOrders) {
+          await service.deleteOrder(orderId)
+        }
+        const refreshed = await inventoryServiceInstance.getOrders()
+        setOrders(refreshed)
+      } else {
+        const updatedOrders = (orders ?? []).filter(o => !selectedOrders.has(o.id))
+        setOrders(updatedOrders)
+      }
       toast.success(`${selectedOrders.size} órdenes eliminadas`)
       setSelectedOrders(new Set())
       setBulkActionMode(false)
@@ -325,7 +436,11 @@ export default function App() {
       id: 'open-settings',
       key: ',',
       ctrlKey: true,
-      action: () => setShowSettingsDialog(true),
+      action: () => {
+        if (currentUser?.role?.is_system_role) {
+          setShowSettingsDialog(true)
+        }
+      },
       description: 'Abrir configuración',
       category: 'general'
     },
@@ -352,7 +467,11 @@ export default function App() {
       id: 'view-forecasting',
       key: 'f',
       altKey: true,
-      action: () => setShowForecastingDialog(true),
+      action: () => {
+        if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) {
+          setShowForecastingDialog(true)
+        }
+      },
       description: 'Ver pronóstico de ventas IA',
       category: 'general'
     },
@@ -360,7 +479,11 @@ export default function App() {
       id: 'view-optimization',
       key: 'o',
       altKey: true,
-      action: () => setShowOptimizationDialog(true),
+      action: () => {
+        if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) {
+          setShowOptimizationDialog(true)
+        }
+      },
       description: 'Ver insights de optimización',
       category: 'general'
     },
@@ -398,8 +521,15 @@ export default function App() {
       key: 'n',
       ctrlKey: true,
       action: () => {
-        if (activeTab === 'products') setShowNewProductDialog(true)
-        else if (activeTab === 'orders') setShowNewOrderDialog(true)
+        if (activeTab === 'products') {
+          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) {
+            setShowNewProductDialog(true)
+          }
+        } else if (activeTab === 'orders') {
+          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:create')) {
+            setShowNewOrderDialog(true)
+          }
+        }
         // V1.0 LEGACY: profiles tab removed
       },
       description: 'Crear nuevo elemento',
@@ -421,7 +551,11 @@ export default function App() {
       key: 'i',
       ctrlKey: true,
       action: () => {
-        if (activeTab === 'products') setShowImportDialog(true)
+        if (activeTab === 'products') {
+          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) {
+            setShowImportDialog(true)
+          }
+        }
       },
       description: 'Importar desde CSV',
       category: 'actions'
@@ -551,7 +685,10 @@ export default function App() {
       filtered = filterOrdersByAdvancedSearch(filtered, advancedFilters)
     }
 
-    return filtered
+    // Sort by date descending (newest first)
+    return filtered.sort((a, b) => {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
   })()
 
   const activeProfiles = (profiles ?? []).filter(p => p.active)
@@ -654,6 +791,21 @@ export default function App() {
             </motion.div>
             
             <div className="flex items-center gap-2">
+              {currentUser && (
+                <div className="flex items-center gap-2 mr-2 border-r pr-2 border-border/50">
+                  <div className="flex flex-col items-end">
+                    <span className="text-sm font-medium hidden md:inline-block">
+                      {currentUser.full_name || currentUser.username}
+                    </span>
+                    <span className="text-xs text-muted-foreground hidden md:inline-block">
+                      {currentUser.role?.name || 'Usuario'}
+                    </span>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={handleLogout} title="Cerrar Sesión">
+                    <Power size={20} className="text-destructive" />
+                  </Button>
+                </div>
+              )}
               <SyncIndicator syncStatus={syncStatus} />
               
               <Badge variant={useAPI ? "default" : "secondary"} className="hidden sm:flex items-center gap-1">
@@ -664,6 +816,7 @@ export default function App() {
               <NotificationCenter
                 products={products ?? []}
                 profiles={profiles ?? []}
+                locations={locations ?? []}
                 orders={orders ?? []}
                 onOpenOptimization={() => setShowOptimizationDialog(true)}
               />
@@ -678,21 +831,46 @@ export default function App() {
                 <Lightbulb size={20} weight="duotone" className="text-accent" />
               </Button>
               
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowForecastingDialog(true)}
-                title="Pronóstico de Ventas IA (Alt + F)"
-                className="relative hover:bg-primary/10"
-              >
-                <Sparkle size={20} weight="duotone" />
-                {getCriticalAlerts().length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center font-bold">
-                    {getCriticalAlerts().length}
-                  </span>
-                )}
-              </Button>
-              
+              {/* Botones de IA y Análisis - Solo para Admin/Gerente */}
+              {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowForecastingDialog(true)}
+                    title="Pronóstico de Ventas IA (Alt + F)"
+                    className="relative hover:bg-primary/10"
+                  >
+                    <Sparkle size={20} weight="duotone" />
+                    {getCriticalAlerts().length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center font-bold">
+                        {getCriticalAlerts().length}
+                      </span>
+                    )}
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowAITraining(true)}
+                    title="Centro de Entrenamiento IA"
+                    className="relative hover:bg-primary/10 text-blue-600"
+                  >
+                    <GraduationCap size={20} />
+                  </Button>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowCustomerInsights(true)}
+                    title="Insights de Clientes"
+                    className="relative hover:bg-primary/10 text-purple-600"
+                  >
+                    <ShieldCheck size={20} />
+                  </Button>
+                </>
+              )}
+
               <Button
                 variant="ghost"
                 size="icon"
@@ -713,15 +891,29 @@ export default function App() {
                 <Keyboard size={20} />
               </Button>
               
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSettingsDialog(true)}
-                title="Configuración (Ctrl + ,)"
-                className="hover:bg-primary/10"
-              >
-                <Gear size={20} />
-              </Button>
+              {currentUser?.role?.is_system_role && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSettingsDialog(true)}
+                  title="Configuración (Ctrl + ,)"
+                  className="hover:bg-primary/10"
+                >
+                  <Gear size={20} />
+                </Button>
+              )}
+              
+              {currentUser?.role?.is_system_role && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowManageUsersDialog(true)}
+                  title="Gestionar Usuarios"
+                  className="hover:bg-primary/10"
+                >
+                  <ShieldCheck size={20} />
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -729,7 +921,7 @@ export default function App() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-5 max-w-4xl mb-6">
+          <TabsList className="grid w-full grid-cols-6 max-w-5xl mb-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package size={18} />
               <span className="hidden sm:inline">Productos</span>
@@ -738,18 +930,38 @@ export default function App() {
               <ShoppingCart size={18} />
               <span className="hidden sm:inline">Órdenes</span>
             </TabsTrigger>
-            <TabsTrigger value="transfers" className="flex items-center gap-2">
-              <ArrowsLeftRight size={18} />
-              <span className="hidden sm:inline">Transferencias</span>
-            </TabsTrigger>
-            <TabsTrigger value="locations" className="flex items-center gap-2">
-              <MapPin size={18} />
-              <span className="hidden sm:inline">Ubicaciones</span>
-            </TabsTrigger>
-            <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
-              <Robot size={18} />
-              <span className="hidden sm:inline">Canales</span>
-            </TabsTrigger>
+            
+            {/* Solo mostrar Transferencias si tiene permiso de inventory:edit o es admin */}
+            {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) && (
+              <TabsTrigger value="transfers" className="flex items-center gap-2">
+                <ArrowsLeftRight size={18} />
+                <span className="hidden sm:inline">Transferencias</span>
+              </TabsTrigger>
+            )}
+
+            {/* Solo mostrar Ubicaciones si tiene permiso locations:manage */}
+            {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'locations:manage')) && (
+              <TabsTrigger value="locations" className="flex items-center gap-2">
+                <MapPin size={18} />
+                <span className="hidden sm:inline">Ubicaciones</span>
+              </TabsTrigger>
+            )}
+
+            {/* Solo mostrar Canales si es admin */}
+            {currentUser?.role?.is_system_role && (
+              <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
+                <Robot size={18} />
+                <span className="hidden sm:inline">Canales</span>
+              </TabsTrigger>
+            )}
+
+            {/* Solo mostrar Financiamiento si es admin */}
+            {currentUser?.role?.is_system_role && (
+              <TabsTrigger value="financing" className="flex items-center gap-2">
+                <CreditCard size={18} />
+                <span className="hidden sm:inline">Financiamiento</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
@@ -758,6 +970,7 @@ export default function App() {
                 <DashboardStats
                   products={products ?? []}
                   orders={orders ?? []}
+                  currentUser={currentUser}
                   onViewLowStockReport={() => setShowLowStockReport(true)}
                 />
               </div>
@@ -773,17 +986,12 @@ export default function App() {
               </div>
             </div>
             
-            {/* V2.0 TODO: LowStockAlert should filter by LOCATION not sales channel */}
-            {selectedSalesChannel !== 'all' && (() => {
-              const profile = (profiles ?? []).find(p => p.slug === selectedSalesChannel)
-              return profile ? (
-                <LowStockAlert
-                  products={products ?? []}
-                  profile={profile}
-                  onProductClick={setEditingProduct}
-                />
-              ) : null
-            })()}
+            {/* V2.0: LowStockAlert filters by LOCATION */}
+            <LowStockAlert
+              products={products ?? []}
+              locations={locations ?? []}
+              onProductClick={setEditingProduct}
+            />
             
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
@@ -819,33 +1027,58 @@ export default function App() {
                 >
                   {bulkActionMode ? <CheckSquare size={18} /> : <Square size={18} />}
                 </Button>
+                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleExportProducts}
+                    title="Exportar a CSV"
+                  >
+                    <Download size={18} />
+                  </Button>
+                )}
+
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={handleExportProducts}
-                  title="Exportar a CSV"
+                  onClick={() => setShowWarrantyCheck(true)}
+                  title="Verificar Garantía"
                 >
-                  <Download size={18} />
+                  <ShieldCheck size={18} />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowImportDialog(true)}
-                  title="Importar desde CSV"
-                >
-                  <Upload size={18} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowSuppliersDialog(true)}
-                  title="Gestionar Proveedores"
-                >
-                  <User size={18} />
-                </Button>
-                <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
-                  Nuevo Producto
-                </Button>
+                
+                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setShowImportDialog(true)}
+                      title="Importar desde CSV"
+                    >
+                      <Upload size={18} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setShowSuppliersDialog(true)}
+                      title="Gestionar Proveedores"
+                    >
+                      <User size={18} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setShowPendingTradeIns(true)}
+                      title="Retomas Pendientes"
+                      className="text-amber-600 border-amber-200 hover:bg-amber-50"
+                    >
+                      <Wrench size={18} />
+                    </Button>
+                    <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
+                      Nuevo Producto
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -908,10 +1141,12 @@ export default function App() {
                 <p className="text-muted-foreground mb-4">
                   Comienza agregando tu primer producto al inventario
                 </p>
-                <Button onClick={() => setShowNewProductDialog(true)}>
-                  <Plus size={18} className="mr-2" />
-                  Agregar Producto
-                </Button>
+                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) && (
+                  <Button onClick={() => setShowNewProductDialog(true)}>
+                    <Plus size={18} className="mr-2" />
+                    Agregar Producto
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -934,15 +1169,15 @@ export default function App() {
                     )}
                     <ProductCard
                       product={product}
-                      onEdit={setEditingProduct}
-                      onTransfer={setTransferringProduct}
+                      onEdit={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? setEditingProduct : undefined}
+                      onTransfer={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? setTransferringProduct : undefined}
                       onViewHistory={setViewingProductHistory}
-                      onToggleActive={async (p) => {
+                      onToggleActive={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
                         setProducts((current: ProductWithStock[]) => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
                         toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
-                      }}
-                      onDelete={async (p) => {
+                      } : undefined}
+                      onDelete={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:delete')) ? async (p) => {
                         if (!confirm(`¿Estás seguro de eliminar "${p.nombre}"?\n\nEsta acción no se puede deshacer.`)) {
                           return
                         }
@@ -973,7 +1208,7 @@ export default function App() {
                               toast.error(`Error al eliminar producto: ${message}`)
                           }
                         }
-                      }}
+                      } : undefined}
                     />
                   </div>
                 ))}
@@ -1068,6 +1303,14 @@ export default function App() {
                   <ChartLine size={18} />
                 </Button>
                 <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowReturnsListDialog(true)}
+                  title="Ver devoluciones"
+                >
+                  <ArrowCounterClockwise size={18} />
+                </Button>
+                <Button
                   variant={bulkActionMode && activeTab === 'orders' ? "default" : "outline"}
                   size="icon"
                   onClick={() => {
@@ -1078,14 +1321,16 @@ export default function App() {
                 >
                   {bulkActionMode && activeTab === 'orders' ? <CheckSquare size={18} /> : <Square size={18} />}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleExportOrders}
-                  title="Exportar a CSV"
-                >
-                  <Download size={18} />
-                </Button>
+                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleExportOrders}
+                    title="Exportar a CSV"
+                  >
+                    <Download size={18} />
+                  </Button>
+                )}
                 <Button onClick={() => setShowNewOrderDialog(true)} className="flex-1 sm:flex-none">
                   <Plus size={18} className="mr-2" />
                   Nueva Orden
@@ -1099,44 +1344,50 @@ export default function App() {
                   {selectedOrders.size} orden{selectedOrders.size !== 1 ? 'es' : ''} seleccionada{selectedOrders.size !== 1 ? 's' : ''}
                 </span>
                 <div className="flex flex-wrap gap-2 sm:ml-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleBulkUpdateOrderStatus('pendiente')}
-                  >
-                    Pendiente
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleBulkUpdateOrderStatus('por_entregar')}
-                  >
-                    Por Entregar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleBulkUpdateOrderStatus('completada')}
-                  >
-                    <CheckCircle size={16} className="mr-2" />
-                    Completar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleBulkUpdateOrderStatus('cancelada')}
-                  >
-                    <XCircle size={16} className="mr-2" />
-                    Cancelar
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleBulkDeleteOrders}
-                  >
-                    <Trash size={16} className="mr-2" />
-                    Eliminar
-                  </Button>
+                  {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBulkUpdateOrderStatus('pendiente')}
+                      >
+                        Pendiente
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBulkUpdateOrderStatus('por_entregar')}
+                      >
+                        Por Entregar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBulkUpdateOrderStatus('completada')}
+                      >
+                        <CheckCircle size={16} className="mr-2" />
+                        Completar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBulkUpdateOrderStatus('cancelada')}
+                      >
+                        <XCircle size={16} className="mr-2" />
+                        Cancelar
+                      </Button>
+                    </>
+                  )}
+                  {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:delete')) && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBulkDeleteOrders}
+                    >
+                      <Trash size={16} className="mr-2" />
+                      Eliminar
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -1161,13 +1412,15 @@ export default function App() {
                 <p className="text-muted-foreground mb-4">
                   Crea tu primera orden de venta
                 </p>
-                <Button onClick={() => setShowNewOrderDialog(true)}>
-                  <Plus size={18} className="mr-2" />
-                  Crear Orden
-                </Button>
+                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:create')) && (
+                  <Button onClick={() => setShowNewOrderDialog(true)}>
+                    <Plus size={18} className="mr-2" />
+                    Crear Orden
+                  </Button>
+                )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-4 max-w-4xl mx-auto">
                 {filteredOrders.map(order => (
                   <div key={order.id} className="relative">
                     {bulkActionMode && activeTab === 'orders' && (
@@ -1187,7 +1440,7 @@ export default function App() {
                     )}
                     <OrderCard
                       order={order}
-                      onStatusChange={async (orderId, newStatus) => {
+                      onStatusChange={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) ? async (orderId, newStatus) => {
                         console.log(`🔄 Cambiando estado de orden ${orderId} a: ${newStatus}`)
                         const updated = await service.updateOrderStatus(orderId, newStatus)
                         console.log('✅ Orden actualizada:', updated)
@@ -1198,19 +1451,52 @@ export default function App() {
                         console.log('🔄 Recargando productos después de cambio de estado...')
                         const updatedProducts = await service.getProducts()
                         setProducts(updatedProducts)
-                      }}
-                      onEdit={setEditingOrder}
+                      } : undefined}
+                      onEdit={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) ? setEditingOrder : undefined}
                       onViewCustomerHistory={(phone) => {
                         setSelectedCustomerPhone(phone)
                         setShowCustomerHistory(true)
                       }}
                       onExportPDF={(order) => {
-                        const profile = (profiles ?? []).find(p => p.id === order.profile_id)
+                        // V2.0 FIX: Soporte para órdenes sin perfil legacy (basadas en ubicación)
+                        let profile = (profiles ?? []).find(p => p.id === order.profile_id)
+                        
+                        if (!profile && order.source_location_id) {
+                          const location = (locations ?? []).find(l => l.id === order.source_location_id)
+                          if (location) {
+                            // Construir perfil temporal basado en la ubicación
+                            profile = {
+                              id: 0,
+                              slug: `location-${location.id}`,
+                              name: location.nombre,
+                              type: 'tienda',
+                              theme: { primary: '#4f46e5', secondary: '#ffffff' },
+                              settings: {
+                                address: location.direccion || '',
+                                phone: '',
+                                footer_text: 'Gracias por su preferencia'
+                              }
+                            } as any
+                          }
+                        }
+
+                        // Fallback final
+                        if (!profile) {
+                           profile = {
+                              id: 0,
+                              slug: 'default',
+                              name: 'Mi Negocio',
+                              type: 'tienda',
+                              theme: { primary: '#4f46e5', secondary: '#ffffff' },
+                              settings: {}
+                           } as any
+                        }
+
                         if (profile) {
                           generateOrderPDF(order, profile)
                         }
                       }}
-                      onDelete={async (order) => {
+                      onDelete={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:delete')) ? async (order) => {
                         console.log('🗑️ Intentando eliminar orden:', order.id)
                         if (!confirm(`¿Estás seguro de eliminar la orden #${order.id}?\n\nEsta acción no se puede deshacer y se repondrá el stock de los productos.`)) {
                           console.log('❌ Eliminación cancelada por el usuario')
@@ -1242,7 +1528,7 @@ export default function App() {
                               toast.error(`Error al eliminar orden: ${message}`)
                           }
                         }
-                      }}
+                      } : undefined}
                     />
                   </div>
                 ))}
@@ -1412,6 +1698,21 @@ export default function App() {
               setSalesProfiles(updated)
             }} />
           </TabsContent>
+
+          <TabsContent value="financing" className="space-y-6">
+            <div className="bg-card rounded-lg border shadow-sm p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-primary/10 rounded-full text-primary">
+                  <CreditCard size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold">Configuración de Financiamiento</h2>
+                  <p className="text-sm text-muted-foreground">Gestiona los bancos y tasas para extrafinanciamiento y tarjetas</p>
+                </div>
+              </div>
+              <FinancingSettings />
+            </div>
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -1440,7 +1741,9 @@ export default function App() {
             setProducts(updatedProducts)
             
             toast.success(`Producto creado: ${newProduct.nombre}`)
-            setShowNewProductDialog(false)
+            // No cerramos aquí, lo maneja el diálogo si hay impresión
+            // setShowNewProductDialog(false) 
+            return created
           } catch (error) {
             console.error('❌ Error al crear producto:', error)
             toast.error(`Error al crear producto: ${error instanceof Error ? error.message : 'Error desconocido'}`)
@@ -1456,14 +1759,30 @@ export default function App() {
         locations={locations.filter(l => l.activo)}
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
-          const created = await service.createOrder(newOrder)
-          setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
-          
-          const updatedProducts = await service.getProducts()
-          setProducts(updatedProducts)
-          
-          toast.success('Orden creada exitosamente')
-          setShowNewOrderDialog(false)
+          try {
+            const created = await service.createOrder(newOrder)
+            setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
+            
+            const updatedProducts = await service.getProducts()
+            setProducts(updatedProducts)
+            
+            // Try to link order to AI interaction if phone number exists
+            if (newOrder.customer_phone) {
+              try {
+                await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
+                console.log('✅ Orden vinculada a interacción AI')
+              } catch (e) {
+                console.warn('⚠️ No se pudo vincular orden a interacción:', e)
+                // Don't fail the whole operation if linking fails
+              }
+            }
+            
+            toast.success('Orden creada exitosamente')
+            setShowNewOrderDialog(false)
+          } catch (error) {
+            console.error('❌ Error al crear orden:', error)
+            toast.error(`Error al crear orden: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          }
         }}
       />
 
@@ -1662,6 +1981,7 @@ export default function App() {
         onOpenChange={setShowLowStockReport}
         products={products ?? []}
         profiles={profiles ?? []}
+        locations={locations ?? []}
         onProductClick={(product) => {
           setShowLowStockReport(false)
           setEditingProduct(product)
@@ -1739,6 +2059,16 @@ export default function App() {
         onOpenChange={setShowSyncSettings}
       />
 
+      <AITrainingCenter
+        open={showAITraining}
+        onOpenChange={setShowAITraining}
+      />
+
+      <CustomerInsights
+        open={showCustomerInsights}
+        onOpenChange={setShowCustomerInsights}
+      />
+
       {viewingProductHistory && (
         <StockHistoryDialog
           open={!!viewingProductHistory}
@@ -1746,6 +2076,47 @@ export default function App() {
           product={viewingProductHistory}
         />
       )}
+
+      <LoginDialog 
+        open={showLoginDialog && !!useAPI} 
+        onLoginSuccess={handleLoginSuccess} 
+      />
+
+      <ManageUsersDialog
+        open={showManageUsersDialog}
+        onOpenChange={setShowManageUsersDialog}
+      />
+
+      <PendingTradeInsDialog
+        open={showPendingTradeIns}
+        onOpenChange={setShowPendingTradeIns}
+      />
+
+      <ReturnsListDialog
+        open={showReturnsListDialog}
+        onOpenChange={setShowReturnsListDialog}
+      />
+
+      <WarrantyCheckDialog
+        open={showWarrantyCheck}
+        onOpenChange={setShowWarrantyCheck}
+      />
     </div>
   )
+}
+
+export default function App() {
+  const [path, setPath] = useState(window.location.pathname)
+
+  useEffect(() => {
+    const handlePopState = () => setPath(window.location.pathname)
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  if (path === '/catalogo' || path.startsWith('/catalogo/')) {
+    return <PublicCatalog />
+  }
+
+  return <MainApp />
 }

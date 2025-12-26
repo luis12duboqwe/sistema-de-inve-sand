@@ -145,8 +145,8 @@ export function useOptimizationAlerts(
     profile?.id,
     settings?.enabled,
     settings?.threshold,
-    settings?.checkIntervalMinutes
-    // checkOptimizationScore removed to prevent infinite loop
+    settings?.checkIntervalMinutes,
+    checkOptimizationScore
   ])
 
   const updateSettings = (newSettings: Partial<OptimizationAlertSettings>) => {

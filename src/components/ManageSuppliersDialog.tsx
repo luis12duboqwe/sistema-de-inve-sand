@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -43,7 +43,7 @@ export function ManageSuppliersDialog({
   const [notas, setNotas] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const loadSuppliers = async () => {
+  const loadSuppliers = useCallback(async () => {
     setLoading(true)
     try {
       const data = await inventoryServiceInstance.listSuppliers(false)
@@ -54,14 +54,13 @@ export function ManageSuppliersDialog({
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (open) {
       loadSuppliers()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, loadSuppliers])
 
   const resetForm = () => {
     setNombre('')
@@ -112,9 +111,10 @@ export function ManageSuppliersDialog({
         toast.success('Proveedor actualizado exitosamente')
       } else {
         // Create
+        // V2.0: Suppliers are global, profile_id is optional/legacy
         await inventoryServiceInstance.createSupplier({
           ...supplierData,
-          profile_id: profile.id
+          profile_id: profile?.id || null
         } as any)
         toast.success('Proveedor creado exitosamente')
       }

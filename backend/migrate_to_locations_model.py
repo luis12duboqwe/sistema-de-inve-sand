@@ -142,6 +142,13 @@ def create_warehouse_location(session):
 
 def create_default_sales_profile(session):
     """Crear un SalesProfile por defecto para migrar las órdenes existentes"""
+    # Check if already exists
+    existing = session.query(SalesProfile).filter(SalesProfile.slug == "sistema-principal").first()
+    if existing:
+        session.info['default_sales_profile_id'] = existing.id
+        print(f"  ✓ SalesProfile 'sistema-principal' ya existe (ID {existing.id})")
+        return
+
     sales_profile = SalesProfile(
         name="Sistema Principal",
         slug="sistema-principal",

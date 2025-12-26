@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Building, MapPin, Phone, Plus, Pencil, Trash, Package } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Location } from '@/lib/types'
@@ -26,12 +26,7 @@ export function LocationsList() {
   const [direccion, setDireccion] = useState('')
   const [telefono, setTelefono] = useState('')
 
-  useEffect(() => {
-    loadLocations()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useAPI, apiUrl])
-
-  const loadLocations = async () => {
+  const loadLocations = useCallback(async () => {
     try {
       const data = await inventoryServiceInstance.getLocations()
       console.log('✅ Ubicaciones cargadas:', data)
@@ -42,7 +37,11 @@ export function LocationsList() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadLocations()
+  }, [loadLocations, useAPI, apiUrl])
 
   const handleCreate = async () => {
     if (!nombre.trim()) {

@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.models import Supplier, Profile
-from app.schemas import SupplierCreate, SupplierResponse, SupplierUpdate, PaginatedResponse
+from app.auth import get_current_active_user, check_permission
+from app.models import Supplier, Profile, User
+from app.schemas import SupplierCreate, SupplierUpdate, SupplierResponse
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
@@ -28,7 +29,8 @@ def _serialize_supplier(supplier: Supplier) -> SupplierResponse:
 @router.post("", response_model=SupplierResponse, status_code=201)
 def create_supplier(
     supplier: SupplierCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Crea un nuevo proveedor.
@@ -68,7 +70,8 @@ def list_suppliers(
     search: Optional[str] = Query(None, description="Buscar por nombre"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
 ):
     """
     Lista proveedores con filtros opcionales.
@@ -113,7 +116,8 @@ def list_suppliers(
 @router.get("/{supplier_id}", response_model=SupplierResponse)
 def get_supplier(
     supplier_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
 ):
     """
     Obtiene un proveedor por su ID.
@@ -133,7 +137,8 @@ def get_supplier(
 def update_supplier(
     supplier_id: int,
     updates: SupplierUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Actualiza un proveedor existente.
@@ -160,7 +165,8 @@ def update_supplier(
 @router.delete("/{supplier_id}", status_code=204)
 def delete_supplier(
     supplier_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Elimina un proveedor.

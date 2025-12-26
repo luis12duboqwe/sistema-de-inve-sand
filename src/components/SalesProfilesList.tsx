@@ -11,6 +11,7 @@ import { Badge } from './ui/badge'
 import { Checkbox } from './ui/checkbox'
 import { useKV } from '@/hooks/use-kv'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { AIProfileConfigDialog } from './AIProfileConfigDialog'
 
 export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
@@ -19,6 +20,7 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingProfile, setEditingProfile] = useState<SalesProfile | null>(null)
+  const [aiConfigProfile, setAiConfigProfile] = useState<SalesProfile | null>(null)
   const [filterTipo, setFilterTipo] = useState<string>('all')
 
   // Formulario
@@ -27,6 +29,11 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
   const [tipo, setTipo] = useState<'bot_ia' | 'vendedor_humano' | 'sistema_automatico'>('bot_ia')
   const [canales, setCanales] = useState<('whatsapp' | 'facebook' | 'instagram')[]>([])
   const [exchangeRate, setExchangeRate] = useState<string>('25.0')
+  
+  // Contact Info
+  const [whatsappNumber, setWhatsappNumber] = useState('')
+  const [facebookPage, setFacebookPage] = useState('')
+  const [instagramHandle, setInstagramHandle] = useState('')
 
   useEffect(() => {
     loadProfiles()
@@ -68,7 +75,12 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
         canales,
         active: true,
         configuracion: {
-          exchange_rate: parseFloat(exchangeRate) || 25.0
+          exchange_rate: parseFloat(exchangeRate) || 25.0,
+          contact_info: {
+            whatsapp: whatsappNumber,
+            facebook: facebookPage,
+            instagram: instagramHandle
+          }
         }
       } as any)
 
@@ -108,7 +120,12 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
         active: editingProfile.active,
         configuracion: {
           ...editingProfile.configuracion,
-          exchange_rate: parseFloat(exchangeRate) || 25.0
+          exchange_rate: parseFloat(exchangeRate) || 25.0,
+          contact_info: {
+            whatsapp: whatsappNumber,
+            facebook: facebookPage,
+            instagram: instagramHandle
+          }
         }
       })
 
@@ -159,6 +176,9 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
     setTipo('bot_ia')
     setCanales([])
     setExchangeRate('25.0')
+    setWhatsappNumber('')
+    setFacebookPage('')
+    setInstagramHandle('')
   }
 
   const openEdit = (profile: SalesProfile) => {
@@ -174,6 +194,12 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
     } else {
       setExchangeRate('25.0')
     }
+
+    // Cargar info de contacto
+    const contact = profile.configuracion?.contact_info || {}
+    setWhatsappNumber(contact.whatsapp || '')
+    setFacebookPage(contact.facebook || '')
+    setInstagramHandle(contact.instagram || '')
   }
 
   const toggleCanal = (canal: 'whatsapp' | 'facebook' | 'instagram') => {
@@ -315,6 +341,40 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
                 </p>
               </div>
 
+              <div className="space-y-3 border-t pt-3">
+                <Label className="text-base">Información de Contacto (Para el Bot)</Label>
+                
+                <div className="grid gap-2">
+                  <Label htmlFor="whatsapp-num" className="text-xs text-gray-500">Número de WhatsApp</Label>
+                  <Input
+                    id="whatsapp-num"
+                    value={whatsappNumber}
+                    onChange={(e) => setWhatsappNumber(e.target.value)}
+                    placeholder="+504 9999-9999"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="fb-page" className="text-xs text-gray-500">Página de Facebook</Label>
+                  <Input
+                    id="fb-page"
+                    value={facebookPage}
+                    onChange={(e) => setFacebookPage(e.target.value)}
+                    placeholder="https://facebook.com/mitienda"
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="ig-handle" className="text-xs text-gray-500">Instagram Handle</Label>
+                  <Input
+                    id="ig-handle"
+                    value={instagramHandle}
+                    onChange={(e) => setInstagramHandle(e.target.value)}
+                    placeholder="@mitienda"
+                  />
+                </div>
+              </div>
+
               <div>
                 <Label>Canales de Venta *</Label>
                 <div className="space-y-2 mt-2">
@@ -409,6 +469,17 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
             </div>
 
             <div className="flex gap-2 pt-4 border-t">
+              {profile.tipo === 'bot_ia' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAiConfigProfile(profile)}
+                  className="text-purple-600 hover:text-purple-700 border-purple-200 hover:bg-purple-50"
+                >
+                  <Robot className="w-4 h-4 mr-1" />
+                  IA
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -498,6 +569,40 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
               </p>
             </div>
 
+            <div className="space-y-3 border-t pt-3">
+              <Label className="text-base">Información de Contacto (Para el Bot)</Label>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="edit-whatsapp-num" className="text-xs text-gray-500">Número de WhatsApp</Label>
+                <Input
+                  id="edit-whatsapp-num"
+                  value={whatsappNumber}
+                  onChange={(e) => setWhatsappNumber(e.target.value)}
+                  placeholder="+504 9999-9999"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-fb-page" className="text-xs text-gray-500">Página de Facebook</Label>
+                <Input
+                  id="edit-fb-page"
+                  value={facebookPage}
+                  onChange={(e) => setFacebookPage(e.target.value)}
+                  placeholder="https://facebook.com/mitienda"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-ig-handle" className="text-xs text-gray-500">Instagram Handle</Label>
+                <Input
+                  id="edit-ig-handle"
+                  value={instagramHandle}
+                  onChange={(e) => setInstagramHandle(e.target.value)}
+                  placeholder="@mitienda"
+                />
+              </div>
+            </div>
+
             <div>
               <Label>Canales de Venta *</Label>
               <div className="space-y-2 mt-2">
@@ -542,6 +647,16 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Diálogo de Configuración IA */}
+      {aiConfigProfile && (
+        <AIProfileConfigDialog
+          open={!!aiConfigProfile}
+          onOpenChange={(open) => !open && setAiConfigProfile(null)}
+          salesProfileId={aiConfigProfile.id}
+          salesProfileName={aiConfigProfile.name}
+        />
+      )}
     </div>
   )
 }

@@ -13,7 +13,9 @@ import type {
   StockByLocation,
   CreateReturnRequest,
   Return,
-  IMEIHistory
+  IMEIHistory,
+  AIProfileConfig,
+  WarrantyStatus
 } from './types'
 import { getKV } from './kvStorage'
 
@@ -73,6 +75,7 @@ interface ApiProductResponse {
   categoria: 'celular' | 'accesorio'
   marca: string
   modelo: string
+  color?: string
   capacidad: string
   condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
@@ -102,6 +105,7 @@ interface ApiOrderResponse {
     cantidad: number
     precio_unitario: number
     es_regalo_promocion: boolean
+    imeis?: string[]
     product?: ApiProductResponse
   }[]
   trade_ins?: {
@@ -117,6 +121,54 @@ interface ApiOrderResponse {
 }
 
 class ApiClient {
+  private token: string | null = localStorage.getItem('auth_token')
+
+  setToken(token: string) {
+    this.token = token
+    localStorage.setItem('auth_token', token)
+  }
+
+  getToken(): string | null {
+    return this.token
+  }
+
+  logout() {
+    this.token = null
+    localStorage.removeItem('auth_token')
+  }
+
+  private mapApiOrder(apiOrder: ApiOrderResponse): OrderWithItems {
+    return {
+      ...apiOrder,
+      customer_name: String(apiOrder.customer_name || ''),
+      customer_phone: String(apiOrder.customer_phone || ''),
+      items: (apiOrder.items || []).map(item => {
+        const product = item.product
+        const productMapped = product
+          ? {
+              ...product,
+              condicion: product.condicion as Product['condicion']
+            }
+          : undefined
+
+        return {
+          id: item.id,
+          order_id: apiOrder.id,
+          product_id: item.product_id,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario,
+          es_regalo_promocion: item.es_regalo_promocion,
+          product: productMapped,
+          imeis: item.imeis
+        }
+      }),
+      trade_ins: apiOrder.trade_ins?.map(t => ({
+        ...t,
+        condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
+      }))
+    }
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -129,13 +181,25 @@ class ApiClient {
         const apiBaseUrl = await getApiUrl()
         const url = `${apiBaseUrl}${endpoint}`
         
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...(options.headers as Record<string, string>),
+        }
+
+        if (this.token) {
+          headers['Authorization'] = `Bearer ${this.token}`
+        }
+
         const response = await fetch(url, {
           ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...options.headers,
-          },
+          headers,
         })
+
+        if (response.status === 401) {
+          this.logout()
+          window.dispatchEvent(new Event('auth:unauthorized'))
+          throw new Error('Sesión expirada o credenciales inválidas. Por favor inicie sesión nuevamente.')
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -165,7 +229,8 @@ class ApiClient {
         if (!errorMessage.includes('referenciado') && 
             !errorMessage.includes('históricas') && 
             !errorMessage.includes('completada') && 
-            !errorMessage.includes('cancelar')) {
+            !errorMessage.includes('cancelar') &&
+            !errorMessage.includes('AI Config not found')) {
             console.error(`API request failed for ${endpoint}:`, lastError)
         }
         
@@ -184,6 +249,46 @@ class ApiClient {
     }
     
     throw lastError || new Error('Request failed after retries')
+  }
+
+  async login(username: string, password: string): Promise<import('./types').AuthResponse> {
+    const formData = new URLSearchParams()
+    formData.append('username', username)
+    formData.append('password', password)
+
+    // Note: request method adds Content-Type: application/json by default, so we override it
+    const response = await this.request<import('./types').AuthResponse>('/auth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    })
+    
+    if (response.access_token) {
+      this.setToken(response.access_token)
+    }
+    
+    // Fetch user details separately if not provided in token response
+    if (!response.user) {
+      try {
+        const user = await this.request<import('./types').User>('/auth/me')
+        response.user = user
+      } catch (e) {
+        console.error('Failed to fetch user details after login', e)
+      }
+    }
+    
+    return response
+  }
+
+  async getProductByIMEI(imei: string): Promise<ProductResponse> {
+    try {
+      return await this.request<ProductResponse>(`/products/imei/${imei}`)
+    } catch (error) {
+      console.error('Error fetching product by IMEI:', error)
+      throw error
+    }
   }
 
   async listProfiles(): Promise<Profile[]> {
@@ -240,6 +345,9 @@ class ApiClient {
     }
   }
 
+  // --- AI Intelligence Methods ---
+  // (Moved to bottom of file to avoid duplicates)
+
   async listLocations(activeOnly = false): Promise<Location[]> {
     try {
       const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
@@ -252,6 +360,9 @@ class ApiClient {
       throw new Error(`Failed to list locations: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+
+  // --- AI Training & Customer Insights ---
+  // (Moved to bottom of file)
 
   async getLocation(id: number): Promise<Location> {
     try {
@@ -339,6 +450,32 @@ class ApiClient {
     }
   }
 
+  async getProducts(params?: { 
+    profile_slug?: string, 
+    search?: string, 
+    include_inactive?: boolean,
+    per_page?: number,
+    page?: number
+  }): Promise<{ items: ProductWithStock[]; total: number }> {
+    try {
+      const queryParams = new URLSearchParams()
+      // V2.0: profile_slug is ignored by backend
+      // if (params?.profile_slug) queryParams.append('profile_slug', params.profile_slug)
+      if (params?.search) queryParams.append('search', params.search)
+      if (params?.include_inactive) queryParams.append('include_inactive', 'true')
+      if (params?.per_page) queryParams.append('per_page', params.per_page.toString())
+      if (params?.page) queryParams.append('page', params.page.toString())
+
+      const query = queryParams.toString()
+      const endpoint = query ? `/products?${query}` : '/products'
+      
+      return await this.request<{ items: ProductWithStock[]; total: number }>(endpoint)
+    } catch (error) {
+      console.error('Error getting products from API:', error)
+      throw new Error(`Failed to get products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async fetchProducts(
     profileSlug?: string,
     search?: string,
@@ -346,7 +483,8 @@ class ApiClient {
   ): Promise<ProductWithStock[]> {
     try {
       const params = new URLSearchParams()
-      if (profileSlug) params.append('profile_slug', profileSlug)
+      // V2.0: profile_slug is ignored by backend, removing to avoid confusion
+      // if (profileSlug) params.append('profile_slug', profileSlug)
       if (search) params.append('search', search)
       if (includeInactive) params.append('include_inactive', 'true')
       params.append('per_page', '100') // Límite máximo del backend
@@ -495,18 +633,6 @@ class ApiClient {
     }
   }
 
-  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
-    try {
-      const query = reason ? `?reason=${encodeURIComponent(reason)}` : ''
-      return await this.request<OrderWithItems>(`/orders/${orderId}/cancel${query}`, {
-        method: 'POST',
-      })
-    } catch (error) {
-      console.error('Error cancelling order via API:', error)
-      throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
   async bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]> {
     try {
       if (!locationId) {
@@ -553,33 +679,7 @@ class ApiClient {
       // El backend devuelve { items: [], total, page, per_page, pages }
       const apiOrders = response.items || []
       
-      return apiOrders.map(order => ({
-        ...order,
-        customer_name: String(order.customer_name || ''),
-        customer_phone: String(order.customer_phone || ''),
-        items: (order.items || []).map(item => {
-          const product = item.product
-          const productMapped = product
-            ? {
-                ...product,
-                condicion: product.condicion as Product['condicion']
-              }
-            : undefined
-          return {
-            id: item.id,
-            order_id: order.id,
-            product_id: item.product_id,
-            cantidad: item.cantidad,
-            precio_unitario: item.precio_unitario,
-            es_regalo_promocion: item.es_regalo_promocion,
-            product: productMapped
-          }
-        }),
-        trade_ins: order.trade_ins?.map(t => ({
-          ...t,
-          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
-        }))
-      }))
+      return apiOrders.map(order => this.mapApiOrder(order))
     } catch (error) {
       console.error('Error fetching orders from API:', error)
       throw new Error(`Failed to fetch orders: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -606,32 +706,7 @@ class ApiClient {
         body: JSON.stringify(sanitizedRequest),
       })
 
-      return {
-        ...apiOrder,
-        items: apiOrder.items.map(item => {
-          const product = item.product
-          const productMapped = product
-            ? {
-                ...product,
-                condicion: product.condicion as Product['condicion']
-              }
-            : undefined
-
-          return {
-            id: item.id,
-            order_id: apiOrder.id,
-            product_id: item.product_id,
-            cantidad: item.cantidad,
-            precio_unitario: item.precio_unitario,
-            es_regalo_promocion: item.es_regalo_promocion,
-            product: productMapped
-          }
-        }),
-        trade_ins: apiOrder.trade_ins?.map(t => ({
-          ...t,
-          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
-        }))
-      }
+      return this.mapApiOrder(apiOrder)
     } catch (error) {
       // Bug #6: Mejor manejo de errores para exponer mensaje del backend
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -647,30 +722,34 @@ class ApiClient {
   async updateOrderStatus(
     orderId: number,
     estado: Order['estado']
-  ): Promise<Order> {
+  ): Promise<OrderWithItems> {
     try {
       // Si se quiere cancelar, usar el endpoint especial que libera stock
       if (estado === 'cancelada') {
         return await this.cancelOrder(orderId)
       }
-      
-      return this.request<Order>(`/orders/${orderId}/status`, {
+
+      const apiOrder = await this.request<ApiOrderResponse>(`/orders/${orderId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ estado }),
       })
+
+      return this.mapApiOrder(apiOrder)
     } catch (error) {
       console.error('Error updating order status via API:', error)
       throw new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
-  async cancelOrder(orderId: number): Promise<Order> {
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
     try {
-      return this.request<Order>(`/orders/${orderId}/cancel`, {
+      const query = reason ? `?reason=${encodeURIComponent(reason)}` : ''
+      const apiOrder = await this.request<ApiOrderResponse>(`/orders/${orderId}/cancel${query}`, {
         method: 'POST',
       })
+      return this.mapApiOrder(apiOrder)
     } catch (error) {
-      console.error('Error canceling order via API:', error)
+      console.error('Error cancelling order via API:', error)
       throw new Error(`Failed to cancel order: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
@@ -682,18 +761,21 @@ class ApiClient {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
         cantidad: number
         imeis?: string[]
+        es_regalo_promocion?: boolean
       }>
     }
   ): Promise<OrderWithItems> {
     try {
       const sanitizedUpdates = {
         ...updates,
-        customer_phone: updates.customer_phone ? String(updates.customer_phone).trim() : undefined
+        customer_phone: updates.customer_phone ? String(updates.customer_phone).trim() : undefined,
+        notas: updates.notas?.trim() || updates.notas
       }
 
       const apiOrder = await this.request<ApiOrderResponse>(`/orders/${orderId}`, {
@@ -701,32 +783,7 @@ class ApiClient {
         body: JSON.stringify(sanitizedUpdates),
       })
 
-      return {
-        ...apiOrder,
-        items: apiOrder.items.map(item => {
-          const product = item.product
-          const productMapped = product
-            ? {
-                ...product,
-                condicion: product.condicion as Product['condicion']
-              }
-            : undefined
-
-          return {
-            id: item.id,
-            order_id: apiOrder.id,
-            product_id: item.product_id,
-            cantidad: item.cantidad,
-            precio_unitario: item.precio_unitario,
-            es_regalo_promocion: item.es_regalo_promocion,
-            product: productMapped
-          }
-        }),
-        trade_ins: apiOrder.trade_ins?.map(t => ({
-          ...t,
-          condicion: t.condicion as 'usado' | 'dañado' | 'para_repuestos'
-        }))
-      }
+      return this.mapApiOrder(apiOrder)
     } catch (error) {
       console.error('Error updating order via API:', error)
       throw new Error(`Failed to update order: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -811,11 +868,11 @@ class ApiClient {
     }
   }
 
-  async confirmStockTransfer(id: number, confirmed_by: string): Promise<StockTransfer> {
+  async confirmStockTransfer(id: number, confirmed_by: string, scanned_imeis?: string[]): Promise<StockTransfer> {
     try {
       return this.request(`/stock-transfers/${id}/confirm`, {
         method: 'POST',
-        body: JSON.stringify({ confirmed_by })
+        body: JSON.stringify({ confirmed_by, scanned_imeis })
       })
     } catch (error) {
       console.error('Error confirming stock transfer:', error)
@@ -910,6 +967,283 @@ class ApiClient {
       console.error('Error getting IMEI history:', error)
       throw new Error(`Failed to get IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
+    try {
+      return this.request<WarrantyStatus>(`/imeis/${imei}/warranty-status`)
+    } catch (error) {
+      console.error('Error checking warranty status:', error)
+      throw new Error(`Failed to check warranty status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // ==========================================
+  // MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+  // ==========================================
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    try {
+      return await this.request<AIProfileConfig>(`/ai/config/${salesProfileId}`)
+    } catch {
+      // Si no existe (404), retornamos null para que el UI sepa que debe crear uno
+      return null
+    }
+  }
+
+  async updateAIProfileConfig(salesProfileId: number, config: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    try {
+      return await this.request<AIProfileConfig>(`/ai/config/${salesProfileId}`, {
+        method: 'POST',
+        body: JSON.stringify(config)
+      })
+    } catch (error) {
+      console.error('Error updating AI config:', error)
+      throw new Error(`Failed to update AI config: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+    try {
+      await this.request('/ai/link-order', {
+        method: 'POST',
+        body: JSON.stringify({ customer_phone: customerPhone, order_id: orderId })
+      })
+    } catch (error) {
+      // Non-critical error, just log it
+      console.warn('Failed to link order to interaction:', error)
+    }
+  }
+
+  async listTrainingQueue(status = 'pending'): Promise<import('./types').TrainingQueueItem[]> {
+    try {
+      return await this.request<import('./types').TrainingQueueItem[]>(`/ai/training-queue?status=${status}`)
+    } catch (error) {
+      console.error('Error fetching training queue:', error)
+      return []
+    }
+  }
+
+  async getTrainingQueue(status: string = 'pending'): Promise<any[]> {
+      return this.listTrainingQueue(status)
+  }
+
+  async resolveTrainingItem(itemId: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void> {
+    try {
+      await this.request(`/ai/training-queue/${itemId}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ action, correction }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error resolving training item:', error)
+      throw new Error(`Failed to resolve item: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<import('./types').TrainingQueueItem>): Promise<import('./types').TrainingQueueItem> {
+    if (updates.status && ['approved', 'rejected', 'converted_to_faq'].includes(updates.status)) {
+      const statusToAction: Record<string, 'approve' | 'reject' | 'convert_to_faq'> = {
+        'approved': 'approve',
+        'rejected': 'reject',
+        'converted_to_faq': 'convert_to_faq'
+      }
+      
+      await this.resolveTrainingItem(
+        id, 
+        statusToAction[updates.status], 
+        updates.admin_correction
+      )
+      
+      // Fetch the updated item to return it
+      // Note: The item might move to a different list based on status, so we search in the new status list
+      const queue = await this.listTrainingQueue(updates.status)
+      const item = queue.find(i => i.id === id)
+      if (item) return item
+    }
+    
+    throw new Error("Generic updates to training queue items are not supported in API mode yet. Only status resolution is supported.")
+  }
+
+  async listCustomers(search?: string): Promise<import('./types').Customer[]> {
+    try {
+      const query = search ? `?search=${encodeURIComponent(search)}` : ''
+      return await this.request<import('./types').Customer[]>(`/ai/customers${query}`)
+    } catch (error) {
+      console.error('Error listing customers:', error)
+      return []
+    }
+  }
+
+  async listCustomerStats(search?: string): Promise<any[]> {
+    try {
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      params.append('limit', '50')
+      
+      const response = await this.request<{ items: any[] }>(`/customers?${params.toString()}`)
+      return response.items || []
+    } catch (error) {
+      console.error('Error fetching customer stats:', error)
+      return []
+    }
+  }
+
+  async getCustomers(search?: string): Promise<any[]> {
+      return this.listCustomerStats(search)
+  }
+
+  async updateCustomerStatus(id: number, updates: { is_troll?: boolean; is_blocked?: boolean; notes?: string }): Promise<import('./types').Customer> {
+    try {
+      return await this.request<import('./types').Customer>(`/ai/customers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error updating customer:', error)
+      throw error
+    }
+  }
+
+  async updateCustomer(customerId: number, updates: any): Promise<import('./types').Customer> {
+    return this.updateCustomerStatus(customerId, updates)
+  }
+
+  async getCustomerInteractions(customerId: number): Promise<any[]> {
+    try {
+      return this.request<any[]>(`/customers/${customerId}/interactions`)
+    } catch (error) {
+      console.error('Error fetching interactions:', error)
+      return []
+    }
+  }
+
+  async getBanks(activeOnly: boolean = true): Promise<Bank[]> {
+    try {
+      return this.request<Bank[]>(`/financing/banks?active_only=${activeOnly}`)
+    } catch (error) {
+      console.error('Error fetching banks:', error)
+      return []
+    }
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    return this.request<Bank>('/financing/banks', {
+      method: 'POST',
+      body: JSON.stringify(bank)
+    })
+  }
+
+  async updateBank(id: number, bank: Partial<Bank>): Promise<Bank> {
+    return this.request<Bank>(`/financing/banks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(bank)
+    })
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    return this.request<FinancingOption>(`/financing/options?bank_id=${bankId}`, {
+      method: 'POST',
+      body: JSON.stringify(option)
+    })
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    return this.request<void>(`/financing/options/${optionId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // User Management
+  async listUsers(): Promise<import('./types').User[]> {
+    return this.request<import('./types').User[]>('/auth/users')
+  }
+
+  async createUser(user: Partial<import('./types').User> & { password?: string }): Promise<import('./types').User> {
+    return this.request<import('./types').User>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(user)
+    })
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    return this.request<void>(`/auth/users/${userId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async listRoles(): Promise<import('./types').Role[]> {
+    return this.request<import('./types').Role[]>('/auth/roles')
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<import('./types').User> {
+    return this.request<import('./types').User>(`/auth/users/${userId}/role?role_id=${roleId}`, {
+      method: 'PUT'
+    })
+  }
+
+  // Trade-In Policies
+  async getTradeInPolicies(): Promise<import('./types').TradeInPolicy[]> {
+    return this.request<import('./types').TradeInPolicy[]>('/ai/trade-in-policies')
+  }
+
+  async createTradeInPolicy(policy: Omit<import('./types').TradeInPolicy, 'id' | 'created_at'>): Promise<import('./types').TradeInPolicy> {
+    return this.request<import('./types').TradeInPolicy>('/ai/trade-in-policies', {
+      method: 'POST',
+      body: JSON.stringify(policy)
+    })
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    return this.request<void>(`/ai/trade-in-policies/${id}`, {
+      method: 'DELETE'
+    })
+  }
+  async getStockHistory(productId: number, params?: {
+    limit?: number
+    tipo_cambio?: string
+    date_from?: string
+    date_to?: string
+  }): Promise<import('./types').StockHistory[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.limit) queryParams.append('limit', params.limit.toString())
+    if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
+    if (params?.date_from) queryParams.append('date_from', params.date_from)
+    if (params?.date_to) queryParams.append('date_to', params.date_to)
+    
+    return this.request<import('./types').StockHistory[]>(`/stock-history/product/${productId}?${queryParams.toString()}`)
+  }
+
+  // FAQ Management
+  async listFAQs(params?: { activa?: boolean, categoria?: string, page?: number, per_page?: number }): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
+    const queryParams = new URLSearchParams()
+    if (params?.activa !== undefined) queryParams.append('activa', params.activa.toString())
+    if (params?.categoria) queryParams.append('categoria', params.categoria)
+    if (params?.page) queryParams.append('page', params.page.toString())
+    if (params?.per_page) queryParams.append('per_page', params.per_page.toString())
+    
+    return this.request<{ items: import('./types').FAQEntry[], total: number, pages: number }>(`/faq?${queryParams.toString()}`)
+  }
+
+  async createFAQ(faq: Omit<import('./types').FAQEntry, 'id' | 'created_at' | 'updated_at' | 'veces_usada'>): Promise<import('./types').FAQEntry> {
+    return this.request<import('./types').FAQEntry>('/faq', {
+      method: 'POST',
+      body: JSON.stringify(faq)
+    })
+  }
+
+  async updateFAQ(id: number, updates: Partial<import('./types').FAQEntry>): Promise<import('./types').FAQEntry> {
+    return this.request<import('./types').FAQEntry>(`/faq/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    })
+  }
+
+  async deleteFAQ(id: number): Promise<void> {
+    return this.request<void>(`/faq/${id}`, {
+      method: 'DELETE'
+    })
   }
 }
 

@@ -1,3 +1,30 @@
+export interface FinancingOption {
+  id: number
+  bank_id: number
+  months: number
+  rate: number
+  active: boolean
+}
+
+export interface Bank {
+  id: number
+  name: string
+  active: boolean
+  normal_card_rate: number
+  financing_options: FinancingOption[]
+}
+
+export interface FinancingDetails {
+  bank_id: number
+  bank_name: string
+  months: number
+  rate: number
+  surcharge: number
+  monthly_payment: number
+  original_total: number
+  down_payment?: number // V2.1: Prima o pago inicial en efectivo
+}
+
 export interface ReturnItem {
   id?: number
   product_id: number
@@ -72,6 +99,52 @@ export interface SalesProfile {
   updated_at?: string
 }
 
+// V2.1: Configuración de IA para perfiles de venta
+export interface AIProfileConfig {
+  id?: number
+  sales_profile_id: number
+  model_name: string
+  temperature: number
+  system_prompt: string
+  initial_greeting?: string
+  voice_tone?: string
+  context_rules?: string
+  is_active: boolean
+  
+  // V2.2: Personalización Avanzada
+  business_description?: string
+  sales_goal?: string
+  negotiation_style?: string
+  max_discount_rate?: number
+  fallback_human_trigger?: string
+}
+
+// V2.1: Gestión de Clientes e IA
+export interface Customer {
+  id: number
+  phone_number: string
+  name?: string
+  email?: string
+  notes?: string
+  is_troll: boolean
+  is_blocked: boolean
+  reputation_score: number
+  daily_message_count: number
+  last_interaction_at?: string
+  created_at: string
+}
+
+export interface TrainingQueueItem {
+  id: number
+  sales_profile_id?: number
+  customer_question: string
+  ai_proposed_answer?: string
+  admin_correction?: string
+  status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
+  created_at: string
+  sales_profile?: SalesProfile
+}
+
 // V2.0: Stock por ubicación
 export interface StockByLocation {
   id: number
@@ -79,6 +152,7 @@ export interface StockByLocation {
   location_id: number
   cantidad_disponible: number
   cantidad_reservada: number  // V2.0: Stock reservado en transferencias pendientes
+  cantidad_defectuosa?: number // V2.0: Stock defectuoso/merma
   stock_libre?: number  // Computed: cantidad_disponible - cantidad_reservada
   location?: Location
 }
@@ -89,9 +163,10 @@ export interface Product {
   supplier_id?: number
   sku: string
   nombre: string
-  categoria: 'celular' | 'accesorio'
+  categoria: 'celular' | 'accesorio' | 'pendiente_revision'
   marca: string
   modelo: string
+  color?: string // V2.1: Color específico
   capacidad?: string
   condicion: 'nuevo' | 'usado' | 'reacondicionado'
   precio: number
@@ -113,6 +188,7 @@ export interface Stock {
   location_id?: number
   cantidad_disponible: number
   cantidad_reservada?: number
+  cantidad_defectuosa?: number // V2.0: Stock defectuoso/merma
 }
 
 export interface Order {
@@ -125,6 +201,7 @@ export interface Order {
   canal: 'whatsapp' | 'facebook' | 'instagram'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
   total: number
+  financing_details?: string // JSON con datos de financiamiento (V2.1)
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
   notes?: string
@@ -168,6 +245,7 @@ export interface TradeIn {
 export interface OrderWithItems extends Order {
   items: (OrderItem & { product?: Product })[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
+  financing_details?: string // JSON string
 }
 
 export interface CreateOrderRequest {
@@ -182,11 +260,18 @@ export interface CreateOrderRequest {
     product_id: number
     cantidad: number
     imeis?: string[]
+    precio_unitario?: number
+    es_regalo_promocion?: boolean // V2.1: Regalos/promos no suman al total
   }[]
   trade_ins?: TradeIn[]  // V2.0: Equipos recibidos en parte de pago
   notes?: string
   delivery_date?: string
   notas?: string
+  financing_data?: {
+    bank_id: number
+    months: number
+    down_payment?: number
+  }
 }
 
 export interface Supplier {
@@ -325,4 +410,111 @@ export interface IMEIHistory {
   created_by?: string
   product_name?: string
   location_name?: string
+}
+
+// ==========================================
+// MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+// ==========================================
+
+export interface Customer {
+  id: number
+  phone_number: string
+  name?: string
+  email?: string
+  notes?: string
+  is_troll: boolean
+  is_blocked: boolean
+  reputation_score: number
+  daily_message_count: number
+  last_interaction_at?: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface InteractionLog {
+  id: number
+  customer_id: number
+  sales_profile_id: number
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  tokens_used: number
+  converted_order_id?: number
+  created_at: string
+}
+
+export interface TrainingQueueItem {
+  id: number
+  sales_profile_id: number
+  customer_question: string
+  ai_proposed_answer?: string
+  admin_correction?: string
+  status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
+  created_at: string
+  updated_at?: string
+  sales_profile?: SalesProfile
+}
+
+export interface Permission {
+  id: number
+  slug: string
+  description?: string
+  module: string
+  // Compatibilidad con código anterior (opcionales)
+  resource?: string
+  action?: string
+}
+
+export interface Role {
+  id: number
+  name: string
+  description?: string
+  permissions: Permission[]
+}
+
+export interface User {
+  id: number
+  username: string
+  email?: string
+  full_name?: string
+  is_active: boolean
+  is_superuser: boolean
+  role_id?: number
+  role?: Role
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user?: User
+}
+
+export interface TradeInPolicy {
+  id: number
+  rule_type: 'model_rejection' | 'brand_rejection' | 'condition_rejection'
+  pattern: string
+  action: 'reject' | 'accept_with_conditions'
+  reason?: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface FAQEntry {
+  id: number
+  pregunta_clave: string
+  respuesta: string
+  categoria?: string
+  activa: boolean
+  veces_usada: number
+  created_at: string
+  updated_at?: string
+}
+
+export interface WarrantyStatus {
+  imei: string
+  product?: string
+  status: 'vigente' | 'vencida' | 'sin_garantia' | 'en_stock'
+  sale_date?: string
+  expiration_date?: string
+  days_remaining?: number
+  detail: string
 }

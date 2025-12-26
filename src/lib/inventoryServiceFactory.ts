@@ -18,7 +18,12 @@ import type {
   StockByLocation,
   CreateReturnRequest,
   Return,
-  IMEIHistory
+  IMEIHistory,
+  StockHistory,
+  TrainingQueueItem,
+  Customer,
+  AIProfileConfig,
+  WarrantyStatus
 } from './types'
 
 async function getUseApiSetting(): Promise<boolean> {
@@ -50,7 +55,7 @@ export interface IInventoryService {
   
   getOrders(): Promise<OrderWithItems[]>
   
-  createProfile(name: string, slug: string): Promise<Profile>
+  createProfile(profile: Omit<Profile, 'id'>): Promise<Profile>
   
   listProfiles(): Promise<Profile[]>
   
@@ -86,10 +91,12 @@ export interface IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
         cantidad: number
+        es_regalo_promocion?: boolean
         imeis?: string[]
       }>
     }
@@ -104,6 +111,7 @@ export interface IInventoryService {
   createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock>
   
   updateStock(productId: number, cantidad: number, locationId: number): Promise<void>
+  updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void>
   
   updateProduct(
     productId: number,
@@ -113,8 +121,6 @@ export interface IInventoryService {
   deleteProduct(productId: number): Promise<void>
   deleteOrder(orderId: number): Promise<void>
 
-  bulkCreateProducts(productsData: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]>
-
   createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer>
   listStockTransfers(filters?: {
     product_id?: number
@@ -123,7 +129,7 @@ export interface IInventoryService {
     location_id?: number
     estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
   }): Promise<StockTransfer[]>
-  confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer>
+  confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer>
   rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer>
   cancelStockTransfer(id: number): Promise<void>
 
@@ -135,11 +141,31 @@ export interface IInventoryService {
   getStockByLocation(productId: number): Promise<StockByLocation[]>
   
   getAvailableIMEIs(productId: number, locationId: number): Promise<string[]>
+  
+  getProductByIMEI(imei: string): Promise<ProductWithStock>
 
   createReturn(returnData: CreateReturnRequest): Promise<Return>
   getReturns(): Promise<Return[]>
 
   getIMEIHistory(imei: string): Promise<IMEIHistory[]>
+  checkWarrantyStatus(imei: string): Promise<WarrantyStatus>
+
+  // AI & Customer Methods
+  listTrainingQueue(status?: string): Promise<TrainingQueueItem[]>
+  updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem>
+  getCustomers(): Promise<Customer[]>
+  updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer>
+  getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null>
+  updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig>
+  getStockHistory(productId: number, params?: any): Promise<StockHistory[]>
+  
+  // FAQ Methods
+  listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }>
+  createFAQ(faq: any): Promise<import('./types').FAQEntry>
+  updateFAQ(id: number, updates: any): Promise<import('./types').FAQEntry>
+  deleteFAQ(id: number): Promise<void>
+
+  linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void>
 }
 
 class LocalServiceWrapper implements IInventoryService {
@@ -250,6 +276,10 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.updateOrderStatus(orderId, estado)
   }
 
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
+    return this.service.cancelOrder(orderId, reason)
+  }
+
   async updateOrder(
     orderId: number,
     updates: {
@@ -257,10 +287,13 @@ class LocalServiceWrapper implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
         cantidad: number
+        es_regalo_promocion?: boolean
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems> {
@@ -283,17 +316,19 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.updateStock(productId, cantidad, locationId)
   }
 
+  async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
+    return this.service.updateStockByLocation(productId, locationId, cantidad)
+  }
+
   async updateProduct(
     productId: number,
     updates: Partial<ProductWithStock>
   ): Promise<ProductWithStock> {
     return this.service.updateProduct(productId, updates)
   }
-
   async deleteProduct(productId: number): Promise<void> {
     return this.service.deleteProduct(productId)
   }
-
   async deleteOrder(orderId: number): Promise<void> {
     return this.service.deleteOrder(orderId)
   }
@@ -310,8 +345,8 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.listStockTransfers(filters)
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
-    return this.service.confirmStockTransfer(id, confirmedBy)
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
+    return this.service.confirmStockTransfer(id, confirmedBy, scannedImeis)
   }
 
   async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
@@ -355,6 +390,59 @@ class LocalServiceWrapper implements IInventoryService {
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
     return this.service.getIMEIHistory(imei)
+  }
+
+  async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
+    return this.service.checkWarrantyStatus(imei)
+  }
+
+  async listTrainingQueue(status?: string): Promise<TrainingQueueItem[]> {
+    return this.service.listTrainingQueue(status)
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem> {
+    return this.service.updateTrainingQueueItem(id, updates)
+  }
+
+  async getCustomers(): Promise<Customer[]> {
+    return this.service.getCustomers()
+  }
+
+  async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
+    return this.service.updateCustomer(id, updates)
+  }
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    return this.service.getAIProfileConfig(salesProfileId)
+  }
+
+  async updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    return this.service.updateAIProfileConfig(id, updates)
+  }
+
+  async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
+    return this.service.getStockHistory(productId, params)
+  }
+
+  async listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
+    return this.service.listFAQs(params)
+  }
+
+  async createFAQ(faq: any): Promise<import('./types').FAQEntry> {
+    return this.service.createFAQ(faq)
+  }
+
+  async updateFAQ(id: number, updates: any): Promise<import('./types').FAQEntry> {
+    return this.service.updateFAQ(id, updates)
+  }
+
+  async deleteFAQ(id: number): Promise<void> {
+    return this.service.deleteFAQ(id)
+  }
+
+  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+    // No-op in local mode
+    return
   }
 }
 
@@ -615,10 +703,12 @@ class UnifiedInventoryService implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
         cantidad: number
+        es_regalo_promocion?: boolean
         imeis?: string[]
       }>
     }
@@ -648,7 +738,6 @@ class UnifiedInventoryService implements IInventoryService {
 
   async createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock> {
     try {
-      const { stock_disponible, ...productData } = product
       // V2.0: locationId se pasa al servicio apropiado
       const service = await this.getService()
       return service.createProduct(product, locationId)
@@ -665,6 +754,16 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error updating stock (unified):', error)
       throw error instanceof Error ? error : new Error(`Failed to update stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.updateStockByLocation(productId, locationId, cantidad)
+    } catch (error) {
+      console.error('Error updating stock by location (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to update stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -710,10 +809,8 @@ class UnifiedInventoryService implements IInventoryService {
       if (useApi) {
         return apiClient.cancelOrder(orderId, reason)
       } else {
-        // Local mode fallback - just update status for now
-        // In a real implementation, this should also restore stock
         const service = await this.getService()
-        return service.updateOrderStatus(orderId, 'cancelado')
+        return service.cancelOrder(orderId, reason)
       }
     } catch (error) {
       console.error('Error cancelling order (unified):', error)
@@ -751,10 +848,10 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
     try {
       const service = await this.getService()
-      return service.confirmStockTransfer(id, confirmedBy)
+      return service.confirmStockTransfer(id, confirmedBy, scannedImeis)
     } catch (error) {
       console.error('Error confirming stock transfer (unified):', error)
       throw new Error(`Failed to confirm stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -848,6 +945,155 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error creating return (unified):', error)
       throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getReturns(): Promise<Return[]> {
+    try {
+      const service = await this.getService()
+      return service.getReturns()
+    } catch (error) {
+      console.error('Error getting returns (unified):', error)
+      throw new Error(`Failed to get returns: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
+    try {
+      const service = await this.getService()
+      return service.getIMEIHistory(imei)
+    } catch (error) {
+      console.error('Error getting IMEI history (unified):', error)
+      throw new Error(`Failed to get IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
+    try {
+      const service = await this.getService()
+      return service.checkWarrantyStatus(imei)
+    } catch (error) {
+      console.error('Error checking warranty status (unified):', error)
+      throw new Error(`Failed to check warranty status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listTrainingQueue(status?: string): Promise<TrainingQueueItem[]> {
+    try {
+      const service = await this.getService()
+      return service.listTrainingQueue(status)
+    } catch (error) {
+      console.error('Error listing training queue (unified):', error)
+      return []
+    }
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem> {
+    try {
+      const service = await this.getService()
+      return service.updateTrainingQueueItem(id, updates)
+    } catch (error) {
+      console.error('Error updating training queue item (unified):', error)
+      throw error
+    }
+  }
+
+  async getCustomers(): Promise<Customer[]> {
+    try {
+      const service = await this.getService()
+      return service.getCustomers()
+    } catch (error) {
+      console.error('Error getting customers (unified):', error)
+      return []
+    }
+  }
+
+  async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
+    try {
+      const service = await this.getService()
+      return service.updateCustomer(id, updates)
+    } catch (error) {
+      console.error('Error updating customer (unified):', error)
+      throw error
+    }
+  }
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    try {
+      const service = await this.getService()
+      return service.getAIProfileConfig(salesProfileId)
+    } catch (error) {
+      console.error('Error getting AI config (unified):', error)
+      return null
+    }
+  }
+
+  async updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    try {
+      const service = await this.getService()
+      return service.updateAIProfileConfig(id, updates)
+    } catch (error) {
+      console.error('Error updating AI config (unified):', error)
+      throw error
+    }
+  }
+
+  async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
+    try {
+      const service = await this.getService()
+      return service.getStockHistory(productId, params)
+    } catch (error) {
+      console.error('Error getting stock history (unified):', error)
+      return []
+    }
+  }
+
+  async listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
+    try {
+      const service = await this.getService()
+      return service.listFAQs(params)
+    } catch (error) {
+      console.error('Error listing FAQs (unified):', error)
+      return { items: [], total: 0, pages: 0 }
+    }
+  }
+
+  async createFAQ(faq: any): Promise<import('./types').FAQEntry> {
+    try {
+      const service = await this.getService()
+      return service.createFAQ(faq)
+    } catch (error) {
+      console.error('Error creating FAQ (unified):', error)
+      throw error
+    }
+  }
+
+  async updateFAQ(id: number, updates: any): Promise<import('./types').FAQEntry> {
+    try {
+      const service = await this.getService()
+      return service.updateFAQ(id, updates)
+    } catch (error) {
+      console.error('Error updating FAQ (unified):', error)
+      throw error
+    }
+  }
+
+  async deleteFAQ(id: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteFAQ(id)
+    } catch (error) {
+      console.error('Error deleting FAQ (unified):', error)
+      throw error
+    }
+  }
+
+  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.linkOrderToInteraction(customerPhone, orderId)
+    } catch (error) {
+      console.error('Error linking order to interaction (unified):', error)
     }
   }
 }
@@ -949,13 +1195,7 @@ class ApiInventoryService implements IInventoryService {
     orderId: number,
     estado: Order['estado']
   ): Promise<OrderWithItems> {
-    const order = await apiClient.updateOrderStatus(orderId, estado)
-    const orders = await this.fetchOrders()
-    const orderWithItems = orders.find(o => o.id === order.id)
-    if (!orderWithItems) {
-      throw new Error(`Order with id ${orderId} not found after update`)
-    }
-    return orderWithItems
+    return apiClient.updateOrderStatus(orderId, estado)
   }
 
   async updateOrder(
@@ -965,10 +1205,13 @@ class ApiInventoryService implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      notas?: string
       items?: Array<{
         id?: number
         product_id: number
         cantidad: number
+        es_regalo_promocion?: boolean
+        imeis?: string[]
       }>
     }
   ): Promise<OrderWithItems> {
@@ -990,6 +1233,10 @@ class ApiInventoryService implements IInventoryService {
 
   async updateStock(productId: number, cantidad: number, locationId: number): Promise<void> {
     return apiClient.updateStock(productId, cantidad, locationId)
+  }
+
+  async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
+    return apiClient.updateStockByLocation(productId, locationId, cantidad)
   }
 
   async updateProduct(
@@ -1019,8 +1266,8 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.listStockTransfers(filters)
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string): Promise<StockTransfer> {
-    return apiClient.confirmStockTransfer(id, confirmedBy)
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
+    return apiClient.confirmStockTransfer(id, confirmedBy, scannedImeis)
   }
 
   async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
@@ -1065,6 +1312,58 @@ class ApiInventoryService implements IInventoryService {
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
     return apiClient.getIMEIHistory(imei)
+  }
+
+  async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
+    return apiClient.checkWarrantyStatus(imei)
+  }
+
+  async listTrainingQueue(status?: string): Promise<TrainingQueueItem[]> {
+    return apiClient.listTrainingQueue(status)
+  }
+
+  async updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem> {
+    return apiClient.updateTrainingQueueItem(id, updates)
+  }
+
+  async getCustomers(): Promise<Customer[]> {
+    return apiClient.getCustomers()
+  }
+
+  async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
+    return apiClient.updateCustomer(id, updates)
+  }
+
+  async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
+    return apiClient.getAIProfileConfig(salesProfileId)
+  }
+
+  async updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig> {
+    return apiClient.updateAIProfileConfig(id, updates)
+  }
+
+  async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
+    return apiClient.getStockHistory(productId, params)
+  }
+
+  async listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
+    return apiClient.listFAQs(params)
+  }
+
+  async createFAQ(faq: any): Promise<import('./types').FAQEntry> {
+    return apiClient.createFAQ(faq)
+  }
+
+  async updateFAQ(id: number, updates: any): Promise<import('./types').FAQEntry> {
+    return apiClient.updateFAQ(id, updates)
+  }
+
+  async deleteFAQ(id: number): Promise<void> {
+    return apiClient.deleteFAQ(id)
+  }
+
+  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+    return apiClient.linkOrderToInteraction(customerPhone, orderId)
   }
 }
 

@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Bell, Warning, Package, X, CheckCircle, TrendDown, Lightbulb } from '@phosphor-icons/react'
-import type { ProductWithStock, Profile, OrderWithItems } from '@/lib/types'
+import type { ProductWithStock, Profile, OrderWithItems, Location } from '@/lib/types'
 import { useKV } from '@/hooks/use-kv'
 
 interface Notification {
@@ -23,6 +23,7 @@ interface Notification {
 interface NotificationCenterProps {
   products: ProductWithStock[]
   profiles: Profile[]
+  locations?: Location[]
   orders?: OrderWithItems[]
   onOpenOptimization?: () => void
 }
@@ -50,7 +51,7 @@ function calculateSimpleOptimizationScore(products: ProductWithStock[], orders: 
   return Math.round(score)
 }
 
-export function NotificationCenter({ products, profiles, orders = [], onOpenOptimization }: NotificationCenterProps) {
+export function NotificationCenter({ products, profiles, locations = [], orders = [], onOpenOptimization }: NotificationCenterProps) {
   const [notifications, setNotifications] = useKV<Notification[]>('notifications', [])
   const [dismissedIds, setDismissedIds] = useKV<string[]>('dismissed-notifications', [])
   const [open, setOpen] = useState(false)
@@ -70,39 +71,78 @@ export function NotificationCenter({ products, profiles, orders = [], onOpenOpti
     'last-optimization-score',
     0
   )
+  const [notificationSettings] = useKV<any>('notification-settings', {})
 
   useEffect(() => {
     const newNotifications: Notification[] = []
 
     products.forEach(product => {
-      const profile = profiles.find(p => p.id === product.profile_id)
-      if (!profile || !profile.active) return
+      // V2.0: Check stock per location if available
+      if (locations.length > 0 && product.stock_items && product.stock_items.length > 0) {
+        product.stock_items.forEach(stock => {
+          const location = locations.find(l => l.id === stock.location_id)
+          if (!location || !location.activo) return
 
-      const threshold = profile.settings?.lowStockThreshold ?? 10
-      const notifId = `${product.id}-${product.stock_disponible}`
+          const threshold = notificationSettings?.lowStockThreshold || 10
+          const notifId = `${product.id}-${location.id}-${stock.cantidad_disponible}`
 
-      if ((dismissedIds ?? []).includes(notifId)) return
+          if ((dismissedIds ?? []).includes(notifId)) return
 
-      if (product.stock_disponible === 0 && product.activo) {
-        newNotifications.push({
-          id: notifId,
-          type: 'out_of_stock',
-          productName: product.nombre,
-          profileName: profile.name,
-          currentStock: 0,
-          threshold,
-          timestamp: Date.now()
+          if (stock.cantidad_disponible === 0 && product.activo) {
+            newNotifications.push({
+              id: notifId,
+              type: 'out_of_stock',
+              productName: product.nombre,
+              profileName: location.nombre, // Using profileName field for location name to reuse UI
+              currentStock: 0,
+              threshold,
+              timestamp: Date.now()
+            })
+          } else if (stock.cantidad_disponible <= threshold && stock.cantidad_disponible > 0 && product.activo) {
+            newNotifications.push({
+              id: notifId,
+              type: 'low_stock',
+              productName: product.nombre,
+              profileName: location.nombre,
+              currentStock: stock.cantidad_disponible,
+              threshold,
+              timestamp: Date.now()
+            })
+          }
         })
-      } else if (product.stock_disponible <= threshold && product.stock_disponible > 0 && product.activo) {
-        newNotifications.push({
-          id: notifId,
-          type: 'low_stock',
-          productName: product.nombre,
-          profileName: profile.name,
-          currentStock: product.stock_disponible,
-          threshold,
-          timestamp: Date.now()
-        })
+      } else {
+        // Legacy V1 or Global Fallback
+        const profile = profiles.find(p => p.id === product.profile_id)
+        // If no profile found (V2 product), use a default "Global" context or skip if strictly legacy
+        // For V2 compatibility, we should check global stock if no location details
+        
+        const threshold = profile?.settings?.lowStockThreshold ?? 10
+        const notifId = `${product.id}-${product.stock_disponible}`
+        const contextName = profile?.name || 'Inventario Global'
+
+        if ((dismissedIds ?? []).includes(notifId)) return
+
+        if (product.stock_disponible === 0 && product.activo) {
+          newNotifications.push({
+            id: notifId,
+            type: 'out_of_stock',
+            productName: product.nombre,
+            profileName: contextName,
+            currentStock: 0,
+            threshold,
+            timestamp: Date.now()
+          })
+        } else if (product.stock_disponible <= threshold && product.stock_disponible > 0 && product.activo) {
+          newNotifications.push({
+            id: notifId,
+            type: 'low_stock',
+            productName: product.nombre,
+            profileName: contextName,
+            currentStock: product.stock_disponible,
+            threshold,
+            timestamp: Date.now()
+          })
+        }
       }
     })
 

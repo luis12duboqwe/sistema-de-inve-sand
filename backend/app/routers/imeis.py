@@ -3,13 +3,18 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models import IMEIHistory, Product, Location, ProductIMEI, Order
+from app.models import IMEIHistory, Product, Location, ProductIMEI, Order, User
 from app.schemas import IMEIHistoryResponse
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/imeis", tags=["imeis"])
 
 @router.get("/{imei}/warranty-status")
-def check_warranty_status(imei: str, db: Session = Depends(get_db)):
+def check_warranty_status(
+    imei: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
+):
     """
     Verifica el estado de garantía de un IMEI.
     Busca la fecha de venta y calcula si aún está vigente según los meses de garantía del producto.
@@ -71,7 +76,11 @@ def check_warranty_status(imei: str, db: Session = Depends(get_db)):
     }
 
 @router.get("/history/{imei}", response_model=List[IMEIHistoryResponse])
-def get_imei_history(imei: str, db: Session = Depends(get_db)):
+def get_imei_history(
+    imei: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
+):
     history = db.query(IMEIHistory).filter(IMEIHistory.imei == imei).order_by(IMEIHistory.created_at.desc()).all()
     
     # Enrich with names

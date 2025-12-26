@@ -5,7 +5,8 @@ import os
 # Add parent directory to path to import app modules if needed
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DB_PATH = "backend/inventory.db"
+# Fix: Use relative path assuming script runs from backend/ dir
+DB_PATH = "inventory.db"
 
 def migrate():
     print(f"Migrating database at {DB_PATH}...")

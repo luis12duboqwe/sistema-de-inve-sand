@@ -1,9 +1,37 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index
+from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime, Text, Index, Table, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
+# Association table for Role-Permission many-to-many relationship
+role_permissions = Table(
+    'role_permissions',
+    Base.metadata,
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete="CASCADE"), primary_key=True)
+)
+
+class Permission(Base):
+    """Permisos granulares del sistema (ej: 'products:create', 'inventory:view')"""
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String, unique=True, nullable=False, index=True) # ej: products:create
+    description = Column(String, nullable=False) # ej: Crear nuevos productos
+    module = Column(String, nullable=False) # ej: products, orders, settings
+
+class Role(Base):
+    """Roles de usuario (Admin, Gerente, Vendedor, Invitado)"""
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(String, nullable=True)
+    is_system_role = Column(Boolean, default=False) # Si es True, no se puede borrar (ej: Admin)
+    
+    permissions = relationship("Permission", secondary=role_permissions, backref="roles")
+    users = relationship("User", back_populates="role")
 
 class User(Base):
     """User model for authentication"""
@@ -11,13 +39,16 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
-    email = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=True, index=True) # Email opcional
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    is_superuser = Column(Boolean, default=False, nullable=False)
+    is_superuser = Column(Boolean, default=False, nullable=False) # Fallback para acceso total
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    role = relationship("Role", back_populates="users")
 
 
 class Location(Base):
@@ -122,11 +153,12 @@ class Product(Base):
     categoria = Column(String, nullable=False, index=True)
     marca = Column(String, nullable=False, index=True)
     modelo = Column(String, nullable=False, index=True)
+    color = Column(String, nullable=True, index=True)  # V2.1: Color específico (ej. Sierra Blue)
     capacidad = Column(String)
     condicion = Column(String, nullable=False)
     precio = Column(Numeric(10, 2), nullable=False)
     costo = Column(Numeric(10, 2), default=0, nullable=False)  # V2.0: Costo para reportes financieros
-    moneda = Column(String, default="HNL", nullable=False)
+    moneda = Column(String, default="Lps", nullable=False)
     garantia_meses = Column(Integer, default=0, nullable=False)
     garantia_condiciones = Column(Text, nullable=True)
     activo = Column(Boolean, default=True, nullable=False, index=True)
@@ -168,8 +200,9 @@ class Stock(Base):
         Index('idx_stock_product_location', 'product_id', 'location_id', unique=True),
         Index('idx_stock_location', 'location_id'),
         # CRÍTICO: Evitar stock negativo
-        # Nota: SQLite no soporta CHECK constraints nativamente en todas las versiones
-        # Se debe validar en la lógica de aplicación ANTES de cada db.commit()
+        CheckConstraint('cantidad_disponible >= 0', name='check_stock_positive'),
+        CheckConstraint('cantidad_reservada >= 0', name='check_reserved_positive'),
+        CheckConstraint('cantidad_defectuosa >= 0', name='check_defective_positive'),
     )
 
 
@@ -216,6 +249,7 @@ class Order(Base):
     canal = Column(String, nullable=False, index=True)
     metodo_pago = Column(String, nullable=False)
     total = Column(Numeric(10, 2), nullable=False)
+    financing_details = Column(Text, nullable=True)  # JSON: {bank_id, bank_name, months, rate, surcharge, monthly_payment}
     estado = Column(String, default="pendiente", nullable=False, index=True)
     notes = Column(Text, nullable=True)
     delivery_date = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -343,6 +377,8 @@ class TradeIn(Base):
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     marca = Column(String, nullable=False)
     modelo = Column(String, nullable=False)
+    color = Column(String, nullable=True)      # V2.1: Nuevo campo
+    capacidad = Column(String, nullable=True)  # V2.1: Nuevo campo
     imei = Column(String, nullable=True)  # Puede ser null si no es celular
     condicion = Column(String, nullable=False)  # 'usado', 'dañado', 'para_repuestos'
     valor_estimado = Column(Numeric(10, 2), nullable=False)
@@ -406,3 +442,159 @@ class ReturnItem(Base):
     
     return_obj = relationship("Return", back_populates="items")
     product = relationship("Product")
+
+
+# ==========================================
+# MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
+# ==========================================
+
+class Customer(Base):
+    """
+    Cliente enriquecido para gestión de relaciones (CRM) y detección de trolls.
+    Centraliza la información de clientes que antes solo vivía en las órdenes.
+    """
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone_number = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Campos de Inteligencia / Seguridad
+    is_troll = Column(Boolean, default=False, index=True)
+    is_blocked = Column(Boolean, default=False, index=True)
+    reputation_score = Column(Integer, default=100)  # 0-100
+    daily_message_count = Column(Integer, default=0)
+    last_interaction_at = Column(DateTime(timezone=True), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    interactions = relationship("InteractionLog", back_populates="customer", cascade="all, delete-orphan")
+
+
+class AIProfileConfig(Base):
+    """
+    Configuración de personalidad y reglas para cada Bot de IA.
+    Vinculado 1:1 con SalesProfile.
+    """
+    __tablename__ = "ai_profile_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="CASCADE"), unique=True, nullable=False)
+    
+    # Configuración del Modelo
+    model_name = Column(String, default="gpt-4o")
+    temperature = Column(Numeric(3, 2), default=0.7)
+    
+    # Personalidad
+    system_prompt = Column(Text, nullable=False)  # La "Biblia" del bot
+    initial_greeting = Column(Text, nullable=True)
+    voice_tone = Column(String, nullable=True)  # formal, amigable, etc.
+    
+    # Reglas de Negocio
+    context_rules = Column(Text, nullable=True)  # JSON: filtros de inventario, etc.
+    is_active = Column(Boolean, default=True)
+
+    # Personalización Avanzada (V2.2)
+    business_description = Column(Text, nullable=True)
+    sales_goal = Column(String, nullable=True)
+    negotiation_style = Column(String, nullable=True)
+    max_discount_rate = Column(Numeric(5, 4), default=0.0) # 0.10 = 10%
+    fallback_human_trigger = Column(String, nullable=True)
+    
+    # Notificaciones (V2.1)
+    admin_notification_phone = Column(String, nullable=True)  # WhatsApp del admin para alertas
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    sales_profile = relationship("SalesProfile", backref="ai_config")
+
+
+class InteractionLog(Base):
+    """
+    Historial de conversaciones entre Clientes y Bots.
+    Permite auditoría y reentrenamiento.
+    """
+    __tablename__ = "interaction_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    role = Column(String, nullable=False)  # 'user', 'assistant', 'system'
+    content = Column(Text, nullable=False)
+    tokens_used = Column(Integer, default=0)
+    
+    # Atribución de Venta
+    converted_order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    customer = relationship("Customer", back_populates="interactions")
+    sales_profile = relationship("SalesProfile")
+    converted_order = relationship("Order")
+
+
+class TrainingQueue(Base):
+    """
+    Cola de aprendizaje (Human-in-the-loop).
+    Preguntas que la IA no supo responder y requieren intervención humana.
+    """
+    __tablename__ = "training_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="SET NULL"), nullable=True)
+    
+    customer_question = Column(Text, nullable=False)
+    ai_proposed_answer = Column(Text, nullable=True)
+    admin_correction = Column(Text, nullable=True)
+    
+    status = Column(String, default="pending", index=True)  # pending, approved, rejected, converted_to_faq
+    
+    sales_profile = relationship("SalesProfile")
+
+
+class Bank(Base):
+    """Bancos para extrafinanciamiento"""
+    __tablename__ = "banks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    active = Column(Boolean, default=True, nullable=False)
+    normal_card_rate = Column(Numeric(5, 4), default=0.0, nullable=False) # Tasa para tarjeta normal (no extra)
+    
+    financing_options = relationship("FinancingOption", back_populates="bank", cascade="all, delete-orphan")
+
+
+class FinancingOption(Base):
+    """Opciones de financiamiento (Plazos y Tasas) por Banco"""
+    __tablename__ = "financing_options"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bank_id = Column(Integer, ForeignKey("banks.id", ondelete="CASCADE"), nullable=False, index=True)
+    months = Column(Integer, nullable=False) # 3, 6, 9, 12, 18, 24
+    rate = Column(Numeric(5, 4), nullable=False) # Porcentaje de recargo (ej. 0.05 para 5%)
+    active = Column(Boolean, default=True, nullable=False)
+
+    bank = relationship("Bank", back_populates="financing_options")
+
+
+class TradeInPolicy(Base):
+    """
+    Políticas de Retoma (Trade-In) aprendibles/configurables.
+    Define qué marcas/modelos se aceptan o rechazan.
+    """
+    __tablename__ = "trade_in_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_type = Column(String, default="model_rejection") # model_rejection, brand_rejection, condition_rejection
+    pattern = Column(String, nullable=False) # e.g., "iPhone XR", "Xiaomi", "Pantalla quebrada"
+    action = Column(String, default="reject") # reject, accept_with_conditions
+    reason = Column(String, nullable=True) # "No tiene mercado", "Muy viejo"
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+

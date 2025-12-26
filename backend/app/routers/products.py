@@ -5,11 +5,12 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI
+from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, User
 from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
 )
+from app.auth import check_permission, get_current_active_user
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -108,6 +109,23 @@ def get_product_imeis(
     return [i.imei for i in imeis]
 
 
+@router.get("/imei/{imei}", response_model=ProductResponse)
+def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
+    """
+    Busca un producto por su IMEI.
+    Útil para escaneo de códigos de barras en fulfillment.
+    """
+    product_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == imei).first()
+    if not product_imei:
+        raise HTTPException(status_code=404, detail=f"IMEI {imei} no encontrado")
+    
+    product = db.query(Product).filter(Product.id == product_imei.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto asociado al IMEI no encontrado")
+        
+    return _serialize_product(product)
+
+
 @router.get("", response_model=PaginatedResponse[ProductResponse])
 def list_products(
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
@@ -158,14 +176,22 @@ def list_products(
         query = query.filter(Product.activo == True)
     
     if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Product.nombre.ilike(search_term),
-                Product.marca.ilike(search_term),
-                Product.modelo.ilike(search_term)
-            )
-        )
+        # V2.1: Búsqueda inteligente por palabras clave (AND implícito)
+        # Permite encontrar "iPhone 13" buscando "13 iPhone" o "iPhone Pro"
+        keywords = search.split()
+        if keywords:
+            and_conditions = []
+            for k in keywords:
+                term = f"%{k}%"
+                and_conditions.append(
+                    or_(
+                        Product.nombre.ilike(term),
+                        Product.marca.ilike(term),
+                        Product.modelo.ilike(term),
+                        Product.sku.ilike(term)
+                    )
+                )
+            query = query.filter(*and_conditions)
     
     total = query.count()
     offset = (page - 1) * per_page
@@ -179,8 +205,12 @@ def list_products(
         pages=math.ceil(total / per_page) if total > 0 else 0
     )
 
-@router.post("", response_model=ProductResponse, status_code=201)
-def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+@router.post("", response_model=ProductResponse, status_code=201, dependencies=[Depends(check_permission("inventory:create"))])
+def create_product(
+    product: ProductCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """
     Crea un nuevo producto con stock inicial.
     
@@ -217,7 +247,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     
     try:
         product_data = product.model_dump(by_alias=True)
-        # product_data['moneda'] = 'Lps' # REMOVED: Allow multiple currencies
+        product_data['moneda'] = 'Lps' # REMOVED: Allow multiple currencies
         cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
         # V2.0: Extraer initial_location_id y imeis_con_ubicacion
@@ -310,13 +340,13 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
                 referencia_id=db_product.id,
                 referencia_tipo='product_creation',
                 notas=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
-                usuario='sistema'
+                usuario=current_user.username
             )
             db.add(stock_history)
         
         # V2.0: Procesar IMEIs con ubicación
         if imeis_con_ubicacion and len(imeis_con_ubicacion) > 0:
-            from app.models import ProductIMEI
+            # ProductIMEI ya está importado globalmente
             
             # VALIDACIÓN: Cantidad de IMEIs debe coincidir con stock inicial
             if cantidad_inicial > 0 and len(imeis_con_ubicacion) != cantidad_inicial:
@@ -327,48 +357,55 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
                 )
             
             for imei_data in imeis_con_ubicacion:
+                # Convertir a dict si es necesario (aunque Pydantic debería manejarlo)
+                # El error 'dict object has no attribute location_id' sugiere que imei_data es un dict
+                # pero estamos intentando acceder como objeto.
+                
+                imei_val = imei_data.get('imei') if isinstance(imei_data, dict) else imei_data.imei
+                loc_id = imei_data.get('location_id') if isinstance(imei_data, dict) else imei_data.location_id
+
                 # VALIDACIÓN: IMEIs deben estar en la misma ubicación que el stock inicial
-                if initial_location_id and imei_data.location_id != initial_location_id:
+                if initial_location_id and loc_id != initial_location_id:
                     db.rollback()
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Todos los IMEIs deben estar en la ubicación inicial (location_id={initial_location_id}). IMEI '{imei_data.imei}' está en ubicación {imei_data.location_id}"
+                        detail=f"Todos los IMEIs deben estar en la ubicación inicial (location_id={initial_location_id}). IMEI '{imei_val}' está en ubicación {loc_id}"
                     )
                 
                 # Validar que la ubicación existe y está activa
                 location = db.query(Location).filter(
-                    Location.id == imei_data.location_id,
+                    Location.id == loc_id,
                     Location.activo == True
                 ).first()
                 if not location:
                     db.rollback()
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Ubicación con ID {imei_data.location_id} no encontrada o inactiva para IMEI {imei_data.imei}"
+                        detail=f"Ubicación con ID {loc_id} no encontrada o inactiva para IMEI {imei_val}"
                     )
                 
                 # Verificar que el IMEI no exista
                 existing_imei = db.query(ProductIMEI).filter(
-                    ProductIMEI.imei == imei_data.imei.strip()
+                    ProductIMEI.imei == imei_val.strip()
                 ).first()
                 if existing_imei:
                     db.rollback()
                     raise HTTPException(
                         status_code=400,
-                        detail=f"El IMEI '{imei_data.imei.strip()}' ya está registrado"
+                        detail=f"El IMEI '{imei_val.strip()}' ya está registrado"
                     )
                 
                 db_imei = ProductIMEI(
                     product_id=db_product.id,
-                    location_id=imei_data.location_id,
-                    imei=imei_data.imei.strip(),
+                    location_id=loc_id,
+                    imei=imei_val.strip(),
                     vendido=False
                 )
                 db.add(db_imei)
         
         # LEGACY: Si hay IMEIs sin ubicación (para compatibilidad V1)
         elif imeis and len(imeis) > 0:
-            from app.models import ProductIMEI
+            # ProductIMEI ya está importado globalmente
             for imei_value in imeis:
                 if imei_value and imei_value.strip():
                     # Verificar que el IMEI no exista
@@ -487,7 +524,7 @@ def get_product_stock_by_location(
     )
 
 
-@router.put("/{product_id}", response_model=ProductResponse)
+@router.put("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:edit"))])
 def update_product(product_id: int, updates: ProductUpdate, db: Session = Depends(get_db)):
     """
     Actualiza un producto existente y devuelve su stock actual.
@@ -571,7 +608,8 @@ def update_product_stock(
     product_id: int, 
     update: StockUpdate, 
     location_id: int = Query(..., description="ID de la ubicación donde actualizar el stock"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Actualiza la cantidad disponible de stock para un producto en una ubicación específica.
@@ -629,7 +667,7 @@ def update_product_stock(
         referencia_id=None,
         referencia_tipo='manual_adjustment',
         notas=f"Ajuste manual de stock: {stock_anterior} → {update.cantidad_disponible}",
-        usuario='sistema'  # TODO: Usar usuario autenticado
+        usuario=current_user.username
     )
     db.add(history)
 
@@ -642,7 +680,11 @@ def update_product_stock(
 
 
 @router.post("/bulk", response_model=List[ProductResponse], status_code=201)
-def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
+def bulk_create_products(
+    payload: dict, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:create"))
+):
     """
     Crea múltiples productos en una sola operación.
     
@@ -685,6 +727,10 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
             cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
             initial_location_id = product_data.pop("initial_location_id", None)
             product_data.pop("imeis_con_ubicacion", None)  # No soportado en bulk
+
+            # Campos legacy (compatibilidad) que NO existen en el modelo Product
+            product_data.pop("imei", None)
+            product_data.pop("imeis", None)
 
             # Determinar ubicación destino
             location = None
@@ -735,7 +781,7 @@ def bulk_create_products(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error al crear productos: {str(e)}")
 
 
-@router.delete("/{product_id}", status_code=204)
+@router.delete("/{product_id}", status_code=204, dependencies=[Depends(check_permission("inventory:delete"))])
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     """
     Elimina un producto del sistema.
@@ -791,10 +837,35 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"No se puede eliminar el producto porque está referenciado en {historical_order_items} órdenes históricas. Use 'activo=false' para desactivarlo sin perder trazabilidad."
         )
+
+    # Verificar stock reservado y transferencias pendientes
+    from app.models import StockTransfer
+
+    reserved_stock = db.query(Stock).filter(
+        Stock.product_id == product_id,
+        Stock.cantidad_reservada > 0
+    ).first()
+
+    if reserved_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar el producto porque tiene stock reservado en transferencias pendientes."
+        )
+
+    pending_transfer = db.query(StockTransfer).filter(
+        StockTransfer.product_id == product_id,
+        StockTransfer.estado == 'pendiente'
+    ).first()
+
+    if pending_transfer:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el producto porque tiene una transferencia pendiente (ID {pending_transfer.id})."
+        )
     
     try:
         # V2.0: Eliminar IMEIs asociados primero
-        from app.models import ProductIMEI
+        # ProductIMEI ya está importado globalmente
         imeis = db.query(ProductIMEI).filter(ProductIMEI.product_id == product_id).all()
         for imei in imeis:
             db.delete(imei)
@@ -818,7 +889,8 @@ def set_product_stock_at_location(
     product_id: int,
     location_id: int,
     cantidad: int = Query(..., ge=0, description="Cantidad de stock en esta ubicación"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Establecer o actualizar el stock de un producto en una ubicación específica.
@@ -884,7 +956,7 @@ def set_product_stock_at_location(
         stock_nuevo=cantidad,
         referencia_tipo="manual_adjustment",
         notas="Ajuste manual de stock",
-        usuario="Sistema"
+        usuario=current_user.username
     )
     db.add(stock_history)
     db.commit()

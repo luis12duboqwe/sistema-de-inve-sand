@@ -1,14 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, StockHistory, IMEIHistory, OrderItem
+from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, StockHistory, IMEIHistory, OrderItem, User
 from app.schemas import ReturnCreate, ReturnResponse, ReturnItemResponse, PaginatedResponse
 from typing import List
+from app.auth import get_current_active_user, check_permission
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
 
 @router.get("", response_model=PaginatedResponse[ReturnResponse])
-def list_returns(db: Session = Depends(get_db)):
+def list_returns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Lista todas las devoluciones.
     """
@@ -22,7 +26,11 @@ def list_returns(db: Session = Depends(get_db)):
     )
 
 @router.post("", response_model=ReturnResponse, status_code=201)
-def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
+def create_return(
+    return_data: ReturnCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Crea una devolución parcial o total de una orden.
     Maneja el reingreso al stock y la actualización de IMEIs.
@@ -39,13 +47,21 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
     new_return = Return(
         order_id=return_data.order_id,
         reason=return_data.reason,
-        created_by=return_data.created_by,
+        created_by=current_user.username,
         status="completed" # Por ahora procesamos inmediatamente
     )
     db.add(new_return)
     db.flush() # Obtener ID
 
     return_items_response = []
+
+    # Cargar devoluciones previas para evitar sobre-retornos
+    previous_items = db.query(ReturnItem).join(Return, ReturnItem.return_id == Return.id).filter(
+        Return.order_id == order.id
+    ).all()
+    returned_quantities = {}
+    for prev in previous_items:
+        returned_quantities[prev.product_id] = returned_quantities.get(prev.product_id, 0) + prev.quantity
 
     # 3. Procesar Items
     for item in return_data.items:
@@ -58,9 +74,15 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
         if not order_item:
             raise HTTPException(status_code=400, detail=f"El producto {item.product_id} no pertenece a esta orden")
         
-        # Validar cantidad (simple check, idealmente sumar devoluciones previas)
-        if item.quantity > order_item.cantidad:
-             raise HTTPException(status_code=400, detail=f"Cantidad a devolver mayor a la comprada para producto {item.product_id}")
+        # Validar cantidad acumulada con devoluciones previas
+        already_returned = returned_quantities.get(item.product_id, 0)
+        if already_returned + item.quantity > order_item.cantidad:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cantidad a devolver ({already_returned + item.quantity}) excede la comprada ({order_item.cantidad}) para producto {item.product_id}"
+            )
+
+        returned_quantities[item.product_id] = already_returned + item.quantity
 
         # Crear ReturnItem
         return_item = ReturnItem(
@@ -74,7 +96,7 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
         db.add(return_item)
         
         # 4. Lógica de Inventario (Solo si la acción implica reingreso)
-        if item.action in ["refund", "exchange", "store_credit"]:
+        if item.action in ["refund", "warranty_exchange", "store_credit"]:
             # Buscar Stock en la ubicación original de la orden
             stock = db.query(Stock).filter(
                 Stock.product_id == item.product_id,
@@ -114,7 +136,7 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
                 referencia_id=new_return.id,
                 referencia_tipo='return',
                 notas=f"Devolución Orden #{order.id}: {item.condition}",
-                usuario=return_data.created_by
+                usuario=current_user.username
             )
             db.add(stock_history)
             
@@ -123,24 +145,35 @@ def create_return(return_data: ReturnCreate, db: Session = Depends(get_db)):
                 imei_obj = db.query(ProductIMEI).filter(
                     ProductIMEI.imei == item.imei
                 ).first()
-                
-                if imei_obj:
-                    imei_obj.vendido = False
-                    imei_obj.order_id = None
-                    # Si está defectuoso, tal vez mover a otra ubicación o marcar estado (pendiente implementar estado en IMEI)
-                    
-                    # Historial IMEI
-                    imei_history = IMEIHistory(
-                        imei=item.imei,
-                        product_id=item.product_id,
-                        location_id=order.source_location_id,
-                        event_type='devolucion',
-                        reference_id=new_return.id,
-                        reference_type='return',
-                        notes=f"Devolución por {item.condition} - Acción: {item.action}",
-                        created_by=return_data.created_by
-                    )
-                    db.add(imei_history)
+
+                if not imei_obj:
+                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} no existe en inventario")
+
+                if imei_obj.order_id != order.id:
+                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} no pertenece a la orden {order.id}")
+
+                # Evitar doble devolución del mismo IMEI
+                imei_already_returned = db.query(ReturnItem).join(Return, ReturnItem.return_id == Return.id).filter(
+                    Return.order_id == order.id,
+                    ReturnItem.imei == item.imei
+                ).first()
+                if imei_already_returned or not imei_obj.vendido:
+                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} ya fue devuelto o liberado previamente")
+
+                imei_obj.vendido = False
+                imei_obj.order_id = None
+
+                imei_history = IMEIHistory(
+                    imei=item.imei,
+                    product_id=item.product_id,
+                    location_id=order.source_location_id,
+                    event_type='devolucion',
+                    reference_id=new_return.id,
+                    reference_type='return',
+                    notes=f"Devolución por {item.condition} - Acción: {item.action}",
+                    created_by=current_user.username
+                )
+                db.add(imei_history)
 
     try:
         db.commit()

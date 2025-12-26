@@ -44,12 +44,12 @@ export function EditProductDialog({
   const [capacidad, setCapacidad] = useState('')
   const [condicion, setCondicion] = useState<Product['condicion']>('nuevo')
   const [precio, setPrecio] = useState('')
+  const [costo, setCosto] = useState('')
   const [garantiaMeses, setGarantiaMeses] = useState('')
   const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [isSerialized, setIsSerialized] = useState(false)
   const [stock, setStock] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showStockDialog, setShowStockDialog] = useState(false)
   const [stockRefreshKey, setStockRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -61,6 +61,7 @@ export function EditProductDialog({
       setCapacidad(product.capacidad || '')
       setCondicion(product.condicion)
       setPrecio(product.precio.toString())
+      setCosto((product.costo || 0).toString())
       setGarantiaMeses(product.garantia_meses.toString())
       setGarantiaCondiciones(product.garantia_condiciones || '')
       setIsSerialized(product.is_serialized ?? (product.categoria === 'celular'))
@@ -83,6 +84,7 @@ export function EditProductDialog({
         capacidad,
         condicion,
         precio: parseFloat(precio),
+        costo: parseFloat(costo) || 0,
         garantia_meses: parseInt(garantiaMeses),
         garantia_condiciones: garantiaCondiciones.trim() || undefined,
         is_serialized: isSerialized
@@ -185,7 +187,7 @@ export function EditProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="capacidad">Capacidad</Label>
                 <Input
@@ -204,6 +206,20 @@ export function EditProductDialog({
                   step="0.01"
                   value={precio}
                   onChange={e => setPrecio(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="costo">Costo (Reportes)</Label>
+                <Input
+                  id="costo"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={costo}
+                  onChange={e => setCosto(e.target.value)}
                 />
               </div>
 

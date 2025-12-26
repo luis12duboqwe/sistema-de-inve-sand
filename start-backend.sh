@@ -18,8 +18,13 @@ fi
 echo "✅ Python $(python3 --version | cut -d' ' -f2) encontrado"
 echo ""
 
-# Verificar si existe el entorno virtual
-if [ ! -d "venv" ]; then
+# Verificar si existe el entorno virtual (soporta venv y .venv)
+VENV_DIR=""
+if [ -d "venv" ]; then
+    VENV_DIR="venv"
+elif [ -d ".venv" ]; then
+    VENV_DIR=".venv"
+else
     echo "❌ Error: Entorno virtual no encontrado"
     echo ""
     echo "Por favor ejecuta primero:"
@@ -33,8 +38,8 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
-echo "📦 Activando entorno virtual..."
-source venv/bin/activate
+echo "📦 Activando entorno virtual ($VENV_DIR)..."
+source "$VENV_DIR/bin/activate"
 
 # Verificar que las dependencias estén instaladas
 if ! python3 -c "import fastapi" 2>/dev/null; then

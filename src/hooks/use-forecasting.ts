@@ -50,8 +50,7 @@ export function useForecasting(
         generateForecastData()
       }
     }
-  }, [autoRefresh, profile, products.length, lastUpdated])
-  // generateForecastData removed from dependencies to prevent infinite loop
+  }, [autoRefresh, profile, products.length, lastUpdated, generateForecastData])
 
   const getCriticalAlerts = useCallback(() => {
     return (alerts ?? []).filter((a) => a.urgency === 'critical' || a.urgency === 'high')

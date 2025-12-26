@@ -5,8 +5,9 @@
 **Sistema de Inventario Multi-Ubicación v2.0** - A dual-mode inventory management system for mobile phones and accessories with multi-location warehousing, multiple sales channels (WhatsApp, Facebook, Instagram), and AI-powered insights.
 
 **Tech Stack:**
-- Frontend: React + TypeScript + Vite + TailwindCSS + Radix UI + GitHub Spark KV
-- Backend: FastAPI + SQLAlchemy + SQLite
+- Frontend: React + TypeScript + Vite + TailwindCSS + Radix UI + Framer Motion + GitHub Spark KV
+- Backend: FastAPI + SQLAlchemy + SQLite + JWT Auth (OAuth2) + RBAC
+- AI: OpenAI API integration (GPT-4) for conversational bots
 - Deployment: Dev containers (Debian 12)
 
 ## Critical Architecture Concepts
@@ -65,6 +66,165 @@ Order {
 - Endpoint: `POST /api/stock-transfers`
 - Creates history entry + updates stock at both locations atomically
 - Frontend: `StockByLocationDialog.tsx`, backend: `routers/stock_transfers.py`
+
+### Authentication & RBAC (Role-Based Access Control)
+
+**Authentication Flow:**
+- JWT tokens via OAuth2 password flow (`/api/auth/token`)
+- Tokens stored in localStorage, sent via `Authorization: Bearer <token>` header
+- Initial setup endpoint: `POST /api/auth/setup` (only works if no users exist)
+- Password hashing: bcrypt via passlib
+- Token expiry: Configurable via `settings.access_token_expire_minutes`
+
+**RBAC Implementation:**
+- **Models**: `User`, `Role`, `Permission` with many-to-many `role_permissions` table
+- **System Roles**: Super Admin, Admin, Gerente, Vendedor, Invitado (marked `is_system_role=True`, cannot be deleted)
+- **Permissions**: String identifiers like `"products:read"`, `"orders:create"`, `"settings:edit"`
+- **Auth Dependencies**:
+  - `get_current_user(token)` - Validates JWT, returns User object
+  - `get_current_active_user()` - Ensures user is active
+  - `get_current_superuser()` - Requires superuser privilege
+  - `check_permission("permission:action")` - Custom dependency factory for granular access control
+
+**Implementation Pattern:**
+```python
+# In routers
+from app.auth import get_current_active_user, check_permission
+
+@router.post("/api/products")
+def create_product(
+    product: ProductCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("products:create"))
+):
+    # User has been validated with required permission
+    ...
+```
+
+**Frontend Auth:**
+- Token stored in `localStorage['authToken']`
+- API calls include `Authorization` header via `apiClient.ts`
+- Login/logout managed in `AuthDialog.tsx` (if exists) or inline
+- No persistent auth state in React - components check localStorage directly
+
+### AI Intelligence System
+
+**AI-Powered Sales Bots:**
+- Each `SalesProfile` can have an `AIProfileConfig` with GPT-4 integration
+- Conversational bots for WhatsApp/Facebook/Instagram channels
+- Real-time context generation for customer interactions
+
+**Key Components:**
+- **Router**: `backend/app/routers/ai_intelligence.py`
+- **Models**: `AIProfileConfig`, `InteractionLog`, `TrainingQueue`, `Customer`
+- **Endpoints**:
+  - `POST /api/ai/context` - Generates system prompt + context for AI chat
+  - `POST /api/ai/log-interaction` - Stores conversation history (tokens tracking)
+  - `POST /api/ai/submit-for-training` - Queues customer questions for FAQ training
+  - `GET/POST /api/ai/config/{sales_profile_id}` - Manage bot configuration
+
+**AI Context Generation:**
+```python
+# Returns structured context for OpenAI API
+{
+  "system_prompt": "Eres un vendedor...",  # Dynamic based on config
+  "bot_config": {
+    "model_name": "gpt-4o",
+    "temperature": 0.7,
+    "voice_tone": "amigable y profesional",
+    "max_discount_rate": 0.15
+  },
+  "customer_info": {...},               # Previous orders, preferences
+  "relevant_inventory": "...",          # Filtered stock from all locations
+  "relevant_faqs": "...",               # Matched FAQs
+  "financing_info": "...",              # Banks and rates
+  "previous_context": [...]             # Last N messages for context window
+}
+```
+
+**Advanced AI Features:**
+- **Negotiation engine**: Configurable discount limits per bot
+- **Human handoff**: Trigger conditions for escalation (e.g., "hablar con humano")
+- **Admin notifications**: WhatsApp alerts to admin phone on specific events
+- **Financing assistance**: Bot explains credit card/bank installment options
+- **Trade-in evaluation**: AI-guided device condition assessment
+
+### Product Serialization & IMEI Tracking
+
+**Serialized Products:**
+- Products have `is_serialized` boolean field (auto-true for `categoria='celular'`)
+- Serialized items require IMEI assignment before sale
+- **Models**: `IMEIHistory` tracks lifecycle (purchase, sale, transfer, return)
+- Multiple IMEIs per product supported via array field `imeis: List[str]`
+
+**IMEI Management:**
+- **Router**: `backend/app/routers/imeis.py`
+- **Endpoints**:
+  - `POST /api/imeis/assign` - Assign IMEI to product at specific location
+  - `POST /api/imeis/sell` - Mark IMEI as sold (linked to order)
+  - `POST /api/imeis/transfer` - Move IMEI between locations
+  - `GET /api/imeis/history/{imei}` - Full lifecycle audit trail
+  - `GET /api/imeis/location/{location_id}` - All IMEIs at a location
+
+**Validation Rules:**
+- IMEIs must be unique across system (enforced at DB level)
+- Optional Luhn algorithm validation (see `check_luhn.py`)
+- Cannot sell product with `is_serialized=True` if no IMEI assigned
+- Returns must track IMEI for warranty processing
+
+**Frontend Components:**
+- `AssignIMEIDialog.tsx` - Assign IMEIs to products
+- `IMEIHistoryDialog.tsx` - View IMEI audit trail
+- Integration in `NewOrderDialog.tsx` for serialized item validation
+
+### Trade-In System
+
+**Trade-In Flow:**
+- Customers bring old devices for credit towards new purchases
+- **Models**: `TradeInPolicy` (evaluation rules), `Return` (with `is_trade_in` flag)
+- **Policies**: Define conditions (Excelente, Bueno, Regular, Malo) with value percentages
+- **Router**: `backend/app/routers/returns.py` handles trade-ins as special returns
+
+**Key Endpoints:**
+- `POST /api/trade-in-policies` - Define valuation rules per device type
+- `POST /api/returns` - Create trade-in entry (credits customer account)
+- `GET /api/returns?is_trade_in=true` - List pending trade-ins
+- `PUT /api/returns/{id}/approve` - Finalize trade-in credit
+
+**Frontend:**
+- `PendingTradeInsDialog.tsx` - Manage trade-in approvals
+- `TradeInPoliciesDialog.tsx` - Configure evaluation rules
+- AI bots can guide trade-in evaluation process
+
+### Financing Integration
+
+**Bank Financing:**
+- **Models**: `Bank`, `FinancingOption` (credit card installment plans)
+- Supports multiple banks with custom interest rates per installment term
+- **Router**: `backend/app/routers/financing.py`
+- AI bots explain financing options during sales conversations
+
+**Data Structure:**
+```python
+Bank {
+  name: "BAC Credomatic",
+  logo_url: "...",
+  is_active: True
+}
+
+FinancingOption {
+  bank_id: 1,
+  months: 12,
+  interest_rate: 18.5,  # Annual rate
+  normal_card_rate: 22.0,  # Non-promotional rate
+  description: "12 meses sin intereses"
+}
+```
+
+**Frontend:**
+- Financing info displayed in product cards
+- `FinancingDialog.tsx` (if exists) for management
+- Orders can track `metodo_pago` including financing details
 
 ### Database Schema Patterns
 
@@ -281,6 +441,11 @@ def create_transfer(transfer: StockTransferCreate, db: Session = Depends(get_db)
 - **Real-time Sync**: `use-realtime-sync.ts` - Cross-tab synchronization via BroadcastChannel
 - **Health Check**: `use-health-check.ts` - Backend connectivity monitoring
 - **Stock History**: Track all stock movements (sales, transfers, adjustments)
+- **AI Conversational Bots**: GPT-4 powered sales assistants with context awareness
+- **IMEI Lifecycle Tracking**: Full audit trail for serialized devices
+- **Trade-In System**: Device evaluation and credit management
+- **Multi-Bank Financing**: Credit card installment plan integration
+- **RBAC**: Granular permission system for user access control
 
 ## Common Pitfalls
 

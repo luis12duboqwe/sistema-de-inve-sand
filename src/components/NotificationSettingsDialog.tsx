@@ -25,6 +25,7 @@ import type { Profile } from '@/lib/types'
 
 export interface NotificationSettings {
   enableLowStockAlerts: boolean
+  lowStockThreshold: number
   enableOutOfStockAlerts: boolean
   enableDailyDigest: boolean
   digestTime: string
@@ -46,6 +47,7 @@ export function NotificationSettingsDialog({
 }: NotificationSettingsDialogProps) {
   const [settings, setSettings] = useKV<NotificationSettings>('notification-settings', {
     enableLowStockAlerts: true,
+    lowStockThreshold: 10,
     enableOutOfStockAlerts: true,
     enableDailyDigest: false,
     digestTime: '09:00',
@@ -61,6 +63,7 @@ export function NotificationSettingsDialog({
     setSettings(current => ({
       ...(current ?? {
         enableLowStockAlerts: true,
+        lowStockThreshold: 10,
         enableOutOfStockAlerts: true,
         enableDailyDigest: false,
         digestTime: '09:00',
@@ -121,20 +124,39 @@ export function NotificationSettingsDialog({
           <div className="space-y-4">
             <h3 className="text-sm font-semibold">Tipos de Alertas</h3>
 
-            <div className="flex items-center justify-between p-3 border rounded-lg">
-              <div className="space-y-0.5">
-                <Label htmlFor="low-stock-alerts" className="text-sm font-medium">
-                  Alertas de Stock Bajo
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Recibir notificaciones cuando el stock esté por debajo del umbral
-                </p>
+            <div className="space-y-3 p-3 border rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="low-stock-alerts" className="text-sm font-medium">
+                    Alertas de Stock Bajo
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Recibir notificaciones cuando el stock esté por debajo del umbral
+                  </p>
+                </div>
+                <Switch
+                  id="low-stock-alerts"
+                  checked={settings?.enableLowStockAlerts ?? true}
+                  onCheckedChange={(checked) => updateSetting('enableLowStockAlerts', checked)}
+                />
               </div>
-              <Switch
-                id="low-stock-alerts"
-                checked={settings?.enableLowStockAlerts ?? true}
-                onCheckedChange={(checked) => updateSetting('enableLowStockAlerts', checked)}
-              />
+              
+              {(settings?.enableLowStockAlerts ?? true) && (
+                <div className="flex items-center gap-4 pl-4 border-l-2 border-muted ml-1 pt-2">
+                  <Label htmlFor="threshold" className="text-sm whitespace-nowrap">
+                    Umbral Global:
+                  </Label>
+                  <Input
+                    id="threshold"
+                    type="number"
+                    min="1"
+                    className="w-24 h-8"
+                    value={settings?.lowStockThreshold ?? 10}
+                    onChange={(e) => updateSetting('lowStockThreshold', parseInt(e.target.value) || 5)}
+                  />
+                  <span className="text-xs text-muted-foreground">unidades</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between p-3 border rounded-lg">

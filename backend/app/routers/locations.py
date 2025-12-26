@@ -4,6 +4,9 @@ from typing import List, Optional
 from app import models, schemas
 from app.database import get_db
 
+from app.auth import get_current_active_user, check_permission
+from app.models import User
+
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 
 
@@ -40,7 +43,8 @@ def get_location(location_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=schemas.LocationResponse, status_code=201)
 def create_location(
     location: schemas.LocationCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Crear una nueva ubicación"""
     try:
@@ -58,7 +62,8 @@ def create_location(
 def update_location(
     location_id: int,
     location: schemas.LocationUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Actualizar una ubicación existente"""
     db_location = db.query(models.Location).filter(models.Location.id == location_id).first()
@@ -79,19 +84,39 @@ def update_location(
 
 
 @router.delete("/{location_id}", status_code=204)
-def delete_location(location_id: int, db: Session = Depends(get_db)):
+def delete_location(
+    location_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("locations:manage"))
+):
     """Eliminar una ubicación"""
     db_location = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not db_location:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada")
     
-    # Verificar que no tenga stock
-    stock_count = db.query(models.Stock).filter(models.Stock.location_id == location_id).count()
-    if stock_count > 0:
+    # Verificar que no tenga stock REAL (cantidad > 0)
+    # Si tiene registros de stock pero todos están en 0, se pueden eliminar
+    stocks = db.query(models.Stock).filter(models.Stock.location_id == location_id).all()
+    
+    has_stock = False
+    for stock in stocks:
+        total_stock = stock.cantidad_disponible + stock.cantidad_reservada + stock.cantidad_defectuosa
+        if total_stock > 0:
+            has_stock = True
+            break
+            
+    if has_stock:
         raise HTTPException(
             status_code=400, 
-            detail=f"No se puede eliminar la ubicación porque tiene {stock_count} registros de stock"
+            detail=f"No se puede eliminar la ubicación porque tiene productos con stock positivo."
         )
+        
+    # Si llegamos aquí, o no hay registros de stock, o todos están en 0.
+    # Eliminamos los registros de stock vacíos antes de eliminar la ubicación
+    if stocks:
+        for stock in stocks:
+            db.delete(stock)
+        db.flush()
     
     # V2.0: Verificar que no tenga órdenes asociadas
     from app.models import Order

@@ -68,7 +68,7 @@ class LocalStorageKV implements SparkKV {
 /**
  * Wrapper seguro para Spark KV con fallback automático a localStorage
  */
-class SafeSparkKV implements SparkKV {
+class _SafeSparkKV implements SparkKV {
   private sparkKV: any
   private fallback: LocalStorageKV
   private cache: Map<string, { value: any; timestamp: number }> = new Map()
@@ -152,7 +152,7 @@ export function getKVStorage(): SparkKV {
         typeof kv.keys === 'function') {
       // DESHABILITADO: Spark KV causa errores 429 (Too Many Requests)
       // console.log('Using Spark KV with localStorage fallback')
-      // return new SafeSparkKV(kv)
+      // return new _SafeSparkKV(kv)
       console.log('Spark KV disabled due to rate limits, using localStorage')
       return new LocalStorageKV()
     }

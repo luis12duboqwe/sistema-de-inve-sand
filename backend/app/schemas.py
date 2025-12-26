@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import List, Optional, Generic, TypeVar
 from datetime import datetime, date
 from decimal import Decimal
@@ -97,6 +97,72 @@ class LocationBase(BaseModel):
 class LocationCreate(LocationBase):
     pass
 
+# ============= RBAC SCHEMAS =============
+class PermissionBase(BaseModel):
+    slug: str
+    description: str
+    module: str
+
+class PermissionResponse(PermissionBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class RoleBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RoleCreate(RoleBase):
+    permissions: List[str] # List of permission slugs
+
+class RoleResponse(RoleBase):
+    id: int
+    is_system_role: bool
+    permissions: List[PermissionResponse]
+    model_config = ConfigDict(from_attributes=True)
+
+class UserBase(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = True
+
+class UserCreate(UserBase):
+    password: str
+    role_id: Optional[int] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str):
+        if len(value) < 6:
+            raise ValueError("Password must be at least 6 characters long")
+        return value
+    
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str):
+        if len(value) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if not value.isalnum():
+            raise ValueError("Username must contain only alphanumeric characters")
+        return value
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+    role_id: Optional[int] = None
+
+class UserResponse(UserBase):
+    id: int
+    is_superuser: bool
+    role: Optional[RoleResponse] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 class LocationUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, description="Nombre no puede estar vacío si se proporciona")
@@ -111,8 +177,7 @@ class LocationResponse(LocationBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= SALES PROFILE SCHEMAS =============
@@ -143,8 +208,7 @@ class SalesProfileResponse(SalesProfileBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= STOCK BY LOCATION SCHEMAS =============
@@ -169,8 +233,7 @@ class StockByLocationResponse(StockByLocationBase):
     id: int
     location: Optional[LocationResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileBase(BaseModel):
@@ -185,8 +248,7 @@ class ProfileCreate(ProfileBase):
 class ProfileResponse(ProfileBase):
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileUpdate(BaseModel):
@@ -227,8 +289,7 @@ class SupplierResponse(SupplierBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============= IMEI SCHEMAS =============
@@ -247,11 +308,12 @@ class ProductBase(BaseModel):
     categoria: CategoriaEnum
     marca: str = Field(..., min_length=1, description="Marca no puede estar vacía")
     modelo: str = Field(..., min_length=1, description="Modelo no puede estar vacío")
+    color: Optional[str] = None  # V2.1: Color específico
     capacidad: Optional[str] = None
     condicion: CondicionEnum
     precio: Decimal = Field(..., gt=0, le=1000000, description="Precio debe ser mayor a 0 y menor a 1,000,000")
-    costo: Decimal = Field(0, ge=0, description="Costo del producto")
-    moneda: str = "HNL"
+    costo: Decimal = Field(Decimal("0.00"), ge=0, description="Costo del producto")
+    moneda: str = "Lps"
     garantia_meses: int = Field(0, ge=0, le=120, description="Garantía en meses debe ser entre 0 y 120 (10 años)")
     garantia_condiciones: Optional[str] = None  # Condiciones de garantía del proveedor
     activo: bool = True
@@ -282,9 +344,7 @@ class ProductCreate(ProductBase):
             raise ValueError('El stock inicial máximo permitido es 100,000 unidades. Verifique el valor.')
         return v
 
-    model_config = {
-        "populate_by_name": True
-    }
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ProductUpdate(BaseModel):
@@ -293,6 +353,7 @@ class ProductUpdate(BaseModel):
     categoria: Optional[CategoriaEnum] = None
     marca: Optional[str] = None
     modelo: Optional[str] = None
+    color: Optional[str] = None
     capacidad: Optional[str] = None
     condicion: Optional[CondicionEnum] = None
     precio: Optional[Decimal] = None
@@ -306,8 +367,7 @@ class ProductUpdate(BaseModel):
     imei: Optional[str] = None
     imeis: Optional[List[str]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StockUpdate(BaseModel):
@@ -322,6 +382,7 @@ class ProductResponse(BaseModel):
     categoria: str
     marca: str
     modelo: str
+    color: Optional[str] = None
     capacidad: Optional[str] = None
     condicion: str
     precio: Decimal
@@ -336,12 +397,12 @@ class ProductResponse(BaseModel):
     stock_disponible: int
     stock_items: Optional[List[StockByLocationResponse]] = None  # V2.0: Stock por ubicación
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000, description="Cantidad debe ser mayor a 0 y menor o igual a 1000")
+    precio_unitario: Optional[Decimal] = Field(None, ge=0, description="Precio unitario personalizado (descuento/negociación)")
     es_regalo_promocion: bool = False
     imeis: Optional[List[str]] = None  # V2.0: IMEIs específicos para productos serializados
     
@@ -363,8 +424,7 @@ class OrderItemResponse(BaseModel):
     product: ProductResponse
     imeis: Optional[List[str]] = None  # V2.0: IMEIs vendidos en este item
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderItemUpdate(BaseModel):
@@ -393,7 +453,9 @@ class TradeInCreate(BaseModel):
     """Schema para crear un registro de Trade-In"""
     marca: str = Field(..., min_length=1)
     modelo: str = Field(..., min_length=1)
-    imei: Optional[str] = None
+    color: Optional[str] = None      # V2.1
+    capacidad: Optional[str] = None  # V2.1
+    imei: Optional[str] = None       # V2.1: Opcional al ingreso (se valida en revisión)
     condicion: str = Field(..., description="usado, dañado, para_repuestos")
     precio_venta: Optional[Decimal] = Field(None, gt=0, description="Precio de venta sugerido para el producto resultante")
     valor_estimado: Decimal = Field(..., gt=0)
@@ -412,13 +474,14 @@ class TradeInResponse(BaseModel):
     id: int
     marca: str
     modelo: str
+    color: Optional[str] = None
+    capacidad: Optional[str] = None
     imei: Optional[str]
     condicion: str
     valor_estimado: Decimal
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderCreate(BaseModel):
     profile_slug: Optional[str] = None  # LEGACY: Compatibilidad con V1, usar sales_profile_slug en su lugar
@@ -432,6 +495,9 @@ class OrderCreate(BaseModel):
     trade_ins: Optional[List[TradeInCreate]] = None  # V2.0: Equipos recibidos en parte de pago
     notes: Optional[str] = None  # Notas adicionales de la orden
     delivery_date: Optional[datetime] = None  # Fecha de entrega programada
+    
+    # V2.1: Datos de financiamiento (opcional)
+    financing_data: Optional[dict] = Field(None, description="Datos de financiamiento: {bank_id, months}")
     
     @field_validator('customer_phone')
     @classmethod
@@ -463,6 +529,7 @@ class OrderResponse(BaseModel):
     canal: str
     metodo_pago: str
     total: Decimal
+    financing_details: Optional[str] = None # JSON string
     estado: str
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
@@ -470,8 +537,7 @@ class OrderResponse(BaseModel):
     items: List[OrderItemResponse]
     trade_ins: Optional[List[TradeInResponse]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderListResponse(BaseModel):
     id: int
@@ -488,8 +554,7 @@ class OrderListResponse(BaseModel):
     delivery_date: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderStatusUpdate(BaseModel):
@@ -555,8 +620,7 @@ class FAQEntryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Stock History Schemas
@@ -583,8 +647,7 @@ class StockHistoryResponse(StockHistoryBase):
     id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Pagination schema
@@ -609,6 +672,12 @@ class CustomerStats(BaseModel):
     average_order: Decimal
     first_order_date: datetime
     last_order_date: datetime
+    # AI Fields (V2.1)
+    id: Optional[int] = None
+    is_troll: bool = False
+    is_blocked: bool = False
+    reputation_score: int = 100
+    daily_message_count: int = 0
 
 
 class CustomerHistory(CustomerStats):
@@ -683,56 +752,6 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 
-class UserBase(BaseModel):
-    """Base user schema"""
-    username: str
-    email: str
-    full_name: Optional[str] = None
-
-
-class UserCreate(UserBase):
-    """Schema for creating a new user"""
-    password: str
-    
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, value: str):
-        if len(value) < 6:
-            raise ValueError("Password must be at least 6 characters long")
-        return value
-    
-    @field_validator("username")
-    @classmethod
-    def validate_username(cls, value: str):
-        if len(value) < 3:
-            raise ValueError("Username must be at least 3 characters long")
-        if not value.isalnum():
-            raise ValueError("Username must contain only alphanumeric characters")
-        return value
-
-
-class UserUpdate(BaseModel):
-    """Schema for updating user information"""
-    email: Optional[str] = None
-    full_name: Optional[str] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
-
-
-class UserResponse(UserBase):
-    """Schema for user responses"""
-    id: int
-    is_active: bool
-    is_superuser: bool
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class UserInDB(UserResponse):
-    """User schema as stored in database"""
-    hashed_password: str
 
 
 # Stock Transfer Schemas
@@ -789,8 +808,7 @@ class StockTransferResponse(BaseModel):
     from_profile_name: Optional[str] = None
     to_profile_name: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StockTransferConfirm(BaseModel):
@@ -828,8 +846,7 @@ class ReturnItemResponse(BaseModel):
     action: str
     imei: Optional[str]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ReturnResponse(BaseModel):
     id: int
@@ -840,8 +857,7 @@ class ReturnResponse(BaseModel):
     created_by: Optional[str]
     items: List[ReturnItemResponse]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class IMEIHistoryResponse(BaseModel):
     id: int
@@ -857,5 +873,59 @@ class IMEIHistoryResponse(BaseModel):
     product_name: Optional[str] = None
     location_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============= FINANCING SCHEMAS =============
+
+class FinancingOptionBase(BaseModel):
+    months: int = Field(..., gt=0, description="Plazo en meses")
+    rate: Decimal = Field(..., ge=0, description="Tasa de recargo (ej. 0.05 para 5%)")
+    active: bool = True
+
+class FinancingOptionCreate(FinancingOptionBase):
+    pass
+
+class FinancingOptionResponse(FinancingOptionBase):
+    id: int
+    bank_id: int
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class BankBase(BaseModel):
+    name: str = Field(..., min_length=1)
+    active: bool = True
+    normal_card_rate: float = Field(0.0, ge=0, le=1, description="Tasa para tarjeta normal (0.0 - 1.0)")
+
+class BankCreate(BankBase):
+    financing_options: Optional[List[FinancingOptionCreate]] = None
+
+class BankUpdate(BaseModel):
+    name: Optional[str] = None
+    active: Optional[bool] = None
+    normal_card_rate: Optional[float] = Field(None, ge=0, le=1)
+
+class BankResponse(BankBase):
+    id: int
+    financing_options: List[FinancingOptionResponse] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Trade-In Policies
+class TradeInPolicyBase(BaseModel):
+    rule_type: str = Field(..., description="model_rejection, brand_rejection, condition_rejection")
+    pattern: str = Field(..., min_length=1, description="Patrón a buscar (ej. 'iPhone 7', 'Xiaomi')")
+    action: str = Field("reject", description="reject, accept_with_conditions")
+    reason: Optional[str] = None
+    is_active: bool = True
+
+class TradeInPolicyCreate(TradeInPolicyBase):
+    pass
+
+class TradeInPolicyResponse(TradeInPolicyBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
