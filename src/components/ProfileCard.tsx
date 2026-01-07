@@ -14,7 +14,15 @@ interface ProfileCardProps {
 }
 
 export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit, onSettings, onClick }: ProfileCardProps) {
-  const hasSettings = profile.settings && Object.keys(profile.settings).length > 0
+  // Validación de seguridad
+  if (!profile || !profile.id) {
+    console.error('Invalid profile passed to ProfileCard:', profile)
+    return null
+  }
+
+  const hasSettings = profile.settings && typeof profile.settings === 'object' && Object.keys(profile.settings).length > 0
+  const profileName = profile.name || 'Sin nombre'
+  const profileSlug = profile.slug || 'sin-slug'
 
   return (
     <Card 
@@ -29,10 +37,10 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit,
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-lg text-card-foreground truncate">
-                {profile.name}
+                {profileName}
               </h3>
               <p className="text-sm text-muted-foreground font-mono truncate">
-                {profile.slug}
+                {profileSlug}
               </p>
             </div>
           </div>
@@ -75,7 +83,7 @@ export function ProfileCard({ profile, productCount = 0, orderCount = 0, onEdit,
           <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
             <div className="flex justify-between">
               <span>Moneda:</span>
-              <span className="font-medium text-foreground">{profile.settings.currency || 'HNL'}</span>
+              <span className="font-medium text-foreground">{profile.settings.currency || 'Lps'}</span>
             </div>
             {profile.settings.lowStockThreshold && (
               <div className="flex justify-between">

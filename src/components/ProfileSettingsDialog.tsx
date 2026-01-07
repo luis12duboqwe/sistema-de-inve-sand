@@ -4,7 +4,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter
+  DialogFooter,
+  DialogDescription
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,8 +19,10 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CurrencyDollar, Bell, Storefront } from '@phosphor-icons/react'
+import { Card } from '@/components/ui/card'
+import { CurrencyDollar, Bell, Storefront, Eye } from '@phosphor-icons/react'
 import type { Profile, ProfileSettings } from '@/lib/types'
+import { formatPrice } from '@/lib/priceFormatter'
 
 interface ProfileSettingsDialogProps {
   open: boolean
@@ -58,25 +61,32 @@ export function ProfileSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configuración de {profile.name}</DialogTitle>
+          <DialogDescription>
+            Personaliza las opciones de tu perfil de negocio
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="general">
                 <CurrencyDollar size={16} className="mr-2" />
                 General
               </TabsTrigger>
               <TabsTrigger value="notifications">
                 <Bell size={16} className="mr-2" />
-                Notificaciones
+                Alertas
               </TabsTrigger>
               <TabsTrigger value="business">
                 <Storefront size={16} className="mr-2" />
                 Negocio
+              </TabsTrigger>
+              <TabsTrigger value="preview">
+                <Eye size={16} className="mr-2" />
+                Vista Previa
               </TabsTrigger>
             </TabsList>
 
@@ -91,12 +101,15 @@ export function ProfileSettingsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="HNL">HNL (Lempira)</SelectItem>
-                    <SelectItem value="USD">USD (Dólar)</SelectItem>
-                    <SelectItem value="MXN">MXN (Peso Mexicano)</SelectItem>
-                    <SelectItem value="EUR">EUR (Euro)</SelectItem>
+                    <SelectItem value="HNL">🇭🇳 HNL (Lempira Hondureña)</SelectItem>
+                    <SelectItem value="USD">🇺🇸 USD (Dólar Estadounidense)</SelectItem>
+                    <SelectItem value="MXN">🇲🇽 MXN (Peso Mexicano)</SelectItem>
+                    <SelectItem value="EUR">🇪🇺 EUR (Euro)</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  La moneda se aplicará a todos los precios de este perfil
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -109,37 +122,52 @@ export function ProfileSettingsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="standard">Estándar (1234.56)</SelectItem>
-                    <SelectItem value="comma">Coma (1.234,56)</SelectItem>
-                    <SelectItem value="space">Espacio (1 234.56)</SelectItem>
+                    <SelectItem value="standard">Estándar - 1,234.56</SelectItem>
+                    <SelectItem value="comma">Europeo - 1.234,56</SelectItem>
+                    <SelectItem value="space">Espaciado - 1 234.56</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Ejemplo: {formatPrice(1234.56, settings)}
+                </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="taxRate">Tasa de Impuesto (%)</Label>
-                <Input
-                  id="taxRate"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={settings.taxRate}
-                  onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="autoCalculateTax">Calcular Impuesto Automáticamente</Label>
-                  <p className="text-sm text-muted-foreground">Agrega impuesto a precios en órdenes</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="taxRate">Tasa de Impuesto (%)</Label>
+                  <Input
+                    id="taxRate"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={settings.taxRate}
+                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) || 0 })}
+                  />
                 </div>
-                <Switch
-                  id="autoCalculateTax"
-                  checked={settings.autoCalculateTax}
-                  onCheckedChange={(checked) => setSettings({ ...settings, autoCalculateTax: checked })}
-                />
+
+                <div className="flex items-end">
+                  <div className="flex items-center space-x-2 pb-2">
+                    <Switch
+                      id="autoCalculateTax"
+                      checked={settings.autoCalculateTax}
+                      onCheckedChange={(checked) => setSettings({ ...settings, autoCalculateTax: checked })}
+                    />
+                    <Label htmlFor="autoCalculateTax" className="text-sm">
+                      Auto-calcular
+                    </Label>
+                  </div>
+                </div>
               </div>
+
+              {settings.autoCalculateTax && (
+                <Card className="p-3 bg-accent/10 border-accent/20">
+                  <p className="text-xs text-muted-foreground">
+                    💡 Los impuestos se calcularán automáticamente en las órdenes. 
+                    Ejemplo: L 1,000 + {settings.taxRate}% = {formatPrice(1000 + (1000 * settings.taxRate / 100), settings)}
+                  </p>
+                </Card>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="lowStockThreshold">Umbral de Stock Bajo</Label>
@@ -150,6 +178,9 @@ export function ProfileSettingsDialog({
                   value={settings.lowStockThreshold}
                   onChange={(e) => setSettings({ ...settings, lowStockThreshold: parseInt(e.target.value) || 0 })}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Recibirás alertas cuando el stock caiga por debajo de este número
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -162,16 +193,16 @@ export function ProfileSettingsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="efectivo">Efectivo</SelectItem>
-                    <SelectItem value="transferencia">Transferencia</SelectItem>
-                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                    <SelectItem value="financiamiento">Financiamiento</SelectItem>
+                    <SelectItem value="efectivo">💵 Efectivo</SelectItem>
+                    <SelectItem value="transferencia">🏦 Transferencia</SelectItem>
+                    <SelectItem value="tarjeta">💳 Tarjeta</SelectItem>
+                    <SelectItem value="financiamiento">📊 Financiamiento</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="defaultChannel">Canal Predeterminado</Label>
+                <Label htmlFor="defaultChannel">Canal de Venta Predeterminado</Label>
                 <Select
                   value={settings.defaultChannel}
                   onValueChange={(v) => setSettings({ ...settings, defaultChannel: v as ProfileSettings['defaultChannel'] })}
@@ -180,16 +211,16 @@ export function ProfileSettingsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                    <SelectItem value="instagram">Instagram</SelectItem>
+                    <SelectItem value="whatsapp">💬 WhatsApp</SelectItem>
+                    <SelectItem value="facebook">📘 Facebook</SelectItem>
+                    <SelectItem value="instagram">📷 Instagram</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </TabsContent>
 
             <TabsContent value="notifications" className="space-y-4 pt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="space-y-0.5">
                   <Label htmlFor="enableNotifications">Habilitar Notificaciones</Label>
                   <p className="text-sm text-muted-foreground">Recibe alertas de stock bajo y nuevas órdenes</p>
@@ -200,6 +231,17 @@ export function ProfileSettingsDialog({
                   onCheckedChange={(checked) => setSettings({ ...settings, enableNotifications: checked })}
                 />
               </div>
+
+              {settings.enableNotifications && (
+                <Card className="p-4 bg-accent/5 border-accent/20">
+                  <p className="text-sm font-medium mb-2">Recibirás alertas para:</p>
+                  <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
+                    <li>Stock por debajo de {settings.lowStockThreshold} unidades</li>
+                    <li>Nuevas órdenes creadas</li>
+                    <li>Cambios de estado en órdenes</li>
+                  </ul>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="business" className="space-y-4 pt-4">
@@ -233,6 +275,66 @@ export function ProfileSettingsDialog({
                   onChange={(e) => setSettings({ ...settings, businessEmail: e.target.value })}
                 />
               </div>
+
+              <Card className="p-4 bg-muted/50 border-dashed">
+                <p className="text-xs text-muted-foreground">
+                  💡 Esta información se puede usar para generar recibos y facturas en el futuro
+                </p>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="preview" className="space-y-4 pt-4">
+              <Card className="p-6">
+                <h3 className="font-semibold mb-4">Vista Previa de Configuración</h3>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Formato de Moneda</p>
+                      <p className="font-semibold text-lg">{formatPrice(12345.67, settings)}</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Impuestos</p>
+                      <p className="font-semibold text-lg">
+                        {settings.autoCalculateTax ? `${settings.taxRate}% Auto` : 'Desactivado'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Método de Pago</p>
+                      <p className="font-semibold capitalize">{settings.defaultPaymentMethod}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Canal de Venta</p>
+                      <p className="font-semibold capitalize">{settings.defaultChannel}</p>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <p className="text-xs text-muted-foreground mb-2">Ejemplo de Orden</p>
+                    <Card className="p-4 bg-muted/30">
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Subtotal:</span>
+                          <span className="font-medium">{formatPrice(5000, settings)}</span>
+                        </div>
+                        {settings.autoCalculateTax && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Impuesto ({settings.taxRate}%):</span>
+                            <span>{formatPrice(5000 * settings.taxRate / 100, settings)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-base pt-2 border-t">
+                          <span>Total:</span>
+                          <span>{formatPrice(settings.autoCalculateTax ? 5000 + (5000 * settings.taxRate / 100) : 5000, settings)}</span>
+                        </div>
+                      </div>
+                    </Card>
+                  </div>
+                </div>
+              </Card>
             </TabsContent>
           </Tabs>
 

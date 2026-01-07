@@ -1,38 +1,94 @@
-from fastapi import FastAPI, Depends, HTTPException
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db, get_db
-from app.routers import profiles, products, orders, faq
-from app.models import Profile, Product, Stock
+import logging
+
+from app.database import init_db, get_db, check_db_connection
+from app.routers import (
+    profiles, products, orders, faq, customers, reports, 
+    auth_router, stock_transfers, suppliers, stock_history,
+    locations, sales_profiles, returns, imeis, ai_intelligence,
+    financing, public, forecasting
+)
+from app.models import Profile, Product, Stock, Location
+from app.config import settings
+from app.utils.logging_config import setup_logging
 from sqlalchemy.orm import Session
+
+# Configurar logging al inicio
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up application...")
+    init_db()
+    yield
+    # Shutdown (if needed in the future)
+    logger.info("Shutting down application...")
+
 
 app = FastAPI(
     title="Sistema de Inventario API",
-    description="API REST para gestión de inventario de celulares y accesorios",
-    version="1.0.0"
+    description="API REST para gestión de inventario de celulares y accesorios con ubicaciones físicas y perfiles de venta",
+    version="2.0.0",
+    lifespan=lifespan
 )
+
+# Global Exception Handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # No capturar HTTPException (dejar que FastAPI lo maneje)
+    # Pero sí loguear errores inesperados
+    logger.error(f"Unhandled exception in {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error. Please check logs for details."}
+    )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_origins,
+    # Evitar "*" + credenciales (riesgo CORS). La API usa Authorization header,
+    # no cookies, así que no se requieren credenciales.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
+app.include_router(locations.router)
+app.include_router(sales_profiles.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
+app.include_router(customers.router)
+app.include_router(reports.router)
+app.include_router(stock_transfers.router)
+app.include_router(returns.router)
+app.include_router(imeis.router)
+app.include_router(public.router)
+app.include_router(suppliers.router)
+app.include_router(financing.router)
+app.include_router(stock_history.router)
+app.include_router(ai_intelligence.router)
+app.include_router(forecasting.router)
 
 @app.get("/")
 def read_root():
+    """
+    Root endpoint with API information.
+    
+    Returns:
+        Basic API information and documentation link
+    """
     return {
         "message": "Sistema de Inventario API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs"
     }
 
@@ -61,6 +117,19 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         )
         db.add(profile)
         db.flush()
+
+        # V2.0: crear ubicación por defecto para asignar stock inicial
+        default_location = db.query(Location).filter(Location.nombre == "Tienda Principal").first()
+        if not default_location:
+            default_location = Location(
+                nombre="Tienda Principal",
+                tipo="tienda",
+                direccion="",
+                telefono=None,
+                activo=True
+            )
+            db.add(default_location)
+            db.flush()
         
         products_data = [
             {
@@ -127,6 +196,7 @@ def initialize_sample_data(db: Session = Depends(get_db)):
             
             stock = Stock(
                 product_id=product.id,
+                location_id=default_location.id,
                 cantidad_disponible=stock_qty
             )
             db.add(stock)
@@ -139,6 +209,11 @@ def initialize_sample_data(db: Session = Depends(get_db)):
                 "name": profile.name,
                 "slug": profile.slug
             },
+            "location": {
+                "nombre": default_location.nombre,
+                "id": default_location.id,
+                "tipo": default_location.tipo
+            },
             "products_created": len(products_data)
         }
     except Exception as e:
@@ -148,9 +223,27 @@ def initialize_sample_data(db: Session = Depends(get_db)):
 @app.get("/api/health", tags=["Health"])
 def health_check():
     """
-    Verifica el estado de salud de la API.
+    Verifica el estado de salud de la API y la base de datos.
     
     Returns:
-        - status: Estado del servicio (healthy)
+        - status: Estado del servicio (healthy/unhealthy)
+        - database: Estado de la conexión a la base de datos
+        
+    Raises:
+        - 503: Si la base de datos no está disponible
     """
-    return {"status": "healthy"}
+    db_healthy = check_db_connection()
+    
+    if not db_healthy:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "database": "disconnected"
+            }
+        )
+    
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }

@@ -12,26 +12,41 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
-import { useKV } from '@github/spark/hooks'
-import { Database, CloudArrowUp, CloudSlash } from '@phosphor-icons/react'
+import { useKV } from '@/hooks/use-kv'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
+import { clearAllData } from '@/lib/dataInitializer'
+import { syncService } from '@/lib/syncService'
 import { toast } from 'sonner'
+import { ManageUsersDialog } from '@/components/ManageUsersDialog'
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenNotificationSettings?: () => void
+  onOpenSyncSettings?: () => void
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings, onOpenSyncSettings }: SettingsDialogProps) {
   const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [useApi, setUseApi] = useKV<boolean>('settings_use_api', false)
   const [isTestingConnection, setIsTestingConnection] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [localApiUrl, setLocalApiUrl] = useState('')
+  const [showManageUsers, setShowManageUsers] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
     if (apiUrl) {
       setLocalApiUrl(apiUrl)
+    }
+    const userStr = localStorage.getItem('auth_user')
+    if (userStr) {
+      try {
+        setCurrentUser(JSON.parse(userStr))
+      } catch (err) {
+        console.error('Error parseando usuario de auth_user', err)
+      }
     }
   }, [apiUrl])
 
@@ -47,7 +62,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       } else {
         throw new Error('Connection failed')
       }
-    } catch (error) {
+    } catch {
       setConnectionStatus('error')
       toast.error('No se pudo conectar con el backend')
     } finally {
@@ -71,8 +86,26 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     try {
       await apiClient.initializeData()
       toast.success('Base de datos inicializada con datos de prueba')
-    } catch (error) {
+    } catch {
       toast.error('Error al inicializar base de datos')
+    }
+  }
+
+  const handleSyncLocalToRemote = async () => {
+    if (!useApi) {
+      toast.error('Debe activar el modo API primero')
+      return
+    }
+    
+    const toastId = toast.loading('Sincronizando datos locales a la nube...')
+    try {
+      const result = await syncService.syncLocalToRemote()
+      toast.dismiss(toastId)
+      toast.success(`Sincronización completada: ${result.counts.products} productos, ${result.counts.locations} ubicaciones`)
+    } catch (error) {
+      toast.dismiss(toastId)
+      toast.error('Error durante la sincronización')
+      console.error(error)
     }
   }
 
@@ -87,6 +120,54 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </DialogHeader>
 
         <div className="space-y-6">
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">
+                  Sincronización Multi-Dispositivo
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Configurar sincronización en tiempo real
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  onOpenSyncSettings?.()
+                }}
+              >
+                <ArrowsClockwise size={16} className="mr-2" />
+                Configurar
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">
+                  Notificaciones y Alertas
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Configurar alertas de stock bajo y notificaciones
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onOpenChange(false)
+                  onOpenNotificationSettings?.()
+                }}
+              >
+                <Bell size={16} className="mr-2" />
+                Configurar
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
@@ -141,6 +222,25 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </p>
               </div>
 
+              {currentUser?.is_superuser && (
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">
+                        Gestión de Usuarios
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Administrar usuarios y roles del sistema
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setShowManageUsers(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      Gestionar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   onClick={testConnection}
@@ -180,8 +280,51 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   Cargar Datos de Prueba
                 </Button>
               </div>
+
+              <div className="rounded-lg border border-dashed p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium mb-1">Sincronización</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Sube tus datos locales (productos, ubicaciones) al servidor.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleSyncLocalToRemote}
+                  variant="secondary"
+                  className="w-full"
+                  size="sm"
+                >
+                  <ArrowsClockwise className="mr-2 h-4 w-4" />
+                  Sincronizar Local -&gt; Nube
+                </Button>
+              </div>
             </>
           )}
+
+          <div className="rounded-lg border border-destructive/50 p-4 space-y-3 bg-destructive/5">
+            <div>
+              <p className="text-sm font-medium mb-1 text-destructive flex items-center gap-2">
+                <Trash size={16} />
+                Zona de Peligro
+              </p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Elimina todos los datos locales (productos, órdenes, perfiles) y reinicia la aplicación.
+              </p>
+            </div>
+            <Button
+              onClick={async () => {
+                if (confirm('¿Estás seguro? Esto borrará TODOS los datos locales y no se puede deshacer.')) {
+                  await clearAllData()
+                  window.location.reload()
+                }
+              }}
+              variant="destructive"
+              className="w-full"
+              size="sm"
+            >
+              Borrar Datos Locales y Reiniciar
+            </Button>
+          </div>
         </div>
 
         <DialogFooter>
@@ -193,6 +336,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <ManageUsersDialog 
+        open={showManageUsers} 
+        onOpenChange={setShowManageUsers} 
+      />
     </Dialog>
   )
 }

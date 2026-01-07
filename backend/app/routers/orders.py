@@ -1,186 +1,612 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from decimal import Decimal
+from datetime import datetime, date
+import math
+import uuid
+import json
 from app.database import get_db
-from app.models import Order, OrderItem, Product, Profile, Stock
+from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory, Bank, FinancingOption, InteractionLog, Customer, User
 from app.schemas import (
     OrderCreate,
     OrderResponse,
     OrderListResponse,
     ProductResponse,
     OrderStatusUpdate,
-    OrderUpdate
+    OrderUpdate,
+    OrderItemUpdate,
+    OrderSearchParams,
+    PaginatedResponse,
+    TradeInResponse
 )
+from app.auth import get_current_active_user, get_current_user_optional, check_permission
+from app.utils.order_financing import (
+    compute_financing_from_payload,
+    recompute_financing_from_details,
+)
+from app.utils.order_queries import resolve_sales_profile_for_query
+from app.utils.order_tradeins import compute_trade_in_total
+from app.utils.order_validators import (
+    resolve_sales_profile,
+    validate_location_and_phone,
+    validate_location_exists,
+    normalize_customer_phone,
+)
+from app.utils.stock_manager import StockManager, StockValidationError
+from app.utils.validators import InputValidator, ValidationError
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+def _resolve_user_label(
+    current_user: Optional[User],
+    sales_profile: Optional[SalesProfile] = None,
+    profile: Optional[Profile] = None,
+    fallback: str = "Sistema",
+) -> str:
+    """Returns a human-friendly identifier for auditing/logging without assuming a full User object."""
+    if hasattr(current_user, "username"):
+        return current_user.username  # type: ignore[attr-defined]
+    if sales_profile and getattr(sales_profile, "name", None):
+        return sales_profile.name  # type: ignore[return-value]
+    if profile and getattr(profile, "name", None):
+        return profile.name  # type: ignore[return-value]
+    return fallback
+
+
+def _process_order_items(
+    db: Session,
+    order: OrderCreate,
+    sales_profile: Optional[SalesProfile],
+    stock_manager: StockManager
+) -> Tuple[Decimal, List[dict]]:
+    """Valida y prepara items de la orden: bloqueo de stock/IMEIs y cálculo de totales."""
+    total = Decimal("0.00")
+    order_items_data: List[dict] = []
+
+    for item in order.items:
+        # No permitir cantidades vacías (ya validado en schema, se refuerza)
+        if item.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+
+        allow_pending_imei = False  # Ventas requieren IMEIs para serializados
+
+        try:
+            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
+                product_id=item.product_id,
+                location_id=order.source_location_id,
+                quantity=item.cantidad,
+                imeis_requested=item.imeis,
+                allow_pending_imei=allow_pending_imei,
+                operation_type="sale"
+            )
+        except StockValidationError as e:
+            # Consistencia rota
+            raise HTTPException(status_code=409, detail=str(e))
+
+        # Precio: usar el personalizado si viene; si no, precio del producto
+        if item.precio_unitario is not None:
+            precio_unitario = Decimal(str(item.precio_unitario))
+            if precio_unitario < 0:
+                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
+        else:
+            precio_unitario = Decimal(str(product.precio))
+
+        subtotal = precio_unitario * item.cantidad
+        if not item.es_regalo_promocion:
+            total += subtotal
+
+        order_items_data.append({
+            "product": product,
+            "stock": stock,
+            "cantidad": item.cantidad,
+            "precio_unitario": precio_unitario,
+            "es_regalo_promocion": item.es_regalo_promocion,
+            "imeis_to_sell": imeis_to_sell
+        })
+
+    return total, order_items_data
+
+
+def _process_items_for_update(
+    db: Session,
+    items_payload: List[OrderItemUpdate],
+    location_id: int,
+    stock_manager: StockManager
+) -> Tuple[Decimal, List[dict]]:
+    """Prepara items para update de orden usando validación centralizada de stock/IMEIs."""
+    total = Decimal("0.00")
+    prepared: List[dict] = []
+
+    for item_update in items_payload:
+        if item_update.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+
+        try:
+            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
+                product_id=item_update.product_id,
+                location_id=location_id,
+                quantity=item_update.cantidad,
+                imeis_requested=item_update.imeis,
+                allow_pending_imei=False,  # Mantener requerimiento de IMEIs igual que en creación
+                operation_type="sale"
+            )
+        except StockValidationError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+        if item_update.precio_unitario is not None:
+            price = Decimal(str(item_update.precio_unitario))
+            if price < 0:
+                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
+        else:
+            price = Decimal(str(product.precio))
+        if not item_update.es_regalo_promocion:
+            total += price * item_update.cantidad
+
+        prepared.append({
+            "product": product,
+            "stock": stock,
+            "cantidad": item_update.cantidad,
+            "precio_unitario": price,
+            "es_regalo_promocion": item_update.es_regalo_promocion,
+            "imeis_to_sell": imeis_to_sell
+        })
+
+    return total, prepared
+def _process_trade_ins(
+    db: Session,
+    order: OrderCreate,
+    db_order: Optional[Order],
+    profile_id_for_order: Optional[int],
+    current_user: Optional[User],
+    sales_profile: Optional[SalesProfile],
+    profile: Optional[Profile]
+) -> Decimal:
+    """Procesa trade-ins. Si db_order es None, solo calcula total; si no, escribe efectos en DB."""
+    trade_in_total = compute_trade_in_total(order.trade_ins)
+
+    if not order.trade_ins or db_order is None:
+        return trade_in_total
+
+    for trade_in_item in order.trade_ins:
+        db_trade_in = TradeIn(
+            order_id=db_order.id,
+            marca=trade_in_item.marca,
+            modelo=trade_in_item.modelo,
+            color=trade_in_item.color,
+            capacidad=trade_in_item.capacidad,
+            imei=trade_in_item.imei,
+            condicion=trade_in_item.condicion,
+            valor_estimado=trade_in_item.valor_estimado,
+            notas=trade_in_item.notas
+        )
+        db.add(db_trade_in)
+
+        query_existing = db.query(Product).filter(
+            Product.marca == trade_in_item.marca,
+            Product.modelo == trade_in_item.modelo,
+            Product.condicion == trade_in_item.condicion,
+            Product.activo == True
+        )
+        if trade_in_item.color:
+            query_existing = query_existing.filter(Product.color == trade_in_item.color)
+        if trade_in_item.capacidad:
+            query_existing = query_existing.filter(Product.capacidad == trade_in_item.capacidad)
+
+        existing_product = query_existing.first()
+
+        if existing_product:
+            new_product = existing_product
+        else:
+            sku_suffix = trade_in_item.imei[-6:] if trade_in_item.imei else uuid.uuid4().hex[:6]
+            new_sku = f"RET-{sku_suffix}-{uuid.uuid4().hex[:4]}"
+            precio_venta = trade_in_item.precio_venta if trade_in_item.precio_venta else trade_in_item.valor_estimado * Decimal("1.3")
+
+            nombre_producto = f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}"
+            if trade_in_item.capacidad:
+                nombre_producto += f" {trade_in_item.capacidad}"
+            if trade_in_item.color:
+                nombre_producto += f" ({trade_in_item.color})"
+
+            new_product = Product(
+                sku=new_sku,
+                nombre=nombre_producto,
+                categoria="pendiente_revision",
+                marca=trade_in_item.marca,
+                modelo=trade_in_item.modelo,
+                color=trade_in_item.color,
+                capacidad=trade_in_item.capacidad,
+                condicion=trade_in_item.condicion,
+                precio=precio_venta,
+                costo=trade_in_item.valor_estimado,
+                moneda="HNL",
+                activo=False,
+                profile_id=profile_id_for_order,
+                is_serialized=True
+            )
+            db.add(new_product)
+            db.flush()
+
+        stock_retoma = db.query(Stock).filter(
+            Stock.product_id == new_product.id,
+            Stock.location_id == order.source_location_id
+        ).with_for_update().first()
+
+        stock_anterior_retoma = 0
+        if stock_retoma:
+            stock_anterior_retoma = stock_retoma.cantidad_disponible
+            stock_retoma.cantidad_disponible += 1
+        else:
+            stock_retoma = Stock(
+                product_id=new_product.id,
+                location_id=order.source_location_id,
+                cantidad_disponible=1,
+                cantidad_reservada=0
+            )
+            db.add(stock_retoma)
+
+        if trade_in_item.imei:
+            existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == trade_in_item.imei).first()
+            if existing_imei:
+                existing_imei.product_id = new_product.id
+                existing_imei.location_id = order.source_location_id
+                existing_imei.vendido = False
+                existing_imei.order_id = None
+                db.add(existing_imei)
+            else:
+                new_imei = ProductIMEI(
+                    product_id=new_product.id,
+                    location_id=order.source_location_id,
+                    imei=trade_in_item.imei,
+                    vendido=False
+                )
+                db.add(new_imei)
+
+            user_label = _resolve_user_label(current_user, sales_profile, profile)
+
+            imei_history = IMEIHistory(
+                imei=trade_in_item.imei,
+                product_id=new_product.id,
+                location_id=order.source_location_id,
+                event_type='retoma',
+                reference_id=db_order.id,
+                reference_type='order',
+                notes=f"Ingreso por retoma en orden #{db_order.id}",
+                created_by=user_label
+            )
+            db.add(imei_history)
+
+        stock_history_retoma = StockHistory(
+            product_id=new_product.id,
+            location_id=order.source_location_id,
+            tipo_cambio='retoma',
+            cantidad=1,
+            stock_anterior=stock_anterior_retoma,
+            stock_nuevo=stock_anterior_retoma + 1,
+            referencia_id=db_order.id,
+            referencia_tipo='order',
+            notas=f"Ingreso por retoma de {trade_in_item.marca} {trade_in_item.modelo}",
+            usuario=user_label
+        )
+        db.add(stock_history_retoma)
+
+    return trade_in_total
+
+
+def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
+    """Serializa un producto para incluirlo en la respuesta de una orden."""
+    # V2.0: el stock está distribuido por ubicación; si se conoce la ubicación de origen,
+    # se reporta el stock específico, de lo contrario se envía el total consolidado.
+    stock_disponible = 0
+    if hasattr(product, "stock_items") and product.stock_items:
+        if location_id:
+            matching_stock = next((s for s in product.stock_items if s.location_id == location_id), None)
+            if matching_stock:
+                reservado = matching_stock.cantidad_reservada or 0
+                stock_libre = (matching_stock.cantidad_disponible or 0) - reservado
+                stock_disponible = max(stock_libre, 0)
+            else:
+                stock_disponible = 0
+        else:
+            total = 0
+            for s in product.stock_items:
+                reservado = s.cantidad_reservada or 0
+                stock_libre = (s.cantidad_disponible or 0) - reservado
+                total += max(stock_libre, 0)
+            stock_disponible = total
+
+    return {
+        "id": product.id,
+        "profile_id": product.profile_id,
+        "sku": product.sku,
+        "nombre": product.nombre,
+        "categoria": product.categoria,
+        "marca": product.marca,
+        "modelo": product.modelo,
+        "color": product.color,
+        "capacidad": product.capacidad,
+        "condicion": product.condicion,
+        "precio": product.precio,
+        "costo": product.costo,
+        "moneda": product.moneda,
+        "garantia_meses": product.garantia_meses,
+        "activo": product.activo,
+        "is_serialized": product.is_serialized,
+        "stock_disponible": stock_disponible
+    }
 
 
 def _serialize_order(order: Order) -> OrderResponse:
+    """
+    Helper function to serialize an Order model to OrderResponse schema.
+    
+    Args:
+        - order: Order model instance
+        
+    Returns:
+        OrderResponse with complete items and product details
+    """
     items_response = []
     for item in order.items:
-        product = item.product
+        # V2.0: Incluir IMEIs vendidos en este item
+        imeis_list = []
+        if hasattr(order, 'imeis_vendidos'):
+             # Filtrar imeis_vendidos por product_id
+             imeis_list = [i.imei for i in order.imeis_vendidos if i.product_id == item.product_id]
+
         items_response.append({
             "id": item.id,
             "product_id": item.product_id,
             "cantidad": item.cantidad,
             "precio_unitario": item.precio_unitario,
             "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            ) if product else None
+            "product": ProductResponse(**_serialize_product_for_order(item.product, order.source_location_id)) if item.product else None,
+            "imeis": imeis_list if imeis_list else None
         })
+
+    trade_ins_response = []
+    if order.trade_ins:
+        for trade_in in order.trade_ins:
+            trade_ins_response.append(TradeInResponse.model_validate(trade_in))
 
     return OrderResponse(
         id=order.id,
         profile_id=order.profile_id,
+        sales_profile_id=order.sales_profile_id,  # V2.0
+        source_location_id=order.source_location_id,  # V2.0
         customer_name=order.customer_name,
         customer_phone=order.customer_phone,
         canal=order.canal,
         metodo_pago=order.metodo_pago,
         total=order.total,
+        financing_details=order.financing_details,  # V2.1: Incluir detalles de financiamiento
         estado=order.estado,
+        notes=order.notes,
+        delivery_date=order.delivery_date,
         created_at=order.created_at,
-        items=items_response
+        items=items_response,
+        trade_ins=trade_ins_response
     )
 
-@router.get("", response_model=List[OrderListResponse])
+@router.get("", response_model=PaginatedResponse[OrderResponse])
 def list_orders(
-    profile_slug: Optional[str] = Query(None, description="Filtrar por slug del perfil (ej: 'softmobile')"),
+    sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta (ej: 'bot-whatsapp')"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db)
 ):
     """
-    Lista todas las órdenes del sistema.
+    Lista órdenes del sistema con paginación.
+    
+    V2.0: Filtra por sales_profile_slug (canal de venta: bot, vendedor, etc.)
     
     Args:
-        - profile_slug: Filtro opcional por perfil
+        - sales_profile_slug: Filtro opcional por canal de venta
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
         
     Returns:
-        Lista de órdenes ordenadas por fecha de creación (más recientes primero)
+        Respuesta paginada con lista de órdenes ordenadas por fecha de creación (más recientes primero)
         
     Raises:
-        - 404: Si el profile_slug especificado no existe
+        - 404: Si el sales_profile_slug especificado no existe
+    """
+    query = db.query(Order)
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug)
+    if sales_profile:
+        query = query.filter(Order.sales_profile_id == sales_profile.id)
+    
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    # Serializar órdenes con items completos
+    serialized_orders = [_serialize_order(order) for order in orders]
+    
+    return PaginatedResponse(
+        items=serialized_orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
+
+
+@router.post("/search", response_model=PaginatedResponse[OrderResponse])
+def search_orders(
+    search_params: OrderSearchParams,
+    sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
+    db: Session = Depends(get_db)
+):
+    """
+    Búsqueda avanzada de órdenes con múltiples filtros y paginación.
+    
+    V2.0: Filtra por sales_profile_slug (canal de venta).
+    
+    Permite filtrar por:
+    - Rango de fechas
+    - Rango de montos
+    - Cliente (nombre o teléfono)
+    - Producto incluido en la orden
+    - Estado de la orden
+    
+    Args:
+        - search_params: Parámetros de búsqueda
+        - sales_profile_slug: Filtro opcional por canal de venta
+        - page: Número de página (default: 1)
+        - per_page: Resultados por página (default: 50, max: 100)
+        
+    Returns:
+        Respuesta paginada con órdenes que coinciden con los criterios
     """
     query = db.query(Order)
     
-    if profile_slug:
-        profile = db.query(Profile).filter(Profile.slug == profile_slug).first()
-        if not profile:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"El perfil con slug '{profile_slug}' no fue encontrado"
-            )
-        query = query.filter(Order.profile_id == profile.id)
+    # Filter by sales profile (V2.0)
+    sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
+    if sales_profile:
+        query = query.filter(Order.sales_profile_id == sales_profile.id)
     
-    orders = query.order_by(Order.created_at.desc()).all()
-    return orders
+    # Filter by date range
+    if search_params.date_from:
+        date_from_dt = datetime.combine(search_params.date_from, datetime.min.time())
+        query = query.filter(Order.created_at >= date_from_dt)
+    
+    if search_params.date_to:
+        date_to_dt = datetime.combine(search_params.date_to, datetime.max.time())
+        query = query.filter(Order.created_at <= date_to_dt)
+    
+    # Filter by amount range
+    if search_params.amount_min is not None:
+        query = query.filter(Order.total >= search_params.amount_min)
+    
+    if search_params.amount_max is not None:
+        query = query.filter(Order.total <= search_params.amount_max)
+    
+    # Filter by customer (name or phone)
+    if search_params.customer_query:
+        customer_pattern = f"%{search_params.customer_query}%"
+        query = query.filter(
+            (Order.customer_name.ilike(customer_pattern)) |
+            (Order.customer_phone.ilike(customer_pattern))
+        )
+    
+    # Filter by estado
+    if search_params.estado:
+        query = query.filter(Order.estado == search_params.estado.value)
+    
+    # Product filter requires special handling (join with order_items)
+    if search_params.product_id:
+        query = query.join(OrderItem).filter(OrderItem.product_id == search_params.product_id)
+    
+    total = query.count()
+    offset = (page - 1) * per_page
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
+    
+    # Serializar órdenes con items completos
+    serialized_orders = [_serialize_order(order) for order in orders]
+    
+    return PaginatedResponse(
+        items=serialized_orders,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=math.ceil(total / per_page) if total > 0 else 0
+    )
+
 
 @router.post("", response_model=OrderResponse, status_code=201)
-def create_order(order: OrderCreate, db: Session = Depends(get_db)):
-    """
-    Crea una nueva orden y descuenta el stock de los productos.
-    
-    La creación de la orden y el descuento de stock se realizan en una sola transacción
-    para garantizar consistencia de datos. Si falla cualquier paso, se revierte toda la operación.
-    
-    Args:
-        - order: Datos de la orden a crear con items y cantidades
-        
-    Returns:
-        Orden creada con todos sus items y detalles
-        
-    Raises:
-        - 404: Si el profile_slug no existe o algún product_id no se encuentra
-        - 400: Si no hay stock suficiente para algún producto (indica cuál)
-        - 400: Si la orden no contiene items
-        - 400: Si el número de teléfono está vacío
-    """
+def create_order(
+    order: OrderCreate, 
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Crea una orden aplicando las validaciones V2.0 (stock/IMEIs, trade-ins, financiamiento)."""
     try:
-        profile = db.query(Profile).filter(Profile.slug == order.profile_slug).first()
-        if not profile:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"El perfil con slug '{order.profile_slug}' no fue encontrado"
-            )
-        
+        sales_profile, profile, sales_profile_id_for_order, profile_id_for_order = resolve_sales_profile(
+            db=db,
+            sales_profile_slug=order.sales_profile_slug,
+            profile_slug=order.profile_slug
+        )
+        source_location, customer_phone_str = validate_location_and_phone(
+            db=db,
+            source_location_id=order.source_location_id,
+            customer_phone=order.customer_phone
+        )
+
         if not order.items:
-            raise HTTPException(
-                status_code=400, 
-                detail="La orden debe contener al menos un producto"
-            )
-        
-        customer_phone_str = str(order.customer_phone).strip()
-        if not customer_phone_str:
-            raise HTTPException(
-                status_code=400,
-                detail="El número de teléfono del cliente es requerido"
-            )
-        
-        total = Decimal("0.00")
-        order_items_data = []
-        
-        for item in order.items:
-            product = db.query(Product).filter(
-                Product.id == item.product_id,
-                Product.activo == True
-            ).first()
-            
-            if not product:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"El producto con ID {item.product_id} no fue encontrado o está inactivo"
-                )
-            
-            stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-            if not stock:
+            raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
+
+        stock_manager = StockManager(db)
+
+        # Procesar items (valida stock/IMEIs con bloqueo pesimista)
+        total, order_items_data = _process_order_items(db, order, sales_profile, stock_manager)
+
+        # Validar que exista al menos un item con valor (no solo regalos)
+        if total == Decimal("0.00"):
+            all_gifts = all(item_data["es_regalo_promocion"] for item_data in order_items_data)
+            if all_gifts:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"El producto '{product.nombre}' (ID: {product.id}) no tiene stock registrado"
+                    detail="La orden debe tener al menos un producto con valor. No se pueden crear órdenes solo con regalos/promociones."
                 )
-            
-            if stock.cantidad_disponible < item.cantidad:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stock insuficiente para '{product.nombre}' (ID: {product.id}). Disponible: {stock.cantidad_disponible}, Solicitado: {item.cantidad}"
-                )
-            
-            precio_unitario = Decimal(str(product.precio))
-            subtotal = precio_unitario * item.cantidad
-            
-            if not item.es_regalo_promocion:
-                total += subtotal
-            
-            order_items_data.append({
-                "product": product,
-                "stock": stock,
-                "cantidad": item.cantidad,
-                "precio_unitario": precio_unitario,
-                "es_regalo_promocion": item.es_regalo_promocion
-            })
-        
+
+        # Calcular retomas (solo total en esta fase)
+        trade_in_total = _process_trade_ins(
+            db=db,
+            order=order,
+            db_order=None,
+            profile_id_for_order=profile_id_for_order,
+            current_user=current_user,
+            sales_profile=sales_profile,
+            profile=profile
+        )
+
+        total_final = total - trade_in_total
+        if total_final < 0:
+            total_final = Decimal("0.00")
+
+        total_final, financing_details_json = compute_financing_from_payload(
+            db=db,
+            financing_data=order.financing_data,
+            metodo_pago=order.metodo_pago,
+            total_after_tradeins=total_final,
+            trade_in_total=trade_in_total,
+        )
+
+        # Crear orden con campos V2.0
         db_order = Order(
-            profile_id=profile.id,
+            profile_id=profile_id_for_order,  # Legacy, puede ser None
+            sales_profile_id=sales_profile_id_for_order,  # V2.0, puede ser None
+            source_location_id=order.source_location_id,
             customer_name=order.customer_name,
             customer_phone=customer_phone_str,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
-            total=total,
-            estado="pendiente"
+            total=total_final,
+            financing_details=financing_details_json,  # V2.1
+            estado="pendiente",
+            notes=order.notes,
+            delivery_date=order.delivery_date
         )
         db.add(db_order)
         db.flush()
+
+        # Persistir Trade-Ins (ya con order_id)
+        if order.trade_ins:
+            _process_trade_ins(
+                db=db,
+                order=order,
+                db_order=db_order,
+                profile_id_for_order=profile_id_for_order,
+                current_user=current_user,
+                sales_profile=sales_profile,
+                profile=profile
+            )
         
         db_order_items = []
+        user_identifier = _resolve_user_label(current_user, sales_profile, profile)
+        
         for item_data in order_items_data:
             db_order_item = OrderItem(
                 order_id=db_order.id,
@@ -192,14 +618,58 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             db.add(db_order_item)
             db_order_items.append(db_order_item)
             
-            item_data["stock"].cantidad_disponible -= item_data["cantidad"]
+            # Marcar IMEIs como vendidos usando StockManager
+            if item_data.get("imeis_to_sell"):
+                stock_manager.mark_imeis_as_sold(
+                    imeis=item_data["imeis_to_sell"],
+                    order_id=db_order.id,
+                    notes=f"Venta en orden #{db_order.id}",
+                    user_id=user_identifier
+                )
+            
+            # Descontar stock usando StockManager
+            try:
+                stock_manager.decrease_stock(
+                    stock=item_data["stock"],
+                    quantity=item_data["cantidad"],
+                    operation_type="venta",
+                    notes=f"Venta a {order.customer_name} - Canal: {order.canal}",
+                    user_id=user_identifier,
+                    order_id=db_order.id
+                )
+            except StockValidationError as e:
+                # Esto no debería ocurrir si validate_and_lock_stock funcionó, pero por seguridad
+                db.rollback()
+                raise HTTPException(status_code=409, detail=str(e))
         
+        # V2.5: Atribución de Venta a Interacción de IA
+        if sales_profile_id_for_order and order.customer_phone:
+            try:
+                normalized_phone = "".join(filter(str.isdigit, str(order.customer_phone)))
+                customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+                
+                if customer:
+                    last_interaction = db.query(InteractionLog).filter(
+                        InteractionLog.customer_id == customer.id,
+                        InteractionLog.sales_profile_id == sales_profile_id_for_order,
+                        InteractionLog.converted_order_id == None
+                    ).order_by(InteractionLog.created_at.desc()).first()
+                    
+                    if last_interaction:
+                        last_interaction.converted_order_id = db_order.id
+                        db.add(last_interaction)
+            except Exception as e:
+                print(f"Error linking order to interaction: {e}")
+                # No fallar la orden por esto
+
+        # Commit transacción
         db.commit()
-        db.refresh(db_order)
         
+        # Refresh seguro (Bug #28 fix)
+        db.refresh(db_order)
         for item in db_order_items:
             db.refresh(item)
-        
+
         return _serialize_order(db_order)
     except HTTPException:
         db.rollback()
@@ -213,13 +683,35 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
-def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session = Depends(get_db)):
+def update_order_status(
+    order_id: int, 
+    payload: OrderStatusUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Actualiza el estado de una orden.
+    
+    IMPORTANTE: No permite cambiar a 'cancelada' - use POST /orders/{order_id}/cancel
+    para cancelar órdenes (libera stock e IMEIs correctamente).
     """
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+    # Validar que no se intente cancelar usando este endpoint
+    if payload.estado == "cancelada":
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar una orden usando este endpoint. Use POST /orders/{order_id}/cancel para cancelar correctamente (libera stock e IMEIs)."
+        )
+    
+    # Validar que no se cambie el estado de una orden ya cancelada
+    if order.estado == "cancelada":
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cambiar el estado de una orden cancelada"
+        )
 
     order.estado = payload.estado
 
@@ -233,79 +725,193 @@ def update_order_status(order_id: int, payload: OrderStatusUpdate, db: Session =
 
 
 @router.put("/{order_id}", response_model=OrderResponse)
-def update_order(order_id: int, updates: OrderUpdate, db: Session = Depends(get_db)):
+def update_order(
+    order_id: int, 
+    updates: OrderUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
-    Actualiza una orden existente, incluyendo sus items y totales.
+    Actualiza una orden existente con transaccionalidad garantizada (Bug #1 fix).
+    
+    Solo permite actualizar órdenes en estado 'pendiente' o 'por_entregar'.
+    GARANTIZA: Todas las validaciones ANTES de cualquier modificación.
     """
-    order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
-
     try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+        # Validar que la orden no esté cancelada o completada
+        if order.estado == "cancelada":
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede modificar una orden cancelada"
+            )
+        
+        if order.estado == "completada":
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
+            )
+
+        user_identifier = _resolve_user_label(current_user)
+
+        # 🔒 BUG #1 FIX: Obtener snapshot de items antiguos PRIMERO
+        # StockHistory y ProductIMEI ya están importados globalmente
         current_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
 
+        items_total = None  # Usado para recalcular total + financiamiento
+
+        # Determinar la ubicación de origen para los nuevos items
+        # Si se actualiza la ubicación, usar la nueva; de lo contrario, usar la actual
+        target_location_id = order.source_location_id
+        if hasattr(updates, 'source_location_id') and updates.source_location_id:
+            new_location = validate_location_exists(db, updates.source_location_id)
+            target_location_id = new_location.id
+
         if updates.items is not None:
+            # Liberar IMEIs de los items actuales antes de reemplazarlos
+            # ProductIMEI ya está importado globalmente
+            stock_manager = StockManager(db)
+            
             for item in current_items:
-                stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-                if stock:
-                    stock.cantidad_disponible += item.cantidad
+                # Liberar IMEIs asociados a este item
+                imeis_item = db.query(ProductIMEI).filter(
+                    ProductIMEI.order_id == order_id,
+                    ProductIMEI.product_id == item.product_id,
+                    ProductIMEI.vendido == True
+                ).all()
+                
+                if imeis_item:
+                    stock_manager.release_imeis(
+                        imeis=imeis_item,
+                        notes=f"Actualización de orden #{order.id} - Items removidos",
+                        user_id=user_identifier
+                    )
+                
+                # V2.0: Devolver stock a la ubicación de origen
+                if order.source_location_id:
+                    stock_manager.increase_stock(
+                        product_id=item.product_id,
+                        location_id=order.source_location_id,
+                        quantity=item.cantidad,
+                        operation_type="devolucion",
+                        notes=f"Actualización de orden #{order.id} - Items removidos/modificados",
+                            user_id=user_identifier,
+                        create_if_missing=True
+                    )
+                else:
+                    # Legacy: Sin ubicación específica - Mantener lógica manual limitada
+                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+                    if stock:
+                        stock.cantidad_disponible += item.cantidad
+                        # Registrar historial manual (legacy)
+                        stock_history = StockHistory(
+                            product_id=item.product_id,
+                            location_id=None,
+                            tipo_cambio="devolucion",
+                            cantidad=item.cantidad,
+                            stock_anterior=stock.cantidad_disponible - item.cantidad,
+                            stock_nuevo=stock.cantidad_disponible,
+                            referencia_id=order.id,
+                            referencia_tipo="order_update",
+                            notas=f"Actualización de orden #{order.id} (Legacy)",
+                                usuario=user_identifier
+                        )
+                        db.add(stock_history)
 
             if len(updates.items) == 0:
                 raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
 
-            total = Decimal("0.00")
+            if not target_location_id:
+                raise HTTPException(status_code=400, detail="No se puede actualizar una orden legacy sin ubicación de origen en V2.0")
+
+            # Borrar items existentes y recalcular con helper centralizado
             db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
 
-            for item_update in updates.items:
-                product = db.query(Product).filter(
-                    Product.id == item_update.product_id,
-                    Product.activo == True
-                ).first()
+            total, prepared_items = _process_items_for_update(
+                db=db,
+                items_payload=updates.items,
+                location_id=target_location_id,
+                stock_manager=stock_manager
+            )
 
-                if not product:
-                    raise HTTPException(status_code=404, detail=f"Producto {item_update.product_id} no encontrado o inactivo")
-
-                stock = db.query(Stock).filter(Stock.product_id == item_update.product_id).first()
-                if not stock:
-                    raise HTTPException(status_code=400, detail=f"El producto {item_update.product_id} no tiene stock registrado")
-
-                if stock.cantidad_disponible < item_update.cantidad:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Stock insuficiente para '{product.nombre}'. Disponible: {stock.cantidad_disponible}, Solicitado: {item_update.cantidad}"
+            for item_data in prepared_items:
+                if item_data.get("imeis_to_sell"):
+                    stock_manager.mark_imeis_as_sold(
+                        imeis=item_data["imeis_to_sell"],
+                        order_id=order.id,
+                        notes=f"Venta en actualización de orden #{order.id}",
+                        user_id=user_identifier
                     )
-
-                price = Decimal(str(product.precio))
-                if not item_update.es_regalo_promocion:
-                    total += price * item_update.cantidad
 
                 new_item = OrderItem(
                     order_id=order.id,
-                    product_id=item_update.product_id,
-                    cantidad=item_update.cantidad,
-                    precio_unitario=price,
-                    es_regalo_promocion=item_update.es_regalo_promocion
+                    product_id=item_data["product"].id,
+                    cantidad=item_data["cantidad"],
+                    precio_unitario=item_data["precio_unitario"],
+                    es_regalo_promocion=item_data["es_regalo_promocion"]
                 )
                 db.add(new_item)
 
-                stock.cantidad_disponible -= item_update.cantidad
+                try:
+                    stock_manager.decrease_stock(
+                        stock=item_data["stock"],
+                        quantity=item_data["cantidad"],
+                        operation_type="venta",
+                        notes=f"Actualización de orden #{order.id} - Item añadido/modificado",
+                        user_id=user_identifier,
+                        order_id=order.id
+                    )
+                except StockValidationError as e:
+                    db.rollback()
+                    raise HTTPException(status_code=409, detail=str(e))
 
-            order.total = total
+            items_total = total
 
         if updates.customer_name is not None:
             order.customer_name = updates.customer_name
 
         if updates.customer_phone is not None:
-            phone = str(updates.customer_phone).strip()
-            if not phone:
-                raise HTTPException(status_code=400, detail="El número de teléfono del cliente es requerido")
-            order.customer_phone = phone
+            order.customer_phone = normalize_customer_phone(updates.customer_phone)
 
         if updates.canal is not None:
             order.canal = updates.canal
 
         if updates.metodo_pago is not None:
             order.metodo_pago = updates.metodo_pago
+        
+        if updates.notes is not None:
+            order.notes = updates.notes
+        
+        if updates.delivery_date is not None:
+            order.delivery_date = updates.delivery_date
+        
+        # Actualizar source_location_id si cambió (ya validado al inicio)
+        if hasattr(updates, 'source_location_id') and updates.source_location_id:
+            order.source_location_id = updates.source_location_id
+
+        # Recalcular total considerando trade-ins y financiamiento existentes
+        if items_total is not None:
+            trade_in_total = compute_trade_in_total(order.trade_ins)
+
+            total_after_tradeins = items_total - trade_in_total
+            if total_after_tradeins < 0:
+                total_after_tradeins = Decimal("0.00")
+
+            total_final, recomputed_financing = recompute_financing_from_details(
+                financing_details=order.financing_details,
+                metodo_pago=order.metodo_pago,
+                total_after_tradeins=total_after_tradeins,
+            )
+
+            if recomputed_financing is not None:
+                order.total = total_final
+                order.financing_details = recomputed_financing
+            else:
+                order.total = total_after_tradeins
+                order.financing_details = None if order.metodo_pago not in ['tarjeta', 'financiamiento'] else order.financing_details
 
         db.commit()
         db.refresh(order)
@@ -338,39 +944,298 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
     
-    items_response = []
-    for item in order.items:
-        product = item.product
-        items_response.append({
-            "id": item.id,
-            "product_id": item.product_id,
-            "cantidad": item.cantidad,
-            "precio_unitario": item.precio_unitario,
-            "es_regalo_promocion": item.es_regalo_promocion,
-            "product": ProductResponse(
-                id=product.id,
-                nombre=product.nombre,
-                categoria=product.categoria,
-                marca=product.marca,
-                modelo=product.modelo,
-                capacidad=product.capacidad,
-                condicion=product.condicion,
-                precio=product.precio,
-                moneda=product.moneda,
-                garantia_meses=product.garantia_meses,
-                stock_disponible=product.stock.cantidad_disponible if product.stock else 0
-            )
-        })
+    return _serialize_order(order)
+
+
+@router.post("/{order_id}/cancel", response_model=OrderResponse)
+def cancel_order(
+    order_id: int,
+    reason: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
+    """
+    Cancela una orden y libera los recursos (stock e IMEIs).
     
-    return OrderResponse(
-        id=order.id,
-        profile_id=order.profile_id,
-        customer_name=order.customer_name,
-        customer_phone=order.customer_phone,
-        canal=order.canal,
-        metodo_pago=order.metodo_pago,
-        total=order.total,
-        estado=order.estado,
-        created_at=order.created_at,
-        items=items_response
-    )
+    V2.0: Operación crítica de negocio que:
+    1. Cambia estado de la orden a 'cancelada'
+    2. Devuelve el stock a la ubicación de origen
+    3. Libera los IMEIs marcándolos como no vendidos
+    4. Registra la cancelación en StockHistory
+    
+    Args:
+        - order_id: ID de la orden a cancelar
+        - reason: Motivo opcional de la cancelación
+        
+    Returns:
+        Orden actualizada con estado 'cancelada'
+        
+    Raises:
+        - 404: Si la orden no existe
+        - 400: Si la orden ya está cancelada o completada
+        - 500: Si ocurre un error en la transacción
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La orden con ID {order_id} no fue encontrada"
+        )
+    
+    # Validar que la orden no esté ya cancelada
+    if order.estado == "cancelada":
+        raise HTTPException(
+            status_code=400,
+            detail="La orden ya está cancelada. El stock ya fue devuelto anteriormente."
+        )
+    
+    # Validar que no se cancele una orden completada (debe usar proceso de devolución)
+    # V2.0 FIX: Permitimos cancelar órdenes completadas para facilitar correcciones
+    # if order.estado == "completada":
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="No se puede cancelar una orden completada. Use el proceso de devolución o ajuste de inventario."
+    #     )
+    
+    try:
+        # StockHistory y ProductIMEI ya están importados globalmente
+        
+        print(f"🔄 Cancelando orden {order_id} - Estado actual: {order.estado}")
+        print(f"  📋 Orden tiene {len(order.items)} items")
+        
+        # Inicializar StockManager
+        stock_manager = StockManager(db)
+        user_identifier = _resolve_user_label(current_user)
+        
+        # Procesar cada item de la orden
+        for idx, item in enumerate(order.items):
+            print(f"  🔢 Item {idx + 1}/{len(order.items)}: Producto {item.product_id}, Cantidad {item.cantidad}")
+            
+            # 1. Devolver stock a la ubicación de origen
+            if order.source_location_id:
+                stock_manager.increase_stock(
+                    product_id=item.product_id,
+                    location_id=order.source_location_id,
+                    quantity=item.cantidad,
+                    operation_type="devolucion",
+                    notes=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
+                    user_id=user_identifier,
+                    create_if_missing=True
+                )
+            
+            # 2. Liberar IMEIs asociados a esta orden
+            imeis_vendidos = db.query(ProductIMEI).filter(
+                ProductIMEI.order_id == order_id,
+                ProductIMEI.product_id == item.product_id,
+                ProductIMEI.vendido == True
+            ).all()
+            
+            if imeis_vendidos:
+                stock_manager.release_imeis(
+                    imeis=imeis_vendidos,
+                    notes=f"Cancelación de orden #{order_id}",
+                        user_id=user_identifier
+                )
+
+        # Revertir retomas ingresadas automáticamente al crear la orden
+        if order.trade_ins:
+            for trade_in in order.trade_ins:
+                target_product = None
+                stock_entry = None
+                imei_record = None
+
+                # Primero intentar localizar por IMEI
+                if trade_in.imei:
+                    imei_record = db.query(ProductIMEI).filter(ProductIMEI.imei == trade_in.imei).first()
+                    if imei_record:
+                        target_product = imei_record.product
+                        stock_entry = db.query(Stock).filter(
+                            Stock.product_id == imei_record.product_id,
+                            Stock.location_id == order.source_location_id
+                        ).with_for_update().first()
+
+                # Fallback: buscar producto por características (retoma recién creada)
+                if not target_product:
+                    query_product = db.query(Product).filter(
+                        Product.marca == trade_in.marca,
+                        Product.modelo == trade_in.modelo,
+                        Product.condicion == trade_in.condicion
+                    )
+                    if trade_in.color:
+                        query_product = query_product.filter(Product.color == trade_in.color)
+                    if trade_in.capacidad:
+                        query_product = query_product.filter(Product.capacidad == trade_in.capacidad)
+
+                    target_product = query_product.first()
+                    if target_product:
+                        stock_entry = db.query(Stock).filter(
+                            Stock.product_id == target_product.id,
+                            Stock.location_id == order.source_location_id
+                        ).with_for_update().first()
+
+                # Ajustar stock de la retoma
+                if target_product and stock_entry and stock_entry.cantidad_disponible > 0:
+                    try:
+                        stock_manager.decrease_stock(
+                            stock=stock_entry,
+                            quantity=1,
+                            operation_type="retoma_cancelada",
+                            notes=f"Reversa de retoma para orden #{order_id}",
+                            user_id=user_identifier,
+                            order_id=order_id
+                        )
+                    except StockValidationError:
+                        # Si falla por reservas u otro motivo, loguear y continuar (no bloquear cancelación)
+                        print(f"⚠️ No se pudo revertir stock de retoma para producto {target_product.id}")
+
+                # Eliminar IMEI ingresado por la retoma (si se creó)
+                if imei_record:
+                    imei_history_cancel = IMEIHistory(
+                        imei=imei_record.imei,
+                        product_id=imei_record.product_id,
+                        location_id=order.source_location_id,
+                        event_type='retoma_cancelada',
+                        reference_id=order_id,
+                        reference_type='order_cancelled',
+                        notes=f"IMEI revertido por cancelación de orden #{order_id}",
+                        created_by=user_identifier
+                    )
+                    db.add(imei_history_cancel)
+                    db.delete(imei_record)
+
+                # Desactivar producto de retoma sin stock (solo para RET-*)
+                if target_product:
+                    total_stock = sum((s.cantidad_disponible or 0) for s in db.query(Stock).filter(Stock.product_id == target_product.id).all())
+                    if total_stock == 0 and target_product.sku and target_product.sku.startswith('RET-'):
+                        target_product.activo = False
+        
+        # 3. Actualizar estado de la orden PRIMERO (para evitar doble procesamiento)
+        old_estado = order.estado
+        order.estado = "cancelada"
+        if reason:
+            order.notes = (order.notes or '') + f" | CANCELADA: {reason}"
+        
+        # Flush para que el estado se actualice inmediatamente
+        db.flush()
+        
+        print(f"✅ Orden {order_id} cancelada: {old_estado} → cancelada")
+        
+        db.commit()
+        db.refresh(order)
+        
+        return _serialize_order(order)
+    
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al cancelar la orden: {str(e)}"
+        )
+
+
+@router.delete("/{order_id}", status_code=204)
+def delete_order(order_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina una orden del sistema y repone el stock de los productos.
+    
+    Esta operación:
+    1. Encuentra la orden y sus items
+    2. Repone el stock de cada producto
+    3. Elimina la orden (los items se eliminan en cascada)
+    
+    Args:
+        - order_id: ID de la orden a eliminar
+        
+    Returns:
+        No content (204)
+        
+    Raises:
+        - 404: Si la orden no existe
+        - 500: Si ocurre un error al eliminar
+    """
+    print(f"🗑️ [DELETE ORDER] Iniciando eliminación de orden {order_id}")
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        print(f"❌ [DELETE ORDER] Orden {order_id} no encontrada")
+        raise HTTPException(
+            status_code=404,
+            detail=f"La orden con ID {order_id} no fue encontrada"
+        )
+    
+    # Advertir si se intenta eliminar orden completada (mejor usar cancelación)
+    if order.estado == "completada":
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar una orden completada. Use POST /orders/{order_id}/cancel para cancelar o desactive la orden."
+        )
+    
+    print(f"✅ [DELETE ORDER] Orden {order_id} encontrada, tiene {len(order.items)} items")
+    print(f"  📊 Estado de la orden: {order.estado}")
+    
+    try:
+        # Solo devolver stock si la orden NO está cancelada (las canceladas ya devolvieron el stock)
+        if order.estado != "cancelada":
+            print(f"  ♻️ Devolviendo stock (orden en estado '{order.estado}')")
+            # Reponer stock antes de eliminar
+            for item in order.items:
+                # V2.0: Devolver stock a la ubicación de origen
+                if order.source_location_id:
+                    stock = db.query(Stock).filter(
+                        Stock.product_id == item.product_id,
+                        Stock.location_id == order.source_location_id
+                    ).first()
+                else:
+                    # Legacy: Sin ubicación específica
+                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
+
+                # Crear el registro de stock si fue eliminado accidentalmente (solo cuando hay ubicación)
+                if not stock:
+                    if order.source_location_id:
+                        stock = Stock(
+                            product_id=item.product_id,
+                            location_id=order.source_location_id,
+                            cantidad_disponible=0,
+                            cantidad_reservada=0
+                        )
+                        db.add(stock)
+                        db.flush()
+                        old_stock = 0
+                    else:
+                        # No hay ubicación (legacy) y tampoco registro de stock; no se puede reponer
+                        old_stock = 0
+                        stock = None
+                else:
+                    old_stock = stock.cantidad_disponible
+
+                if stock:
+                    stock.cantidad_disponible += item.cantidad
+                    print(f"    📦 Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
+                
+                # Liberar IMEIs asociados a esta orden
+                # ProductIMEI ya está importado globalmente
+                imeis_vendidos = db.query(ProductIMEI).filter(
+                    ProductIMEI.order_id == order.id,
+                    ProductIMEI.product_id == item.product_id,
+                    ProductIMEI.vendido == True
+                ).all()
+                
+                for imei_obj in imeis_vendidos:
+                    imei_obj.vendido = False
+                    imei_obj.order_id = None
+                    print(f"    🔓 IMEI {imei_obj.imei} liberado")
+        else:
+            print(f"  ⏭️  Orden ya cancelada - stock ya fue devuelto, no se vuelve a devolver")
+        
+        # Eliminar orden (items se eliminan en cascada)
+        print(f"🗑️ [DELETE ORDER] Eliminando orden {order_id} de la base de datos...")
+        db.delete(order)
+        db.commit()
+        print(f"✅ [DELETE ORDER] Orden {order_id} eliminada exitosamente")
+        return None
+    except Exception as e:
+        print(f"❌ [DELETE ORDER] Error al eliminar orden {order_id}: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar orden: {str(e)}")

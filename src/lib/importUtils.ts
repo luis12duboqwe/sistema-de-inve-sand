@@ -61,8 +61,8 @@ function validateProductRow(
   
   const condicionRaw = row.Condición?.trim() || row.condicion?.trim() || row.Condition?.trim() || ''
   const condicion = (condicionRaw || '').toLowerCase()
-  if (!condicion || !['nuevo', 'usado', 'reacondicionado', 'grado a'].includes(condicion)) {
-    errors.push('Condición debe ser "nuevo", "usado", "reacondicionado" o "grado a"')
+  if (!condicion || !['nuevo', 'usado', 'reacondicionado'].includes(condicion)) {
+    errors.push('Condición debe ser "nuevo", "usado" o "reacondicionado"')
   }
   
   const precio = parseFloat(row.Precio || row.precio || row.Price || '0')
@@ -91,20 +91,21 @@ function validateProductRow(
       marca: row.Marca?.trim() || row.marca?.trim() || row.Brand?.trim() || '',
       modelo: row.Modelo?.trim() || row.modelo?.trim() || row.Model?.trim() || '',
       capacidad: row.Capacidad?.trim() || row.capacidad?.trim() || row.Capacity?.trim() || '',
-      condicion: (condicion === 'grado a' ? 'grado A' : condicion) as 'nuevo' | 'usado' | 'reacondicionado' | 'grado A',
+      condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado',
       precio: precio,
       moneda: row.Moneda?.trim() || row.moneda?.trim() || row.Currency?.trim() || 'HNL',
       garantia_meses: garantia,
       stock_disponible: stock,
       activo: true,
-      profile_id: profileId ? parseInt(profileId) : 0
+      // V2.0: null = global product, number = legacy tracking
+      profile_id: profileId ? parseInt(profileId) : undefined
     }
   }
 }
 
 export function parseCSV(
   csvContent: string,
-  profileId?: string
+  profileId?: string | null
 ): ImportResult {
   const lines = csvContent.split('\n').filter(line => line.trim())
   
@@ -135,7 +136,7 @@ export function parseCSV(
       row[header] = values[index] || ''
     })
     
-    const validation = validateProductRow(row, i + 1, profileId)
+    const validation = validateProductRow(row, i + 1, profileId || undefined)
     
     if (validation.valid && validation.product) {
       products.push(validation.product)
@@ -158,8 +159,9 @@ export function parseCSV(
   }
 }
 
-export function parseProductsCSV(csvContent: string, profileId: number) {
-  return parseCSV(csvContent, profileId.toString())
+export function parseProductsCSV(csvContent: string, profileId: number | null) {
+  // V2.0: profileId can be null for global products
+  return parseCSV(csvContent, profileId?.toString() || null)
 }
 
 export function downloadCSVTemplate() {

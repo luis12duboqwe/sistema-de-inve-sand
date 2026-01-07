@@ -1,0 +1,394 @@
+{
+  "info": {
+    "name": "Sistema Inventario - Nuevo Modelo",
+    "description": "Ejemplos de uso del nuevo sistema con Ubicaciones y Sales Profiles",
+    "version": "2.0.0"
+  },
+  "examples": {
+    "1_crear_ubicaciones": {
+      "descripcion": "Crear las 3 tiendas y la bodega",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/locations",
+          "body": {
+            "nombre": "Tienda 1 - Centro",
+            "tipo": "tienda",
+            "direccion": "Centro Comercial Plaza Central",
+            "telefono": "+504 2222-1111",
+            "activo": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/locations",
+          "body": {
+            "nombre": "Tienda 2 - Norte",
+            "tipo": "tienda",
+            "direccion": "Barrio El Norte, Col. Modelo",
+            "telefono": "+504 2222-2222",
+            "activo": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/locations",
+          "body": {
+            "nombre": "Tienda 3 - Sur",
+            "tipo": "tienda",
+            "direccion": "Zona Sur, frente al Parque",
+            "telefono": "+504 2222-3333",
+            "activo": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/locations",
+          "body": {
+            "nombre": "Bodega Central",
+            "tipo": "bodega",
+            "direccion": "Zona Industrial, Bodega 5",
+            "telefono": "+504 2222-4444",
+            "activo": true
+          }
+        }
+      ]
+    },
+    "2_crear_perfiles_venta": {
+      "descripcion": "Crear 10 perfiles de venta (bots/vendedores)",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "Bot WhatsApp 1",
+            "slug": "bot-whatsapp-1",
+            "tipo": "bot_ia",
+            "canales": ["whatsapp"],
+            "active": true,
+            "configuracion": {
+              "numero_whatsapp": "+504 9999-0001",
+              "modelo_ia": "gpt-4",
+              "horario": "24/7"
+            }
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "Bot WhatsApp 2",
+            "slug": "bot-whatsapp-2",
+            "tipo": "bot_ia",
+            "canales": ["whatsapp"],
+            "active": true,
+            "configuracion": {
+              "numero_whatsapp": "+504 9999-0002"
+            }
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "Bot Facebook Principal",
+            "slug": "bot-facebook-1",
+            "tipo": "bot_ia",
+            "canales": ["facebook", "instagram"],
+            "active": true,
+            "configuracion": {
+              "pagina_facebook": "@TuTienda",
+              "instagram_user": "@tutienda"
+            }
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "Bot Instagram 1",
+            "slug": "bot-instagram-1",
+            "tipo": "bot_ia",
+            "canales": ["instagram"],
+            "active": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "Bot Multi-Canal",
+            "slug": "bot-multicanal-1",
+            "tipo": "bot_ia",
+            "canales": ["whatsapp", "facebook", "instagram"],
+            "active": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/sales-profiles",
+          "body": {
+            "name": "María González - Vendedora",
+            "slug": "vendedor-maria",
+            "tipo": "vendedor_humano",
+            "canales": ["whatsapp"],
+            "active": true,
+            "configuracion": {
+              "empleado_id": "EMP001",
+              "turno": "matutino"
+            }
+          }
+        }
+      ],
+      "nota": "Puedes crear hasta 10 o más perfiles según necesites"
+    },
+    "3_listar_ubicaciones": {
+      "descripcion": "Ver todas las ubicaciones creadas",
+      "requests": [
+        {
+          "metodo": "GET",
+          "url": "/api/locations",
+          "respuesta_esperada": [
+            {
+              "id": 1,
+              "nombre": "Tienda 1 - Centro",
+              "tipo": "tienda",
+              "activo": true
+            }
+          ]
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/locations?tipo=tienda",
+          "descripcion": "Filtrar solo tiendas"
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/locations?tipo=bodega",
+          "descripcion": "Filtrar solo bodegas"
+        }
+      ]
+    },
+    "4_listar_sales_profiles": {
+      "descripcion": "Ver todos los perfiles de venta",
+      "requests": [
+        {
+          "metodo": "GET",
+          "url": "/api/sales-profiles",
+          "respuesta_esperada": [
+            {
+              "id": 1,
+              "name": "Bot WhatsApp 1",
+              "slug": "bot-whatsapp-1",
+              "tipo": "bot_ia",
+              "canales": ["whatsapp"],
+              "active": true
+            }
+          ]
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/sales-profiles?tipo=bot_ia",
+          "descripcion": "Filtrar solo bots"
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/sales-profiles/slug/bot-whatsapp-1",
+          "descripcion": "Obtener perfil por slug"
+        }
+      ]
+    },
+    "5_crear_producto_global": {
+      "descripcion": "Crear productos (ahora son globales, sin profile_id)",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/products",
+          "body": {
+            "sku": "SAM-S24-256-BLK",
+            "nombre": "Samsung Galaxy S24",
+            "categoria": "celular",
+            "marca": "Samsung",
+            "modelo": "S24",
+            "capacidad": "256GB",
+            "condicion": "nuevo",
+            "precio": 15000.00,
+            "moneda": "HNL",
+            "garantia_meses": 12,
+            "activo": true
+          },
+          "nota": "Ya NO se requiere profile_id - el producto es visible para todos"
+        }
+      ]
+    },
+    "6_asignar_stock_por_ubicacion": {
+      "descripcion": "Asignar stock del producto en diferentes ubicaciones",
+      "ejemplo": "Supongamos que product_id=1",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/products/1/stock",
+          "body": {
+            "product_id": 1,
+            "location_id": 1,
+            "cantidad_disponible": 10
+          },
+          "descripcion": "10 unidades en Tienda Centro"
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/products/1/stock",
+          "body": {
+            "product_id": 1,
+            "location_id": 2,
+            "cantidad_disponible": 5
+          },
+          "descripcion": "5 unidades en Tienda Norte"
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/products/1/stock",
+          "body": {
+            "product_id": 1,
+            "location_id": 4,
+            "cantidad_disponible": 20
+          },
+          "descripcion": "20 unidades en Bodega"
+        }
+      ],
+      "resultado": "El producto ahora tiene 35 unidades totales distribuidas en 3 ubicaciones"
+    },
+    "7_crear_orden_desde_bot": {
+      "descripcion": "Bot WhatsApp 1 vende un producto tomando stock de Tienda Centro",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/orders",
+          "body": {
+            "sales_profile_id": 1,
+            "source_location_id": 1,
+            "customer_name": "Carlos López",
+            "customer_phone": "+504 8888-8888",
+            "canal": "whatsapp",
+            "metodo_pago": "transferencia",
+            "items": [
+              {
+                "product_id": 1,
+                "cantidad": 2
+              }
+            ]
+          },
+          "resultado": {
+            "orden_creada": true,
+            "stock_reducido_en": "Tienda Centro",
+            "vendedor": "Bot WhatsApp 1",
+            "nuevo_stock_tienda_centro": 8
+          }
+        }
+      ]
+    },
+    "8_transferir_stock_entre_ubicaciones": {
+      "descripcion": "Transferir stock de Bodega a Tienda Norte",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/stock-transfers",
+          "body": {
+            "product_id": 1,
+            "from_location_id": 4,
+            "to_location_id": 2,
+            "cantidad": 5,
+            "notas": "Reabastecimiento semanal - Tienda Norte necesitaba stock",
+            "created_by": "Admin"
+          },
+          "resultado": {
+            "bodega_antes": 20,
+            "bodega_despues": 15,
+            "tienda_norte_antes": 5,
+            "tienda_norte_despues": 10
+          }
+        }
+      ]
+    },
+    "9_consultar_stock_total": {
+      "descripcion": "Ver stock total de un producto en todas las ubicaciones",
+      "requests": [
+        {
+          "metodo": "GET",
+          "url": "/api/products/1",
+          "respuesta_incluye": {
+            "stock_items": [
+              {
+                "location_id": 1,
+                "location_name": "Tienda Centro",
+                "cantidad": 8
+              },
+              {
+                "location_id": 2,
+                "location_name": "Tienda Norte",
+                "cantidad": 10
+              },
+              {
+                "location_id": 4,
+                "location_name": "Bodega",
+                "cantidad": 15
+              }
+            ],
+            "total_stock": 33
+          }
+        }
+      ]
+    },
+    "10_reportes_por_vendedor": {
+      "descripcion": "Ver todas las órdenes de un perfil de venta específico",
+      "requests": [
+        {
+          "metodo": "GET",
+          "url": "/api/sales-profiles/1/orders",
+          "descripcion": "Ver todas las ventas del Bot WhatsApp 1"
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/sales-profiles/3/orders",
+          "descripcion": "Ver todas las ventas del Bot Facebook"
+        }
+      ]
+    },
+    "11_stock_por_ubicacion": {
+      "descripcion": "Ver todo el inventario de una ubicación específica",
+      "requests": [
+        {
+          "metodo": "GET",
+          "url": "/api/locations/1/stock",
+          "descripcion": "Ver todos los productos con stock en Tienda Centro"
+        },
+        {
+          "metodo": "GET",
+          "url": "/api/locations/4/stock",
+          "descripcion": "Ver inventario completo de la Bodega"
+        }
+      ]
+    }
+  },
+  "flujo_completo": {
+    "descripcion": "Flujo completo desde configuración hasta venta",
+    "pasos": [
+      "1. Crear ubicaciones (tiendas + bodega)",
+      "2. Crear perfiles de venta (bots/vendedores)",
+      "3. Crear productos (globales)",
+      "4. Asignar stock por ubicación",
+      "5. Bots/vendedores ven TODO el inventario",
+      "6. Al vender, especifican de qué ubicación toman stock",
+      "7. Transferencias entre ubicaciones según necesidad",
+      "8. Reportes por vendedor o por ubicación"
+    ]
+  },
+  "ventajas": [
+    "✅ 10+ bots pueden vender el mismo inventario",
+    "✅ Stock organizado por ubicación física",
+    "✅ Trazabilidad completa (quién vendió, de dónde)",
+    "✅ Productos globales visibles para todos",
+    "✅ Transferencias entre ubicaciones",
+    "✅ Reportes por vendedor y por tienda"
+  ]
+}

@@ -1,24 +1,27 @@
 import { useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
 import { Upload, Download, CheckCircle, WarningCircle, FileArrowDown } from '@phosphor-icons/react'
 import { parseProductsCSV, downloadCSVTemplate } from '@/lib/importUtils'
-import type { Profile, ProductWithStock } from '@/lib/types'
+import type { ProductWithStock, Location } from '@/lib/types'
 
 interface ImportProductsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  profiles: Profile[]
-  onImport: (products: Partial<ProductWithStock>[]) => Promise<void>
+  // V2.0: profiles removed - products are global
+  onImport: (products: Partial<ProductWithStock>[], locationId: number | null) => Promise<void>
+  locations: Location[]
 }
 
-export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }: ImportProductsDialogProps) {
-  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null)
+export function ImportProductsDialog({ open, onOpenChange, onImport, locations }: ImportProductsDialogProps) {
+  // V2.0: Products are global - no profile selection needed
   const [file, setFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('')
   const [previewResult, setPreviewResult] = useState<{
     success: boolean
     message: string
@@ -41,10 +44,11 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
 
   const handlePreview = async () => {
     try {
-      if (!file || !selectedProfileId) return
+      if (!file) return
 
       const text = await file.text()
-      const result = parseProductsCSV(text, selectedProfileId)
+      // V2.0: Import products globally (profile_id = null)
+      const result = parseProductsCSV(text, null)
       setPreviewResult(result)
     } catch (error) {
       console.error('Error previewing CSV:', error)
@@ -60,14 +64,16 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
 
   const handleImport = async () => {
     if (!previewResult?.products || previewResult.products.length === 0) return
+    if (!selectedLocationId) return
 
     setImporting(true)
     try {
-      await onImport(previewResult.products)
+      const locationId = parseInt(selectedLocationId)
+      await onImport(previewResult.products, locationId)
       onOpenChange(false)
       setFile(null)
       setPreviewResult(null)
-      setSelectedProfileId(null)
+      setSelectedLocationId('')
     } catch (error) {
       console.error('Error importing products:', error)
       setPreviewResult({
@@ -86,7 +92,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
         onOpenChange(false)
         setFile(null)
         setPreviewResult(null)
-        setSelectedProfileId(null)
+        setSelectedLocationId('')
       }
     } catch (error) {
       console.error('Error closing dialog:', error)
@@ -122,23 +128,24 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
             </p>
           </div>
 
+          {/* V2.0: Location selector for initial stock */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Perfil de destino</label>
-            <Select
-              value={selectedProfileId?.toString()}
-              onValueChange={(value) => setSelectedProfileId(parseInt(value))}
-            >
+            <Label>Ubicación para Stock Inicial</Label>
+            <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
               <SelectTrigger>
-                <SelectValue placeholder="Selecciona un perfil" />
+                <SelectValue placeholder="Seleccionar ubicación..." />
               </SelectTrigger>
               <SelectContent>
-                {profiles.map(profile => (
-                  <SelectItem key={profile.id} value={profile.id.toString()}>
-                    {profile.name}
+                {locations.map(loc => (
+                  <SelectItem key={loc.id} value={loc.id.toString()}>
+                    {loc.nombre} ({loc.tipo})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              El stock de los productos importados se asignará a esta ubicación.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -159,7 +166,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
             </div>
           </div>
 
-          {file && selectedProfileId && !previewResult && (
+          {file && !previewResult && (
             <Button
               onClick={handlePreview}
               className="w-full"
@@ -243,7 +250,7 @@ export function ImportProductsDialog({ open, onOpenChange, profiles, onImport }:
             Cancelar
           </Button>
           {previewResult?.success && previewResult.products.length > 0 && (
-            <Button onClick={handleImport} disabled={importing}>
+            <Button onClick={handleImport} disabled={importing || !selectedLocationId}>
               {importing ? 'Importando...' : `Importar ${previewResult.importedCount} Productos`}
             </Button>
           )}
