@@ -25,6 +25,8 @@ dist-ssr
 *.sw?
 
 .env
+backend/.env
+deploy/.env*
 **/agent-eval-report*
 packages
 pids

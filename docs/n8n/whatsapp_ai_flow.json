@@ -1,0 +1,169 @@
+{
+  "name": "AI WhatsApp Flow",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "ai-whatsapp",
+        "options": {
+          "responseData": "={{$json.reply}}",
+          "responseCode": 200,
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "Entrada WhatsApp",
+      "name": "Entrada WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "webhookId": "ai-whatsapp-bot"
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASE_API_URL}}/api/ai/context",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "Authorization": "=Bearer {{$env.N8N_AUTH_TOKEN}}"
+          }
+        },
+        "bodyParametersJson": "{\n  \"sales_profile_slug\": \"={{$env.SALES_PROFILE_SLUG}}\",\n  \"customer_phone\": \"={{$json.body.from}}\",\n  \"customer_name\": \"={{$json.body.profile?.name || ''}}\",\n  \"message_content\": \"={{$json.body.text.body}}\"\n}"
+      },
+      "id": "Obtener Contexto",
+      "name": "Obtener Contexto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [400, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASE_API_URL}}/api/ai/reply",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "Authorization": "=Bearer {{$env.N8N_AUTH_TOKEN}}"
+          }
+        },
+        "bodyParametersJson": "{\n  \"sales_profile_slug\": \"={{$env.SALES_PROFILE_SLUG}}\",\n  \"customer_phone\": \"={{$json.body.from}}\",\n  \"customer_name\": \"={{$json.body.profile?.name || ''}}\",\n  \"message_content\": \"={{$json.body.text.body}}\"\n}"
+      },
+      "id": "Generar Respuesta",
+      "name": "Generar Respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [700, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$node.\"Generar Respuesta\".json.reply}}",
+              "operation": "contains",
+              "value2": "no estoy seguro"
+            }
+          ]
+        }
+      },
+      "id": "Necesita Entrenamiento",
+      "name": "Necesita Entrenamiento",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [950, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASE_API_URL}}/api/ai/training-queue",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "headers": {
+            "Authorization": "=Bearer {{$env.N8N_AUTH_TOKEN}}"
+          }
+        },
+        "bodyParametersJson": "{\n  \"sales_profile_id\": {{$env.SALES_PROFILE_ID || 0}},\n  \"question\": \"={{$json.body.text.body}}\",\n  \"original_answer\": \"={{$node.\"Generar Respuesta\".json.reply}}\"\n}"
+      },
+      "id": "Enviar a Cola",
+      "name": "Enviar a Cola",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1200, 80]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"reply\": $node.\"Generar Respuesta\".json.reply,\n  \"tokens\": $node.\"Generar Respuesta\".json.tokens_used,\n  \"model\": $node.\"Generar Respuesta\".json.model\n}"
+      },
+      "id": "Responder WhatsApp",
+      "name": "Responder WhatsApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 320]
+    }
+  ],
+  "connections": {
+    "Entrada WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Obtener Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Contexto": {
+      "main": [
+        [
+          {
+            "node": "Generar Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Respuesta": {
+      "main": [
+        [
+          {
+            "node": "Necesita Entrenamiento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Necesita Entrenamiento": {
+      "main": [
+        [
+          {
+            "node": "Enviar a Cola",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

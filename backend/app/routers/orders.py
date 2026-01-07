@@ -4,7 +4,6 @@ from typing import List, Optional, Tuple
 from decimal import Decimal
 from datetime import datetime, date
 import math
-import uuid
 import json
 from app.database import get_db
 from app.models import Order, OrderItem, Product, Profile, Stock, SalesProfile, Location, TradeIn, ProductIMEI, StockHistory, IMEIHistory, Bank, FinancingOption, InteractionLog, Customer, User
@@ -21,10 +20,12 @@ from app.schemas import (
     TradeInResponse
 )
 from app.auth import get_current_active_user, get_current_user_optional, check_permission
-from app.utils.order_financing import (
-    compute_financing_from_payload,
-    recompute_financing_from_details,
+from app.services.order_service import OrderService, resolve_user_label
+from app.services.stock_transaction_helper import (
+    PreparedSaleItem,
+    StockTransactionHelper,
 )
+from app.utils.order_financing import recompute_financing_from_details
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_tradeins import compute_trade_in_total
 from app.utils.order_validators import (
@@ -34,262 +35,8 @@ from app.utils.order_validators import (
     normalize_customer_phone,
 )
 from app.utils.stock_manager import StockManager, StockValidationError
-from app.utils.validators import InputValidator, ValidationError
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
-def _resolve_user_label(
-    current_user: Optional[User],
-    sales_profile: Optional[SalesProfile] = None,
-    profile: Optional[Profile] = None,
-    fallback: str = "Sistema",
-) -> str:
-    """Returns a human-friendly identifier for auditing/logging without assuming a full User object."""
-    if hasattr(current_user, "username"):
-        return current_user.username  # type: ignore[attr-defined]
-    if sales_profile and getattr(sales_profile, "name", None):
-        return sales_profile.name  # type: ignore[return-value]
-    if profile and getattr(profile, "name", None):
-        return profile.name  # type: ignore[return-value]
-    return fallback
-
-
-def _process_order_items(
-    db: Session,
-    order: OrderCreate,
-    sales_profile: Optional[SalesProfile],
-    stock_manager: StockManager
-) -> Tuple[Decimal, List[dict]]:
-    """Valida y prepara items de la orden: bloqueo de stock/IMEIs y cálculo de totales."""
-    total = Decimal("0.00")
-    order_items_data: List[dict] = []
-
-    for item in order.items:
-        # No permitir cantidades vacías (ya validado en schema, se refuerza)
-        if item.cantidad <= 0:
-            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
-
-        allow_pending_imei = False  # Ventas requieren IMEIs para serializados
-
-        try:
-            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
-                product_id=item.product_id,
-                location_id=order.source_location_id,
-                quantity=item.cantidad,
-                imeis_requested=item.imeis,
-                allow_pending_imei=allow_pending_imei,
-                operation_type="sale"
-            )
-        except StockValidationError as e:
-            # Consistencia rota
-            raise HTTPException(status_code=409, detail=str(e))
-
-        # Precio: usar el personalizado si viene; si no, precio del producto
-        if item.precio_unitario is not None:
-            precio_unitario = Decimal(str(item.precio_unitario))
-            if precio_unitario < 0:
-                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
-        else:
-            precio_unitario = Decimal(str(product.precio))
-
-        subtotal = precio_unitario * item.cantidad
-        if not item.es_regalo_promocion:
-            total += subtotal
-
-        order_items_data.append({
-            "product": product,
-            "stock": stock,
-            "cantidad": item.cantidad,
-            "precio_unitario": precio_unitario,
-            "es_regalo_promocion": item.es_regalo_promocion,
-            "imeis_to_sell": imeis_to_sell
-        })
-
-    return total, order_items_data
-
-
-def _process_items_for_update(
-    db: Session,
-    items_payload: List[OrderItemUpdate],
-    location_id: int,
-    stock_manager: StockManager
-) -> Tuple[Decimal, List[dict]]:
-    """Prepara items para update de orden usando validación centralizada de stock/IMEIs."""
-    total = Decimal("0.00")
-    prepared: List[dict] = []
-
-    for item_update in items_payload:
-        if item_update.cantidad <= 0:
-            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
-
-        try:
-            product, stock, imeis_to_sell = stock_manager.validate_and_lock_stock(
-                product_id=item_update.product_id,
-                location_id=location_id,
-                quantity=item_update.cantidad,
-                imeis_requested=item_update.imeis,
-                allow_pending_imei=False,  # Mantener requerimiento de IMEIs igual que en creación
-                operation_type="sale"
-            )
-        except StockValidationError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-
-        if item_update.precio_unitario is not None:
-            price = Decimal(str(item_update.precio_unitario))
-            if price < 0:
-                raise HTTPException(status_code=400, detail="El precio unitario no puede ser negativo")
-        else:
-            price = Decimal(str(product.precio))
-        if not item_update.es_regalo_promocion:
-            total += price * item_update.cantidad
-
-        prepared.append({
-            "product": product,
-            "stock": stock,
-            "cantidad": item_update.cantidad,
-            "precio_unitario": price,
-            "es_regalo_promocion": item_update.es_regalo_promocion,
-            "imeis_to_sell": imeis_to_sell
-        })
-
-    return total, prepared
-def _process_trade_ins(
-    db: Session,
-    order: OrderCreate,
-    db_order: Optional[Order],
-    profile_id_for_order: Optional[int],
-    current_user: Optional[User],
-    sales_profile: Optional[SalesProfile],
-    profile: Optional[Profile]
-) -> Decimal:
-    """Procesa trade-ins. Si db_order es None, solo calcula total; si no, escribe efectos en DB."""
-    trade_in_total = compute_trade_in_total(order.trade_ins)
-
-    if not order.trade_ins or db_order is None:
-        return trade_in_total
-
-    for trade_in_item in order.trade_ins:
-        db_trade_in = TradeIn(
-            order_id=db_order.id,
-            marca=trade_in_item.marca,
-            modelo=trade_in_item.modelo,
-            color=trade_in_item.color,
-            capacidad=trade_in_item.capacidad,
-            imei=trade_in_item.imei,
-            condicion=trade_in_item.condicion,
-            valor_estimado=trade_in_item.valor_estimado,
-            notas=trade_in_item.notas
-        )
-        db.add(db_trade_in)
-
-        query_existing = db.query(Product).filter(
-            Product.marca == trade_in_item.marca,
-            Product.modelo == trade_in_item.modelo,
-            Product.condicion == trade_in_item.condicion,
-            Product.activo == True
-        )
-        if trade_in_item.color:
-            query_existing = query_existing.filter(Product.color == trade_in_item.color)
-        if trade_in_item.capacidad:
-            query_existing = query_existing.filter(Product.capacidad == trade_in_item.capacidad)
-
-        existing_product = query_existing.first()
-
-        if existing_product:
-            new_product = existing_product
-        else:
-            sku_suffix = trade_in_item.imei[-6:] if trade_in_item.imei else uuid.uuid4().hex[:6]
-            new_sku = f"RET-{sku_suffix}-{uuid.uuid4().hex[:4]}"
-            precio_venta = trade_in_item.precio_venta if trade_in_item.precio_venta else trade_in_item.valor_estimado * Decimal("1.3")
-
-            nombre_producto = f"RETOMA: {trade_in_item.marca} {trade_in_item.modelo}"
-            if trade_in_item.capacidad:
-                nombre_producto += f" {trade_in_item.capacidad}"
-            if trade_in_item.color:
-                nombre_producto += f" ({trade_in_item.color})"
-
-            new_product = Product(
-                sku=new_sku,
-                nombre=nombre_producto,
-                categoria="pendiente_revision",
-                marca=trade_in_item.marca,
-                modelo=trade_in_item.modelo,
-                color=trade_in_item.color,
-                capacidad=trade_in_item.capacidad,
-                condicion=trade_in_item.condicion,
-                precio=precio_venta,
-                costo=trade_in_item.valor_estimado,
-                moneda="HNL",
-                activo=False,
-                profile_id=profile_id_for_order,
-                is_serialized=True
-            )
-            db.add(new_product)
-            db.flush()
-
-        stock_retoma = db.query(Stock).filter(
-            Stock.product_id == new_product.id,
-            Stock.location_id == order.source_location_id
-        ).with_for_update().first()
-
-        stock_anterior_retoma = 0
-        if stock_retoma:
-            stock_anterior_retoma = stock_retoma.cantidad_disponible
-            stock_retoma.cantidad_disponible += 1
-        else:
-            stock_retoma = Stock(
-                product_id=new_product.id,
-                location_id=order.source_location_id,
-                cantidad_disponible=1,
-                cantidad_reservada=0
-            )
-            db.add(stock_retoma)
-
-        if trade_in_item.imei:
-            existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == trade_in_item.imei).first()
-            if existing_imei:
-                existing_imei.product_id = new_product.id
-                existing_imei.location_id = order.source_location_id
-                existing_imei.vendido = False
-                existing_imei.order_id = None
-                db.add(existing_imei)
-            else:
-                new_imei = ProductIMEI(
-                    product_id=new_product.id,
-                    location_id=order.source_location_id,
-                    imei=trade_in_item.imei,
-                    vendido=False
-                )
-                db.add(new_imei)
-
-            user_label = _resolve_user_label(current_user, sales_profile, profile)
-
-            imei_history = IMEIHistory(
-                imei=trade_in_item.imei,
-                product_id=new_product.id,
-                location_id=order.source_location_id,
-                event_type='retoma',
-                reference_id=db_order.id,
-                reference_type='order',
-                notes=f"Ingreso por retoma en orden #{db_order.id}",
-                created_by=user_label
-            )
-            db.add(imei_history)
-
-        stock_history_retoma = StockHistory(
-            product_id=new_product.id,
-            location_id=order.source_location_id,
-            tipo_cambio='retoma',
-            cantidad=1,
-            stock_anterior=stock_anterior_retoma,
-            stock_nuevo=stock_anterior_retoma + 1,
-            referencia_id=db_order.id,
-            referencia_tipo='order',
-            notas=f"Ingreso por retoma de {trade_in_item.marca} {trade_in_item.modelo}",
-            usuario=user_label
-        )
-        db.add(stock_history_retoma)
-
-    return trade_in_total
 
 
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
@@ -331,7 +78,7 @@ def _serialize_product_for_order(product: Product, location_id: Optional[int] = 
         "garantia_meses": product.garantia_meses,
         "activo": product.activo,
         "is_serialized": product.is_serialized,
-        "stock_disponible": stock_disponible
+        "stock_disponible": stock_disponible,
     }
 
 
@@ -521,165 +268,10 @@ def create_order(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Crea una orden aplicando las validaciones V2.0 (stock/IMEIs, trade-ins, financiamiento)."""
-    try:
-        sales_profile, profile, sales_profile_id_for_order, profile_id_for_order = resolve_sales_profile(
-            db=db,
-            sales_profile_slug=order.sales_profile_slug,
-            profile_slug=order.profile_slug
-        )
-        source_location, customer_phone_str = validate_location_and_phone(
-            db=db,
-            source_location_id=order.source_location_id,
-            customer_phone=order.customer_phone
-        )
-
-        if not order.items:
-            raise HTTPException(status_code=400, detail="La orden debe contener al menos un producto")
-
-        stock_manager = StockManager(db)
-
-        # Procesar items (valida stock/IMEIs con bloqueo pesimista)
-        total, order_items_data = _process_order_items(db, order, sales_profile, stock_manager)
-
-        # Validar que exista al menos un item con valor (no solo regalos)
-        if total == Decimal("0.00"):
-            all_gifts = all(item_data["es_regalo_promocion"] for item_data in order_items_data)
-            if all_gifts:
-                raise HTTPException(
-                    status_code=400,
-                    detail="La orden debe tener al menos un producto con valor. No se pueden crear órdenes solo con regalos/promociones."
-                )
-
-        # Calcular retomas (solo total en esta fase)
-        trade_in_total = _process_trade_ins(
-            db=db,
-            order=order,
-            db_order=None,
-            profile_id_for_order=profile_id_for_order,
-            current_user=current_user,
-            sales_profile=sales_profile,
-            profile=profile
-        )
-
-        total_final = total - trade_in_total
-        if total_final < 0:
-            total_final = Decimal("0.00")
-
-        total_final, financing_details_json = compute_financing_from_payload(
-            db=db,
-            financing_data=order.financing_data,
-            metodo_pago=order.metodo_pago,
-            total_after_tradeins=total_final,
-            trade_in_total=trade_in_total,
-        )
-
-        # Crear orden con campos V2.0
-        db_order = Order(
-            profile_id=profile_id_for_order,  # Legacy, puede ser None
-            sales_profile_id=sales_profile_id_for_order,  # V2.0, puede ser None
-            source_location_id=order.source_location_id,
-            customer_name=order.customer_name,
-            customer_phone=customer_phone_str,
-            canal=order.canal,
-            metodo_pago=order.metodo_pago,
-            total=total_final,
-            financing_details=financing_details_json,  # V2.1
-            estado="pendiente",
-            notes=order.notes,
-            delivery_date=order.delivery_date
-        )
-        db.add(db_order)
-        db.flush()
-
-        # Persistir Trade-Ins (ya con order_id)
-        if order.trade_ins:
-            _process_trade_ins(
-                db=db,
-                order=order,
-                db_order=db_order,
-                profile_id_for_order=profile_id_for_order,
-                current_user=current_user,
-                sales_profile=sales_profile,
-                profile=profile
-            )
-        
-        db_order_items = []
-        user_identifier = _resolve_user_label(current_user, sales_profile, profile)
-        
-        for item_data in order_items_data:
-            db_order_item = OrderItem(
-                order_id=db_order.id,
-                product_id=item_data["product"].id,
-                cantidad=item_data["cantidad"],
-                precio_unitario=item_data["precio_unitario"],
-                es_regalo_promocion=item_data["es_regalo_promocion"]
-            )
-            db.add(db_order_item)
-            db_order_items.append(db_order_item)
-            
-            # Marcar IMEIs como vendidos usando StockManager
-            if item_data.get("imeis_to_sell"):
-                stock_manager.mark_imeis_as_sold(
-                    imeis=item_data["imeis_to_sell"],
-                    order_id=db_order.id,
-                    notes=f"Venta en orden #{db_order.id}",
-                    user_id=user_identifier
-                )
-            
-            # Descontar stock usando StockManager
-            try:
-                stock_manager.decrease_stock(
-                    stock=item_data["stock"],
-                    quantity=item_data["cantidad"],
-                    operation_type="venta",
-                    notes=f"Venta a {order.customer_name} - Canal: {order.canal}",
-                    user_id=user_identifier,
-                    order_id=db_order.id
-                )
-            except StockValidationError as e:
-                # Esto no debería ocurrir si validate_and_lock_stock funcionó, pero por seguridad
-                db.rollback()
-                raise HTTPException(status_code=409, detail=str(e))
-        
-        # V2.5: Atribución de Venta a Interacción de IA
-        if sales_profile_id_for_order and order.customer_phone:
-            try:
-                normalized_phone = "".join(filter(str.isdigit, str(order.customer_phone)))
-                customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
-                
-                if customer:
-                    last_interaction = db.query(InteractionLog).filter(
-                        InteractionLog.customer_id == customer.id,
-                        InteractionLog.sales_profile_id == sales_profile_id_for_order,
-                        InteractionLog.converted_order_id == None
-                    ).order_by(InteractionLog.created_at.desc()).first()
-                    
-                    if last_interaction:
-                        last_interaction.converted_order_id = db_order.id
-                        db.add(last_interaction)
-            except Exception as e:
-                print(f"Error linking order to interaction: {e}")
-                # No fallar la orden por esto
-
-        # Commit transacción
-        db.commit()
-        
-        # Refresh seguro (Bug #28 fix)
-        db.refresh(db_order)
-        for item in db_order_items:
-            db.refresh(item)
-
-        return _serialize_order(db_order)
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al crear la orden: {str(e)}"
-        )
+    """Crea una orden usando OrderService para centralizar la lógica V2.0."""
+    service = OrderService(db)
+    created_order = service.create_order(order, current_user=current_user)
+    return _serialize_order(created_order)
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
@@ -755,7 +347,7 @@ def update_order(
                 detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
             )
 
-        user_identifier = _resolve_user_label(current_user)
+        user_identifier = resolve_user_label(current_user)
 
         # 🔒 BUG #1 FIX: Obtener snapshot de items antiguos PRIMERO
         # StockHistory y ProductIMEI ya están importados globalmente
@@ -774,6 +366,7 @@ def update_order(
             # Liberar IMEIs de los items actuales antes de reemplazarlos
             # ProductIMEI ya está importado globalmente
             stock_manager = StockManager(db)
+            stock_helper = StockTransactionHelper(db, stock_manager=stock_manager)
             
             for item in current_items:
                 # Liberar IMEIs asociados a este item
@@ -830,17 +423,17 @@ def update_order(
             # Borrar items existentes y recalcular con helper centralizado
             db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
 
-            total, prepared_items = _process_items_for_update(
-                db=db,
+            prepared_items: List[PreparedSaleItem]
+            total, prepared_items = stock_helper.prepare_sale_items(
                 items_payload=updates.items,
                 location_id=target_location_id,
-                stock_manager=stock_manager
+                allow_pending_imei=False
             )
 
             for item_data in prepared_items:
-                if item_data.get("imeis_to_sell"):
+                if item_data.imeis_to_sell:
                     stock_manager.mark_imeis_as_sold(
-                        imeis=item_data["imeis_to_sell"],
+                        imeis=item_data.imeis_to_sell,
                         order_id=order.id,
                         notes=f"Venta en actualización de orden #{order.id}",
                         user_id=user_identifier
@@ -848,17 +441,17 @@ def update_order(
 
                 new_item = OrderItem(
                     order_id=order.id,
-                    product_id=item_data["product"].id,
-                    cantidad=item_data["cantidad"],
-                    precio_unitario=item_data["precio_unitario"],
-                    es_regalo_promocion=item_data["es_regalo_promocion"]
+                    product_id=item_data.product.id,
+                    cantidad=item_data.cantidad,
+                    precio_unitario=item_data.precio_unitario,
+                    es_regalo_promocion=item_data.es_regalo_promocion
                 )
                 db.add(new_item)
 
                 try:
                     stock_manager.decrease_stock(
-                        stock=item_data["stock"],
-                        quantity=item_data["cantidad"],
+                        stock=item_data.stock,
+                        quantity=item_data.cantidad,
                         operation_type="venta",
                         notes=f"Actualización de orden #{order.id} - Item añadido/modificado",
                         user_id=user_identifier,
@@ -1005,7 +598,7 @@ def cancel_order(
         
         # Inicializar StockManager
         stock_manager = StockManager(db)
-        user_identifier = _resolve_user_label(current_user)
+        user_identifier = resolve_user_label(current_user)
         
         # Procesar cada item de la orden
         for idx, item in enumerate(order.items):

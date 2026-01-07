@@ -25,9 +25,46 @@ import type {
   Bank,
   FinancingOption,
   TradeInPolicy,
-  WarrantyStatus
+  WarrantyStatus,
+  DashboardStats,
+  SalesReport,
+  InventoryAlert,
+  StockSummaryByLocation,
+  SalesSummaryByLocation,
+  TopProductByLocationEntry,
+  CustomerStats,
+  CustomerHistory,
+  OrderSummary,
+  StockHistoryStats,
+  StockHistoryCreateRequest,
+  AIContextPayload,
+  AIContextResponse,
+  AIReplyPayload,
+  AIReplyResponse,
+  AIInteractionLogPayload,
+  TrainingSubmissionPayload,
+  FlagTrollResponse,
+  PublicProduct,
+  PublicCatalogFilters,
+  PaginatedResponse,
+  BusinessInsightsResponse,
+  BusinessInsightTopSeller,
+  BusinessInsightSlowMover,
+  BusinessInsightStockAlert,
+  BusinessInsightTrendPoint,
+  AIStatusResponse,
+  ForecastingAlertItem,
+  Permission,
+  Role,
+  User,
+  CreateUserRequest,
+  SyncEventInput
 } from './types'
+import { generateAIForecasts, generateRestockAlerts, SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
+import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizationAnalytics'
+import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
+import { syncJournal } from './syncJournal'
 
 // Simple Async Lock to prevent race conditions in Local Mode
 class AsyncLock {
@@ -46,6 +83,7 @@ class AsyncLock {
 }
 
 const inventoryLock = new AsyncLock()
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 const STORAGE_KEYS = {
   PROFILES: 'inventory-profiles',
@@ -69,10 +107,78 @@ const STORAGE_KEYS = {
   BANKS: 'inventory-banks',                   // V2.1
   FINANCING_OPTIONS: 'inventory-financing-options', // V2.1
   TRADE_IN_POLICIES: 'inventory-trade-in-policies', // V2.1
-  FAQS: 'inventory-faqs'                      // V2.1: FAQs local mode
+  FAQS: 'inventory-faqs',                     // V2.1: FAQs local mode
+  USERS: 'inventory-users',                   // V2.1: RBAC local mode
+  ROLES: 'inventory-roles',                   // V2.1: RBAC local mode
+  PERMISSIONS: 'inventory-permissions'        // V2.1: RBAC local mode
+}
+
+type PermissionSeedDefinition = {
+  slug: string
+  module: string
+  description: string
+}
+
+type RoleSeedDefinition = {
+  name: string
+  description: string
+  is_system_role: boolean
+  permissionSlugs: string[]
+}
+
+const PERMISSION_SEED_DATA: PermissionSeedDefinition[] = [
+  { slug: 'users:manage', module: 'usuarios', description: 'Administrar usuarios, roles y permisos' },
+  { slug: 'inventory:read', module: 'inventario', description: 'Consultar el inventario y niveles de stock' },
+  { slug: 'inventory:write', module: 'inventario', description: 'Crear o actualizar productos y existencias' },
+  { slug: 'orders:read', module: 'ordenes', description: 'Ver órdenes y su progreso' },
+  { slug: 'orders:write', module: 'ordenes', description: 'Crear, actualizar o cancelar órdenes' },
+  { slug: 'settings:edit', module: 'configuracion', description: 'Cambiar la configuración avanzada de la app' }
+]
+
+const ROLE_SEED_DATA: RoleSeedDefinition[] = [
+  {
+    name: 'Super Admin',
+    description: 'Control total del sistema en modo local',
+    is_system_role: true,
+    permissionSlugs: PERMISSION_SEED_DATA.map(permission => permission.slug)
+  },
+  {
+    name: 'Admin',
+    description: 'Gestiona inventario, órdenes y configuraciones básicas',
+    is_system_role: true,
+    permissionSlugs: ['inventory:read', 'inventory:write', 'orders:read', 'orders:write']
+  },
+  {
+    name: 'Vendedor',
+    description: 'Opera ventas y consulta inventario',
+    is_system_role: true,
+    permissionSlugs: ['inventory:read', 'orders:read']
+  }
+]
+
+const DEFAULT_RBAC_USER = {
+  username: 'admin',
+  email: 'admin@local.dev',
+  full_name: 'Administrador Local'
 }
 
 export class InventoryService {
+
+  private async recordSyncEvent(event: SyncEventInput): Promise<void> {
+    try {
+      await syncJournal.recordEvent({
+        ...event,
+        origin: event.origin ?? 'local',
+        metadata: {
+          ...(event.metadata ?? {}),
+          source: 'inventoryService'
+        }
+      })
+    } catch (error) {
+      console.warn('[InventoryService] No se pudo registrar evento de sincronización', event, error)
+    }
+  }
+
   private async loadStockHistory(): Promise<StockHistory[]> {
     try {
       const kv = getKV()
@@ -208,6 +314,26 @@ export class InventoryService {
     }
   }
 
+  private async loadOrdersWithItems(): Promise<Array<Order & { items: OrderItem[] }>> {
+    const [orders, orderItems] = await Promise.all([
+      this.loadOrders(),
+      this.getOrderItems()
+    ])
+
+    const itemsByOrder = new Map<number, OrderItem[]>()
+    for (const item of orderItems) {
+      if (!itemsByOrder.has(item.order_id)) {
+        itemsByOrder.set(item.order_id, [])
+      }
+      itemsByOrder.get(item.order_id)!.push(item)
+    }
+
+    return orders.map(order => ({
+      ...order,
+      items: itemsByOrder.get(order.id) || []
+    }))
+  }
+
   private async loadTradeIns(): Promise<TradeIn[]> {
     try {
       const kv = getKV()
@@ -257,6 +383,118 @@ export class InventoryService {
     } catch (error) {
       console.error('Error saving order items:', error)
       throw new Error(`Failed to save order items: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  private async ensureRbacSeeded(): Promise<void> {
+    const release = await inventoryLock.acquire()
+    try {
+      const kv = getKV()
+      let permissions = await kv.get<Permission[]>(STORAGE_KEYS.PERMISSIONS) || []
+      if (!permissions.length) {
+        permissions = PERMISSION_SEED_DATA.map((definition, index) => ({
+          id: index + 1,
+          slug: definition.slug,
+          module: definition.module,
+          description: definition.description
+        }))
+        await kv.set(STORAGE_KEYS.PERMISSIONS, permissions)
+      }
+
+      let roles = await kv.get<Role[]>(STORAGE_KEYS.ROLES) || []
+      if (!roles.length) {
+        roles = ROLE_SEED_DATA.map((definition, index) => ({
+          id: index + 1,
+          name: definition.name,
+          description: definition.description,
+          is_system_role: definition.is_system_role,
+          permissions: definition.permissionSlugs
+            .map(slug => permissions.find(permission => permission.slug === slug))
+            .filter((permission): permission is Permission => Boolean(permission))
+        }))
+        await kv.set(STORAGE_KEYS.ROLES, roles)
+      }
+
+      let users = await kv.get<User[]>(STORAGE_KEYS.USERS) || []
+      if (!users.length) {
+        const now = new Date().toISOString()
+        const adminRole = roles[0]
+        users = [{
+          id: 1,
+          username: DEFAULT_RBAC_USER.username,
+          email: DEFAULT_RBAC_USER.email,
+          full_name: DEFAULT_RBAC_USER.full_name,
+          is_active: true,
+          is_superuser: true,
+          role_id: adminRole?.id,
+          role: adminRole,
+          created_at: now,
+          updated_at: now
+        }]
+        await kv.set(STORAGE_KEYS.USERS, users)
+      }
+    } finally {
+      release()
+    }
+  }
+
+  private async loadPermissions(): Promise<Permission[]> {
+    try {
+      const kv = getKV()
+      return (await kv.get<Permission[]>(STORAGE_KEYS.PERMISSIONS)) || []
+    } catch (error) {
+      console.error('Error loading permissions:', error)
+      return []
+    }
+  }
+
+  private async setPermissions(permissions: Permission[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.PERMISSIONS, permissions)
+    } catch (error) {
+      console.error('Error saving permissions:', error)
+      throw error
+    }
+  }
+
+  private async loadRoles(): Promise<Role[]> {
+    try {
+      const kv = getKV()
+      return (await kv.get<Role[]>(STORAGE_KEYS.ROLES)) || []
+    } catch (error) {
+      console.error('Error loading roles:', error)
+      return []
+    }
+  }
+
+  private async setRoles(roles: Role[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.ROLES, roles)
+    } catch (error) {
+      console.error('Error saving roles:', error)
+      throw error
+    }
+  }
+
+  private async loadUsers(): Promise<User[]> {
+    try {
+      const kv = getKV()
+      return (await kv.get<User[]>(STORAGE_KEYS.USERS)) || []
+    } catch (error) {
+      console.error('Error loading users:', error)
+      return []
+    }
+  }
+
+  private async setUsers(users: User[]): Promise<void> {
+    try {
+      const kv = getKV()
+      await kv.set(STORAGE_KEYS.USERS, users)
+    } catch (error) {
+      console.error('Error saving users:', error)
+      throw error
     }
   }
 
@@ -490,6 +728,22 @@ export class InventoryService {
 
       let total = 0
       const newOrderItems: OrderItem[] = []
+      const stockAdjustments: Array<{
+        product_id: number
+        location_id?: number
+        delta: number
+        stock_anterior: number
+        stock_nuevo: number
+        reason: string
+        reference_id: number
+      }> = []
+      const imeiEvents: Array<{
+        imei: string
+        product_id: number
+        location_id?: number
+        type: 'sold' | 'released' | 'trade_in_intake'
+        reference_id: number
+      }> = []
       const newOrderId = Math.max(0, ...orders.map(o => o.id)) + 1
       const newStockHistory: StockHistory[] = []
       const newIMEIHistory: IMEIHistory[] = []
@@ -583,6 +837,16 @@ export class InventoryService {
         stockEntry.cantidad_disponible -= item.cantidad
         const stockNuevo = stockEntry.cantidad_disponible
 
+        stockAdjustments.push({
+          product_id: item.product_id,
+          location_id: request.source_location_id,
+          delta: -item.cantidad,
+          stock_anterior: stockAnterior,
+          stock_nuevo: stockNuevo,
+          reason: 'order_sale',
+          reference_id: newOrderId
+        })
+
         if (stockEntry.cantidad_reservada && stockEntry.cantidad_disponible < stockEntry.cantidad_reservada) {
           throw new Error(
             `Critical stock error for product ${item.product_id}: available below reserved after sale`
@@ -663,6 +927,14 @@ export class InventoryService {
                 notes: `Venta en orden #${newOrderId}`,
                 created_by: salesProfile?.name || profile?.name || 'Sistema Local',
                 created_at: new Date().toISOString()
+              })
+
+              imeiEvents.push({
+                imei: imei.imei,
+                product_id: item.product_id,
+                location_id: request.source_location_id,
+                type: 'sold',
+                reference_id: newOrderId
               })
             }
           }
@@ -757,14 +1029,12 @@ export class InventoryService {
           )
 
           let newProduct: Product
-          let isNewProduct = false
 
           if (existingProduct) {
              newProduct = existingProduct
              // No actualizamos precio ni costo del producto existente
           } else {
              // Crear Producto Nuevo si no existe
-             isNewProduct = true
              const nextProductId = Math.max(0, ...products.map(p => p.id), ...tradeInProducts.map(p => p.id)) + 1
              const skuSuffix = tradeIn.imei ? tradeIn.imei.slice(-6) : crypto.randomUUID().substring(0, 6)
              // V2.0: Asegurar formato consistente con backend RET-{suffix}-{uuid}
@@ -812,6 +1082,17 @@ export class InventoryService {
             }
             updatedStock.push(stockEntry)
           }
+          const stockNuevo = stockEntry.cantidad_disponible
+
+          stockAdjustments.push({
+            product_id: newProduct.id,
+            location_id: request.source_location_id,
+            delta: 1,
+            stock_anterior,
+            stock_nuevo: stockNuevo,
+            reason: 'trade_in_intake',
+            reference_id: newOrderId
+          })
 
           // 3. Registrar IMEI
           if (tradeIn.imei) {
@@ -836,6 +1117,14 @@ export class InventoryService {
                 }
                 tradeInIMEIs.push(newImei)
             }
+
+            imeiEvents.push({
+              imei: tradeIn.imei,
+              product_id: newProduct.id,
+              location_id: request.source_location_id,
+              type: 'trade_in_intake',
+              reference_id: newOrderId
+            })
 
             // V2.0: Add IMEI History (Trade-In)
             newIMEIHistory.push({
@@ -891,7 +1180,7 @@ export class InventoryService {
         }
 
         let rate = bank.normal_card_rate || 0.04 // Default fallback
-        let bankName = bank.name
+        const bankName = bank.name
 
         if (months > 0) {
            const option = bank.financing_options.find(o => o.months === months && o.active)
@@ -947,6 +1236,49 @@ export class InventoryService {
       await this.setProductIMEIs([...updatedIMEIs, ...tradeInIMEIs])
       await this.setTradeIns([...tradeIns, ...newTradeIns])
       await this.setIMEIHistory([...imeiHistory, ...newIMEIHistory])
+
+      await this.recordSyncEvent({
+        entity: 'order',
+        action: 'create',
+        entityId: newOrderId,
+        payload: {
+          order: newOrder,
+          items: newOrderItems,
+          trade_ins: newTradeIns,
+          trade_in_products: tradeInProducts,
+          trade_in_imeis: tradeInIMEIs,
+          stock_adjustments: stockAdjustments,
+          imei_events: imeiEvents,
+          financing_data: request.financing_data ?? null,
+          source_location_id: request.source_location_id
+        }
+      })
+
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'update',
+          entityId: null,
+          payload: {
+            order_id: newOrderId,
+            source_location_id: request.source_location_id ?? null,
+            events: imeiEvents
+          }
+        })
+      }
+
+      if (tradeInIMEIs.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'assign',
+          entityId: null,
+          payload: {
+            order_id: newOrderId,
+            source_location_id: request.source_location_id ?? null,
+            imeis: tradeInIMEIs
+          }
+        })
+      }
 
       const orderWithItems: OrderWithItems = {
         ...newOrder,
@@ -1035,6 +1367,15 @@ export class InventoryService {
       }
 
       await this.setProfiles([...profiles, newProfile])
+
+      await this.recordSyncEvent({
+        entity: 'profile',
+        action: 'create',
+        entityId: newProfile.id,
+        payload: {
+          profile: newProfile
+        }
+      })
       return newProfile
     } catch (error) {
       console.error('Error creating profile:', error)
@@ -1043,6 +1384,18 @@ export class InventoryService {
       }
       throw new Error(`Failed to create profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'update',
+          entityId: null,
+          payload: {
+            order_id: newOrderId,
+            source_location_id: request.source_location_id ?? null,
+            events: imeiEvents
+          }
+        })
+      }
   }
 
   async listProfiles(): Promise<Profile[]> {
@@ -1072,12 +1425,25 @@ export class InventoryService {
         throw new Error(`Profile with id ${profileId} not found`)
       }
 
+      const previousProfile = { ...profiles[profileIndex] }
+
       profiles[profileIndex] = {
-        ...profiles[profileIndex],
+        ...previousProfile,
         ...updates
       }
 
       await this.setProfiles(profiles)
+
+      await this.recordSyncEvent({
+        entity: 'profile',
+        action: 'update',
+        entityId: profileId,
+        payload: {
+          before: previousProfile,
+          after: profiles[profileIndex],
+          updates
+        }
+      })
       return profiles[profileIndex]
     } catch (error) {
       console.error('Error updating profile:', error)
@@ -1105,6 +1471,7 @@ export class InventoryService {
       }
 
       const order = orders[orderIndex]
+      const orderBefore = { ...order }
       if (order.estado === 'cancelada') {
         throw new Error('Order is already cancelled')
       }
@@ -1115,6 +1482,21 @@ export class InventoryService {
       if (!locationId) {
          console.warn(`Order ${orderId} has no source_location_id. Stock restoration might be inaccurate.`)
       }
+
+      const stockRestorations: Array<{
+        product_id: number
+        location_id?: number
+        cantidad: number
+        stock_anterior: number
+        stock_nuevo: number
+      }> = []
+      const imeiEvents: Array<{
+        imei: string
+        product_id: number
+        location_id?: number
+        type: 'released'
+        reference_id: number
+      }> = []
 
       // 1. Restore Stock
       for (const item of items) {
@@ -1127,29 +1509,37 @@ export class InventoryService {
         }
 
         if (targetLocationId) {
-            const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === targetLocationId)
-            if (stockEntry) {
-                const stockAnterior = stockEntry.cantidad_disponible
-                stockEntry.cantidad_disponible += item.cantidad
-                
-                // Record History
-                stockHistory.push({
-                    id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
-                    product_id: item.product_id,
-                    location_id: targetLocationId,
-                    tipo_cambio: 'devolucion', 
-                    cantidad: item.cantidad,
-                    stock_anterior: stockAnterior,
-                    stock_nuevo: stockEntry.cantidad_disponible,
-                    referencia_id: orderId,
-                    referencia_tipo: 'order_cancelled',
-                    notas: `Cancelación de orden #${orderId}: ${reason || 'Sin razón'}`,
-                    usuario: 'Sistema Local',
-                    created_at: new Date().toISOString()
-                })
-            } else {
-                console.error(`Stock entry not found for product ${item.product_id} at location ${targetLocationId}`)
-            }
+          const stockEntry = stock.find(s => s.product_id === item.product_id && s.location_id === targetLocationId)
+          if (stockEntry) {
+            const stockAnterior = stockEntry.cantidad_disponible
+            stockEntry.cantidad_disponible += item.cantidad
+            
+            // Record History
+            stockHistory.push({
+              id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+              product_id: item.product_id,
+              location_id: targetLocationId,
+              tipo_cambio: 'devolucion', 
+              cantidad: item.cantidad,
+              stock_anterior: stockAnterior,
+              stock_nuevo: stockEntry.cantidad_disponible,
+              referencia_id: orderId,
+              referencia_tipo: 'order_cancelled',
+              notas: `Cancelación de orden #${orderId}: ${reason || 'Sin razón'}`,
+              usuario: 'Sistema Local',
+              created_at: new Date().toISOString()
+            })
+
+            stockRestorations.push({
+              product_id: item.product_id,
+              location_id: targetLocationId,
+              cantidad: item.cantidad,
+              stock_anterior,
+              stock_nuevo: stockEntry.cantidad_disponible
+            })
+          } else {
+            console.error(`Stock entry not found for product ${item.product_id} at location ${targetLocationId}`)
+          }
         }
       }
 
@@ -1157,6 +1547,13 @@ export class InventoryService {
       for (let i = 0; i < imeis.length; i++) {
         if (imeis[i].order_id === orderId && imeis[i].vendido) {
             imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+                imeiEvents.push({
+                  imei: imeis[i].imei,
+                  product_id: imeis[i].product_id,
+                  location_id: imeis[i].location_id,
+                  type: 'released',
+                  reference_id: orderId
+                })
         }
       }
 
@@ -1168,11 +1565,39 @@ export class InventoryService {
         updated_at: new Date().toISOString()
       }
 
+      const updatedOrder = orders[orderIndex]
+
       // 4. Save All
       await this.setOrders(orders)
       await this.setStock(stock)
       await this.setProductIMEIs(imeis)
       await this.setStockHistory(stockHistory)
+
+      await this.recordSyncEvent({
+        entity: 'order',
+        action: 'cancel',
+        entityId: orderId,
+        payload: {
+          reason: reason ?? null,
+          order_before: orderBefore,
+          order_after: updatedOrder,
+          stock_restored: stockRestorations,
+          imei_events: imeiEvents
+        }
+      })
+
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'cancel',
+          entityId: null,
+          payload: {
+            order_id: orderId,
+            reason: reason ?? null,
+            events: imeiEvents
+          }
+        })
+      }
 
       // 5. Return updated order
       // We need to release the lock before calling fetchOrders because fetchOrders might try to acquire it?
@@ -1206,8 +1631,20 @@ export class InventoryService {
         throw new Error(`Order with id ${orderId} not found`)
       }
 
+      const previousStatus = orders[orderIndex].estado
       orders[orderIndex].estado = estado
       await this.setOrders(orders)
+
+      await this.recordSyncEvent({
+        entity: 'order',
+        action: 'update',
+        entityId: orderId,
+        payload: {
+          field: 'estado',
+          previous: previousStatus,
+          next: estado
+        }
+      })
 
       const orderWithItems = await this.fetchOrders()
       const found = orderWithItems.find(o => o.id === orderId)
@@ -1290,6 +1727,35 @@ export class InventoryService {
         throw new Error('Order does not have a source_location_id; cannot update stock by location')
       }
 
+      const orderBeforeSnapshot = {
+        ...currentOrder,
+        items: currentItems.map(item => ({ ...item }))
+      }
+
+      const restoredStockEvents: Array<{
+        product_id: number
+        location_id: number
+        cantidad: number
+        stock_anterior: number
+        stock_nuevo: number
+      }> = []
+
+      const appliedStockEvents: Array<{
+        product_id: number
+        location_id: number
+        cantidad: number
+        stock_anterior: number
+        stock_nuevo: number
+      }> = []
+
+      const imeiEvents: Array<{
+        imei: string
+        product_id: number
+        location_id: number
+        type: 'released' | 'sold'
+        reference_id: number
+      }> = []
+
       if (updates.items) {
         // VALIDATION: Items Quantity
         for (const item of updates.items) {
@@ -1328,6 +1794,14 @@ export class InventoryService {
             usuario: 'Sistema Local',
             created_at: new Date().toISOString()
           })
+
+          restoredStockEvents.push({
+            product_id: item.product_id,
+            location_id: locationId,
+            cantidad: item.cantidad,
+            stock_anterior,
+            stock_nuevo: stockEntry.cantidad_disponible
+          })
         }
 
         // 2. Liberar IMEIs asociados a esta orden (marcarlos como no vendidos)
@@ -1335,6 +1809,13 @@ export class InventoryService {
         for (let i = 0; i < imeis.length; i++) {
           if (imeis[i].order_id === orderId) {
             imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+            imeiEvents.push({
+              imei: imeis[i].imei,
+              product_id: imeis[i].product_id,
+              location_id: imeis[i].location_id!,
+              type: 'released',
+              reference_id: orderId
+            })
           }
         }
 
@@ -1418,12 +1899,27 @@ export class InventoryService {
             created_at: new Date().toISOString()
           })
 
+          appliedStockEvents.push({
+            product_id: item.product_id,
+            location_id: locationId,
+            cantidad: item.cantidad,
+            stock_anterior,
+            stock_nuevo: stockEntry.cantidad_disponible
+          })
+
           // Marcar IMEIs como vendidos
           if (item.imeis && item.imeis.length > 0) {
             for (const imeiStr of item.imeis) {
               const imeiIndex = imeis.findIndex(i => i.imei === imeiStr && i.product_id === item.product_id)
               if (imeiIndex !== -1) {
                 imeis[imeiIndex] = { ...imeis[imeiIndex], vendido: true, order_id: orderId }
+                imeiEvents.push({
+                  imei: imeis[imeiIndex].imei,
+                  product_id: item.product_id,
+                  location_id: locationId,
+                  type: 'sold',
+                  reference_id: orderId
+                })
               }
             }
           }
@@ -1464,6 +1960,34 @@ export class InventoryService {
       }
 
       await this.setOrders(orders)
+
+      const updatedOrder = orders[orderIndex]
+
+      await this.recordSyncEvent({
+        entity: 'order',
+        action: 'update',
+        entityId: orderId,
+        payload: {
+          updates,
+          order_before: orderBeforeSnapshot,
+          order_after: updatedOrder,
+          stock_restored: restoredStockEvents,
+          stock_applied: appliedStockEvents,
+          imei_events: imeiEvents
+        }
+      })
+
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'update',
+          entityId: null,
+          payload: {
+            order_id: orderId,
+            events: imeiEvents
+          }
+        })
+      }
 
       const orderWithItems = await this.fetchOrders()
       const found = orderWithItems.find(o => o.id === orderId)
@@ -1584,6 +2108,32 @@ export class InventoryService {
           await this.setProductIMEIs([...productIMEIs, ...newIMEIs])
       }
 
+      await this.recordSyncEvent({
+        entity: 'product',
+        action: 'create',
+        entityId: newProduct.id,
+        payload: {
+          product: newProduct,
+          stock: newStock,
+          initialStock,
+          location_id: locationId ?? null,
+          imeis: newIMEIs
+        }
+      })
+
+      if (newIMEIs.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'assign',
+          entityId: null,
+          payload: {
+            product_id: newProduct.id,
+            location_id: locationId ?? null,
+            imeis: newIMEIs
+          }
+        })
+      }
+
       return {
         ...newProduct,
         stock_disponible: initialStock,
@@ -1670,6 +2220,19 @@ export class InventoryService {
 
       await this.setStock(stock)
       await this.setStockHistory(stockHistory)
+
+      await this.recordSyncEvent({
+        entity: 'stock',
+        action: 'update',
+        entityId: `${productId}:${locationId}`,
+        payload: {
+          product_id: productId,
+          location_id: locationId,
+          cantidad,
+          stock_anterior: stockAnterior,
+          stock_nuevo: cantidad
+        }
+      })
     } catch (error) {
       console.error('Error updating stock:', error)
       if (error instanceof Error) {
@@ -1710,6 +2273,16 @@ export class InventoryService {
       if (stock_disponible !== undefined) {
          console.warn('updateProduct: stock_disponible ignored in V2.0. Use updateStock(productId, quantity, locationId) instead.')
       }
+
+      await this.recordSyncEvent({
+        entity: 'product',
+        action: 'update',
+        entityId: productId,
+        payload: {
+          updates: productUpdates,
+          stock_disponible: stock_disponible ?? undefined
+        }
+      })
 
       const stock = await this.getStock()
       // Calculate total stock across all locations for the return value
@@ -1768,6 +2341,15 @@ export class InventoryService {
         this.setProducts(updatedProducts),
         this.setStock(updatedStock)
       ])
+
+      await this.recordSyncEvent({
+        entity: 'product',
+        action: 'delete',
+        entityId: productId,
+        payload: {
+          product_id: productId
+        }
+      })
     } catch (error) {
       console.error('Error deleting product:', error)
       if (error instanceof Error) {
@@ -1804,6 +2386,20 @@ export class InventoryService {
       const updatedStock = [...stock]
       const updatedIMEIs = [...productIMEIs]
       const newStockHistory: StockHistory[] = []
+      const stockRestorations: Array<{
+        product_id: number
+        location_id: number
+        cantidad: number
+        stock_anterior: number
+        stock_nuevo: number
+      }> = []
+      const imeiEvents: Array<{
+        imei: string
+        product_id: number
+        location_id: number
+        type: 'released'
+        reference_id: number
+      }> = []
       
       for (const item of itemsToRestore) {
         const stockItem = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
@@ -1829,6 +2425,14 @@ export class InventoryService {
           usuario: 'Sistema Local',
           created_at: new Date().toISOString()
         })
+
+        stockRestorations.push({
+          product_id: item.product_id,
+          location_id,
+          cantidad: item.cantidad,
+          stock_anterior,
+          stock_nuevo: stockItem.cantidad_disponible
+        })
         
         // Liberar IMEIs vendidos en esta orden (marcar como no vendidos)
         if (item.imeis && item.imeis.length > 0) {
@@ -1845,6 +2449,13 @@ export class InventoryService {
                 vendido: false,
                 order_id: undefined
               }
+              imeiEvents.push({
+                imei: updatedIMEIs[imeiIndex].imei,
+                product_id: updatedIMEIs[imeiIndex].product_id,
+                location_id: updatedIMEIs[imeiIndex].location_id!,
+                type: 'released',
+                reference_id: orderId
+              })
             }
           }
         }
@@ -1860,6 +2471,30 @@ export class InventoryService {
         this.setProductIMEIs(updatedIMEIs),
         this.setStockHistory([...stockHistory, ...newStockHistory])
       ])
+
+      await this.recordSyncEvent({
+        entity: 'order',
+        action: 'delete',
+        entityId: orderId,
+        payload: {
+          order,
+          items: itemsToRestore,
+          stock_restored: stockRestorations,
+          imei_events: imeiEvents
+        }
+      })
+
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'update',
+          entityId: null,
+          payload: {
+            order_id: orderId,
+            events: imeiEvents
+          }
+        })
+      }
     } catch (error) {
       console.error('Error deleting order:', error)
       if (error instanceof Error) {
@@ -1944,6 +2579,21 @@ export class InventoryService {
       await this.setProducts([...products, ...newProducts])
       await this.setStock([...stock, ...newStockEntries])
 
+      await this.recordSyncEvent({
+        entity: 'product',
+        action: 'create',
+        entityId: null,
+        payload: {
+          products: newProducts,
+          stock_entries: newStockEntries,
+          location_id: locationId,
+          count: newProducts.length
+        },
+        metadata: {
+          mode: 'bulk_create'
+        }
+      })
+
       return createdProducts
     } catch (error) {
       console.error('Error bulk creating products:', error)
@@ -2002,6 +2652,135 @@ export class InventoryService {
     }
 
     return filtered
+  }
+
+  async getLocationStockHistory(locationId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    const [history, locations] = await Promise.all([
+      this.loadStockHistory(),
+      this.loadLocations()
+    ])
+
+    const locationExists = locations.some(location => location.id === locationId)
+    if (!locationExists) {
+      throw new Error(`La ubicación ${locationId} no existe en modo local`)
+    }
+
+    const days = params?.days ?? 30
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+
+    let filtered = history.filter(entry => entry.location_id === locationId && this.parseDate(entry.created_at) >= cutoff)
+    if (params?.tipo_cambio) {
+      filtered = filtered.filter(entry => entry.tipo_cambio === params.tipo_cambio)
+    }
+    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    if (params?.limit) {
+      filtered = filtered.slice(0, params.limit)
+    }
+    return filtered
+  }
+
+  async getProfileStockHistory(profileId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    const [history, products] = await Promise.all([
+      this.loadStockHistory(),
+      this.loadProducts()
+    ])
+
+    const productIds = new Set(products.filter(product => product.profile_id === profileId).map(product => product.id))
+    if (productIds.size === 0) {
+      return []
+    }
+
+    const days = params?.days ?? 30
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+
+    let filtered = history.filter(entry => productIds.has(entry.product_id) && this.parseDate(entry.created_at) >= cutoff)
+    if (params?.tipo_cambio) {
+      filtered = filtered.filter(entry => entry.tipo_cambio === params.tipo_cambio)
+    }
+    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    if (params?.limit) {
+      filtered = filtered.slice(0, params.limit)
+    }
+    return filtered
+  }
+
+  async createStockHistoryEntry(entry: StockHistoryCreateRequest): Promise<StockHistory> {
+    const [history, products] = await Promise.all([
+      this.loadStockHistory(),
+      this.loadProducts()
+    ])
+
+    const product = products.find(p => p.id === entry.product_id)
+    if (!product) {
+      throw new Error(`Producto ${entry.product_id} no encontrado en modo local`)
+    }
+
+    const nextId = Math.max(0, ...history.map(h => h.id)) + 1
+    const createdEntry: StockHistory = {
+      id: nextId,
+      created_at: entry.created_at || new Date().toISOString(),
+      ...entry
+    }
+
+    history.push(createdEntry)
+    await this.setStockHistory(history)
+    await this.recordSyncEvent({
+      entity: 'stock_history',
+      action: 'create',
+      entityId: createdEntry.id,
+      payload: {
+        entry: createdEntry,
+        product_id: createdEntry.product_id,
+        location_id: createdEntry.location_id ?? null,
+        tipo_cambio: createdEntry.tipo_cambio
+      }
+    })
+    return createdEntry
+  }
+
+  async getProductStockStats(productId: number, days = 30): Promise<StockHistoryStats> {
+    const [history, products, stock] = await Promise.all([
+      this.loadStockHistory(),
+      this.loadProducts(),
+      this.getStock()
+    ])
+
+    const product = products.find(p => p.id === productId)
+    if (!product) {
+      throw new Error(`Producto ${productId} no encontrado en modo local`)
+    }
+
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+
+    const relevantHistory = history.filter(entry => entry.product_id === productId && this.parseDate(entry.created_at) >= cutoff)
+    const movementsByType: Record<string, number> = {}
+    let totalEntrada = 0
+    let totalSalida = 0
+
+    for (const record of relevantHistory) {
+      movementsByType[record.tipo_cambio] = (movementsByType[record.tipo_cambio] || 0) + 1
+      if (record.cantidad >= 0) {
+        totalEntrada += record.cantidad
+      } else {
+        totalSalida += Math.abs(record.cantidad)
+      }
+    }
+
+    const stockEntry = stock.find(s => s.product_id === productId)
+
+    return {
+      product_id: productId,
+      product_name: product.nombre,
+      period_days: days,
+      total_movements: relevantHistory.length,
+      movements_by_type: movementsByType,
+      total_entrada: totalEntrada,
+      total_salida: totalSalida,
+      stock_actual: stockEntry?.cantidad_disponible || 0
+    }
   }
 
   async getProductByIMEI(imei: string): Promise<ProductWithStock> {
@@ -2113,6 +2892,15 @@ export class InventoryService {
       // Verificar que se guardó
       const saved = await this.loadLocations()
       console.log('✅ Verificación - Ubicaciones guardadas:', saved.length)
+
+      await this.recordSyncEvent({
+        entity: 'location',
+        action: 'create',
+        entityId: newLocation.id,
+        payload: {
+          location: newLocation
+        }
+      })
       
       return newLocation
     } catch (error) {
@@ -2130,6 +2918,8 @@ export class InventoryService {
         throw new Error(`Location with ID ${id} not found`)
       }
 
+      const previousLocation = { ...locations[index] }
+
       const updatedLocation: Location = {
         ...locations[index],
         ...updates,
@@ -2139,6 +2929,17 @@ export class InventoryService {
 
       locations[index] = updatedLocation
       await this.setLocations(locations)
+
+      await this.recordSyncEvent({
+        entity: 'location',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousLocation,
+          after: updatedLocation,
+          updates
+        }
+      })
       return updatedLocation
     } catch (error) {
       console.error('Error updating location:', error)
@@ -2149,8 +2950,23 @@ export class InventoryService {
   async deleteLocation(id: number): Promise<void> {
     try {
       const locations = await this.loadLocations()
+      const locationToDelete = locations.find(l => l.id === id)
+      if (!locationToDelete) {
+        console.warn(`Location ${id} not found; nothing to delete`)
+        return
+      }
+
       const filtered = locations.filter(l => l.id !== id)
       await this.setLocations(filtered)
+
+      await this.recordSyncEvent({
+        entity: 'location',
+        action: 'delete',
+        entityId: id,
+        payload: {
+          location: locationToDelete
+        }
+      })
     } catch (error) {
       console.error('Error deleting location:', error)
       throw new Error(`Failed to delete location: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -2233,6 +3049,13 @@ export class InventoryService {
 
       // Reserve stock
       stockEntry.cantidad_reservada = (stockEntry.cantidad_reservada || 0) + request.cantidad
+      const stockReservation = {
+        product_id: request.product_id,
+        from_location_id: request.from_location_id,
+        cantidad: request.cantidad,
+        stock_libre_antes: available,
+        stock_libre_despues: available - request.cantidad
+      }
       
       // Reserve IMEIs (V2.0)
       const productIMEIs = await this.loadProductIMEIs()
@@ -2289,6 +3112,12 @@ export class InventoryService {
       for (const imei of imeisToReserve) {
         imei.transfer_id = newTransfer.id
       }
+      const imeiReservationPayload = imeisToReserve.map(imei => ({
+        id: imei.id,
+        imei: imei.imei,
+        product_id: imei.product_id,
+        location_id: imei.location_id
+      }))
 
       // V2.0: Add Stock History (Reservation)
       const stockHistory = await this.loadStockHistory()
@@ -2315,6 +3144,32 @@ export class InventoryService {
         this.setProductIMEIs(productIMEIs),
         this.setStockHistory([...stockHistory, historyReserva])
       ])
+
+      await this.recordSyncEvent({
+        entity: 'stock_transfer',
+        action: 'create',
+        entityId: newTransfer.id,
+        payload: {
+          transfer: newTransfer,
+          stock_reservation: stockReservation,
+          imeis_reserved: imeiReservationPayload,
+          created_by: request.created_by || 'Sistema Local'
+        }
+      })
+
+      if (imeiReservationPayload.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'assign',
+          entityId: null,
+          payload: {
+            transfer_id: newTransfer.id,
+            from_location_id: request.from_location_id,
+            to_location_id: request.to_location_id,
+            imeis: imeiReservationPayload
+          }
+        })
+      }
       
       return newTransfer
     } catch (error) {
@@ -2389,14 +3244,21 @@ export class InventoryService {
       // Update stock
       const fromStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.from_location_id)
       if (!fromStock) throw new Error(`Source stock not found`)
-      
+
+      const sourceReservadaAntes = fromStock.cantidad_reservada || 0
+      const sourceDisponibleAntes = fromStock.cantidad_disponible
+      const stockLibreOrigenAntes = sourceDisponibleAntes - sourceReservadaAntes
+
       // Release reservation and decrease stock
-      fromStock.cantidad_reservada = (fromStock.cantidad_reservada || 0) - transfer.cantidad
-      fromStock.cantidad_disponible -= transfer.cantidad
+      fromStock.cantidad_reservada = sourceReservadaAntes - transfer.cantidad
+      fromStock.cantidad_disponible = sourceDisponibleAntes - transfer.cantidad
+
+      const stockLibreOrigenDespues = fromStock.cantidad_disponible - (fromStock.cantidad_reservada || 0)
 
       // Increase destination stock
       let toStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.to_location_id)
-      let stockLibreDestinoAntes = 0
+      let destinationDisponibleAntes = 0
+      let destinationReservadaAntes = 0
 
       if (!toStock) {
         toStock = {
@@ -2408,13 +3270,12 @@ export class InventoryService {
         }
         stock.push(toStock)
       } else {
-        stockLibreDestinoAntes = toStock.cantidad_disponible - (toStock.cantidad_reservada || 0)
+        destinationDisponibleAntes = toStock.cantidad_disponible
+        destinationReservadaAntes = toStock.cantidad_reservada || 0
       }
-      toStock.cantidad_disponible += transfer.cantidad
 
-      // V2.0: Stock History (Exit from Source, Entry to Destination)
-      const stockLibreOrigenAntes = fromStock.cantidad_disponible + transfer.cantidad - (fromStock.cantidad_reservada + transfer.cantidad)
-      const stockLibreOrigenDespues = fromStock.cantidad_disponible - fromStock.cantidad_reservada
+      const stockLibreDestinoAntes = destinationDisponibleAntes - destinationReservadaAntes
+      toStock.cantidad_disponible += transfer.cantidad
       const stockLibreDestinoDespues = toStock.cantidad_disponible - (toStock.cantidad_reservada || 0)
 
       const nextHistoryId = Math.max(0, ...stockHistory.map(h => h.id)) + 1
@@ -2494,6 +3355,30 @@ export class InventoryService {
       }
       transfers[transferIndex] = updatedTransfer
 
+      const stockAdjustments = [
+        {
+          type: 'source',
+          location_id: transfer.from_location_id,
+          cantidad: -transfer.cantidad,
+          stock_libre_antes: stockLibreOrigenAntes,
+          stock_libre_despues: stockLibreOrigenDespues
+        },
+        {
+          type: 'destination',
+          location_id: transfer.to_location_id,
+          cantidad: transfer.cantidad,
+          stock_libre_antes: stockLibreDestinoAntes,
+          stock_libre_despues: stockLibreDestinoDespues
+        }
+      ]
+
+      const imeiMovementPayload = imeisToMove.map(imei => ({
+        imei: imei.imei,
+        product_id: imei.product_id,
+        from_location_id: transfer.from_location_id,
+        to_location_id: transfer.to_location_id
+      }))
+
       await Promise.all([
         this.setStock(stock),
         this.setStockTransfers(transfers),
@@ -2501,6 +3386,32 @@ export class InventoryService {
         this.setIMEIHistory([...imeiHistory, ...newIMEIHistory]),
         this.setStockHistory([...stockHistory, historySalida, historyEntrada])
       ])
+
+      await this.recordSyncEvent({
+        entity: 'stock_transfer',
+        action: 'confirm',
+        entityId: id,
+        payload: {
+          transfer: updatedTransfer,
+          stock_adjustments: stockAdjustments,
+          imei_movements: imeiMovementPayload,
+          scanned_imeis: scannedImeis || null,
+          confirmed_by: confirmedBy
+        }
+      })
+
+      if (imeiMovementPayload.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'transfer',
+          entityId: null,
+          payload: {
+            transfer_id: id,
+            movements: imeiMovementPayload,
+            confirmed_by: confirmedBy
+          }
+        })
+      }
 
       return updatedTransfer
     } catch (error) {
@@ -2526,6 +3437,13 @@ export class InventoryService {
 
       // Release reservation
       const fromStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.from_location_id)
+      let stockRelease: {
+        location_id: number
+        cantidad: number
+        stock_libre_antes: number
+        stock_libre_despues: number
+      } | null = null
+
       if (fromStock) {
         const stockLibreAntes = fromStock.cantidad_disponible - (fromStock.cantidad_reservada || 0)
         fromStock.cantidad_reservada = Math.max(0, (fromStock.cantidad_reservada || 0) - transfer.cantidad)
@@ -2545,6 +3463,13 @@ export class InventoryService {
           usuario: rejectedBy,
           created_at: new Date().toISOString()
         })
+
+        stockRelease = {
+          location_id: transfer.from_location_id,
+          cantidad: transfer.cantidad,
+          stock_libre_antes: stockLibreAntes,
+          stock_libre_despues: stockLibreDespues
+        }
       }
 
       // Release IMEIs
@@ -2552,6 +3477,11 @@ export class InventoryService {
       for (const imei of imeisReserved) {
         imei.transfer_id = undefined
       }
+      const imeiReleasePayload = imeisReserved.map(imei => ({
+        imei: imei.imei,
+        product_id: imei.product_id,
+        location_id: imei.location_id
+      }))
 
       // Update transfer status
       const updatedTransfer = {
@@ -2568,6 +3498,33 @@ export class InventoryService {
         this.setProductIMEIs(productIMEIs),
         this.setStockHistory(stockHistory)
       ])
+
+      await this.recordSyncEvent({
+        entity: 'stock_transfer',
+        action: 'reject',
+        entityId: id,
+        payload: {
+          transfer: updatedTransfer,
+          stock_release: stockRelease,
+          imeis_released: imeiReleasePayload,
+          rejected_by: rejectedBy,
+          rejection_reason: rejectionReason || null
+        }
+      })
+
+      if (imeiReleasePayload.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'cancel',
+          entityId: null,
+          payload: {
+            transfer_id: id,
+            imeis: imeiReleasePayload,
+            rejected_by: rejectedBy,
+            reason: rejectionReason || null
+          }
+        })
+      }
 
       return updatedTransfer
     } catch (error) {
@@ -2593,6 +3550,13 @@ export class InventoryService {
 
       // Release reservation
       const fromStock = stock.find(s => s.product_id === transfer.product_id && s.location_id === transfer.from_location_id)
+      let stockRelease: {
+        location_id: number
+        cantidad: number
+        stock_libre_antes: number
+        stock_libre_despues: number
+      } | null = null
+
       if (fromStock) {
         const stockLibreAntes = fromStock.cantidad_disponible - (fromStock.cantidad_reservada || 0)
         fromStock.cantidad_reservada = Math.max(0, (fromStock.cantidad_reservada || 0) - transfer.cantidad)
@@ -2612,6 +3576,13 @@ export class InventoryService {
           usuario: 'Sistema Local',
           created_at: new Date().toISOString()
         })
+
+        stockRelease = {
+          location_id: transfer.from_location_id,
+          cantidad: transfer.cantidad,
+          stock_libre_antes: stockLibreAntes,
+          stock_libre_despues: stockLibreDespues
+        }
       }
 
       // Release IMEIs
@@ -2619,6 +3590,11 @@ export class InventoryService {
       for (const imei of imeisReserved) {
         imei.transfer_id = undefined
       }
+      const imeiReleasePayload = imeisReserved.map(imei => ({
+        imei: imei.imei,
+        product_id: imei.product_id,
+        location_id: imei.location_id
+      }))
 
       // Update transfer status
       const updatedTransfer = {
@@ -2633,6 +3609,29 @@ export class InventoryService {
         this.setProductIMEIs(productIMEIs),
         this.setStockHistory(stockHistory)
       ])
+
+      await this.recordSyncEvent({
+        entity: 'stock_transfer',
+        action: 'cancel',
+        entityId: id,
+        payload: {
+          transfer: updatedTransfer,
+          stock_release: stockRelease,
+          imeis_released: imeiReleasePayload
+        }
+      })
+
+      if (imeiReleasePayload.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'cancel',
+          entityId: null,
+          payload: {
+            transfer_id: id,
+            imeis: imeiReleasePayload
+          }
+        })
+      }
     } catch (error) {
       console.error('Error canceling transfer:', error)
       throw new Error(`Failed to cancel transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -2674,6 +3673,15 @@ export class InventoryService {
       veces_usada: 0
     }
     await this.setFaqs([...faqs, newFaq])
+
+    await this.recordSyncEvent({
+      entity: 'faq',
+      action: 'create',
+      entityId: newFaq.id,
+      payload: {
+        faq: newFaq
+      }
+    })
     return newFaq
   }
 
@@ -2683,21 +3691,45 @@ export class InventoryService {
     if (index === -1) {
       throw new Error(`FAQ ${id} no encontrada`)
     }
+    const previousFaq = { ...faqs[index] }
     const updated = {
-      ...faqs[index],
+      ...previousFaq,
       ...updates,
       id,
       updated_at: new Date().toISOString()
     }
     faqs[index] = updated
     await this.setFaqs(faqs)
+
+    await this.recordSyncEvent({
+      entity: 'faq',
+      action: 'update',
+      entityId: id,
+      payload: {
+        before: previousFaq,
+        after: updated,
+        updates
+      }
+    })
     return updated
   }
 
   async deleteFAQ(id: number): Promise<void> {
     const faqs = await this.loadFaqs()
+    const faqToDelete = faqs.find(f => f.id === id)
     const filtered = faqs.filter(f => f.id !== id)
     await this.setFaqs(filtered)
+
+    if (faqToDelete) {
+      await this.recordSyncEvent({
+        entity: 'faq',
+        action: 'delete',
+        entityId: id,
+        payload: {
+          faq: faqToDelete
+        }
+      })
+    }
   }
 
   // ============================================================================
@@ -2745,6 +3777,14 @@ export class InventoryService {
       }
 
       await this.setSuppliers([...suppliers, newSupplier])
+      await this.recordSyncEvent({
+        entity: 'supplier',
+        action: 'create',
+        entityId: newSupplier.id,
+        payload: {
+          supplier: newSupplier
+        }
+      })
       return newSupplier
     } catch (error) {
       console.error('Error creating supplier:', error)
@@ -2761,8 +3801,9 @@ export class InventoryService {
         throw new Error(`Supplier with ID ${id} not found`)
       }
 
+      const previousSupplier = { ...suppliers[index] }
       const updatedSupplier: Supplier = {
-        ...suppliers[index],
+        ...previousSupplier,
         ...updates,
         id,
         updated_at: new Date().toISOString()
@@ -2770,6 +3811,16 @@ export class InventoryService {
 
       suppliers[index] = updatedSupplier
       await this.setSuppliers(suppliers)
+      await this.recordSyncEvent({
+        entity: 'supplier',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousSupplier,
+          after: updatedSupplier,
+          updates
+        }
+      })
       return updatedSupplier
     } catch (error) {
       console.error('Error updating supplier:', error)
@@ -2780,8 +3831,20 @@ export class InventoryService {
   async deleteSupplier(id: number): Promise<void> {
     try {
       const suppliers = await this.loadSuppliers()
+      const supplierToDelete = suppliers.find(s => s.id === id)
       const filtered = suppliers.filter(s => s.id !== id)
       await this.setSuppliers(filtered)
+
+      if (supplierToDelete) {
+        await this.recordSyncEvent({
+          entity: 'supplier',
+          action: 'delete',
+          entityId: id,
+          payload: {
+            supplier: supplierToDelete
+          }
+        })
+      }
     } catch (error) {
       console.error('Error deleting supplier:', error)
       throw new Error(`Failed to delete supplier: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -2838,6 +3901,15 @@ export class InventoryService {
       }
 
       await this.setSalesProfiles([...profiles, newProfile])
+
+      await this.recordSyncEvent({
+        entity: 'sales_profile',
+        action: 'create',
+        entityId: newProfile.id,
+        payload: {
+          profile: newProfile
+        }
+      })
       return newProfile
     } catch (error) {
       console.error('Error creating sales profile:', error)
@@ -2854,6 +3926,8 @@ export class InventoryService {
         throw new Error(`Sales profile with ID ${id} not found`)
       }
 
+      const previousProfile = { ...profiles[index] }
+
       const updatedProfile: SalesProfile = {
         ...profiles[index],
         ...updates,
@@ -2863,6 +3937,17 @@ export class InventoryService {
 
       profiles[index] = updatedProfile
       await this.setSalesProfiles(profiles)
+
+      await this.recordSyncEvent({
+        entity: 'sales_profile',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousProfile,
+          after: updatedProfile,
+          updates
+        }
+      })
       return updatedProfile
     } catch (error) {
       console.error('Error updating sales profile:', error)
@@ -2873,8 +3958,23 @@ export class InventoryService {
   async deleteSalesProfile(id: number): Promise<void> {
     try {
       const profiles = await this.loadSalesProfiles()
+      const profileToDelete = profiles.find(p => p.id === id)
+      if (!profileToDelete) {
+        console.warn(`Sales profile ${id} not found; nothing to delete`)
+        return
+      }
+
       const filtered = profiles.filter(p => p.id !== id)
       await this.setSalesProfiles(filtered)
+
+      await this.recordSyncEvent({
+        entity: 'sales_profile',
+        action: 'delete',
+        entityId: id,
+        payload: {
+          profile: profileToDelete
+        }
+      })
     } catch (error) {
       console.error('Error deleting sales profile:', error)
       throw new Error(`Failed to delete sales profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -2943,6 +4043,22 @@ export class InventoryService {
       const newStockHistory = [...stockHistory]
       const updatedIMEIs = [...imeis]
       const updatedIMEIHistory = [...imeiHistory]
+      const stockAdjustments: Array<{
+        product_id: number
+        location_id: number
+        field: 'cantidad_disponible' | 'cantidad_defectuosa'
+        cantidad: number
+        stock_anterior: number
+        stock_nuevo: number
+        condition: ReturnItem['condition']
+      }> = []
+      const imeiEvents: Array<{
+        imei: string
+        product_id: number
+        location_id: number
+        condition: ReturnItem['condition']
+        action: ReturnItem['action']
+      }> = []
 
       for (const item of request.items) {
         if (item.action === 'refund' || item.action === 'warranty_exchange') {
@@ -2976,6 +4092,16 @@ export class InventoryService {
             updatedStock.push(newEntry)
             stockNuevo = newEntry[stockField]
           }
+
+          stockAdjustments.push({
+            product_id: item.product_id,
+            location_id,
+            field: stockField,
+            cantidad: item.quantity,
+            stock_anterior: stockAnterior,
+            stock_nuevo: stockNuevo,
+            condition: item.condition
+          })
 
           const nextHistoryId = Math.max(0, ...newStockHistory.map(h => h.id)) + 1
           newStockHistory.push({
@@ -3014,6 +4140,14 @@ export class InventoryService {
                 created_at: now,
                 created_by: request.created_by || 'Sistema Local'
               })
+
+              imeiEvents.push({
+                imei: item.imei,
+                product_id: item.product_id,
+                location_id,
+                condition: item.condition,
+                action: item.action
+              })
             }
           }
         }
@@ -3024,6 +4158,31 @@ export class InventoryService {
       await this.setStockHistory(newStockHistory)
       await this.setProductIMEIs(updatedIMEIs)
       await this.setIMEIHistory(updatedIMEIHistory)
+
+      await this.recordSyncEvent({
+        entity: 'return',
+        action: 'create',
+        entityId: nextReturnId,
+        payload: {
+          return: newReturn,
+          order_id: order.id,
+          stock_adjustments: stockAdjustments,
+          imei_events: imeiEvents
+        }
+      })
+
+      if (imeiEvents.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'update',
+          entityId: null,
+          payload: {
+            return_id: nextReturnId,
+            order_id: order.id,
+            events: imeiEvents
+          }
+        })
+      }
 
       return newReturn
     } catch (error) {
@@ -3050,6 +4209,846 @@ export class InventoryService {
     }
   }
 
+  // --- Reports & Analytics (Local Mode Fallback) ---
+
+  private parseDate(value?: string): Date {
+    if (!value) return new Date()
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed
+  }
+
+  private toOrderSummary(order: Order): OrderSummary {
+    return {
+      id: order.id,
+      profile_id: order.profile_id,
+      sales_profile_id: order.sales_profile_id,
+      source_location_id: order.source_location_id,
+      customer_name: order.customer_name,
+      customer_phone: order.customer_phone,
+      canal: order.canal,
+      metodo_pago: order.metodo_pago,
+      total: order.total,
+      estado: order.estado,
+      notes: order.notes ?? order.notas,
+      delivery_date: order.delivery_date,
+      created_at: order.created_at
+    }
+  }
+
+  private aggregateCustomerStats(orders: Order[]): Map<string, {
+    phone: string
+    name: string
+    totalOrders: number
+    totalSpent: number
+    completedOrders: number
+    firstOrder?: string
+    lastOrder?: string
+  }> {
+    const stats = new Map<string, {
+      phone: string
+      name: string
+      totalOrders: number
+      totalSpent: number
+      completedOrders: number
+      firstOrder?: string
+      lastOrder?: string
+    }>()
+
+    for (const order of orders) {
+      const phone = order.customer_phone
+      if (!stats.has(phone)) {
+        stats.set(phone, {
+          phone,
+          name: order.customer_name,
+          totalOrders: 0,
+          totalSpent: 0,
+          completedOrders: 0,
+          firstOrder: order.created_at,
+          lastOrder: order.created_at
+        })
+      }
+
+      const entry = stats.get(phone)!
+      entry.totalOrders += 1
+      if (order.estado !== 'cancelada') {
+        entry.totalSpent += order.total || 0
+        entry.completedOrders += 1
+      }
+
+      const createdAt = this.parseDate(order.created_at).toISOString()
+      if (!entry.firstOrder || createdAt < entry.firstOrder) {
+        entry.firstOrder = createdAt
+      }
+      if (!entry.lastOrder || createdAt > entry.lastOrder) {
+        entry.lastOrder = createdAt
+      }
+      if (!entry.name && order.customer_name) {
+        entry.name = order.customer_name
+      }
+    }
+
+    return stats
+  }
+
+  async getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats> {
+    const [products, stock, ordersWithItems, salesProfiles, locations] = await Promise.all([
+      this.loadProducts(),
+      this.getStock(),
+      this.loadOrdersWithItems(),
+      this.getSalesProfiles(),
+      this.loadLocations()
+    ])
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+    let stockEntries = stock.filter(entry => {
+      const product = productMap.get(entry.product_id)
+      return product?.activo
+    })
+
+    if (params?.location_id) {
+      const locationExists = locations.some(location => location.id === params.location_id)
+      if (!locationExists) {
+        throw new Error(`La ubicación ${params.location_id} no existe en modo local`)
+      }
+      stockEntries = stockEntries.filter(entry => entry.location_id === params.location_id)
+    }
+
+    let filteredOrders = [...ordersWithItems]
+    if (params?.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug && sp.active)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe o está inactivo en modo local`)
+      }
+      filteredOrders = filteredOrders.filter(order => order.sales_profile_id === profile.id)
+    }
+
+    const now = new Date()
+    const startOfToday = new Date(now)
+    startOfToday.setHours(0, 0, 0, 0)
+    const endOfToday = new Date(now)
+    endOfToday.setHours(23, 59, 59, 999)
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
+    endOfLastMonth.setHours(23, 59, 59, 999)
+
+    const nonCancelledOrders = filteredOrders.filter(order => order.estado !== 'cancelada')
+    const getOrderDate = (order: Order): Date => this.parseDate(order.created_at)
+
+    const ordersToday = nonCancelledOrders.filter(order => {
+      const createdAt = getOrderDate(order)
+      return createdAt >= startOfToday && createdAt <= endOfToday
+    })
+
+    const ordersThisMonth = nonCancelledOrders.filter(order => getOrderDate(order) >= startOfMonth)
+    const ordersLastMonth = nonCancelledOrders.filter(order => {
+      const createdAt = getOrderDate(order)
+      return createdAt >= startOfLastMonth && createdAt <= endOfLastMonth
+    })
+
+    const totalRevenueToday = ordersToday.reduce((sum, order) => sum + (order.total || 0), 0)
+    const totalRevenueMonth = ordersThisMonth.reduce((sum, order) => sum + (order.total || 0), 0)
+    const totalRevenueLastMonth = ordersLastMonth.reduce((sum, order) => sum + (order.total || 0), 0)
+
+    let totalCostMonth = 0
+    for (const order of ordersThisMonth) {
+      for (const item of order.items) {
+        const product = productMap.get(item.product_id)
+        const unitCost = product?.costo && product.costo > 0 ? product.costo : 0
+        totalCostMonth += unitCost * item.cantidad
+      }
+    }
+
+    const grossMarginMonth = totalRevenueMonth > 0
+      ? Number((((totalRevenueMonth - totalCostMonth) / totalRevenueMonth) * 100).toFixed(2))
+      : 0
+
+    const averageTicketMonth = ordersThisMonth.length > 0
+      ? Number((totalRevenueMonth / ordersThisMonth.length).toFixed(2))
+      : 0
+
+    const low_stock_count = stockEntries.filter(entry => entry.cantidad_disponible > 0 && entry.cantidad_disponible < 10).length
+    const out_of_stock_count = stockEntries.filter(entry => entry.cantidad_disponible === 0).length
+
+    const total_inventory_value = stockEntries.reduce((sum, entry) => {
+      const product = productMap.get(entry.product_id)
+      if (!product) return sum
+      const unitValue = product.costo && product.costo > 0 ? product.costo : product.precio
+      return sum + unitValue * entry.cantidad_disponible
+    }, 0)
+
+    return {
+      active_products: products.filter(product => product.activo).length,
+      total_products: products.length,
+      low_stock_count,
+      out_of_stock_count,
+      total_inventory_value,
+      pending_orders: filteredOrders.filter(order => order.estado === 'pendiente').length,
+      total_orders_today: ordersToday.length,
+      total_revenue_today: totalRevenueToday,
+      total_revenue_month: totalRevenueMonth,
+      total_revenue_last_month: totalRevenueLastMonth,
+      gross_margin_month: grossMarginMonth,
+      average_ticket_month: averageTicketMonth
+    }
+  }
+
+  async getSalesReport(params?: {
+    sales_profile_slug?: string
+    date_from?: string
+    date_to?: string
+    top_limit?: number
+  }): Promise<SalesReport> {
+    const [ordersWithItems, salesProfiles, products] = await Promise.all([
+      this.loadOrdersWithItems(),
+      this.getSalesProfiles(),
+      this.loadProducts()
+    ])
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+
+    let filteredOrders = ordersWithItems.filter(order => order.estado !== 'cancelada')
+
+    if (params?.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug && sp.active)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe o está inactivo en modo local`)
+      }
+      filteredOrders = filteredOrders.filter(order => order.sales_profile_id === profile.id)
+    }
+
+    const endDate = params?.date_to ? this.parseDate(params.date_to) : new Date()
+    endDate.setHours(23, 59, 59, 999)
+    const defaultStart = new Date(endDate)
+    defaultStart.setDate(defaultStart.getDate() - 30)
+    defaultStart.setHours(0, 0, 0, 0)
+    const startDate = params?.date_from ? this.parseDate(params.date_from) : defaultStart
+    startDate.setHours(0, 0, 0, 0)
+
+    filteredOrders = filteredOrders.filter(order => {
+      const createdAt = this.parseDate(order.created_at)
+      return createdAt >= startDate && createdAt <= endDate
+    })
+
+    const totalRevenue = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0)
+    const totalOrders = filteredOrders.length
+    const averageOrderValue = totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0
+
+    const productAggregates = new Map<number, { units: number; revenue: number; product: Product | undefined }>()
+    for (const order of filteredOrders) {
+      for (const item of order.items) {
+        if (!productAggregates.has(item.product_id)) {
+          productAggregates.set(item.product_id, {
+            units: 0,
+            revenue: 0,
+            product: productMap.get(item.product_id)
+          })
+        }
+        const aggregate = productAggregates.get(item.product_id)!
+        aggregate.units += item.cantidad
+        if (!item.es_regalo_promocion) {
+          aggregate.revenue += item.precio_unitario * item.cantidad
+        }
+      }
+    }
+
+    const topLimit = params?.top_limit ? Math.min(Math.max(params.top_limit, 1), 50) : 10
+    const topProducts = Array.from(productAggregates.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, topLimit)
+      .map(entry => ({
+        product_id: entry.product?.id || 0,
+        product_name: entry.product?.nombre || 'Producto desconocido',
+        units_sold: entry.units,
+        total_revenue: entry.revenue
+      }))
+
+    return {
+      period_start: startDate.toISOString(),
+      period_end: endDate.toISOString(),
+      total_orders: totalOrders,
+      total_revenue: totalRevenue,
+      average_order_value: averageOrderValue,
+      top_products: topProducts
+    }
+  }
+
+  async getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]> {
+    const [stock, products, locations] = await Promise.all([
+      this.getStock(),
+      this.loadProducts(),
+      this.loadLocations()
+    ])
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+    let stockEntries = stock.filter(entry => {
+      const product = productMap.get(entry.product_id)
+      return product?.activo
+    })
+
+    if (params?.location_id) {
+      const locationExists = locations.some(location => location.id === params.location_id)
+      if (!locationExists) {
+        throw new Error(`La ubicación ${params.location_id} no existe en modo local`)
+      }
+      stockEntries = stockEntries.filter(entry => entry.location_id === params.location_id)
+    }
+
+    const alerts: InventoryAlert[] = []
+    for (const entry of stockEntries) {
+      const product = productMap.get(entry.product_id)
+      if (!product) continue
+
+      let alert_level: InventoryAlert['alert_level'] | null = null
+      if (entry.cantidad_disponible === 0) {
+        alert_level = 'out_of_stock'
+      } else if (entry.cantidad_disponible < 5) {
+        alert_level = 'critical'
+      } else if (entry.cantidad_disponible < 10) {
+        alert_level = 'low'
+      }
+
+      if (alert_level) {
+        alerts.push({
+          product_id: product.id,
+          product_name: product.nombre,
+          sku: product.sku,
+          current_stock: entry.cantidad_disponible,
+          category: product.categoria,
+          alert_level
+        })
+      }
+    }
+
+    const severityOrder: Record<InventoryAlert['alert_level'], number> = {
+      out_of_stock: 0,
+      critical: 1,
+      low: 2
+    }
+
+    alerts.sort((a, b) => severityOrder[a.alert_level] - severityOrder[b.alert_level])
+    return alerts
+  }
+
+  async getStockSummaryByLocation(activeOnly = true): Promise<StockSummaryByLocation[]> {
+    const [locations, stock, products] = await Promise.all([
+      this.loadLocations(),
+      this.getStock(),
+      this.loadProducts()
+    ])
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+    const summaries = new Map<number, {
+      uniqueProducts: Set<number>
+      totalUnits: number
+      inventoryValue: number
+    }>()
+
+    for (const entry of stock) {
+      const product = productMap.get(entry.product_id)
+      if (!product || !product.activo) continue
+      const locationId = entry.location_id
+      if (!locationId) continue
+      const location = locations.find(loc => loc.id === locationId)
+      if (!location) continue
+      if (activeOnly && !location.activo) continue
+
+      if (!summaries.has(locationId)) {
+        summaries.set(locationId, {
+          uniqueProducts: new Set<number>(),
+          totalUnits: 0,
+          inventoryValue: 0
+        })
+      }
+
+      const summary = summaries.get(locationId)!
+      summary.uniqueProducts.add(entry.product_id)
+      summary.totalUnits += entry.cantidad_disponible
+      const unitValue = product.precio
+      summary.inventoryValue += unitValue * entry.cantidad_disponible
+    }
+
+    return Array.from(summaries.entries()).map(([locationId, summary]) => {
+      const location = locations.find(loc => loc.id === locationId)!
+      return {
+        location_id: locationId,
+        location_nombre: location.nombre,
+        location_tipo: location.tipo,
+        total_productos: summary.uniqueProducts.size,
+        total_unidades: summary.totalUnits,
+        valor_inventario: summary.inventoryValue
+      }
+    })
+  }
+
+  async getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]> {
+    const [ordersWithItems, locations] = await Promise.all([
+      this.loadOrdersWithItems(),
+      this.loadLocations()
+    ])
+
+    const completedOrders = ordersWithItems.filter(order => order.estado === 'completada')
+    const startDate = params?.start_date ? this.parseDate(params.start_date) : undefined
+    const endDate = params?.end_date ? this.parseDate(`${params.end_date}T23:59:59`) : undefined
+
+    const relevantOrders = completedOrders.filter(order => {
+      const createdAt = this.parseDate(order.created_at)
+      if (startDate && createdAt < startDate) return false
+      if (endDate && createdAt > endDate) return false
+      return Boolean(order.source_location_id)
+    })
+
+    const summaries = new Map<number, {
+      orderIds: Set<number>
+      units: number
+      revenue: number
+    }>()
+
+    for (const order of relevantOrders) {
+      const locationId = order.source_location_id!
+      if (!summaries.has(locationId)) {
+        summaries.set(locationId, {
+          orderIds: new Set<number>(),
+          units: 0,
+          revenue: 0
+        })
+      }
+
+      const summary = summaries.get(locationId)!
+      summary.orderIds.add(order.id)
+      for (const item of order.items) {
+        summary.units += item.cantidad
+        summary.revenue += item.precio_unitario * item.cantidad
+      }
+    }
+
+    return Array.from(summaries.entries()).map(([locationId, summary]) => {
+      const location = locations.find(loc => loc.id === locationId)
+      return {
+        location_id: locationId,
+        location_nombre: location?.nombre || 'Ubicación desconocida',
+        total_ordenes: summary.orderIds.size,
+        total_unidades_vendidas: summary.units,
+        total_ingresos: summary.revenue,
+        ticket_promedio: summary.orderIds.size > 0 ? Number((summary.revenue / summary.orderIds.size).toFixed(2)) : 0
+      }
+    })
+  }
+
+  async getTopProductsByLocation(
+    locationId: number,
+    params?: { start_date?: string; end_date?: string; limit?: number }
+  ): Promise<TopProductByLocationEntry[]> {
+    const [ordersWithItems, locations, products] = await Promise.all([
+      this.loadOrdersWithItems(),
+      this.loadLocations(),
+      this.loadProducts()
+    ])
+
+    const location = locations.find(loc => loc.id === locationId)
+    if (!location) {
+      throw new Error(`La ubicación ${locationId} no existe en modo local`)
+    }
+
+    const startDate = params?.start_date ? this.parseDate(params.start_date) : undefined
+    const endDate = params?.end_date ? this.parseDate(`${params.end_date}T23:59:59`) : undefined
+    const limit = params?.limit ? Math.min(Math.max(params.limit, 1), 50) : 10
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+
+    const aggregates = new Map<number, { units: number; revenue: number }>()
+    for (const order of ordersWithItems) {
+      if (order.estado !== 'completada') continue
+      if (order.source_location_id !== locationId) continue
+
+      const createdAt = this.parseDate(order.created_at)
+      if (startDate && createdAt < startDate) continue
+      if (endDate && createdAt > endDate) continue
+
+      for (const item of order.items) {
+        if (!aggregates.has(item.product_id)) {
+          aggregates.set(item.product_id, { units: 0, revenue: 0 })
+        }
+        const aggregate = aggregates.get(item.product_id)!
+        aggregate.units += item.cantidad
+        aggregate.revenue += item.precio_unitario * item.cantidad
+      }
+    }
+
+    return Array.from(aggregates.entries())
+      .sort((a, b) => b[1].units - a[1].units)
+      .slice(0, limit)
+      .map(([productId, aggregate]) => {
+        const product = productMap.get(productId)
+        return {
+          product_id: productId,
+          product_nombre: product?.nombre || 'Producto desconocido',
+          product_categoria: product?.categoria || 'celular',
+          cantidad_vendida: aggregate.units,
+          ingresos_totales: aggregate.revenue
+        }
+      })
+  }
+
+  async generateBusinessInsights(params: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  } = {}): Promise<BusinessInsightsResponse> {
+    const [ordersWithItems, products, locations, salesProfiles] = await Promise.all([
+      this.loadOrdersWithItems(),
+      this.loadProducts(),
+      this.loadLocations(),
+      this.getSalesProfiles()
+    ])
+
+    let resolvedProfileId = params.sales_profile_id
+    if (params.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe en modo local`)
+      }
+      resolvedProfileId = profile.id
+    }
+
+    if (params.location_id) {
+      const exists = locations.some(location => location.id === params.location_id)
+      if (!exists) {
+        throw new Error(`La ubicación ${params.location_id} no existe en modo local`)
+      }
+    }
+
+    const days = params.days && params.days > 0 ? params.days : 45
+    const periodStart = new Date()
+    periodStart.setDate(periodStart.getDate() - days)
+    periodStart.setHours(0, 0, 0, 0)
+
+    let relevantOrders = ordersWithItems.filter(order => order.estado === 'completada')
+    if (resolvedProfileId) {
+      relevantOrders = relevantOrders.filter(order => order.sales_profile_id === resolvedProfileId)
+    }
+    if (params.location_id) {
+      relevantOrders = relevantOrders.filter(order => order.source_location_id === params.location_id)
+    }
+    relevantOrders = relevantOrders.filter(order => this.parseDate(order.created_at) >= periodStart)
+
+    const productMap = new Map(products.map(product => [product.id, product]))
+    let totalRevenue = 0
+    let totalCost = 0
+    const salesStats = new Map<number, { units: number; revenue: number; cost: number; lastSale?: Date }>()
+
+    for (const order of relevantOrders) {
+      const createdAt = this.parseDate(order.created_at)
+      totalRevenue += order.total || 0
+      for (const item of order.items) {
+        const product = productMap.get(item.product_id)
+        const unitCost = product?.costo ?? (product ? product.precio * 0.7 : item.precio_unitario * 0.6)
+        totalCost += unitCost * item.cantidad
+
+        if (!salesStats.has(item.product_id)) {
+          salesStats.set(item.product_id, { units: 0, revenue: 0, cost: 0, lastSale: undefined })
+        }
+        const stat = salesStats.get(item.product_id)!
+        stat.units += item.cantidad
+        stat.revenue += item.precio_unitario * item.cantidad
+        stat.cost += unitCost * item.cantidad
+        if (!stat.lastSale || createdAt > stat.lastSale) {
+          stat.lastSale = createdAt
+        }
+      }
+    }
+
+    const ordersCount = relevantOrders.length
+    const avgOrderValue = ordersCount > 0 ? Number((totalRevenue / ordersCount).toFixed(2)) : 0
+    const grossMargin = totalRevenue > 0 ? Number((((totalRevenue - totalCost) / totalRevenue) * 100).toFixed(2)) : 0
+
+    const topSellers: BusinessInsightTopSeller[] = Array.from(salesStats.entries())
+      .sort((a, b) => b[1].revenue - a[1].revenue)
+      .slice(0, 5)
+      .map(([productId, stat]) => {
+        const product = productMap.get(productId)
+        return {
+          product_id: productId,
+          product_name: product?.nombre || 'Producto',
+          units_sold: stat.units,
+          revenue: Number(stat.revenue.toFixed(2)),
+          gross_profit: Number((stat.revenue - stat.cost).toFixed(2))
+        }
+      })
+
+    const now = new Date()
+    const slowMovers: BusinessInsightSlowMover[] = products
+      .filter(product => product.activo && (product.stock_disponible || 0) > 0)
+      .map(product => {
+        const stat = salesStats.get(product.id)
+        const lastSale = stat?.lastSale
+        const daysWithoutSales = lastSale ? Math.round((now.getTime() - lastSale.getTime()) / MS_PER_DAY) : days
+        return {
+          product_id: product.id,
+          product_name: product.nombre,
+          stock_available: product.stock_disponible || 0,
+          days_without_sales: daysWithoutSales,
+          last_sale_at: lastSale?.toISOString() ?? null,
+          unitsSold: stat?.units ?? 0
+        }
+      })
+      .filter(entry => entry.unitsSold <= 1)
+      .sort((a, b) => b.days_without_sales - a.days_without_sales)
+      .slice(0, 5)
+      .map(({ unitsSold: _unitsSold, ...rest }) => rest)
+
+    const rawAlerts = await this.getInventoryAlerts(params.location_id ? { location_id: params.location_id } : undefined)
+    const stockAlerts: BusinessInsightStockAlert[] = rawAlerts.map(alert => {
+      const stat = salesStats.get(alert.product_id)
+      const avgDailyDemand = stat ? Number((stat.units / days).toFixed(2)) : 0
+      const daysUntilStockout = avgDailyDemand > 0 ? Number((alert.current_stock / avgDailyDemand).toFixed(1)) : null
+      return {
+        product_id: alert.product_id,
+        product_name: alert.product_name,
+        stock_available: alert.current_stock,
+        avg_daily_demand: avgDailyDemand,
+        days_until_stockout: daysUntilStockout
+      }
+    })
+
+    const trendWindow = Math.min(Math.max(days, 1), 14)
+    const revenueTrends: BusinessInsightTrendPoint[] = []
+    for (let offset = trendWindow - 1; offset >= 0; offset--) {
+      const dayStart = new Date()
+      dayStart.setDate(dayStart.getDate() - offset)
+      dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(dayStart)
+      dayEnd.setHours(23, 59, 59, 999)
+      const dayRevenue = relevantOrders
+        .filter(order => {
+          const createdAt = this.parseDate(order.created_at)
+          return createdAt >= dayStart && createdAt <= dayEnd
+        })
+        .reduce((sum, order) => sum + (order.total || 0), 0)
+      revenueTrends.push({ date: dayStart.toISOString(), revenue: Number(dayRevenue.toFixed(2)) })
+    }
+
+    const pricingInsights = analyzePricing(products, relevantOrders)
+    const inventoryInsights = analyzeInventory(products, relevantOrders)
+    const customerInsights = analyzeCustomers(relevantOrders)
+    const recommendations = buildBusinessInsightRecommendations(pricingInsights, inventoryInsights, customerInsights)
+
+    return {
+      generated_at: new Date().toISOString(),
+      period_days: days,
+      filters: {
+        location_id: params.location_id ?? null,
+        sales_profile_id: resolvedProfileId ?? null,
+        sales_profile_slug: params.sales_profile_slug ?? null
+      },
+      metrics: {
+        kpis: {
+          total_revenue: Number(totalRevenue.toFixed(2)),
+          orders_count: ordersCount,
+          avg_order_value: avgOrderValue,
+          gross_margin_estimate: grossMargin
+        },
+        top_sellers: topSellers,
+        slow_movers: slowMovers,
+        stock_alerts: stockAlerts,
+        revenue_trends: revenueTrends
+      },
+      recommendations,
+      ai_summary: `Informe local (${ordersCount} órdenes, L ${totalRevenue.toFixed(2)} en ${days} días).`,
+      tokens_used: 0,
+      raw_response: null
+    }
+  }
+
+  async getForecasting(): Promise<SalesForecast[]> {
+    try {
+      const [products, orders] = await Promise.all([
+        this.fetchProducts(undefined, undefined, true),
+        this.loadOrdersWithItems()
+      ])
+
+      const { forecasts } = await generateAIForecasts(products, orders)
+      return forecasts
+    } catch (error) {
+      console.error('Error generating local forecasts:', error)
+      throw new Error('No se pudieron generar los pronósticos en modo local')
+    }
+  }
+
+  async getLocationStock(locationId: number): Promise<StockByLocation[]> {
+    const [stock, locations] = await Promise.all([
+      this.getStock(),
+      this.loadLocations()
+    ])
+
+    const location = locations.find(loc => loc.id === locationId)
+    if (!location) {
+      throw new Error(`La ubicación ${locationId} no existe en modo local`)
+    }
+
+    return stock
+      .filter(entry => entry.location_id === locationId)
+      .map(entry => {
+        const cantidadReservada = entry.cantidad_reservada || 0
+        return {
+          ...entry,
+          cantidad_reservada: cantidadReservada,
+          stock_libre: entry.cantidad_disponible - cantidadReservada,
+          location
+        }
+      })
+  }
+
+  async getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>> {
+    const [products, stock] = await Promise.all([
+      this.loadProducts(),
+      this.getStock()
+    ])
+
+    const stockByProduct = stock.reduce<Record<number, number>>((map, entry) => {
+      map[entry.product_id] = (map[entry.product_id] || 0) + entry.cantidad_disponible
+      return map
+    }, {})
+
+    const search = filters?.search?.toLowerCase().trim()
+    const category = filters?.category
+
+    const filtered = products.filter(product => {
+      if (!product.activo) return false
+      if (category && product.categoria !== category) return false
+      if (search) {
+        const haystack = [
+          product.nombre,
+          product.marca,
+          product.modelo,
+          product.sku,
+          product.color,
+          product.capacidad
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!haystack.includes(search)) return false
+      }
+      return true
+    })
+
+    const perPage = filters?.per_page && filters.per_page > 0 ? filters.per_page : 20
+    const page = filters?.page && filters.page > 0 ? filters.page : 1
+    const start = (page - 1) * perPage
+    const paginated = filtered.slice(start, start + perPage)
+
+    const items: PublicProduct[] = paginated.map(product => ({
+      id: product.id,
+      nombre: product.nombre,
+      marca: product.marca,
+      modelo: product.modelo,
+      categoria: product.categoria,
+      condicion: product.condicion,
+      precio: product.precio,
+      moneda: product.moneda,
+      capacidad: product.capacidad,
+      color: product.color,
+      in_stock: (stockByProduct[product.id] || 0) > 0
+    }))
+
+    return {
+      items,
+      total: filtered.length,
+      page,
+      per_page: perPage,
+      pages: Math.max(1, Math.ceil(filtered.length / perPage))
+    }
+  }
+
+  async getAIStatus(alertsLimit = 5): Promise<AIStatusResponse> {
+    try {
+      const now = new Date()
+      const last24h = new Date(now.getTime() - MS_PER_DAY)
+      const last7d = new Date(now.getTime() - 7 * MS_PER_DAY)
+
+      const [salesProfiles, ordersWithItems, pendingQueue, customers, products, profiles] = await Promise.all([
+        this.getSalesProfiles(),
+        this.loadOrdersWithItems(),
+        this.listTrainingQueue('pending'),
+        this.getCustomers(),
+        this.fetchProducts(undefined, undefined, true),
+        this.loadProfiles()
+      ])
+
+      const interactionsLast24h = ordersWithItems.filter(order => this.parseDate(order.created_at) >= last24h).length
+      const tokensLast24h = interactionsLast24h * 120
+      const avgTokens = interactionsLast24h > 0 ? Math.round(tokensLast24h / interactionsLast24h) : 0
+
+      const pendingByProfile = new Map<number, number>()
+      for (const item of pendingQueue) {
+        if (!item.sales_profile_id) continue
+        pendingByProfile.set(item.sales_profile_id, (pendingByProfile.get(item.sales_profile_id) || 0) + 1)
+      }
+
+      const aiProfiles = salesProfiles.map(profile => {
+        const profileOrders = ordersWithItems.filter(order => order.sales_profile_id === profile.id)
+        const interactionsLast7Days = profileOrders.filter(order => this.parseDate(order.created_at) >= last7d).length
+        const lastInteractionDate = profileOrders.reduce<Date | null>((latest, order) => {
+          const createdAt = this.parseDate(order.created_at)
+          if (!latest || createdAt > latest) {
+            return createdAt
+          }
+          return latest
+        }, null)
+
+        return {
+          sales_profile_id: profile.id,
+          sales_profile_name: profile.name,
+          slug: profile.slug,
+          is_ai_active: profile.tipo === 'bot_ia' && profile.active,
+          last_interaction_at: lastInteractionDate ? lastInteractionDate.toISOString() : undefined,
+          interactions_last_7_days: interactionsLast7Days,
+          tokens_last_7_days: interactionsLast7Days * 120,
+          pending_training_items: pendingByProfile.get(profile.id) || 0
+        }
+      })
+
+      let forecastingAlerts: ForecastingAlertItem[] = []
+      try {
+        if (products.length > 0) {
+          const { forecasts } = await generateAIForecasts(products, ordersWithItems)
+          const baseProfile = profiles[0] ?? { id: 0, name: 'Operación Local', slug: 'local', active: true }
+          const restockAlerts = await generateRestockAlerts(forecasts, baseProfile)
+          forecastingAlerts = restockAlerts.slice(0, alertsLimit).map(alert => {
+            const relatedForecast = forecasts.find(f => f.productId === alert.productId)
+            return {
+              product_id: alert.productId,
+              product_name: alert.productName,
+              days_until_stockout: relatedForecast?.daysUntilStockout ?? alert.daysUntilStockout,
+              restock_recommendation: relatedForecast?.restockRecommendation ?? alert.recommendedOrderQuantity,
+              trend: relatedForecast?.trend ?? 'stable'
+            }
+          })
+        }
+      } catch (forecastError) {
+        console.warn('AI status: forecasting alerts unavailable in local mode', forecastError)
+      }
+
+      return {
+        snapshot_generated_at: now.toISOString(),
+        total_sales_profiles: salesProfiles.length,
+        ai_profiles_active: salesProfiles.filter(p => p.tipo === 'bot_ia' && p.active).length,
+        ai_profiles_inactive: salesProfiles.filter(p => p.tipo === 'bot_ia' && !p.active).length,
+        interactions_last_24h: interactionsLast24h,
+        tokens_last_24h: tokensLast24h,
+        avg_tokens_per_response: avgTokens,
+        customers_flagged: customers.filter(c => c.is_troll || c.is_blocked).length,
+        training_backlog: pendingQueue.length,
+        ai_profiles: aiProfiles,
+        forecasting_alerts: forecastingAlerts
+      }
+    } catch (error) {
+      console.error('Error building AI status (local):', error)
+      throw new Error('No se pudo generar el estado de IA en modo local')
+    }
+  }
+
   // --- AI & Customer Methods (V2.1) ---
 
   async listTrainingQueue(status: string = 'pending'): Promise<TrainingQueueItem[]> {
@@ -3070,9 +5069,20 @@ export class InventoryService {
       const index = items.findIndex(i => i.id === id)
       if (index === -1) throw new Error(`Training queue item ${id} not found`)
       
-      const updatedItem = { ...items[index], ...updates }
+      const previousItem = { ...items[index] }
+      const updatedItem = { ...previousItem, ...updates, updated_at: new Date().toISOString() }
       items[index] = updatedItem
       await kv.set(STORAGE_KEYS.TRAINING_QUEUE, items)
+      await this.recordSyncEvent({
+        entity: 'ai_profile',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousItem,
+          after: updatedItem,
+          updates
+        }
+      })
       return updatedItem
     } catch (error) {
       console.error('Error updating training queue item:', error)
@@ -3080,10 +5090,21 @@ export class InventoryService {
     }
   }
 
-  async getCustomers(): Promise<Customer[]> {
+  async getCustomers(search?: string): Promise<Customer[]> {
     try {
       const kv = getKV()
-      return await kv.get<Customer[]>(STORAGE_KEYS.CUSTOMERS) || []
+      const customers = await kv.get<Customer[]>(STORAGE_KEYS.CUSTOMERS) || []
+
+      if (!search?.trim()) {
+        return customers
+      }
+
+      const term = search.trim().toLowerCase()
+      return customers.filter(customer => {
+        const phoneMatch = customer.phone_number?.toLowerCase().includes(term)
+        const nameMatch = customer.name?.toLowerCase().includes(term)
+        return phoneMatch || nameMatch
+      })
     } catch (error) {
       console.error('Error getting customers:', error)
       return []
@@ -3097,13 +5118,476 @@ export class InventoryService {
       const index = customers.findIndex(c => c.id === id)
       if (index === -1) throw new Error(`Customer ${id} not found`)
       
-      const updatedCustomer = { ...customers[index], ...updates }
+      const previousCustomer = { ...customers[index] }
+      const updatedCustomer = { ...previousCustomer, ...updates }
       customers[index] = updatedCustomer
       await kv.set(STORAGE_KEYS.CUSTOMERS, customers)
+      await this.recordSyncEvent({
+        entity: 'customer',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousCustomer,
+          after: updatedCustomer,
+          updates
+        }
+      })
       return updatedCustomer
     } catch (error) {
       console.error('Error updating customer:', error)
       throw error
+    }
+  }
+
+  async listCustomerStats(params?: { sales_profile_slug?: string; page?: number; per_page?: number }): Promise<CustomerStats[]> {
+    const [orders, aiCustomers, salesProfiles] = await Promise.all([
+      this.loadOrders(),
+      this.getCustomers(),
+      this.getSalesProfiles()
+    ])
+
+    let filteredOrders = [...orders]
+    if (params?.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug && sp.active)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe en modo local`)
+      }
+      filteredOrders = filteredOrders.filter(order => order.sales_profile_id === profile.id)
+    }
+
+    const statsMap = this.aggregateCustomerStats(filteredOrders)
+    const aiDataMap = new Map(aiCustomers.map(customer => [customer.phone_number, customer]))
+
+    const sorted = Array.from(statsMap.values()).sort((a, b) => b.totalSpent - a.totalSpent)
+    const perPage = params?.per_page && params.per_page > 0 ? params.per_page : 50
+    const page = params?.page && params.page > 0 ? params.page : 1
+    const start = (page - 1) * perPage
+    const paginated = sorted.slice(start, start + perPage)
+
+    return paginated.map(entry => {
+      const aiData = aiDataMap.get(entry.phone)
+      const averageOrder = entry.completedOrders > 0 ? Number((entry.totalSpent / entry.completedOrders).toFixed(2)) : 0
+      return {
+        customer_phone: entry.phone,
+        customer_name: entry.name || 'Cliente sin nombre',
+        total_orders: entry.totalOrders,
+        total_spent: Number(entry.totalSpent.toFixed(2)),
+        average_order: averageOrder,
+        first_order_date: entry.firstOrder || new Date().toISOString(),
+        last_order_date: entry.lastOrder || new Date().toISOString(),
+        id: aiData?.id,
+        is_troll: aiData?.is_troll ?? false,
+        is_blocked: aiData?.is_blocked ?? false,
+        reputation_score: aiData?.reputation_score ?? 100,
+        daily_message_count: aiData?.daily_message_count ?? 0
+      }
+    })
+  }
+
+  async getCustomerStatsByPhone(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerStats> {
+    const [orders, aiCustomers, salesProfiles] = await Promise.all([
+      this.loadOrders(),
+      this.getCustomers(),
+      this.getSalesProfiles()
+    ])
+
+    let filteredOrders = orders.filter(order => order.customer_phone === customerPhone)
+    if (params?.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug && sp.active)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe en modo local`)
+      }
+      filteredOrders = filteredOrders.filter(order => order.sales_profile_id === profile.id)
+    }
+
+    if (filteredOrders.length === 0) {
+      throw new Error(`No se encontraron órdenes para el cliente ${customerPhone}`)
+    }
+
+    const stats = this.aggregateCustomerStats(filteredOrders).get(customerPhone)!
+    const aiData = aiCustomers.find(c => c.phone_number === customerPhone)
+    const averageOrder = stats.completedOrders > 0 ? Number((stats.totalSpent / stats.completedOrders).toFixed(2)) : 0
+
+    return {
+      customer_phone: customerPhone,
+      customer_name: stats.name || 'Cliente sin nombre',
+      total_orders: stats.totalOrders,
+      total_spent: Number(stats.totalSpent.toFixed(2)),
+      average_order: averageOrder,
+      first_order_date: stats.firstOrder || new Date().toISOString(),
+      last_order_date: stats.lastOrder || new Date().toISOString(),
+      id: aiData?.id,
+      is_troll: aiData?.is_troll ?? false,
+      is_blocked: aiData?.is_blocked ?? false,
+      reputation_score: aiData?.reputation_score ?? 100,
+      daily_message_count: aiData?.daily_message_count ?? 0
+    }
+  }
+
+  async getCustomerHistory(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerHistory> {
+    const [orders, aiCustomers, salesProfiles] = await Promise.all([
+      this.loadOrders(),
+      this.getCustomers(),
+      this.getSalesProfiles()
+    ])
+
+    let filteredOrders = orders.filter(order => order.customer_phone === customerPhone)
+    if (params?.sales_profile_slug) {
+      const profile = salesProfiles.find(sp => sp.slug === params.sales_profile_slug && sp.active)
+      if (!profile) {
+        throw new Error(`El perfil de ventas ${params.sales_profile_slug} no existe en modo local`)
+      }
+      filteredOrders = filteredOrders.filter(order => order.sales_profile_id === profile.id)
+    }
+
+    if (filteredOrders.length === 0) {
+      throw new Error(`No se encontraron órdenes para el cliente ${customerPhone}`)
+    }
+
+    const stats = this.aggregateCustomerStats(filteredOrders).get(customerPhone)!
+    const aiData = aiCustomers.find(c => c.phone_number === customerPhone)
+    const averageOrder = stats.completedOrders > 0 ? Number((stats.totalSpent / stats.completedOrders).toFixed(2)) : 0
+
+    const ordersSummary = filteredOrders
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .map(order => this.toOrderSummary(order))
+
+    return {
+      customer_phone: customerPhone,
+      customer_name: stats.name || 'Cliente sin nombre',
+      total_orders: stats.totalOrders,
+      total_spent: Number(stats.totalSpent.toFixed(2)),
+      average_order: averageOrder,
+      first_order_date: stats.firstOrder || new Date().toISOString(),
+      last_order_date: stats.lastOrder || new Date().toISOString(),
+      id: aiData?.id,
+      is_troll: aiData?.is_troll ?? false,
+      is_blocked: aiData?.is_blocked ?? false,
+      reputation_score: aiData?.reputation_score ?? 100,
+      daily_message_count: aiData?.daily_message_count ?? 0,
+      orders: ordersSummary
+    }
+  }
+
+  async getAIContext(payload: AIContextPayload): Promise<AIContextResponse> {
+    const [salesProfiles, products, customers] = await Promise.all([
+      this.getSalesProfiles(),
+      this.loadProducts(),
+      this.getCustomers()
+    ])
+
+    const profile = salesProfiles.find(sp => sp.slug === payload.sales_profile_slug)
+    if (!profile) {
+      throw new Error(`Perfil de ventas ${payload.sales_profile_slug} no disponible en modo local`)
+    }
+
+    const customer = customers.find(c => c.phone_number === payload.customer_phone)
+    const inventoryPreview = products
+      .filter(product => product.activo)
+      .slice(0, 8)
+      .map(product => `• ${product.nombre} (${product.marca}) - ${product.precio} ${product.moneda}`)
+      .join('\n') || 'Inventario local no inicializado'
+
+    return {
+      system_prompt: `Modo local: responde como ${profile.name} (${profile.tipo}).`,
+      bot_config: {
+        model_name: 'local-mock',
+        temperature: 0.7,
+        voice_tone: profile.tipo === 'bot_ia' ? 'amigable y ágil' : 'profesional'
+      },
+      customer_info: {
+        name: customer?.name || payload.customer_name || 'Cliente',
+        reputation_score: customer?.reputation_score ?? 100,
+        notes: customer?.notes
+      },
+      relevant_inventory: inventoryPreview,
+      relevant_faqs: 'FAQ offline: Consulta documentación local.',
+      financing_info: 'Financiamiento disponible solo en modo API.',
+      previous_context: []
+    }
+  }
+
+  async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
+    const context = await this.getAIContext(payload)
+    const reply = `⚠️ Modo offline: No se pudo contactar a la IA. Mensaje del cliente: "${payload.message_content}"`
+    return {
+      reply,
+      tokens_used: payload.message_content.length,
+      model: 'local-mock',
+      context
+    }
+  }
+
+  async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
+    console.info('Registro IA (local):', payload)
+    return { status: 'stored_locally' }
+  }
+
+  async submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }> {
+    const kv = getKV()
+    const queue = await kv.get<TrainingQueueItem[]>(STORAGE_KEYS.TRAINING_QUEUE) || []
+    const salesProfiles = await this.getSalesProfiles()
+    const profile = salesProfiles.find(sp => sp.slug === payload.sales_profile_slug)
+    const nextId = queue.length > 0 ? Math.max(...queue.map(item => item.id)) + 1 : 1
+
+    const newItem: TrainingQueueItem = {
+      id: nextId,
+      sales_profile_id: profile?.id,
+      customer_question: payload.customer_question,
+      ai_proposed_answer: payload.ai_proposed_answer,
+      admin_correction: undefined,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      sales_profile: profile
+    }
+
+    queue.push(newItem)
+    await kv.set(STORAGE_KEYS.TRAINING_QUEUE, queue)
+    await this.recordSyncEvent({
+      entity: 'ai_profile',
+      action: 'create',
+      entityId: newItem.id,
+      payload: {
+        training_item: newItem,
+        source: 'training_queue_submission'
+      }
+    })
+    return { status: 'queued_local' }
+  }
+
+  async flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse> {
+    const kv = getKV()
+    const customers = await kv.get<Customer[]>(STORAGE_KEYS.CUSTOMERS) || []
+    let customer = customers.find(c => c.phone_number === phoneNumber)
+    let action: import('./types').SyncActionType = 'update'
+    if (!customer) {
+      const nextId = customers.length > 0 ? Math.max(...customers.map(c => c.id)) + 1 : 1
+      customer = {
+        id: nextId,
+        phone_number: phoneNumber,
+        is_troll: true,
+        is_blocked: true,
+        reputation_score: 0,
+        daily_message_count: 0,
+        notes: reason,
+        created_at: new Date().toISOString()
+      }
+      customers.push(customer)
+      action = 'create'
+    } else {
+      customer.is_troll = true
+      customer.is_blocked = true
+      customer.notes = reason
+    }
+
+    await kv.set(STORAGE_KEYS.CUSTOMERS, customers)
+    if (customer) {
+      await this.recordSyncEvent({
+        entity: 'customer',
+        action,
+        entityId: customer.id,
+        payload: {
+          customer,
+          reason
+        }
+      })
+    }
+    return {
+      status: 'flagged',
+      customer: phoneNumber
+    }
+  }
+
+  // --- RBAC Methods (Local Mode) ---
+
+  async listPermissions(): Promise<Permission[]> {
+    await this.ensureRbacSeeded()
+    return this.loadPermissions()
+  }
+
+  async listRoles(): Promise<Role[]> {
+    await this.ensureRbacSeeded()
+    return this.loadRoles()
+  }
+
+  async listUsers(): Promise<User[]> {
+    await this.ensureRbacSeeded()
+    const [users, roles] = await Promise.all([this.loadUsers(), this.loadRoles()])
+    const rolesById = new Map(roles.map(role => [role.id, role] as const))
+    return users.map(user => ({
+      ...user,
+      role: user.role_id ? rolesById.get(user.role_id) || user.role : user.role
+    }))
+  }
+
+  async createUser(payload: CreateUserRequest): Promise<User> {
+    await this.ensureRbacSeeded()
+    const release = await inventoryLock.acquire()
+    try {
+      const [users, roles] = await Promise.all([this.loadUsers(), this.loadRoles()])
+      if (users.some(user => user.username.toLowerCase() === payload.username.toLowerCase())) {
+        throw new Error(`Ya existe un usuario con el nombre ${payload.username}`)
+      }
+      const role = roles.find(entry => entry.id === payload.role_id)
+      if (!role) {
+        throw new Error('Rol no disponible en modo local')
+      }
+      const nextId = users.length > 0 ? Math.max(...users.map(user => user.id)) + 1 : 1
+      const timestamp = new Date().toISOString()
+      const newUser: User = {
+        id: nextId,
+        username: payload.username,
+        email: payload.email,
+        full_name: payload.full_name,
+        is_active: true,
+        is_superuser: role.name.toLowerCase().includes('super') || (role.permissions?.length || 0) === PERMISSION_SEED_DATA.length,
+        role_id: role.id,
+        role,
+        created_at: timestamp,
+        updated_at: timestamp
+      }
+      await this.setUsers([...users, newUser])
+      await this.recordSyncEvent({
+        entity: 'rbac',
+        action: 'create',
+        entityId: newUser.id,
+        payload: {
+          user: newUser
+        }
+      })
+      return newUser
+    } finally {
+      release()
+    }
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    await this.ensureRbacSeeded()
+    const release = await inventoryLock.acquire()
+    try {
+      const users = await this.loadUsers()
+      if (users.length <= 1) {
+        throw new Error('Debe existir al menos un usuario activo en modo local')
+      }
+      const user = users.find(entry => entry.id === userId)
+      if (!user) {
+        throw new Error('Usuario no encontrado')
+      }
+      if (user.is_superuser) {
+        throw new Error('No puedes eliminar la cuenta principal en modo local')
+      }
+      const userToDelete = { ...user }
+      await this.setUsers(users.filter(entry => entry.id !== userId))
+      await this.recordSyncEvent({
+        entity: 'rbac',
+        action: 'delete',
+        entityId: userId,
+        payload: {
+          user: userToDelete
+        }
+      })
+    } finally {
+      release()
+    }
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<User> {
+    await this.ensureRbacSeeded()
+    const release = await inventoryLock.acquire()
+    try {
+      const [users, roles] = await Promise.all([this.loadUsers(), this.loadRoles()])
+      const index = users.findIndex(entry => entry.id === userId)
+      if (index === -1) {
+        throw new Error('Usuario no encontrado')
+      }
+      const role = roles.find(entry => entry.id === roleId)
+      if (!role) {
+        throw new Error('Rol no disponible en modo local')
+      }
+      const now = new Date().toISOString()
+      const previousUser = { ...users[index] }
+      const updated: User = {
+        ...users[index],
+        role_id: role.id,
+        role,
+        is_superuser: role.name.toLowerCase().includes('super'),
+        updated_at: now
+      }
+      users[index] = updated
+      await this.setUsers(users)
+      await this.recordSyncEvent({
+        entity: 'rbac',
+        action: 'update',
+        entityId: userId,
+        payload: {
+          before: previousUser,
+          after: updated,
+          role_change: {
+            from: previousUser.role_id,
+            to: role.id
+          }
+        }
+      })
+      return updated
+    } finally {
+      release()
+    }
+  }
+
+  async updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User> {
+    await this.ensureRbacSeeded()
+    const release = await inventoryLock.acquire()
+    try {
+      const users = await this.loadUsers()
+      const index = users.findIndex(entry => entry.id === userId)
+      if (index === -1) {
+        throw new Error('Usuario no encontrado')
+      }
+
+      let roles: Role[] | undefined
+      if (typeof updates.role_id === 'number') {
+        roles = await this.loadRoles()
+      }
+
+      const nextRole = typeof updates.role_id === 'number'
+        ? roles?.find(role => role.id === updates.role_id)
+        : users[index].role
+
+      if (typeof updates.role_id === 'number' && !nextRole) {
+        throw new Error('Rol no disponible en modo local')
+      }
+
+      const { password: _password, ...restUpdates } = updates
+      const now = new Date().toISOString()
+      const previousUser = { ...users[index] }
+      const updated: User = {
+        ...users[index],
+        ...restUpdates,
+        role_id: typeof updates.role_id === 'number' ? updates.role_id : users[index].role_id,
+        role: nextRole,
+        is_superuser: nextRole ? nextRole.name.toLowerCase().includes('super') : users[index].is_superuser,
+        updated_at: now
+      }
+
+      if (updates.password) {
+        console.info('Actualización de contraseña realizada en modo local; sin efecto en autenticación real')
+      }
+
+      users[index] = updated
+      await this.setUsers(users)
+      await this.recordSyncEvent({
+        entity: 'rbac',
+        action: 'update',
+        entityId: userId,
+        payload: {
+          before: previousUser,
+          after: updated,
+          updates: restUpdates
+        }
+      })
+      return updated
+    } finally {
+      release()
     }
   }
 
@@ -3137,12 +5621,31 @@ export class InventoryService {
         } as AIProfileConfig
         configs.push(newConfig)
         await kv.set(STORAGE_KEYS.AI_CONFIG, configs)
+        await this.recordSyncEvent({
+          entity: 'ai_profile',
+          action: 'create',
+          entityId: newConfig.id,
+          payload: {
+            config: newConfig
+          }
+        })
         return newConfig
       }
       
+      const previousConfig = { ...configs[index] }
       const updatedConfig = { ...configs[index], ...updates }
       configs[index] = updatedConfig
       await kv.set(STORAGE_KEYS.AI_CONFIG, configs)
+      await this.recordSyncEvent({
+        entity: 'ai_profile',
+        action: 'update',
+        entityId: updatedConfig.id,
+        payload: {
+          before: previousConfig,
+          after: updatedConfig,
+          updates
+        }
+      })
       return updatedConfig
     } catch (error) {
       console.error('Error updating AI config:', error)
@@ -3183,6 +5686,14 @@ export class InventoryService {
       }
 
       await kv.set(STORAGE_KEYS.BANKS, [...banks, newBank])
+      await this.recordSyncEvent({
+        entity: 'financing',
+        action: 'create',
+        entityId: newBank.id,
+        payload: {
+          bank: newBank
+        }
+      })
       return newBank
     } catch (error) {
       console.error('Error creating bank:', error)
@@ -3200,9 +5711,20 @@ export class InventoryService {
         throw new Error(`Bank with ID ${id} not found`)
       }
 
+      const previousBank = { ...banks[index] }
       const updatedBank = { ...banks[index], ...updates }
       banks[index] = updatedBank
       await kv.set(STORAGE_KEYS.BANKS, banks)
+      await this.recordSyncEvent({
+        entity: 'financing',
+        action: 'update',
+        entityId: id,
+        payload: {
+          before: previousBank,
+          after: updatedBank,
+          updates
+        }
+      })
       return updatedBank
     } catch (error) {
       console.error('Error updating bank:', error)
@@ -3239,6 +5761,15 @@ export class InventoryService {
 
       banks[bankIndex].financing_options.push(newOption)
       await kv.set(STORAGE_KEYS.BANKS, banks)
+      await this.recordSyncEvent({
+        entity: 'financing',
+        action: 'create',
+        entityId: newOption.id,
+        payload: {
+          bank_id: bankId,
+          option: newOption
+        }
+      })
       return newOption
     } catch (error) {
       console.error('Error creating financing option:', error)
@@ -3252,11 +5783,15 @@ export class InventoryService {
       const banks = await kv.get<Bank[]>(STORAGE_KEYS.BANKS) || []
       
       let found = false
+      let removedOption: FinancingOption | null = null
+      let removedFromBank: number | null = null
       for (let i = 0; i < banks.length; i++) {
         const bank = banks[i]
         const optionIndex = bank.financing_options.findIndex(o => o.id === optionId)
         if (optionIndex !== -1) {
-          bank.financing_options.splice(optionIndex, 1)
+          const [option] = bank.financing_options.splice(optionIndex, 1)
+          removedOption = option
+          removedFromBank = bank.id
           found = true
           break 
         }
@@ -3267,6 +5802,18 @@ export class InventoryService {
       }
 
       await kv.set(STORAGE_KEYS.BANKS, banks)
+
+      if (removedOption && removedFromBank !== null) {
+        await this.recordSyncEvent({
+          entity: 'financing',
+          action: 'delete',
+          entityId: removedOption.id,
+          payload: {
+            bank_id: removedFromBank,
+            option: removedOption
+          }
+        })
+      }
     } catch (error) {
       console.error('Error deleting financing option:', error)
       throw error
@@ -3300,6 +5847,14 @@ export class InventoryService {
       }
 
       await kv.set(STORAGE_KEYS.TRADE_IN_POLICIES, [...policies, newPolicy])
+      await this.recordSyncEvent({
+        entity: 'trade_in',
+        action: 'create',
+        entityId: newPolicy.id,
+        payload: {
+          policy: newPolicy
+        }
+      })
       return newPolicy
     } catch (error) {
       console.error('Error creating trade-in policy:', error)
@@ -3311,10 +5866,100 @@ export class InventoryService {
     try {
       const kv = getKV()
       const policies = await kv.get<TradeInPolicy[]>(STORAGE_KEYS.TRADE_IN_POLICIES) || []
+      const policyToDelete = policies.find(p => p.id === id)
       const filtered = policies.filter(p => p.id !== id)
       await kv.set(STORAGE_KEYS.TRADE_IN_POLICIES, filtered)
+
+      if (policyToDelete) {
+        await this.recordSyncEvent({
+          entity: 'trade_in',
+          action: 'delete',
+          entityId: id,
+          payload: {
+            policy: policyToDelete
+          }
+        })
+      }
     } catch (error) {
       console.error('Error deleting trade-in policy:', error)
+      throw error
+    }
+  }
+
+  async resolveTrainingQueueItem(
+    id: number,
+    action: 'approve' | 'reject' | 'convert_to_faq',
+    correction?: string
+  ): Promise<void> {
+    try {
+      const kv = getKV()
+      const items = await kv.get<TrainingQueueItem[]>(STORAGE_KEYS.TRAINING_QUEUE) || []
+      const index = items.findIndex(i => i.id === id)
+      if (index === -1) {
+        throw new Error(`Training queue item ${id} not found`)
+      }
+
+      if (action === 'convert_to_faq' && !correction?.trim()) {
+        throw new Error('Correction text is required to convert to FAQ')
+      }
+
+      const statusMap: Record<'approve' | 'reject' | 'convert_to_faq', TrainingQueueItem['status']> = {
+        approve: 'approved',
+        reject: 'rejected',
+        convert_to_faq: 'converted_to_faq'
+      }
+
+      const previousItem = { ...items[index] }
+      const now = new Date().toISOString()
+      const updatedItem: TrainingQueueItem = {
+        ...items[index],
+        status: statusMap[action],
+        admin_correction: correction?.trim() || items[index].admin_correction,
+        updated_at: now
+      }
+
+      items[index] = updatedItem
+      await kv.set(STORAGE_KEYS.TRAINING_QUEUE, items)
+      await this.recordSyncEvent({
+        entity: 'ai_profile',
+        action: 'resolve',
+        entityId: updatedItem.id,
+        payload: {
+          before: previousItem,
+          after: updatedItem,
+          resolution: action
+        }
+      })
+
+      if (action === 'convert_to_faq') {
+        const faqs = await this.loadFaqs()
+        const nextFaqId = faqs.length > 0 ? Math.max(...faqs.map(f => f.id)) + 1 : 1
+
+        const newFaq: import('./types').FAQEntry = {
+          id: nextFaqId,
+          pregunta_clave: updatedItem.customer_question,
+          respuesta: correction!.trim(),
+          categoria: 'IA Auto',
+          activa: true,
+          veces_usada: 0,
+          created_at: now,
+          updated_at: now
+        }
+
+        await this.setFaqs([newFaq, ...faqs])
+        await this.recordSyncEvent({
+          entity: 'faq',
+          action: 'create',
+          entityId: newFaq.id,
+          payload: {
+            faq: newFaq,
+            source: 'training_queue',
+            training_item_id: updatedItem.id
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Error resolving training queue item:', error)
       throw error
     }
   }

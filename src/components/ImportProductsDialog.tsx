@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Upload, Download, CheckCircle, WarningCircle, FileArrowDown } from '@phosphor-icons/react'
 import { parseProductsCSV, downloadCSVTemplate } from '@/lib/importUtils'
 import type { ProductWithStock, Location } from '@/lib/types'
+import { toast } from 'sonner'
+import { validateImportSubmission } from '@/lib/validation/importProductsSchema'
 
 interface ImportProductsDialogProps {
   open: boolean
@@ -22,6 +24,8 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
   const [file, setFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [selectedLocationId, setSelectedLocationId] = useState<string>('')
+  type ImportField = 'location' | 'file' | 'preview'
+  const [formErrors, setFormErrors] = useState<Partial<Record<ImportField, string>>>({})
   const [previewResult, setPreviewResult] = useState<{
     success: boolean
     message: string
@@ -30,12 +34,28 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
     products: Partial<ProductWithStock>[]
   } | null>(null)
 
+  const clearFieldError = (field: ImportField) => {
+    setFormErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
+  const handleLocationChange = (value: string) => {
+    setSelectedLocationId(value)
+    clearFieldError('location')
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const selectedFile = e.target.files?.[0]
       if (selectedFile) {
         setFile(selectedFile)
         setPreviewResult(null)
+        clearFieldError('file')
+        clearFieldError('preview')
       }
     } catch (error) {
       console.error('Error handling file change:', error)
@@ -50,6 +70,9 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
       // V2.0: Import products globally (profile_id = null)
       const result = parseProductsCSV(text, null)
       setPreviewResult(result)
+      if (result.success && result.products.length > 0) {
+        clearFieldError('preview')
+      }
     } catch (error) {
       console.error('Error previewing CSV:', error)
       setPreviewResult({
@@ -63,8 +86,35 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
   }
 
   const handleImport = async () => {
-    if (!previewResult?.products || previewResult.products.length === 0) return
-    if (!selectedLocationId) return
+    const validation = validateImportSubmission({
+      hasFile: Boolean(file),
+      selectedLocationId,
+      previewReady: Boolean(previewResult?.success),
+      previewHasRows: Boolean(previewResult?.products && previewResult.products.length > 0)
+    })
+
+    if (!validation.ok) {
+      const mapped: Partial<Record<ImportField, string>> = {}
+      validation.issues.forEach(issue => {
+        if (issue.field && (issue.field === 'location' || issue.field === 'file' || issue.field === 'preview')) {
+          mapped[issue.field] = issue.message
+        }
+      })
+      setFormErrors(mapped)
+      if (validation.issues[0]) {
+        toast.error(validation.issues[0].message)
+      }
+      return
+    }
+
+    if (!previewResult?.products || previewResult.products.length === 0) {
+      toast.error('No hay productos válidos para importar')
+      return
+    }
+    if (!selectedLocationId) {
+      toast.error('Selecciona la ubicación destino antes de importar')
+      return
+    }
 
     setImporting(true)
     try {
@@ -74,6 +124,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
       setFile(null)
       setPreviewResult(null)
       setSelectedLocationId('')
+      setFormErrors({})
     } catch (error) {
       console.error('Error importing products:', error)
       setPreviewResult({
@@ -93,6 +144,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
         setFile(null)
         setPreviewResult(null)
         setSelectedLocationId('')
+        setFormErrors({})
       }
     } catch (error) {
       console.error('Error closing dialog:', error)
@@ -131,7 +183,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
           {/* V2.0: Location selector for initial stock */}
           <div className="space-y-2">
             <Label>Ubicación para Stock Inicial</Label>
-            <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+            <Select value={selectedLocationId} onValueChange={handleLocationChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar ubicación..." />
               </SelectTrigger>
@@ -146,6 +198,9 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
             <p className="text-xs text-muted-foreground">
               El stock de los productos importados se asignará a esta ubicación.
             </p>
+            {formErrors.location && (
+              <p className="text-xs text-red-600">{formErrors.location}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -164,6 +219,9 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
                 </Badge>
               )}
             </div>
+            {formErrors.file && (
+              <p className="text-xs text-red-600">{formErrors.file}</p>
+            )}
           </div>
 
           {file && !previewResult && (
@@ -174,6 +232,9 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
             >
               Vista Previa de Importación
             </Button>
+          )}
+          {formErrors.preview && (
+            <p className="text-xs text-red-600">{formErrors.preview}</p>
           )}
 
           {previewResult && (
@@ -250,7 +311,15 @@ export function ImportProductsDialog({ open, onOpenChange, onImport, locations }
             Cancelar
           </Button>
           {previewResult?.success && previewResult.products.length > 0 && (
-            <Button onClick={handleImport} disabled={importing || !selectedLocationId}>
+            <Button
+              onClick={handleImport}
+              disabled={
+                importing ||
+                !selectedLocationId ||
+                !previewResult.success ||
+                previewResult.products.length === 0
+              }
+            >
               {importing ? 'Importando...' : `Importar ${previewResult.importedCount} Productos`}
             </Button>
           )}

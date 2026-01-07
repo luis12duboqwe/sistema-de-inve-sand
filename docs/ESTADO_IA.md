@@ -4,6 +4,11 @@
 
 El sistema contempla varias funcionalidades avanzadas con Inteligencia Artificial. Este documento detalla el **estado actual de implementación** de cada una, lo que está **completo**, lo que está **en fase beta** y lo que requiere **implementación adicional**.
 
+### Decisión v2.0 (3 Ene 2026)
+- El módulo IA se libera como **BETA supervisada**: heurísticas locales siempre disponibles y OpenAI opcional.
+- El flag `ENABLE_AI_FEATURES` gobierna toda la ruta `/api/ai/*`; si está en `false`, la API devuelve `HTTP 503` para evitar exponer funcionalidades parcialmente configuradas.
+- Solo habilitar el flag en entornos donde existan N8N + OpenAI configurados y documentados.
+
 ---
 
 ## 1. Bots Conversacionales de Ventas (GPT-4)
@@ -45,6 +50,12 @@ Bots de IA que interactúan con clientes a través de WhatsApp, Facebook e Insta
   - Límites de descuento
   - Condiciones de escalamiento
 
+- ✅ `GET /api/ai/status` - **NUEVO** snapshot consolidado
+  - Métricas de actividad de cada bot (interacciones, tokens, backlog)
+  - Conteo de clientes bloqueados/trolls
+  - Alertas de pronóstico (productos por agotarse)
+  - Requiere permiso `reports:view`
+
 #### Frontend:
 - ✅ Componentes de configuración (posiblemente en diálogos de SalesProfile)
 - ⚠️ **PENDIENTE**: Interfaz de chat en tiempo real
@@ -72,13 +83,25 @@ OPENAI_API_KEY=sk-tu-clave-real-de-openai
 OPENAI_MODEL=gpt-4o
 N8N_WEBHOOK_URL=https://n8n.tu-dominio.com/webhook/whatsapp
 N8N_AUTH_TOKEN=tu-token-secreto
+ENABLE_AI_FEATURES=true
 ```
+
+> **Importante:** Si `ENABLE_AI_FEATURES=false`, cualquier endpoint bajo `/api/ai/*` responderá `503 Service Unavailable` mediante la dependencia `_ensure_ai_features_enabled`. Esto aplica incluso a rutas que ofrecen heurísticas locales (`business-insights`, `context`, etc.).
 
 ### Testing
 ```bash
 # Simular flujo de WhatsApp
 python simulate_whatsapp_flow.py
 ```
+
+### Métricas Operativas Centralizadas
+
+- El endpoint `GET /api/ai/status` devuelve un payload listo para dashboards:
+  - `ai_profiles`: lista ordenada por actividad con últimos 7 días de interacciones y tokens.
+  - `interactions_last_24h`, `tokens_last_24h`, `avg_tokens_per_response`: salud global del sistema.
+  - `training_backlog`: items pendientes en `TrainingQueue` por perfil.
+  - `forecasting_alerts`: hasta 5 productos con restock recomendado o <10 días de stock.
+- Ideal para alimentar un panel en Next.js/React o para alertar vía Slack/N8N.
 
 ---
 
@@ -103,39 +126,16 @@ Predicción de ventas a 30 días basada en histórico para:
 - ✅ Endpoint dedicado: `GET /api/forecasting/predict`
 - ✅ Cálculo optimizado sobre todo el histórico de la BD
 - ✅ Algoritmo de tendencia y crecimiento conservador
+- ✅ Servicio reutilizable `app/services/forecasting_service.py` (usado por `/api/ai/status`)
 - ❌ **PENDIENTE**: Algoritmos avanzados (ML) o Jobs asíncronos
 
 ### Implementación Recomendada
 
-Para producción, se recomienda:
+Para producción ya se cuenta con:
 
-1. **Crear endpoint de forecasting**:
-```python
-# backend/app/routers/analytics.py
-@router.post("/api/analytics/forecast")
-def generate_forecast(
-    product_id: Optional[int] = None,
-    location_id: Optional[int] = None,
-    days_ahead: int = 90,
-    db: Session = Depends(get_db)
-):
-    """
-    Genera pronóstico de ventas usando histórico de órdenes.
-    Considera estacionalidad, tendencias y eventos especiales.
-    """
-    # TODO: Implementar con Prophet o ARIMA
-    pass
-```
-
-2. **Job asíncrono** (con Celery o APScheduler):
-   - Recalcular pronósticos diariamente en segundo plano
-   - Cachear resultados en Redis
-   - Notificar si se detecta bajo stock inminente
-
-3. **Mejorar algoritmo**:
-   - Considerar estacionalidad (fechas especiales, fin de mes)
-   - Ajustar por nuevos productos (sin histórico)
-   - Integrar factores externos (promociones, competencia)
+1. **Endpoint avanzado**: `POST /api/analytics/forecast` soporta filtros (`product_ids`, `location_id`, `min_confidence`, `trend`) y puede reutilizar el snapshot cacheado si `use_cache=true`. El servicio base (`generate_sales_forecasts`) también alimenta `GET /api/forecasting/predict` y `GET /api/ai/status`.
+2. **Job programado**: `app/jobs/forecasting_job.py` usa APScheduler para recalcular diariamente (03:00 UTC) siempre que `ENABLE_FORECAST_SCHEDULER=true`. Los resultados viven en `app.state.forecast_cache` y se sirven sin golpear la BD.
+3. **Camino a ML** (Fase 2): Mantener backlog para integrar modelos Prophet/ARIMA, estacionalidad avanzada y señales externas (promociones, calendario). El pipeline actual deja un solo punto de extensión (`summarize_forecasts`).
 
 ### Alternativa Actual (MVP)
 Para versión inicial, usar el forecasting del frontend:
@@ -147,7 +147,7 @@ Para versión inicial, usar el forecasting del frontend:
 
 ## 3. Insights de Negocio (GPT-4)
 
-### Estado: ⚠️ **FRONTEND IMPLEMENTADO - Backend Stub**
+### Estado: ✅ **Backend con métricas y caché** · ⚠️ **GPT-4 opcional**
 
 ### Descripción
 Análisis con IA de métricas de negocio para sugerir:
@@ -164,83 +164,33 @@ Análisis con IA de métricas de negocio para sugerir:
 - ✅ Identificación de productos lentos
 - ✅ UI para mostrar insights
 
-#### Backend:
-- ❌ **NO INTEGRADO**: Llamadas a GPT-4 API
-- ❌ **NO IMPLEMENTADO**: Análisis de histórico avanzado
-- ❌ **NO IMPLEMENTADO**: Recomendaciones personalizadas por perfil
+#### Backend (`backend/app/routers/ai_intelligence.py`):
+- ✅ `POST /api/ai/business-insights` genera KPIs, top sellers, `slow_movers`, alertas y tendencias usando datos reales.
+- ✅ Caché en memoria configurable (`BUSINESS_INSIGHTS_CACHE_SECONDS`, default 300s). Respuestas incluyen header `X-AI-Business-Cache` (`HIT`, `MISS`, `BYPASS`).
+- ⚠️ GPT-4 se usa solo si `ENABLE_AI_FEATURES=true` y existe `OPENAI_API_KEY`; caso contrario se aplican heurísticas locales.
+- ⚠️ Pendiente: análitica histórica avanzada y personalización por perfil.
 
-### Implementación Recomendada
+### Forma de uso
 
-```python
-# backend/app/routers/ai_intelligence.py (extender)
-
-@router.post("/api/ai/business-insights")
-def generate_business_insights(
-    location_id: Optional[int] = None,
-    date_range: Optional[int] = 30,  # días
-    db: Session = Depends(get_db)
-):
-    """
-    Genera insights de negocio usando GPT-4.
-    
-    Análisis:
-    - Productos con mayor/menor rotación
-    - Oportunidades de cross-selling
-    - Recomendaciones de precios
-    - Alertas de stock crítico
-    - Tendencias de ventas por categoría
-    """
-    
-    # 1. Obtener métricas de base de datos
-    metrics = {
-        "top_sellers": [...],  # Query a orders + order_items
-        "slow_movers": [...],  # Productos con pocas ventas
-        "stock_alerts": [...], # Stock bajo o alto
-        "revenue_trends": [...] # Ingresos por período
-    }
-    
-    # 2. Preparar prompt para GPT-4
-    prompt = f"""
-    Eres un experto en gestión de inventarios. Analiza estas métricas y proporciona insights accionables:
-    
-    Métricas:
-    {json.dumps(metrics, indent=2)}
-    
-    Proporciona:
-    1. Top 3 acciones recomendadas
-    2. Oportunidades de optimización
-    3. Alertas críticas
-    4. Sugerencias de precios
-    """
-    
-    # 3. Llamar a OpenAI API
-    from openai import OpenAI
-    client = OpenAI(api_key=prod_settings.OPENAI_API_KEY)
-    
-    response = client.chat.completions.create(
-        model=prod_settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "Eres un experto en retail e inventarios"},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.5  # Más conservador para análisis
-    )
-    
-    insights = response.choices[0].message.content
-    
-    # 4. Parsear y estructurar respuesta
-    return {
-        "generated_at": datetime.utcnow(),
-        "insights": insights,
-        "metrics": metrics,
-        "tokens_used": response.usage.total_tokens
-    }
+```json
+POST /api/ai/business-insights
+{
+  "sales_profile_slug": "tienda-centro",
+  "location_id": 2,
+  "days": 45,
+  "use_cache": true,
+  "force_refresh": false
+}
 ```
 
+- Cuando `use_cache=true`, el backend reutiliza snapshots en memoria; `force_refresh=true` fuerza un recálculo.
+- El frontend (`use-optimization-insights`) solicita `force_refresh` al regenerar manualmente y cae a heurísticas locales si el backend responde con error.
+- Variable nueva: `BUSINESS_INSIGHTS_CACHE_SECONDS` (>=60s) controla el TTL del snapshot.
+
 ### Alternativa Actual
-- Frontend calcula insights simples sin IA
-- Útil para MVP, pero no aprovecha potencial de GPT-4
-- Considerar implementar backend o marcar como "Análisis Básico"
+- Si `ENABLE_AI_FEATURES=false` o falta `OPENAI_API_KEY`, el endpoint responde con heurísticas locales (sin costo de tokens).
+- El frontend sigue mostrando recomendaciones provenientes del backend (o, si este falla, activa su propio fallback local).
+- Documentado como "Análisis Básico" hasta habilitar GPT-4 completo.
 
 ---
 
@@ -425,6 +375,6 @@ Las funcionalidades de IA del sistema están **arquitectónicamente diseñadas**
 
 ---
 
-**Última actualización**: Diciembre 26, 2024
+**Última actualización**: Enero 3, 2026
 **Autor**: Sistema de Auditoría de Código
 **Contacto**: Para preguntas sobre implementación, revisar `docs/INTEGRACION_N8N.md` y `docs/PRD.md`

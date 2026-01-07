@@ -34,7 +34,7 @@ export function LowStockReportDialog({
   open,
   onOpenChange,
   products,
-  profiles,
+  profiles: _profiles,
   locations,
   onProductClick
 }: LowStockReportDialogProps) {

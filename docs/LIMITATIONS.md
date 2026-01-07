@@ -1,12 +1,12 @@
 # Limitaciones del Sistema v2.0
 
 ## 1. Soporte Multi-moneda
-**Estado**: Parcial / No implementado completamente.
-**Descripción**: Aunque el modelo de datos `Product` tiene un campo `moneda`, el sistema asume actualmente una moneda base única (Lps) para todas las operaciones de venta y reportes.
+**Estado**: No contemplado (decisión estratégica).
+**Descripción**: Aunque el modelo de datos `Product` conserva el campo `moneda` por compatibilidad, la plataforma opera exclusivamente en **Lempiras (HNL)** para ventas, reportes, transferencias y KPIs.
 **Impacto**:
-- Los totales de las órdenes se suman aritméticamente sin conversión de divisas.
-- Los reportes financieros asumen que todos los montos están en la misma moneda.
-**Recomendación**: Para esta versión, utilizar una única moneda para todos los productos. El soporte real multi-moneda requeriría tablas de tasas de cambio históricas y lógica de conversión en tiempo real.
+- No se realizarán conversiones automáticas ni se mezclarán divisas dentro de una misma operación.
+- Cambiar el valor del campo `moneda` en un producto no tiene efecto práctico y se considera solo para trazabilidad.
+**Lineamiento**: Todo el catálogo y las órdenes deben configurarse en HNL. El soporte multi-moneda quedó descartado para esta versión; si se reabre, requerirá tablas de tasas de cambio históricas, campos `currency_code` y `fx_rate_applied` en órdenes y reportes multi-moneda.
 
 ## 2. Costos Históricos
 **Estado**: No implementado.

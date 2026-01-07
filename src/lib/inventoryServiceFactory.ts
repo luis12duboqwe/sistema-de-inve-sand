@@ -23,8 +23,38 @@ import type {
   TrainingQueueItem,
   Customer,
   AIProfileConfig,
-  WarrantyStatus
+  Bank,
+  FinancingOption,
+  WarrantyStatus,
+  DashboardStats,
+  SalesReport,
+  InventoryAlert,
+  StockSummaryByLocation,
+  SalesSummaryByLocation,
+  TopProductByLocationEntry,
+  PublicProduct,
+  PublicCatalogFilters,
+  PaginatedResponse,
+  CustomerStats,
+  CustomerHistory,
+  AIContextPayload,
+  AIContextResponse,
+  AIReplyPayload,
+  AIReplyResponse,
+  AIInteractionLogPayload,
+  TrainingSubmissionPayload,
+  FlagTrollResponse,
+  StockHistoryCreateRequest,
+  StockHistoryStats,
+  BusinessInsightsResponse,
+  TradeInPolicy,
+  AIStatusResponse,
+  Role,
+  Permission,
+  User,
+  CreateUserRequest
 } from './types'
+import type { SalesForecast } from './aiForecasting'
 
 async function getUseApiSetting(): Promise<boolean> {
   const kv = getKV()
@@ -139,6 +169,28 @@ export interface IInventoryService {
   deleteSupplier(id: number): Promise<void>
 
   getStockByLocation(productId: number): Promise<StockByLocation[]>
+  getLocationStock(locationId: number): Promise<StockByLocation[]>
+  getLocationStockHistory(locationId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]>
+  getProfileStockHistory(profileId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]>
+  createStockHistoryEntry(entry: StockHistoryCreateRequest): Promise<StockHistory>
+  getProductStockStats(productId: number, days?: number): Promise<StockHistoryStats>
+  getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>>
+  getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats>
+  getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport>
+  getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]>
+  getStockSummaryByLocation(activeOnly?: boolean): Promise<StockSummaryByLocation[]>
+  getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]>
+  getTopProductsByLocation(locationId: number, params?: { start_date?: string; end_date?: string; limit?: number }): Promise<TopProductByLocationEntry[]>
+  generateBusinessInsights(params?: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  }): Promise<BusinessInsightsResponse>
+  getForecasting(): Promise<SalesForecast[]>
+  getAIStatus(alertsLimit?: number): Promise<AIStatusResponse>
   
   getAvailableIMEIs(productId: number, locationId: number): Promise<string[]>
   
@@ -147,17 +199,44 @@ export interface IInventoryService {
   createReturn(returnData: CreateReturnRequest): Promise<Return>
   getReturns(): Promise<Return[]>
 
+  getBanks(activeOnly?: boolean): Promise<Bank[]>
+  createBank(bank: Partial<Bank>): Promise<Bank>
+  updateBank(id: number, updates: Partial<Bank>): Promise<Bank>
+  createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption>
+  deleteFinancingOption(optionId: number): Promise<void>
+
+  getTradeInPolicies(): Promise<TradeInPolicy[]>
+  createTradeInPolicy(policy: Omit<TradeInPolicy, 'id' | 'created_at'>): Promise<TradeInPolicy>
+  deleteTradeInPolicy(id: number): Promise<void>
+
+  listUsers(): Promise<User[]>
+  createUser(user: CreateUserRequest): Promise<User>
+  deleteUser(userId: number): Promise<void>
+  updateUserRole(userId: number, roleId: number): Promise<User>
+  updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User>
+  listRoles(): Promise<Role[]>
+  listPermissions(): Promise<Permission[]>
+
   getIMEIHistory(imei: string): Promise<IMEIHistory[]>
   checkWarrantyStatus(imei: string): Promise<WarrantyStatus>
 
   // AI & Customer Methods
   listTrainingQueue(status?: string): Promise<TrainingQueueItem[]>
   updateTrainingQueueItem(id: number, updates: Partial<TrainingQueueItem>): Promise<TrainingQueueItem>
-  getCustomers(): Promise<Customer[]>
+  getCustomers(search?: string): Promise<Customer[]>
   updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer>
+  listCustomerStats(params?: { sales_profile_slug?: string; page?: number; per_page?: number }): Promise<CustomerStats[]>
+  getCustomerStatsByPhone(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerStats>
+  getCustomerHistory(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerHistory>
   getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null>
   updateAIProfileConfig(id: number, updates: Partial<AIProfileConfig>): Promise<AIProfileConfig>
   getStockHistory(productId: number, params?: any): Promise<StockHistory[]>
+  getAIContext(payload: AIContextPayload): Promise<AIContextResponse>
+  generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse>
+  logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }>
+  submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }>
+  flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse>
+  resolveTrainingQueueItem(id: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void>
   
   // FAQ Methods
   listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }>
@@ -376,6 +455,57 @@ class LocalServiceWrapper implements IInventoryService {
   async getStockByLocation(productId: number): Promise<StockByLocation[]> {
     return this.service.getStockByLocation(productId)
   }
+
+  async getLocationStock(locationId: number): Promise<StockByLocation[]> {
+    return this.service.getLocationStock(locationId)
+  }
+
+  async getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats> {
+    return this.service.getDashboardStats(params)
+  }
+
+  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+    return this.service.getSalesReport(params)
+  }
+
+  async getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]> {
+    return this.service.getInventoryAlerts(params)
+  }
+
+  async getStockSummaryByLocation(activeOnly?: boolean): Promise<StockSummaryByLocation[]> {
+    return this.service.getStockSummaryByLocation(activeOnly)
+  }
+
+  async getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]> {
+    return this.service.getSalesSummaryByLocation(params)
+  }
+
+  async getTopProductsByLocation(locationId: number, params?: { start_date?: string; end_date?: string; limit?: number }): Promise<TopProductByLocationEntry[]> {
+    return this.service.getTopProductsByLocation(locationId, params)
+  }
+
+  async generateBusinessInsights(params?: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  }): Promise<BusinessInsightsResponse> {
+    return this.service.generateBusinessInsights(params)
+  }
+
+  async getForecasting(): Promise<SalesForecast[]> {
+    return this.service.getForecasting()
+  }
+
+  async getAIStatus(alertsLimit = 5): Promise<AIStatusResponse> {
+    return this.service.getAIStatus(alertsLimit)
+  }
+
+  async getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>> {
+    return this.service.getPublicCatalog(filters)
+  }
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     return this.service.getAvailableIMEIs(productId, locationId)
   }
@@ -386,6 +516,66 @@ class LocalServiceWrapper implements IInventoryService {
 
   async getReturns(): Promise<Return[]> {
     return this.service.getReturns()
+  }
+
+  async getBanks(activeOnly?: boolean): Promise<Bank[]> {
+    return this.service.getBanks(activeOnly ?? true)
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    return this.service.createBank(bank)
+  }
+
+  async updateBank(id: number, updates: Partial<Bank>): Promise<Bank> {
+    return this.service.updateBank(id, updates)
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    return this.service.createFinancingOption(bankId, option)
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    return this.service.deleteFinancingOption(optionId)
+  }
+
+  async getTradeInPolicies(): Promise<TradeInPolicy[]> {
+    return this.service.getTradeInPolicies()
+  }
+
+  async createTradeInPolicy(policy: Omit<TradeInPolicy, 'id' | 'created_at'>): Promise<TradeInPolicy> {
+    return this.service.createTradeInPolicy(policy)
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    return this.service.deleteTradeInPolicy(id)
+  }
+
+  async listUsers(): Promise<User[]> {
+    return this.service.listUsers()
+  }
+
+  async createUser(user: CreateUserRequest): Promise<User> {
+    return this.service.createUser(user)
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    return this.service.deleteUser(userId)
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<User> {
+    return this.service.updateUserRole(userId, roleId)
+  }
+
+  async updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User> {
+    return this.service.updateUser(userId, updates)
+  }
+
+  async listRoles(): Promise<Role[]> {
+    return this.service.listRoles()
+  }
+
+  async listPermissions(): Promise<Permission[]> {
+    return this.service.listPermissions()
   }
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
@@ -404,12 +594,28 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.updateTrainingQueueItem(id, updates)
   }
 
-  async getCustomers(): Promise<Customer[]> {
-    return this.service.getCustomers()
+  async getCustomers(search?: string): Promise<Customer[]> {
+    return this.service.getCustomers(search)
   }
 
   async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
     return this.service.updateCustomer(id, updates)
+  }
+
+  async resolveTrainingQueueItem(id: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void> {
+    return this.service.resolveTrainingQueueItem(id, action, correction)
+  }
+
+  async listCustomerStats(params?: { sales_profile_slug?: string; page?: number; per_page?: number }): Promise<CustomerStats[]> {
+    return this.service.listCustomerStats(params)
+  }
+
+  async getCustomerStatsByPhone(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerStats> {
+    return this.service.getCustomerStatsByPhone(customerPhone, params)
+  }
+
+  async getCustomerHistory(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerHistory> {
+    return this.service.getCustomerHistory(customerPhone, params)
   }
 
   async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
@@ -420,8 +626,44 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.updateAIProfileConfig(id, updates)
   }
 
+  async getAIContext(payload: AIContextPayload): Promise<AIContextResponse> {
+    return this.service.getAIContext(payload)
+  }
+
+  async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
+    return this.service.generateAIReply(payload)
+  }
+
+  async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
+    return this.service.logAIInteraction(payload)
+  }
+
+  async submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }> {
+    return this.service.submitAITrainingExample(payload)
+  }
+
+  async flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse> {
+    return this.service.flagCustomerAsTroll(phoneNumber, reason)
+  }
+
   async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
     return this.service.getStockHistory(productId, params)
+  }
+
+  async getLocationStockHistory(locationId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    return this.service.getLocationStockHistory(locationId, params)
+  }
+
+  async getProfileStockHistory(profileId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    return this.service.getProfileStockHistory(profileId, params)
+  }
+
+  async createStockHistoryEntry(entry: StockHistoryCreateRequest): Promise<StockHistory> {
+    return this.service.createStockHistoryEntry(entry)
+  }
+
+  async getProductStockStats(productId: number, days?: number): Promise<StockHistoryStats> {
+    return this.service.getProductStockStats(productId, days)
   }
 
   async listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {
@@ -440,7 +682,7 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.deleteFAQ(id)
   }
 
-  async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
+  async linkOrderToInteraction(_customerPhone: string, _orderId: number): Promise<void> {
     // No-op in local mode
     return
   }
@@ -928,6 +1170,123 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
+  async getLocationStock(locationId: number): Promise<StockByLocation[]> {
+    try {
+      const service = await this.getService()
+      return service.getLocationStock(locationId)
+    } catch (error) {
+      console.error('Error getting location stock (unified):', error)
+      throw new Error(`Failed to get location stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats> {
+    try {
+      const service = await this.getService()
+      return service.getDashboardStats(params)
+    } catch (error) {
+      console.error('Error getting dashboard stats (unified):', error)
+      throw new Error(`Failed to get dashboard stats: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+    try {
+      const service = await this.getService()
+      return service.getSalesReport(params)
+    } catch (error) {
+      console.error('Error getting sales report (unified):', error)
+      throw new Error(`Failed to get sales report: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]> {
+    try {
+      const service = await this.getService()
+      return service.getInventoryAlerts(params)
+    } catch (error) {
+      console.error('Error getting inventory alerts (unified):', error)
+      throw new Error(`Failed to get inventory alerts: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getStockSummaryByLocation(activeOnly?: boolean): Promise<StockSummaryByLocation[]> {
+    try {
+      const service = await this.getService()
+      return service.getStockSummaryByLocation(activeOnly)
+    } catch (error) {
+      console.error('Error getting stock summary by location (unified):', error)
+      throw new Error(`Failed to get stock summary: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]> {
+    try {
+      const service = await this.getService()
+      return service.getSalesSummaryByLocation(params)
+    } catch (error) {
+      console.error('Error getting sales summary by location (unified):', error)
+      throw new Error(`Failed to get sales summary: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getTopProductsByLocation(locationId: number, params?: { start_date?: string; end_date?: string; limit?: number }): Promise<TopProductByLocationEntry[]> {
+    try {
+      const service = await this.getService()
+      return service.getTopProductsByLocation(locationId, params)
+    } catch (error) {
+      console.error('Error getting top products by location (unified):', error)
+      throw new Error(`Failed to get top products: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async generateBusinessInsights(params?: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  }): Promise<BusinessInsightsResponse> {
+    try {
+      const service = await this.getService()
+      return service.generateBusinessInsights(params)
+    } catch (error) {
+      console.error('Error generating business insights (unified):', error)
+      throw new Error(`Failed to generate business insights: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getForecasting(): Promise<SalesForecast[]> {
+    try {
+      const service = await this.getService()
+      return service.getForecasting()
+    } catch (error) {
+      console.error('Error getting forecasting (unified):', error)
+      throw new Error(`Failed to get forecasting: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getAIStatus(alertsLimit = 5): Promise<AIStatusResponse> {
+    try {
+      const service = await this.getService()
+      return service.getAIStatus(alertsLimit)
+    } catch (error) {
+      console.error('Error getting AI status (unified):', error)
+      throw new Error(`Failed to get AI status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>> {
+    try {
+      const service = await this.getService()
+      return service.getPublicCatalog(filters)
+    } catch (error) {
+      console.error('Error getting public catalog (unified):', error)
+      throw new Error(`Failed to get public catalog: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     try {
       const service = await this.getService()
@@ -955,6 +1314,156 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error getting returns (unified):', error)
       throw new Error(`Failed to get returns: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getBanks(activeOnly?: boolean): Promise<Bank[]> {
+    try {
+      const service = await this.getService()
+      return service.getBanks(activeOnly)
+    } catch (error) {
+      console.error('Error getting banks (unified):', error)
+      throw new Error(`Failed to get banks: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    try {
+      const service = await this.getService()
+      return service.createBank(bank)
+    } catch (error) {
+      console.error('Error creating bank (unified):', error)
+      throw new Error(`Failed to create bank: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async updateBank(id: number, updates: Partial<Bank>): Promise<Bank> {
+    try {
+      const service = await this.getService()
+      return service.updateBank(id, updates)
+    } catch (error) {
+      console.error('Error updating bank (unified):', error)
+      throw new Error(`Failed to update bank: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    try {
+      const service = await this.getService()
+      return service.createFinancingOption(bankId, option)
+    } catch (error) {
+      console.error('Error creating financing option (unified):', error)
+      throw new Error(`Failed to create financing option: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteFinancingOption(optionId)
+    } catch (error) {
+      console.error('Error deleting financing option (unified):', error)
+      throw new Error(`Failed to delete financing option: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getTradeInPolicies(): Promise<TradeInPolicy[]> {
+    try {
+      const service = await this.getService()
+      return service.getTradeInPolicies()
+    } catch (error) {
+      console.error('Error getting trade-in policies (unified):', error)
+      throw new Error(`Failed to get trade-in policies: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async createTradeInPolicy(policy: Omit<TradeInPolicy, 'id' | 'created_at'>): Promise<TradeInPolicy> {
+    try {
+      const service = await this.getService()
+      return service.createTradeInPolicy(policy)
+    } catch (error) {
+      console.error('Error creating trade-in policy (unified):', error)
+      throw new Error(`Failed to create trade-in policy: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteTradeInPolicy(id)
+    } catch (error) {
+      console.error('Error deleting trade-in policy (unified):', error)
+      throw new Error(`Failed to delete trade-in policy: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async listUsers(): Promise<User[]> {
+    try {
+      const service = await this.getService()
+      return service.listUsers()
+    } catch (error) {
+      console.error('Error listing users (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to list users')
+    }
+  }
+
+  async createUser(user: CreateUserRequest): Promise<User> {
+    try {
+      const service = await this.getService()
+      return service.createUser(user)
+    } catch (error) {
+      console.error('Error creating user (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to create user')
+    }
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    try {
+      const service = await this.getService()
+      return service.deleteUser(userId)
+    } catch (error) {
+      console.error('Error deleting user (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to delete user')
+    }
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<User> {
+    try {
+      const service = await this.getService()
+      return service.updateUserRole(userId, roleId)
+    } catch (error) {
+      console.error('Error updating user role (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to update user role')
+    }
+  }
+
+  async updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User> {
+    try {
+      const service = await this.getService()
+      return service.updateUser(userId, updates)
+    } catch (error) {
+      console.error('Error updating user (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to update user')
+    }
+  }
+
+  async listRoles(): Promise<Role[]> {
+    try {
+      const service = await this.getService()
+      return service.listRoles()
+    } catch (error) {
+      console.error('Error listing roles (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to list roles')
+    }
+  }
+
+  async listPermissions(): Promise<Permission[]> {
+    try {
+      const service = await this.getService()
+      return service.listPermissions()
+    } catch (error) {
+      console.error('Error listing permissions (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to list permissions')
     }
   }
 
@@ -998,10 +1507,20 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async getCustomers(): Promise<Customer[]> {
+  async resolveTrainingQueueItem(id: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void> {
     try {
       const service = await this.getService()
-      return service.getCustomers()
+      await service.resolveTrainingQueueItem(id, action, correction)
+    } catch (error) {
+      console.error('Error resolving training queue item (unified):', error)
+      throw error
+    }
+  }
+
+  async getCustomers(search?: string): Promise<Customer[]> {
+    try {
+      const service = await this.getService()
+      return service.getCustomers(search)
     } catch (error) {
       console.error('Error getting customers (unified):', error)
       return []
@@ -1015,6 +1534,36 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error updating customer (unified):', error)
       throw error
+    }
+  }
+
+  async listCustomerStats(params?: { sales_profile_slug?: string; page?: number; per_page?: number }): Promise<CustomerStats[]> {
+    try {
+      const service = await this.getService()
+      return service.listCustomerStats(params)
+    } catch (error) {
+      console.error('Error listing customer stats (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to list customer stats')
+    }
+  }
+
+  async getCustomerStatsByPhone(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerStats> {
+    try {
+      const service = await this.getService()
+      return service.getCustomerStatsByPhone(customerPhone, params)
+    } catch (error) {
+      console.error('Error getting customer stats (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to get customer stats')
+    }
+  }
+
+  async getCustomerHistory(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerHistory> {
+    try {
+      const service = await this.getService()
+      return service.getCustomerHistory(customerPhone, params)
+    } catch (error) {
+      console.error('Error getting customer history (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to get customer history')
     }
   }
 
@@ -1038,6 +1587,56 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
+  async getAIContext(payload: AIContextPayload): Promise<AIContextResponse> {
+    try {
+      const service = await this.getService()
+      return service.getAIContext(payload)
+    } catch (error) {
+      console.error('Error getting AI context (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to get AI context')
+    }
+  }
+
+  async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
+    try {
+      const service = await this.getService()
+      return service.generateAIReply(payload)
+    } catch (error) {
+      console.error('Error generating AI reply (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to generate AI reply')
+    }
+  }
+
+  async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
+    try {
+      const service = await this.getService()
+      return service.logAIInteraction(payload)
+    } catch (error) {
+      console.error('Error logging AI interaction (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to log AI interaction')
+    }
+  }
+
+  async submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }> {
+    try {
+      const service = await this.getService()
+      return service.submitAITrainingExample(payload)
+    } catch (error) {
+      console.error('Error submitting AI training example (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to submit AI training example')
+    }
+  }
+
+  async flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse> {
+    try {
+      const service = await this.getService()
+      return service.flagCustomerAsTroll(phoneNumber, reason)
+    } catch (error) {
+      console.error('Error flagging customer as troll (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to flag customer as troll')
+    }
+  }
+
   async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
     try {
       const service = await this.getService()
@@ -1045,6 +1644,46 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error getting stock history (unified):', error)
       return []
+    }
+  }
+
+  async getLocationStockHistory(locationId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    try {
+      const service = await this.getService()
+      return service.getLocationStockHistory(locationId, params)
+    } catch (error) {
+      console.error('Error getting location stock history (unified):', error)
+      return []
+    }
+  }
+
+  async getProfileStockHistory(profileId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    try {
+      const service = await this.getService()
+      return service.getProfileStockHistory(profileId, params)
+    } catch (error) {
+      console.error('Error getting profile stock history (unified):', error)
+      return []
+    }
+  }
+
+  async createStockHistoryEntry(entry: StockHistoryCreateRequest): Promise<StockHistory> {
+    try {
+      const service = await this.getService()
+      return service.createStockHistoryEntry(entry)
+    } catch (error) {
+      console.error('Error creating stock history entry (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to create stock history entry')
+    }
+  }
+
+  async getProductStockStats(productId: number, days?: number): Promise<StockHistoryStats> {
+    try {
+      const service = await this.getService()
+      return service.getProductStockStats(productId, days)
+    } catch (error) {
+      console.error('Error getting product stock stats (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to get product stock stats')
     }
   }
 
@@ -1298,6 +1937,57 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.getStockByLocation(productId)
   }
 
+  async getLocationStock(locationId: number): Promise<StockByLocation[]> {
+    return apiClient.getLocationStock(locationId)
+  }
+
+  async getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats> {
+    return apiClient.getDashboardStats(params)
+  }
+
+  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+    return apiClient.getSalesReport(params)
+  }
+
+  async getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]> {
+    return apiClient.getInventoryAlerts(params)
+  }
+
+  async getStockSummaryByLocation(activeOnly?: boolean): Promise<StockSummaryByLocation[]> {
+    return apiClient.getStockSummaryByLocation(activeOnly ?? true)
+  }
+
+  async getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]> {
+    return apiClient.getSalesSummaryByLocation(params)
+  }
+
+  async getTopProductsByLocation(locationId: number, params?: { start_date?: string; end_date?: string; limit?: number }): Promise<TopProductByLocationEntry[]> {
+    return apiClient.getTopProductsByLocation(locationId, params)
+  }
+
+  async generateBusinessInsights(params?: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  }): Promise<BusinessInsightsResponse> {
+    return apiClient.generateBusinessInsights(params)
+  }
+
+  async getForecasting(): Promise<SalesForecast[]> {
+    return apiClient.getForecasting()
+  }
+
+  async getAIStatus(alertsLimit = 5): Promise<AIStatusResponse> {
+    return apiClient.getAIStatus(alertsLimit)
+  }
+
+  async getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>> {
+    return apiClient.getPublicCatalog(filters)
+  }
+
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     return apiClient.getAvailableIMEIs(productId, locationId)
   }
@@ -1308,6 +1998,66 @@ class ApiInventoryService implements IInventoryService {
 
   async getReturns(): Promise<Return[]> {
     return apiClient.getReturns()
+  }
+
+  async getBanks(activeOnly?: boolean): Promise<Bank[]> {
+    return apiClient.getBanks(activeOnly ?? true)
+  }
+
+  async createBank(bank: Partial<Bank>): Promise<Bank> {
+    return apiClient.createBank(bank)
+  }
+
+  async updateBank(id: number, updates: Partial<Bank>): Promise<Bank> {
+    return apiClient.updateBank(id, updates)
+  }
+
+  async createFinancingOption(bankId: number, option: Partial<FinancingOption>): Promise<FinancingOption> {
+    return apiClient.createFinancingOption(bankId, option)
+  }
+
+  async deleteFinancingOption(optionId: number): Promise<void> {
+    return apiClient.deleteFinancingOption(optionId)
+  }
+
+  async getTradeInPolicies(): Promise<TradeInPolicy[]> {
+    return apiClient.getTradeInPolicies()
+  }
+
+  async createTradeInPolicy(policy: Omit<TradeInPolicy, 'id' | 'created_at'>): Promise<TradeInPolicy> {
+    return apiClient.createTradeInPolicy(policy)
+  }
+
+  async deleteTradeInPolicy(id: number): Promise<void> {
+    return apiClient.deleteTradeInPolicy(id)
+  }
+
+  async listUsers(): Promise<User[]> {
+    return apiClient.listUsers()
+  }
+
+  async createUser(user: CreateUserRequest): Promise<User> {
+    return apiClient.createUser(user)
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    return apiClient.deleteUser(userId)
+  }
+
+  async updateUserRole(userId: number, roleId: number): Promise<User> {
+    return apiClient.updateUserRole(userId, roleId)
+  }
+
+  async updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User> {
+    return apiClient.updateUser(userId, updates)
+  }
+
+  async listRoles(): Promise<Role[]> {
+    return apiClient.listRoles()
+  }
+
+  async listPermissions(): Promise<Permission[]> {
+    return apiClient.listPermissions()
   }
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
@@ -1326,12 +2076,28 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.updateTrainingQueueItem(id, updates)
   }
 
-  async getCustomers(): Promise<Customer[]> {
-    return apiClient.getCustomers()
+  async resolveTrainingQueueItem(id: number, action: 'approve' | 'reject' | 'convert_to_faq', correction?: string): Promise<void> {
+    return apiClient.resolveTrainingItem(id, action, correction)
+  }
+
+  async getCustomers(search?: string): Promise<Customer[]> {
+    return apiClient.getCustomers(search)
   }
 
   async updateCustomer(id: number, updates: Partial<Customer>): Promise<Customer> {
     return apiClient.updateCustomer(id, updates)
+  }
+
+  async listCustomerStats(params?: { sales_profile_slug?: string; page?: number; per_page?: number }): Promise<CustomerStats[]> {
+    return apiClient.listCustomerStats(params)
+  }
+
+  async getCustomerStatsByPhone(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerStats> {
+    return apiClient.getCustomerStatsByPhone(customerPhone, params)
+  }
+
+  async getCustomerHistory(customerPhone: string, params?: { sales_profile_slug?: string }): Promise<CustomerHistory> {
+    return apiClient.getCustomerHistory(customerPhone, params)
   }
 
   async getAIProfileConfig(salesProfileId: number): Promise<AIProfileConfig | null> {
@@ -1342,8 +2108,44 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.updateAIProfileConfig(id, updates)
   }
 
+  async getAIContext(payload: AIContextPayload): Promise<AIContextResponse> {
+    return apiClient.getAIContext(payload)
+  }
+
+  async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
+    return apiClient.generateAIReply(payload)
+  }
+
+  async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
+    return apiClient.logAIInteraction(payload)
+  }
+
+  async submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }> {
+    return apiClient.submitAITrainingExample(payload)
+  }
+
+  async flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse> {
+    return apiClient.flagCustomerAsTroll(phoneNumber, reason)
+  }
+
   async getStockHistory(productId: number, params?: any): Promise<StockHistory[]> {
     return apiClient.getStockHistory(productId, params)
+  }
+
+  async getLocationStockHistory(locationId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    return apiClient.getLocationStockHistory(locationId, params)
+  }
+
+  async getProfileStockHistory(profileId: number, params?: { limit?: number; tipo_cambio?: string; days?: number }): Promise<StockHistory[]> {
+    return apiClient.getProfileStockHistory(profileId, params)
+  }
+
+  async createStockHistoryEntry(entry: StockHistoryCreateRequest): Promise<StockHistory> {
+    return apiClient.createStockHistoryEntry(entry)
+  }
+
+  async getProductStockStats(productId: number, days?: number): Promise<StockHistoryStats> {
+    return apiClient.getProductStockStats(productId, days ?? 30)
   }
 
   async listFAQs(params?: any): Promise<{ items: import('./types').FAQEntry[], total: number, pages: number }> {

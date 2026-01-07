@@ -203,6 +203,17 @@ def check_security():
             print_warning("CORS permite todos los orígenes (*) (restringir en producción)")
     else:
         print_success(f"CORS restringido a: {', '.join(settings.cors_origins)}")
+
+    # Allowed hosts
+    if not settings.allowed_hosts or "*" in settings.allowed_hosts:
+        if environment == "production":
+            print_error("ALLOWED_HOSTS permite cualquier host - Configurar dominios explícitos")
+            print_info("  → Alinear con configuración del reverse proxy (Nginx/Apache)")
+            issues.append("ALLOWED_HOSTS abierto")
+        else:
+            print_warning("ALLOWED_HOSTS está abierto (configurar antes de producción)")
+    else:
+        print_success(f"ALLOWED_HOSTS: {', '.join(settings.allowed_hosts)}")
     
     # JWT
     print_info(f"JWT Algorithm: {settings.algorithm}")

@@ -38,6 +38,8 @@ Backward Compatible: 100%
 - SECRET_KEY: usar valor fuerte/aleatorio (no usar el ejemplo). Definir en `.env.production`.
 - CORS_ORIGINS: lista explícita de dominios permitidos (evitar `['*']`).
 - BASE DE DATOS: usar PostgreSQL/MySQL en producción (evitar SQLite por concurrencia). Actualizar `DATABASE_URL` y variables relacionadas.
+- ALLOWED_HOSTS: dominios confiables para el backend (coinciden con Nginx/Apache). Obligatorias para habilitar TrustedHostMiddleware.
+- CHECKLIST AUTOMATIZADA: ejecutar `python backend/check_production_readiness.py` antes de cada deploy.
 ```
 
 ---
@@ -76,6 +78,15 @@ cp backend/inventory.db backend/inventory.db.backup.$(date +%Y%m%d_%H%M%S)
 # Verificar integridad
 sqlite3 backend/inventory.db ".tables"
 # Esperado: locations orders order_items products profiles ...
+
+#### 1.4 Verificación de Seguridad Automática
+```bash
+cd backend
+python check_production_readiness.py
+
+# Esperado:
+# ✓ SISTEMA LISTO PARA PRODUCCIÓN o lista de issues a corregir antes de continuar
+```
 ```
 
 ---

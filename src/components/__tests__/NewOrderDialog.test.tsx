@@ -4,7 +4,13 @@ import { vi } from 'vitest'
 import { NewOrderDialog } from '../NewOrderDialog'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
-vi.mock('@/lib/apiClient', () => ({ apiClient: { getBanks: vi.fn().mockResolvedValue([]) } }))
+const mockInventoryService = {
+  getBanks: vi.fn().mockResolvedValue([])
+}
+
+vi.mock('@/lib/inventoryServiceFactory', () => ({
+  inventoryServiceInstance: mockInventoryService
+}))
 
 const toast = (await import('sonner')).toast
 
@@ -14,6 +20,7 @@ describe('NewOrderDialog validations', () => {
     localStorage.setItem('last_sales_profile_slug', 'ventas')
     localStorage.setItem('last_source_location_id', '1')
     vi.clearAllMocks()
+    mockInventoryService.getBanks.mockResolvedValue([])
   })
 
   it('shows validation when customer name is missing', async () => {
@@ -33,6 +40,6 @@ describe('NewOrderDialog validations', () => {
     const user = userEvent.setup()
     await user.click(submit)
 
-    expect(toast.error).toHaveBeenCalledWith('Por favor ingresa el nombre del cliente')
+    expect(toast.error).toHaveBeenCalledWith('Ingresa el nombre del cliente')
   })
 })

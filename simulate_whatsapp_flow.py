@@ -26,11 +26,31 @@ def simulate_whatsapp_admin_flow():
         print(f"❌ Error: {e}")
         return
 
-    # 2. Cliente hace pregunta difícil
+    # 2. Probar respuesta automática del bot
+    print("\n2️⃣ Probando /api/ai/reply con un mensaje real...")
+    reply_payload = {
+        "sales_profile_slug": bot_profile['slug'],
+        "customer_phone": "50433334444",
+        "customer_name": "Cliente Demo",
+        "message_content": "Hola, ¿tienen iPhone 15 Pro Max?"
+    }
+
+    try:
+        reply_res = requests.post(f"{BASE_URL}/ai/reply", json=reply_payload)
+        if reply_res.status_code == 200:
+            data = reply_res.json()
+            print("✅ Backend respondió:")
+            print(f"   -> {data['reply']}")
+        else:
+            print(f"⚠️ No fue posible obtener respuesta automática: {reply_res.text}")
+    except Exception as err:
+        print(f"⚠️ Error llamando /api/ai/reply: {err}")
+
+    # 3. Cliente hace pregunta difícil
     question = "¿Tienen garantía extendida para pantallas rotas?"
-    print(f"\n2️⃣ Cliente pregunta: '{question}'")
+    print(f"\n3️⃣ Cliente pregunta: '{question}'")
     
-    # 3. Bot no sabe y envía a cola (n8n hace esto)
+    # 4. Bot no sabe y envía a cola (n8n hace esto)
     print("🤖 Bot: No estoy seguro -> Enviando a revisión...")
     submit_resp = requests.post(f"{BASE_URL}/ai/training/submit", json={
         "sales_profile_slug": bot_profile['slug'],

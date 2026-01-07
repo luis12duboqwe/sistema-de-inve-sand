@@ -1,8 +1,8 @@
 from decimal import Decimal
-from typing import Iterable
+from typing import Any, Iterable, Optional
 
 
-def compute_trade_in_total(trade_ins: Iterable) -> Decimal:
+def compute_trade_in_total(trade_ins: Optional[Iterable[Any]]) -> Decimal:
     """Suma valor_estimado de trade-ins en forma segura.
 
     trade_ins puede ser una lista de esquemas o modelos con atributo valor_estimado.

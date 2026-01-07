@@ -37,6 +37,7 @@ const RETURN_ITEMS_KEY = 'inventory-return-items'
 const STOCK_TRANSFERS_KEY = 'inventory-stock-transfers'
 const IMEI_HISTORY_KEY = 'inventory-imei-history'
 const SUPPLIERS_KEY = 'inventory-suppliers'
+const BANKS_KEY = 'inventory-banks'
 
 describe('inventoryService local mode', () => {
   beforeEach(async () => {
@@ -75,6 +76,17 @@ describe('inventoryService local mode', () => {
     store.set(STOCK_TRANSFERS_KEY, [])
     store.set(IMEI_HISTORY_KEY, [])
     store.set(SUPPLIERS_KEY, [])
+    store.set(BANKS_KEY, [
+      {
+        id: 123,
+        name: 'Banco Demo',
+        active: true,
+        normal_card_rate: 0.04,
+        financing_options: [
+          { id: 1, bank_id: 123, months: 2, rate: 0, active: true }
+        ]
+      }
+    ])
   })
 
   it('creates order, excludes gifts from total, stores financing details and updates stock', async () => {

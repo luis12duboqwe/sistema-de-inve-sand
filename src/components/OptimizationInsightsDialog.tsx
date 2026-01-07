@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { motion } from 'framer-motion'
 import { 
   Sparkle, 
@@ -39,7 +40,16 @@ export function OptimizationInsightsDialog({
   profile,
   onProductClick
 }: OptimizationInsightsDialogProps) {
-  const { analysis, isGenerating, lastUpdated, generateAnalysis } = useOptimizationInsights(
+  const {
+    analysis,
+    isGenerating,
+    lastUpdated,
+    aiInsights,
+    recommendationDetails,
+    insightsSource,
+    insightsError,
+    generateAnalysis
+  } = useOptimizationInsights(
     products,
     orders,
     profile,
@@ -87,6 +97,14 @@ export function OptimizationInsightsDialog({
                   Actualizado {lastUpdated.toLocaleTimeString()}
                 </span>
               )}
+              {(analysis || isGenerating) && (
+                <Badge
+                  variant={insightsSource === 'backend' ? 'default' : 'secondary'}
+                  className="text-[10px] uppercase tracking-wide"
+                >
+                  {insightsSource === 'backend' ? 'IA backend' : 'heurística local'}
+                </Badge>
+              )}
               <Button
                 onClick={handleGenerate}
                 disabled={isGenerating}
@@ -101,6 +119,14 @@ export function OptimizationInsightsDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 pb-6">
+            {insightsError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTitle>No se pudo contactar al backend de IA</AlertTitle>
+                <AlertDescription>
+                  {insightsError}. Mostrando recomendaciones locales mientras se restablece la conexión.
+                </AlertDescription>
+              </Alert>
+            )}
           {!analysis && !isGenerating && (
             <div className="flex flex-col items-center justify-center h-full text-center py-12">
               <div className="w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center mb-6">
@@ -207,30 +233,70 @@ export function OptimizationInsightsDialog({
                 </Card>
               </div>
 
-              {analysis.aiRecommendations.length > 0 && (
-                <Card className="p-6 bg-gradient-to-br from-primary/5 to-accent/5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Sparkle size={24} className="text-primary" weight="duotone" />
-                    <h3 className="text-lg font-semibold">Recomendaciones Estratégicas de IA</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {analysis.aiRecommendations.map((rec, idx) => (
-                      <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        className="flex gap-3 p-4 rounded-lg bg-background/50 border border-border/50"
-                      >
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold">
-                          {idx + 1}
+                {aiInsights.length > 0 && (
+                  <Card className="p-6 bg-gradient-to-br from-primary/5 to-accent/5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Sparkle size={24} className="text-primary" weight="duotone" />
+                        <h3 className="text-lg font-semibold">Recomendaciones Estratégicas de IA</h3>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant={insightsSource === 'backend' ? 'default' : 'secondary'}>
+                          {insightsSource === 'backend' ? 'Origen: Backend IA' : 'Origen: Heurística local'}
+                        </Badge>
+                        {lastUpdated && (
+                          <span>
+                            Generado {lastUpdated.toLocaleDateString()} {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {insightsSource === 'local' && (
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Mostrando recomendaciones locales mientras el backend de IA no está disponible.
+                      </p>
+                    )}
+                    <div className="space-y-3">
+                      {aiInsights.map((rec, idx) => (
+                        <motion.div
+                          key={`${rec}-${idx}`}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.08 }}
+                          className="flex gap-3 p-4 rounded-lg bg-background/50 border border-border/50"
+                        >
+                          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold">
+                            {idx + 1}
+                          </div>
+                          <p className="text-sm flex-1">{rec}</p>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {recommendationDetails.length > 0 && (
+                      <>
+                        <Separator className="my-4" />
+                        <div className="grid gap-3">
+                          {recommendationDetails.map((detail, idx) => (
+                            <div key={`${detail.title}-${idx}`} className="p-4 rounded-lg bg-background/80 border border-border/60">
+                              <div className="flex items-start justify-between gap-3 mb-1">
+                                <h4 className="font-semibold leading-tight flex-1">{detail.title}</h4>
+                                <Badge variant={detail.priority === 'critica' ? 'destructive' : detail.priority === 'alta' ? 'default' : detail.priority === 'media' ? 'secondary' : 'outline'}>
+                                  Prioridad {detail.priority}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-muted-foreground mb-2">{detail.action}</p>
+                              <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
+                                {detail.impact && <span>Impacto: {detail.impact}</span>}
+                                {detail.category && <span>Enfoque: {detail.category}</span>}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        <p className="text-sm flex-1">{rec}</p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </Card>
-              )}
+                      </>
+                    )}
+                  </Card>
+                )}
 
               <Tabs defaultValue="pricing" className="w-full">
                 <TabsList className="grid w-full grid-cols-5">

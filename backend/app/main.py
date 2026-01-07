@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.database import init_db, get_db, check_db_connection
@@ -9,15 +10,20 @@ from app.routers import (
     profiles, products, orders, faq, customers, reports, 
     auth_router, stock_transfers, suppliers, stock_history,
     locations, sales_profiles, returns, imeis, ai_intelligence,
-    financing, public, forecasting
+    financing, public, forecasting, analytics
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
 from app.utils.logging_config import setup_logging
+from app.utils.observability import initialize_observability
+from app.config_production import prod_settings
+from app.middleware.request_context import RequestContextMiddleware
 from sqlalchemy.orm import Session
+from app.jobs.forecasting_job import start_forecasting_job
 
 # Configurar logging al inicio
 setup_logging()
+initialize_observability()
 logger = logging.getLogger(__name__)
 
 
@@ -26,9 +32,18 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up application...")
     init_db()
-    yield
-    # Shutdown (if needed in the future)
-    logger.info("Shutting down application...")
+    app.state.forecast_cache = None
+
+    scheduler = None
+    if prod_settings.ENABLE_FORECAST_SCHEDULER:
+        scheduler = start_forecasting_job(app)
+
+    try:
+        yield
+    finally:
+        if scheduler:
+            scheduler.shutdown(wait=False)
+        logger.info("Shutting down application...")
 
 
 app = FastAPI(
@@ -37,6 +52,8 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+app.add_middleware(RequestContextMiddleware)
 
 # Global Exception Handler
 @app.exception_handler(Exception)
@@ -59,6 +76,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+if prod_settings.is_production() and settings.allowed_hosts != ["*"]:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.allowed_hosts,
+    )
+
+if prod_settings.is_production():
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for header, value in prod_settings.SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        return response
+
 app.include_router(auth_router.router)
 app.include_router(locations.router)
 app.include_router(sales_profiles.router)
@@ -77,6 +108,7 @@ app.include_router(financing.router)
 app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
 app.include_router(forecasting.router)
+app.include_router(analytics.router)
 
 @app.get("/")
 def read_root():

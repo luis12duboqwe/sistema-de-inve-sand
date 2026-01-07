@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useKV } from './use-kv'
 import { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
-import { generateAIForecasts, generateRestockAlerts, generateForecastingSummary, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
-import { apiClient } from '@/lib/apiClient'
+import { generateRestockAlerts, generateForecastingSummary, SalesForecast, RestockAlert, ForecastingSummary } from '@/lib/aiForecasting'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
 export function useForecasting(
   products: ProductWithStock[],
@@ -19,20 +19,12 @@ export function useForecasting(
 
   const generateForecastData = useCallback(async () => {
     if (!profile || products.length === 0) return
+    if (!useAPI && orders.length === 0) return
 
     setIsGenerating(true)
     try {
-      let newForecasts: SalesForecast[]
-      let newSummary: ForecastingSummary
-
-      if (useAPI) {
-        newForecasts = await apiClient.getForecasting()
-        newSummary = generateForecastingSummary(newForecasts, products)
-      } else {
-        const { forecasts, summary } = await generateAIForecasts(products, orders)
-        newForecasts = forecasts
-        newSummary = summary
-      }
+      const newForecasts: SalesForecast[] = await inventoryServiceInstance.getForecasting()
+      const newSummary: ForecastingSummary = generateForecastingSummary(newForecasts, products)
 
       const newAlerts = await generateRestockAlerts(newForecasts, profile)
 

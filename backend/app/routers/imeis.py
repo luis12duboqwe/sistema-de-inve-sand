@@ -1,13 +1,135 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from typing import List
+import math
 from datetime import datetime, timedelta
-from app.database import get_db
-from app.models import IMEIHistory, Product, Location, ProductIMEI, Order, User
-from app.schemas import IMEIHistoryResponse
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, joinedload
+
 from app.auth import get_current_active_user, check_permission
+from app.database import get_db
+from app.models import IMEIHistory, Location, Order, Product, ProductIMEI, User
+from app.schemas import IMEIHistoryResponse, PaginatedResponse, ProductIMEIResponse
 
 router = APIRouter(prefix="/api/imeis", tags=["imeis"])
+
+
+@router.get("", response_model=PaginatedResponse[ProductIMEIResponse])
+def list_product_imeis(
+    vendido: Optional[bool] = Query(None, description="Filtrar por IMEIs vendidos"),
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
+    product_id: Optional[int] = Query(None, description="Filtrar por producto"),
+    search: Optional[str] = Query(None, description="Buscar por IMEI"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(100, ge=10, le=500, description="Resultados por página"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view")),
+):
+    """Lista global de IMEIs con paginación para sincronización offline."""
+
+    query = db.query(ProductIMEI).options(
+        joinedload(ProductIMEI.product),
+        joinedload(ProductIMEI.location),
+    )
+
+    if vendido is not None:
+        query = query.filter(ProductIMEI.vendido == vendido)
+    if location_id is not None:
+        query = query.filter(ProductIMEI.location_id == location_id)
+    if product_id is not None:
+        query = query.filter(ProductIMEI.product_id == product_id)
+    if search:
+        like_term = f"%{search}%"
+        query = query.filter(ProductIMEI.imei.ilike(like_term))
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    imeis = (
+        query.order_by(ProductIMEI.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+
+    items = [
+        ProductIMEIResponse(
+            id=record.id,
+            product_id=record.product_id,
+            location_id=record.location_id,
+            imei=record.imei,
+            vendido=record.vendido,
+            order_id=record.order_id,
+            transfer_id=record.transfer_id,
+            created_at=record.created_at,
+            product_name=record.product.nombre if record.product else None,
+            location_name=record.location.nombre if record.location else None,
+        )
+        for record in imeis
+    ]
+
+    pages = math.ceil(total / per_page) if total else 0
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
+
+
+@router.get("/history", response_model=PaginatedResponse[IMEIHistoryResponse])
+def list_imei_history(
+    imei: Optional[str] = Query(None, description="Filtrar por IMEI"),
+    product_id: Optional[int] = Query(None, description="Filtrar por producto"),
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
+    days: Optional[int] = Query(90, ge=1, le=365, description="Días a considerar"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(100, ge=10, le=500, description="Resultados por página"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view")),
+):
+    """Devuelve el historial global de IMEIs con paginación."""
+
+    query = db.query(IMEIHistory).options(
+        joinedload(IMEIHistory.product),
+        joinedload(IMEIHistory.location),
+    )
+
+    if imei:
+        query = query.filter(IMEIHistory.imei == imei)
+    if product_id is not None:
+        query = query.filter(IMEIHistory.product_id == product_id)
+    if location_id is not None:
+        query = query.filter(IMEIHistory.location_id == location_id)
+    if days is not None:
+        cutoff = datetime.now() - timedelta(days=days)
+        query = query.filter(IMEIHistory.created_at >= cutoff)
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    entries = (
+        query.order_by(IMEIHistory.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+
+    results: List[IMEIHistoryResponse] = []
+    for entry in entries:
+        payload = IMEIHistoryResponse.model_validate(entry)
+        if entry.product:
+            payload.product_name = entry.product.nombre
+        if entry.location:
+            payload.location_name = entry.location.nombre
+        results.append(payload)
+
+    pages = math.ceil(total / per_page) if total else 0
+    return PaginatedResponse(
+        items=results,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 @router.get("/{imei}/warranty-status")
 def check_warranty_status(

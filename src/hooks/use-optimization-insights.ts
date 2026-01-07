@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { ProductWithStock, OrderWithItems, Profile } from '@/lib/types'
+import type { ProductWithStock, OrderWithItems, Profile, BusinessInsightRecommendation } from '@/lib/types'
 import type { OptimizationAnalysis } from '@/lib/optimizationAnalytics'
 import {
   calculateOptimizationScore,
@@ -9,6 +9,8 @@ import {
   analyzeProductMix,
   analyzeOperations
 } from '@/lib/optimizationAnalytics'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { buildBusinessInsightRecommendations } from '@/lib/businessInsightsFallback'
 
 export function useOptimizationInsights(
   products: ProductWithStock[],
@@ -20,6 +22,9 @@ export function useOptimizationInsights(
   const [isGenerating, setIsGenerating] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [aiInsights, setAiInsights] = useState<string[]>([])
+  const [recommendationDetails, setRecommendationDetails] = useState<BusinessInsightRecommendation[]>([])
+  const [insightsSource, setInsightsSource] = useState<'backend' | 'local'>('local')
+  const [insightsError, setInsightsError] = useState<string | null>(null)
 
   // V2.0: Products are global, Orders filter by sales_profile_id
   const profileProducts = products.filter(p => p.activo)
@@ -29,12 +34,13 @@ export function useOptimizationInsights(
 
   const generateAnalysis = useCallback(async () => {
     if (isGenerating) return
-    
+
     setIsGenerating(true)
+    setInsightsError(null)
 
     try {
       const optimizationScore = calculateOptimizationScore(profileProducts, profileOrders)
-      
+
       const pricingInsights = analyzePricing(profileProducts, profileOrders)
       const inventoryInsights = analyzeInventory(profileProducts, profileOrders)
       const customerInsights = analyzeCustomers(profileOrders)
@@ -48,54 +54,7 @@ export function useOptimizationInsights(
         .filter(i => i.type === 'overstock' || i.type === 'dead_stock')
         .reduce((sum, i) => sum + i.impact, 0)
 
-      let aiRecommendations: string[] = []
-      
-      try {
-        const prompt = spark.llmPrompt`Actúa como consultor de negocios experto. Analiza los siguientes datos de un negocio de venta de móviles y accesorios:
-
-MÉTRICAS GENERALES:
-- Score de Optimización: ${optimizationScore}/100
-- Productos activos: ${profileProducts.filter(p => p.activo).length}
-- Órdenes totales: ${profileOrders.length}
-- Ingresos potenciales identificados: $${totalPotentialRevenue}
-- Ahorros en costos potenciales: $${totalCostSavings}
-
-INSIGHTS DE PRECIO:
-${pricingInsights.slice(0, 3).map(i => `- ${i.productName}: ${i.reasoning} (Impacto potencial: $${i.potentialImpact})`).join('\n')}
-
-INSIGHTS DE INVENTARIO:
-${inventoryInsights.slice(0, 3).map(i => `- ${i.productName}: ${i.reasoning} (${i.action})`).join('\n')}
-
-INSIGHTS DE CLIENTES:
-${customerInsights.slice(0, 3).map(i => `- ${i.reasoning} ${i.action}`).join('\n')}
-
-INSIGHTS DE MIX DE PRODUCTOS:
-${productMixInsights.slice(0, 2).map(i => `- ${i.reasoning} ${i.action}`).join('\n')}
-
-Genera exactamente 5 recomendaciones estratégicas de alto impacto, priorizadas por valor. Cada recomendación debe:
-1. Ser específica y accionable
-2. Incluir el beneficio esperado
-3. Estar basada en los datos proporcionados
-4. Ser concisa (máximo 2 líneas)
-
-Devuelve SOLO un objeto JSON válido con el formato:
-{
-  "recommendations": ["recomendación 1", "recomendación 2", "recomendación 3", "recomendación 4", "recomendación 5"]
-}`
-
-        const aiResponse = await spark.llm(prompt, 'gpt-4o', true)
-        const parsed = JSON.parse(aiResponse)
-        aiRecommendations = parsed.recommendations || []
-      } catch (error) {
-        console.error('Error generating AI recommendations:', error)
-        aiRecommendations = [
-          'Enfócate en mantener stock óptimo de tus productos más rentables para maximizar ingresos.',
-          'Revisa los productos con baja rotación y considera estrategias de liquidación para liberar capital.',
-          'Identifica y retén a tus clientes de alto valor con programas de lealtad personalizados.',
-          'Optimiza precios basándote en la demanda y disponibilidad de cada producto.',
-          'Automatiza alertas de reorden para reducir quiebres de stock en productos críticos.'
-        ]
-      }
+      let analysisTimestamp = new Date()
 
       const newAnalysis: OptimizationAnalysis = {
         metrics: {
@@ -103,7 +62,7 @@ Devuelve SOLO un objeto JSON válido con el formato:
           potentialRevenue: totalPotentialRevenue,
           costSavings: totalCostSavings,
           efficiencyGain: Math.round((100 - optimizationScore) * 0.5),
-          lastAnalyzed: new Date().toISOString()
+          lastAnalyzed: analysisTimestamp.toISOString()
         },
         pricing: {
           insights: pricingInsights,
@@ -125,18 +84,79 @@ Devuelve SOLO un objeto JSON válido con el formato:
           insights: operationalInsights,
           summary: generateOperationsSummary(operationalInsights)
         },
-        aiRecommendations
+        aiRecommendations: []
       }
+
+      let aiRecommendations: string[] = []
+      let detailedRecommendations: BusinessInsightRecommendation[] = []
+      let recommendationSource: 'backend' | 'local' = 'local'
+
+      try {
+        const insightsResponse = await inventoryServiceInstance.generateBusinessInsights({
+          sales_profile_slug: profile?.slug || undefined,
+          sales_profile_id: profile?.id,
+          days: 45,
+          use_cache: true,
+          force_refresh: Boolean(analysis)
+        })
+
+        if (insightsResponse) {
+          if (insightsResponse.recommendations?.length) {
+            detailedRecommendations = insightsResponse.recommendations
+            aiRecommendations = insightsResponse.recommendations
+              .map(rec => rec.action || rec.title)
+              .filter(Boolean)
+            recommendationSource = aiRecommendations.length > 0 ? 'backend' : 'local'
+          }
+
+          if (insightsResponse.generated_at) {
+            analysisTimestamp = new Date(insightsResponse.generated_at)
+            newAnalysis.metrics.lastAnalyzed = analysisTimestamp.toISOString()
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching backend insights:', error)
+        setInsightsError(error instanceof Error ? error.message : 'No fue posible generar insights con IA')
+      }
+
+      if (aiRecommendations.length === 0) {
+        const fallbackRecommendations = buildBusinessInsightRecommendations(
+          pricingInsights,
+          inventoryInsights,
+          customerInsights
+        )
+
+        detailedRecommendations = fallbackRecommendations
+        aiRecommendations = fallbackRecommendations
+          .map(rec => rec.action || rec.title)
+          .filter(Boolean)
+        recommendationSource = 'local'
+      }
+
+      if (aiRecommendations.length === 0) {
+        aiRecommendations = [
+          'Enfócate en mantener stock óptimo de tus productos más rentables para maximizar ingresos.',
+          'Revisa los productos con baja rotación y considera estrategias de liquidación para liberar capital.',
+          'Identifica y retén a tus clientes de alto valor con programas de lealtad personalizados.',
+          'Optimiza precios basándote en la demanda y disponibilidad de cada producto.',
+          'Automatiza alertas de reorden para reducir quiebres de stock en productos críticos.'
+        ]
+      }
+
+      newAnalysis.aiRecommendations = aiRecommendations
 
       setAnalysis(newAnalysis)
       setAiInsights(aiRecommendations)
-      setLastUpdated(new Date())
+      setRecommendationDetails(detailedRecommendations)
+      setInsightsSource(recommendationSource)
+      setLastUpdated(analysisTimestamp)
     } catch (error) {
       console.error('Error generating optimization analysis:', error)
+      setInsightsError(error instanceof Error ? error.message : 'No fue posible generar insights con IA')
     } finally {
       setIsGenerating(false)
     }
-  }, [isGenerating, profileProducts, profileOrders])
+  }, [analysis, isGenerating, profileProducts, profileOrders, profile])
 
   useEffect(() => {
     if (autoGenerate && profileProducts.length > 0 && !analysis) {
@@ -149,6 +169,9 @@ Devuelve SOLO un objeto JSON válido con el formato:
     isGenerating,
     lastUpdated,
     aiInsights,
+    recommendationDetails,
+    insightsSource,
+    insightsError,
     generateAnalysis
   }
 }

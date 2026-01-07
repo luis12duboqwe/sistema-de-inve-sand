@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 from typing import List, Optional
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.database import get_db
 from app.models import StockTransfer, Product, Location, Stock, StockHistory, IMEIHistory, User
@@ -385,7 +385,7 @@ def confirm_transfer(
 
         # Actualizar estado de la transferencia
         transfer.estado = "confirmada"
-        transfer.confirmed_at = datetime.utcnow()
+        transfer.confirmed_at = datetime.now(UTC)
         transfer.confirmed_by = current_user.username
         
         db.commit()
@@ -472,7 +472,7 @@ def reject_transfer(
         
         # Actualizar estado de la transferencia
         transfer.estado = "rechazada"
-        transfer.confirmed_at = datetime.utcnow()
+        transfer.confirmed_at = datetime.now(UTC)
         transfer.confirmed_by = current_user.username
         transfer.rejection_reason = reject_data.rejection_reason
         

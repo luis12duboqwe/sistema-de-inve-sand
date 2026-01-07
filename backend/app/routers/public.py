@@ -2,30 +2,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from pydantic import BaseModel, ConfigDict
-from decimal import Decimal
 import math
 
 from app.database import get_db
-from app.models import Product, Stock
-from app.schemas import CategoriaEnum, CondicionEnum, PaginatedResponse
+from app.models import Product
+from app.schemas import CategoriaEnum, CondicionEnum, PaginatedResponse, PublicProductResponse
 
 router = APIRouter(prefix="/api/public", tags=["public"])
-
-class PublicProductResponse(BaseModel):
-    id: int
-    nombre: str
-    marca: str
-    modelo: str
-    categoria: CategoriaEnum
-    condicion: CondicionEnum
-    precio: Decimal
-    moneda: str
-    capacidad: Optional[str] = None
-    color: Optional[str] = None
-    in_stock: bool
-
-    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/catalog", response_model=PaginatedResponse[PublicProductResponse])
 def get_public_catalog(

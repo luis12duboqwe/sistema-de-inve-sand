@@ -18,12 +18,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash, Barcode, CheckCircle, Warning } from '@phosphor-icons/react'
+import { Plus, Trash, Barcode } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { OrderWithItems, ProductWithStock } from '@/lib/types'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import { apiClient } from '@/lib/apiClient'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -140,7 +139,7 @@ export function EditOrderDialog({
              }
           }
         }
-      } catch (error) {
+      } catch {
         toast.error('IMEI no encontrado o error al buscar producto')
       }
       

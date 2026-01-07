@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # CORS
     cors_origins: List[str] = ["*"]
+    allowed_hosts: List[str] = ["*"]
     
     # JWT Authentication
     secret_key: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
@@ -30,6 +31,18 @@ class Settings(BaseSettings):
     # Nota: Se usa en varias partes del código (logging_config, config_production, etc.)
     # y se puede sobreescribir con env var DEBUG=true/false.
     debug: bool = False
+
+    # Logging / Observability
+    log_level: str = "INFO"
+    log_structured: bool = False
+    log_to_files: bool = True
+    log_directory: str = "./logs"
+    log_include_console: bool = True
+
+    sentry_dsn: Optional[str] = None
+    sentry_environment: Optional[str] = None
+    sentry_traces_sample_rate: float = 0.0
+    sentry_profiles_sample_rate: float = 0.0
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -43,12 +56,23 @@ class Settings(BaseSettings):
             return value
         return [v.strip() for v in value.split(",") if v.strip()]
 
+    @staticmethod
+    def _normalize_rate(value: float) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, min(1.0, numeric))
+
     # Permitir CORS_ORIGINS como CSV para despliegues
     @classmethod
     def model_validate(cls, value):  # type: ignore[override]
-        if isinstance(value, dict) and "cors_origins" in value and isinstance(value["cors_origins"], str):
+        if isinstance(value, dict):
             value = value.copy()
-            value["cors_origins"] = cls._split_csv(value["cors_origins"])
+            if "cors_origins" in value and isinstance(value["cors_origins"], str):
+                value["cors_origins"] = cls._split_csv(value["cors_origins"])
+            if "allowed_hosts" in value and isinstance(value["allowed_hosts"], str):
+                value["allowed_hosts"] = cls._split_csv(value["allowed_hosts"])
         return super().model_validate(value)
     
     def __init__(self, **kwargs):
@@ -57,9 +81,19 @@ class Settings(BaseSettings):
         env_value = (self.environment or "development").strip().lower()
         self.environment = env_value
 
+        self.sentry_traces_sample_rate = self._normalize_rate(self.sentry_traces_sample_rate)
+        self.sentry_profiles_sample_rate = self._normalize_rate(self.sentry_profiles_sample_rate)
+
         is_production = env_value == "production"
         if not is_production:
             return
+
+        # En producción forzamos logging estructurado por defecto
+        if not self.log_structured:
+            self.log_structured = True
+
+        if not self.sentry_environment:
+            self.sentry_environment = "production"
 
         if self.database_url == "sqlite:///./inventory.db":
             raise ValueError(
@@ -69,6 +103,11 @@ class Settings(BaseSettings):
         if not self.cors_origins or self.cors_origins == ["*"]:
             raise ValueError(
                 "CORS_ORIGINS must be a comma-separated list in production; wildcard '*' is not allowed."
+            )
+
+        if not self.allowed_hosts or self.allowed_hosts == ["*"]:
+            raise ValueError(
+                "ALLOWED_HOSTS must be configured for production. Provide a comma-separated list of trusted domains."
             )
 
         secret_key_lower = self.secret_key.lower()

@@ -19,12 +19,12 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Plus, Trash, Robot, MapPin, WarningCircle, CreditCard } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank } from '@/lib/types'
+import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank, TradeIn } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
+import { ORDER_FIELD_LIMITS, validateOrderForm, type OrderItemDraft } from '@/lib/validation/orderFormSchema'
 
 interface NewOrderDialogProps {
   open: boolean
@@ -36,13 +36,7 @@ interface NewOrderDialogProps {
   onSubmit: (order: CreateOrderRequest) => Promise<void>
 }
 
-interface OrderItemForm {
-  product_id: number
-  cantidad: number
-  imeis?: string[]
-  precio_unitario?: number // V2.1: Precio personalizado
-}
-
+type OrderItemForm = OrderItemDraft
 
 
 export function NewOrderDialog({
@@ -87,11 +81,21 @@ export function NewOrderDialog({
   const [cashDownPayment, setCashDownPayment] = useState('') // Prima / Pago Inicial
 
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  const clearFieldError = (field: string) => {
+    setFormErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   // Load banks on mount
   const loadBanks = async () => {
     try {
-      const data = await apiClient.getBanks(true)
+      const data = await inventoryServiceInstance.getBanks(true)
       setBanks(data)
     } catch (e) {
       console.error('Error loading banks', e)
@@ -133,6 +137,7 @@ export function NewOrderDialog({
     setSelectedBankId(null)
     setSelectedMonths(null)
     setCashDownPayment('')
+    setFormErrors({})
   }
 
   // PROBLEMA 1: Resetear formulario al cerrar/cancelar
@@ -264,8 +269,16 @@ export function NewOrderDialog({
        newItems[index].imeis = value as string[]
     }
     else if (field === 'precio_unitario') {
-       // Si es string vacío o null, undefined para usar precio base
-       newItems[index].precio_unitario = (value === '' || value === null) ? undefined : Number(value)
+       if (value === '' || value === null) {
+         newItems[index].precio_unitario = undefined
+       } else {
+         const numericValue = Number(value)
+         if (Number.isNaN(numericValue) || numericValue < 0) {
+           toast.error('El precio unitario no puede ser negativo')
+           return
+         }
+         newItems[index].precio_unitario = numericValue
+       }
     }
     
     setItems(newItems)
@@ -310,141 +323,108 @@ export function NewOrderDialog({
     }
 
   const handleSubmit = async () => {
-    // Validación V2.0
-    if (!salesProfileSlug) {
-      toast.error('Por favor selecciona un canal de venta')
+    const validation = validateOrderForm(
+      {
+        salesProfileSlug,
+        sourceLocationId,
+        customerName,
+        customerPhone,
+        canal,
+        metodoPago,
+        items,
+        tradeIns,
+        notas,
+        deliveryDate,
+        cashDownPayment,
+        selectedBankId,
+        selectedMonths
+      },
+      { products, banks }
+    )
+
+    if (!validation.ok) {
+      const aggregated: Record<string, string> = {}
+      validation.issues.forEach(issue => {
+        if (!aggregated[issue.field]) {
+          aggregated[issue.field] = issue.message
+        }
+      })
+      setFormErrors(aggregated)
+      toast.error(validation.issues[0]?.message || 'Revisa los datos de la orden')
       return
     }
-    
-    if (!sourceLocationId) {
-      toast.error('Por favor selecciona una ubicación origen')
-      return
-    }
-    
-    if (!customerName.trim()) {
-      toast.error('Por favor ingresa el nombre del cliente')
-      return
-    }
-    
+
+    setFormErrors({})
+
+    const trimmedName = customerName.trim()
     const phoneValidation = validatePhoneNumber(customerPhone)
-    if (!phoneValidation.valid) {
-      toast.error(phoneValidation.error || 'El teléfono del cliente es inválido')
-      return
-    }
-    
-    // Validar financiamiento
-    if (metodoPago === 'financiamiento') {
-       if (!selectedBankId) {
-          toast.error('Por favor selecciona el banco para el financiamiento')
-          return
-       }
-       if (!selectedMonths) {
-          toast.error('Por favor selecciona el plazo del financiamiento')
-          return
-       }
-    } else if (metodoPago === 'tarjeta') {
-       if (!selectedBankId) {
-          toast.error('Por favor selecciona el banco para el cobro con tarjeta')
-          return
-       }
-    }
+    const parsedDownPayment = cashDownPayment ? Number(cashDownPayment) : 0
 
-    const validItems = items.filter(item => item.product_id > 0 && item.cantidad > 0)
-    if (validItems.length === 0) {
-      toast.error('Por favor agrega al menos un producto a la orden')
-      return
-    }
+    const sanitizedTradeIns: TradeIn[] | undefined = tradeIns.length
+      ? tradeIns.map(tradeIn => ({
+          marca: tradeIn.marca.trim(),
+          modelo: tradeIn.modelo.trim(),
+          color: tradeIn.color?.trim() || undefined,
+          capacidad: tradeIn.capacidad?.trim() || undefined,
+          imei: tradeIn.imei?.trim() || undefined,
+          condicion: tradeIn.condicion,
+          valor_estimado: Number(tradeIn.valor_estimado) || 0,
+          precio_venta: tradeIn.precio_venta,
+          notas: tradeIn.notas?.trim() || undefined
+        }))
+      : undefined
 
-    // Validar Prima vs Total
-    if (metodoPago === 'financiamiento' || metodoPago === 'tarjeta') {
-        const itemsTotal = validItems.reduce((total, item) => {
-           const product = products.find(p => p.id === item.product_id)
-           if (!product) return total
-           const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
-           return total + price * item.cantidad
-        }, 0)
-        const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
-        const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
-        
-        const downPayment = parseFloat(cashDownPayment) || 0
-        if (downPayment > baseTotal) {
-            toast.error(`La prima (HNL ${downPayment}) no puede ser mayor al total de la orden (HNL ${baseTotal})`)
-            return
-        }
-    }
+    const validItems = items
+      .filter(item => item.product_id > 0 && item.cantidad > 0)
+      .map(item => ({
+        product_id: item.product_id,
+        cantidad: item.cantidad,
+        imeis: item.imeis?.filter(Boolean),
+        precio_unitario:
+          typeof item.precio_unitario === 'number' ? item.precio_unitario : undefined
+      }))
 
-    // Validar IMEIs para productos serializados
-    for (const item of validItems) {
+    const itemsTotal = validItems.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
-      // V2.0: Usar is_serialized si existe, fallback a categoría celular
-      const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
-      
-      if (isSerialized) {
-        if (!item.imeis || item.imeis.length !== item.cantidad) {
-          toast.error(`Debes seleccionar ${item.cantidad} IMEIs para "${product?.nombre}"`)
-          return
-        }
-      }
-    }
+      if (!product) return total
+      const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+      return total + price * item.cantidad
+    }, 0)
+    const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
+    const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
 
-    // PROBLEMA 3: Validar duplicados PRIMERO - sumar cantidades del mismo producto
-    const productQuantities = new Map<number, number>()
-    for (const item of validItems) {
-      const current = productQuantities.get(item.product_id) || 0
-      productQuantities.set(item.product_id, current + item.cantidad)
-    }
-
-    // Validar totales contra stock disponible en la ubicación
-    for (const [productId, totalCantidad] of productQuantities.entries()) {
-      const product = products.find(p => p.id === productId)
-      if (!product) {
-        toast.error('Producto seleccionado no encontrado')
-        return
-      }
-
-      // Determinar stock disponible (V2.0 con ubicaciones o legacy global)
-      let available = 0
-      if (product.stock_items && product.stock_items.length > 0) {
-        // V2.0: Usar stock de la ubicación específica
-        const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-        available = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
-      } else {
-        // Legacy: Usar stock_disponible global
-        available = product.stock_disponible || 0
-      }
-      
-      if (totalCantidad > available) {
-        const location = locations.find(l => l.id === sourceLocationId)
-        const locationMsg = product.stock_items?.length 
-          ? `en ${location?.nombre}` 
-          : 'disponibles'
-        toast.error(`📦 Total solicitado de "${product.nombre}": ${totalCantidad} unidades, pero solo hay ${available} ${locationMsg}`)
-        return
-      }
+    if ((metodoPago === 'financiamiento' || metodoPago === 'tarjeta') && parsedDownPayment > baseTotal) {
+      setFormErrors(prev => ({
+        ...prev,
+        cashDownPayment: 'La prima no puede exceder el total neto de la orden'
+      }))
+      toast.error(`La prima (HNL ${parsedDownPayment}) no puede ser mayor al total de la orden (HNL ${baseTotal})`)
+      return
     }
 
     setIsSubmitting(true)
     try {
       await onSubmit({
-        profile_slug: profiles[0]?.slug || undefined, // Legacy compatibility para backend
+        profile_slug: profiles[0]?.slug || undefined,
         sales_profile_slug: salesProfileSlug,
         source_location_id: sourceLocationId!,
         canal,
-        customer_name: customerName,
+        customer_name: trimmedName,
         customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
         items: validItems,
-        trade_ins: tradeIns.length > 0 ? tradeIns : undefined,
+        trade_ins: sanitizedTradeIns,
         notes: notas.trim() || undefined,
         delivery_date: deliveryDate || undefined,
-        financing_data: (selectedBankId) ? {
-           bank_id: selectedBankId,
-           months: selectedMonths || 0, // 0 indicates normal card payment (no installments)
-           down_payment: parseFloat(cashDownPayment) || 0
-        } : undefined
+        financing_data: selectedBankId
+          ? {
+              bank_id: selectedBankId,
+              months: selectedMonths || 0,
+              down_payment: parsedDownPayment || undefined
+            }
+          : undefined
       })
 
-      // Reset ya no es necesario - el useEffect lo hace al cerrar
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating order:', error)
@@ -470,7 +450,13 @@ export function NewOrderDialog({
               <Robot className="w-4 h-4" />
               Canal de Venta *
             </Label>
-            <Select value={salesProfileSlug} onValueChange={setSalesProfileSlug}>
+            <Select
+              value={salesProfileSlug}
+              onValueChange={value => {
+                setSalesProfileSlug(value)
+                clearFieldError('salesProfileSlug')
+              }}
+            >
               <SelectTrigger id="sales-profile">
                 <SelectValue placeholder="Seleccionar canal de venta" />
               </SelectTrigger>
@@ -485,6 +471,9 @@ export function NewOrderDialog({
             <p className="text-xs text-muted-foreground">
               Quién realiza la venta (bot, vendedor, sistema)
             </p>
+            {formErrors.salesProfileSlug && (
+              <p className="text-xs text-red-600">{formErrors.salesProfileSlug}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -494,7 +483,10 @@ export function NewOrderDialog({
             </Label>
             <Select 
               value={sourceLocationId?.toString() || ''} 
-              onValueChange={(v) => setSourceLocationId(parseInt(v))}
+              onValueChange={v => {
+                setSourceLocationId(parseInt(v))
+                clearFieldError('sourceLocationId')
+              }}
             >
               <SelectTrigger id="location">
                 <SelectValue placeholder="Seleccionar ubicación" />
@@ -510,6 +502,9 @@ export function NewOrderDialog({
             <p className="text-xs text-muted-foreground">
               De qué tienda/bodega se tomará el stock
             </p>
+            {formErrors.sourceLocationId && (
+              <p className="text-xs text-red-600">{formErrors.sourceLocationId}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -517,10 +512,17 @@ export function NewOrderDialog({
               <Label htmlFor="customer-name">Nombre del Cliente</Label>
               <Input
                 id="customer-name"
+                maxLength={ORDER_FIELD_LIMITS.MAX_CUSTOMER_NAME_LENGTH}
                 value={customerName}
-                onChange={e => setCustomerName(e.target.value)}
+                onChange={e => {
+                  setCustomerName(e.target.value)
+                  clearFieldError('customerName')
+                }}
                 placeholder="Juan Pérez"
               />
+              {formErrors.customerName && (
+                <p className="text-xs text-red-600">{formErrors.customerName}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -528,10 +530,17 @@ export function NewOrderDialog({
               <Input
                 id="customer-phone"
                 type="tel"
+                maxLength={ORDER_FIELD_LIMITS.MAX_PHONE_LENGTH}
                 value={customerPhone}
-                onChange={e => setCustomerPhone(String(e.target.value))}
+                onChange={e => {
+                  setCustomerPhone(String(e.target.value))
+                  clearFieldError('customerPhone')
+                }}
                 placeholder="+504 9999-9999"
               />
+              {formErrors.customerPhone && (
+                <p className="text-xs text-red-600">{formErrors.customerPhone}</p>
+              )}
             </div>
           </div>
 
@@ -741,7 +750,21 @@ export function NewOrderDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setTradeIns([...tradeIns, { marca: '', modelo: '', color: '', capacidad: '', imei: '', condicion: 'usado', valor_estimado: 0, precio_venta: 0, notas: '' }])}
+                  onClick={() =>
+                    setTradeIns([
+                      ...tradeIns,
+                      {
+                        marca: '',
+                        modelo: '',
+                        color: '',
+                        capacidad: '',
+                        imei: '',
+                        condicion: 'usado',
+                        valor_estimado: 0,
+                        notas: ''
+                      }
+                    ])
+                  }
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Agregar Retoma
@@ -852,8 +875,18 @@ export function NewOrderDialog({
                         placeholder="Precio Venta (Sugerido)"
                         value={tradeIn.precio_venta || ''}
                         onChange={e => {
+                          const rawValue = e.target.value
                           const newTradeIns = [...tradeIns]
-                          newTradeIns[index].precio_venta = parseFloat(e.target.value) || 0
+                          if (!rawValue.trim()) {
+                            newTradeIns[index].precio_venta = undefined
+                          } else {
+                            const parsed = parseFloat(rawValue)
+                            if (Number.isNaN(parsed) || parsed <= 0) {
+                              toast.error('El precio de venta sugerido debe ser mayor a 0 o dejarse vacío')
+                              return
+                            }
+                            newTradeIns[index].precio_venta = parsed
+                          }
                           setTradeIns(newTradeIns)
                         }}
                         className="bg-green-50 border-green-200"
@@ -861,6 +894,7 @@ export function NewOrderDialog({
                       />
                       <Input
                         placeholder="Notas"
+                        maxLength={ORDER_FIELD_LIMITS.MAX_TRADE_IN_NOTES_LENGTH}
                         value={tradeIn.notas}
                         onChange={e => {
                           const newTradeIns = [...tradeIns]
@@ -1088,7 +1122,8 @@ export function NewOrderDialog({
 
           <div className="space-y-2">
             <Label htmlFor="notas">Notas (opcional)</Label>
-            <Textarea
+              <Textarea
+                maxLength={ORDER_FIELD_LIMITS.MAX_ORDER_NOTES_LENGTH}
               id="notas"
               value={notas}
               onChange={e => setNotas(e.target.value)}

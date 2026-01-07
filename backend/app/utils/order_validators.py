@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Location, Profile, SalesProfile, Product
+from app.utils.validators import InputValidator, ValidationError
 
 
 def resolve_sales_profile(
@@ -82,12 +83,18 @@ def validate_location_exists(db: Session, location_id: Optional[int]) -> Locatio
 
 def normalize_customer_phone(customer_phone: Optional[str]) -> str:
     """Normaliza y valida teléfono de cliente."""
-    phone = str(customer_phone or "").strip()
-    if not phone:
+    try:
+        phone = InputValidator.validate_phone(customer_phone, required=True)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    digits_only = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits_only) < 8:
         raise HTTPException(
             status_code=400,
-            detail="El número de teléfono del cliente es requerido"
+            detail="El número de teléfono debe tener al menos 8 dígitos"
         )
+
     return phone
 
 

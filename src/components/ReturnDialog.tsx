@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { OrderWithItems, CreateReturnRequest, ReturnItem } from '@/lib/types'
 
 interface ReturnDialogProps {
@@ -83,7 +83,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
         items: itemsToReturn
       }
 
-      await apiClient.createReturn(returnData)
+      await inventoryServiceInstance.createReturn(returnData)
       toast.success('Devolución procesada exitosamente')
       onSuccess()
       onOpenChange(false)

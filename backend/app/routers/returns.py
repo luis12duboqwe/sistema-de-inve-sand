@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, Stock, Product, ProductIMEI, StockHistory, IMEIHistory, OrderItem, User
-from app.schemas import ReturnCreate, ReturnResponse, ReturnItemResponse, PaginatedResponse
+from app.models import Order, Return, ReturnItem, User
+from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
-from app.auth import get_current_active_user, check_permission
+
+from app.auth import check_permission
+from app.services.stock_transaction_helper import PreparedReturnItem, StockTransactionHelper
 from app.utils.order_validators import validate_location_exists
+from app.utils.stock_manager import StockManager
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
 
@@ -47,7 +50,6 @@ def create_return(
     # 2. Validar ubicación de origen de la orden (activa)
     source_location = validate_location_exists(db, order.source_location_id)
 
-    # 3. Crear Objeto Return
     user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
 
     new_return = Return(
@@ -59,127 +61,46 @@ def create_return(
     db.add(new_return)
     db.flush() # Obtener ID
 
-    return_items_response = []
+    stock_helper = StockTransactionHelper(db)
+    stock_manager = stock_helper.stock_manager
 
-    # Cargar devoluciones previas para evitar sobre-retornos
-    previous_items = db.query(ReturnItem).join(Return, ReturnItem.return_id == Return.id).filter(
-        Return.order_id == order.id
-    ).all()
-    returned_quantities = {}
-    for prev in previous_items:
-        returned_quantities[prev.product_id] = returned_quantities.get(prev.product_id, 0) + prev.quantity
+    prepared_items: List[PreparedReturnItem] = stock_helper.prepare_return_items(
+        order=order,
+        items_payload=return_data.items,
+    )
 
-    # 4. Procesar Items
-    for item in return_data.items:
-        # Validar que el producto estaba en la orden
-        order_item = db.query(OrderItem).filter(
-            OrderItem.order_id == order.id,
-            OrderItem.product_id == item.product_id
-        ).first()
-        
-        if not order_item:
-            raise HTTPException(status_code=400, detail=f"El producto {item.product_id} no pertenece a esta orden")
-        
-        # Validar cantidad acumulada con devoluciones previas
-        already_returned = returned_quantities.get(item.product_id, 0)
-        if already_returned + item.quantity > order_item.cantidad:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cantidad a devolver ({already_returned + item.quantity}) excede la comprada ({order_item.cantidad}) para producto {item.product_id}"
-            )
+    restock_actions = {"refund", "warranty_exchange", "store_credit"}
 
-        returned_quantities[item.product_id] = already_returned + item.quantity
-
-        # Crear ReturnItem
+    for prepared in prepared_items:
         return_item = ReturnItem(
             return_id=new_return.id,
-            product_id=item.product_id,
-            quantity=item.quantity,
-            condition=item.condition,
-            action=item.action,
-            imei=item.imei
+            product_id=prepared.product.id,
+            quantity=prepared.quantity,
+            condition=prepared.condition,
+            action=prepared.action,
+            imei=prepared.imei_value
         )
         db.add(return_item)
-        
-        # 5. Lógica de Inventario (Solo si la acción implica reingreso)
-        if item.action in ["refund", "warranty_exchange", "store_credit"]:
-            # Buscar Stock en la ubicación original de la orden
-            stock = db.query(Stock).filter(
-                Stock.product_id == item.product_id,
-                Stock.location_id == source_location.id
-            ).first()
-            
-            if not stock:
-                # Si no existe stock (raro), crearlo
-                stock = Stock(
-                    product_id=item.product_id,
-                    location_id=source_location.id,
-                    cantidad_disponible=0,
-                    cantidad_reservada=0
-                )
-                db.add(stock)
-            
-            # Aumentar Stock
-            stock_anterior = stock.cantidad_disponible
-            
-            if item.condition == 'defectuoso':
-                # V2.0: Sumar a stock defectuoso (no disponible para venta)
-                stock.cantidad_defectuosa += item.quantity
-            else:
-                # Si está en buen estado, sumar a disponible
-                stock.cantidad_disponible += item.quantity
-            
-            stock_nuevo = stock.cantidad_disponible
-            
-            # Historial Stock
-            stock_history = StockHistory(
-                product_id=item.product_id,
+
+        if prepared.action in restock_actions:
+            stock_manager.process_return_stock(
+                product_id=prepared.product.id,
                 location_id=source_location.id,
-                tipo_cambio='devolucion',
-                cantidad=item.quantity,
-                stock_anterior=stock_anterior,
-                stock_nuevo=stock_nuevo,
-                referencia_id=new_return.id,
-                referencia_tipo='return',
-                notas=f"Devolución Orden #{order.id}: {item.condition}",
-                usuario=user_name
+                quantity=prepared.quantity,
+                defective=prepared.condition == "defectuoso",
+                reference_id=new_return.id,
+                notes=f"Devolución Orden #{order.id}: {prepared.condition}",
+                user_id=user_name,
             )
-            db.add(stock_history)
-            
-            # 5. Lógica IMEI
-            if item.imei:
-                imei_obj = db.query(ProductIMEI).filter(
-                    ProductIMEI.imei == item.imei
-                ).first()
 
-                if not imei_obj:
-                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} no existe en inventario")
-
-                if imei_obj.order_id != order.id:
-                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} no pertenece a la orden {order.id}")
-
-                # Evitar doble devolución del mismo IMEI
-                imei_already_returned = db.query(ReturnItem).join(Return, ReturnItem.return_id == Return.id).filter(
-                    Return.order_id == order.id,
-                    ReturnItem.imei == item.imei
-                ).first()
-                if imei_already_returned or not imei_obj.vendido:
-                    raise HTTPException(status_code=400, detail=f"IMEI {item.imei} ya fue devuelto o liberado previamente")
-
-                imei_obj.vendido = False
-                imei_obj.order_id = None
-
-                imei_history = IMEIHistory(
-                    imei=item.imei,
-                    product_id=item.product_id,
-                    location_id=source_location.id,
-                    event_type='devolucion',
-                    reference_id=new_return.id,
-                    reference_type='return',
-                    notes=f"Devolución por {item.condition} - Acción: {item.action}",
-                    created_by=user_name
-                )
-                db.add(imei_history)
+        if prepared.imeis_to_release:
+            stock_manager.process_return_imeis(
+                prepared.imeis_to_release,
+                return_id=new_return.id,
+                condition=prepared.condition,
+                action=prepared.action,
+                user_id=user_name,
+            )
 
     try:
         db.commit()

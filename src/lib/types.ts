@@ -134,6 +134,41 @@ export interface Customer {
   created_at: string
 }
 
+export interface OrderSummary {
+  id: number
+  profile_id?: number
+  sales_profile_id?: number
+  source_location_id?: number
+  customer_name: string
+  customer_phone: string
+  canal: Order['canal']
+  metodo_pago: Order['metodo_pago']
+  total: number
+  estado: Order['estado']
+  notes?: string
+  delivery_date?: string
+  created_at: string
+}
+
+export interface CustomerStats {
+  customer_phone: string
+  customer_name: string
+  total_orders: number
+  total_spent: number
+  average_order: number
+  first_order_date: string
+  last_order_date: string
+  id?: number
+  is_troll: boolean
+  is_blocked: boolean
+  reputation_score: number
+  daily_message_count: number
+}
+
+export interface CustomerHistory extends CustomerStats {
+  orders: OrderSummary[]
+}
+
 export interface TrainingQueueItem {
   id: number
   sales_profile_id?: number
@@ -143,6 +178,175 @@ export interface TrainingQueueItem {
   status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
   created_at: string
   sales_profile?: SalesProfile
+  sales_profile_name?: string
+}
+
+export interface ForecastingAlertItem {
+  product_id: number
+  product_name: string
+  days_until_stockout: number
+  restock_recommendation: number
+  trend: 'increasing' | 'stable' | 'decreasing'
+}
+
+export interface AIProfileMetric {
+  sales_profile_id: number
+  sales_profile_name: string
+  slug?: string
+  is_ai_active: boolean
+  last_interaction_at?: string
+  interactions_last_7_days: number
+  tokens_last_7_days: number
+  pending_training_items: number
+}
+
+export interface AIStatusResponse {
+  snapshot_generated_at: string
+  total_sales_profiles: number
+  ai_profiles_active: number
+  ai_profiles_inactive: number
+  interactions_last_24h: number
+  tokens_last_24h: number
+  avg_tokens_per_response: number
+  customers_flagged: number
+  training_backlog: number
+  ai_profiles: AIProfileMetric[]
+  forecasting_alerts: ForecastingAlertItem[]
+}
+
+export interface BusinessInsightTopSeller {
+  product_id: number
+  product_name: string
+  units_sold: number
+  revenue: number
+  gross_profit: number
+}
+
+export interface BusinessInsightSlowMover {
+  product_id: number
+  product_name: string
+  stock_available: number
+  days_without_sales: number
+  last_sale_at?: string | null
+}
+
+export interface BusinessInsightStockAlert {
+  product_id: number
+  product_name: string
+  stock_available: number
+  avg_daily_demand: number
+  days_until_stockout?: number | null
+}
+
+export interface BusinessInsightTrendPoint {
+  date: string
+  revenue: number
+}
+
+export interface BusinessInsightsKPIs {
+  total_revenue: number
+  orders_count: number
+  avg_order_value: number
+  gross_margin_estimate: number
+}
+
+export interface BusinessInsightsMetrics {
+  kpis: BusinessInsightsKPIs
+  top_sellers: BusinessInsightTopSeller[]
+  slow_movers: BusinessInsightSlowMover[]
+  stock_alerts: BusinessInsightStockAlert[]
+  revenue_trends: BusinessInsightTrendPoint[]
+}
+
+export interface BusinessInsightRecommendation {
+  title: string
+  action: string
+  impact?: string
+  category?: string
+  priority: 'alta' | 'media' | 'baja' | 'critica'
+}
+
+export interface BusinessInsightsFilters {
+  location_id?: number | null
+  sales_profile_id?: number | null
+  sales_profile_slug?: string | null
+}
+
+export interface BusinessInsightsResponse {
+  generated_at: string
+  period_days: number
+  filters: BusinessInsightsFilters
+  metrics: BusinessInsightsMetrics
+  recommendations: BusinessInsightRecommendation[]
+  ai_summary?: string | null
+  tokens_used: number
+  raw_response?: string | null
+}
+
+export interface DashboardStats {
+  active_products: number
+  total_products: number
+  low_stock_count: number
+  out_of_stock_count: number
+  total_inventory_value: number
+  pending_orders: number
+  total_orders_today: number
+  total_revenue_today: number
+  total_revenue_month: number
+  total_revenue_last_month: number
+  gross_margin_month?: number
+  average_ticket_month?: number
+}
+
+export interface TopProductReport {
+  product_id: number
+  product_name: string
+  units_sold: number
+  total_revenue: number
+}
+
+export interface SalesReport {
+  period_start: string
+  period_end: string
+  total_orders: number
+  total_revenue: number
+  average_order_value: number
+  top_products: TopProductReport[]
+}
+
+export interface InventoryAlert {
+  product_id: number
+  product_name: string
+  sku: string
+  current_stock: number
+  category: string
+  alert_level: 'critical' | 'low' | 'out_of_stock'
+}
+
+export interface StockSummaryByLocation {
+  location_id: number
+  location_nombre: string
+  location_tipo: Location['tipo']
+  total_productos: number
+  total_unidades: number
+  valor_inventario: number
+}
+
+export interface SalesSummaryByLocation {
+  location_id: number
+  location_nombre: string
+  total_ordenes: number
+  total_unidades_vendidas: number
+  total_ingresos: number
+  ticket_promedio: number
+}
+
+export interface TopProductByLocationEntry {
+  product_id: number
+  product_nombre: string
+  product_categoria: Product['categoria']
+  cantidad_vendida: number
+  ingresos_totales: number
 }
 
 // V2.0: Stock por ubicación
@@ -234,6 +438,8 @@ export interface TradeIn {
   order_id?: number
   marca: string
   modelo: string
+  color?: string
+  capacidad?: string
   imei?: string
   condicion: 'usado' | 'dañado' | 'para_repuestos'
   valor_estimado: number
@@ -395,6 +601,8 @@ export interface ProductIMEI {
   order_id?: number
   transfer_id?: number // V2.0: ID de transferencia si está en tránsito
   created_at: string
+  product_name?: string
+  location_name?: string
 }
 
 export interface IMEIHistory {
@@ -411,6 +619,8 @@ export interface IMEIHistory {
   product_name?: string
   location_name?: string
 }
+
+export type StockHistoryCreateRequest = Omit<StockHistory, 'id' | 'created_at'>
 
 // ==========================================
 // MÓDULO DE INTELIGENCIA ARTIFICIAL (V2.1)
@@ -442,6 +652,53 @@ export interface InteractionLog {
   created_at: string
 }
 
+export interface AIContextPayload {
+  sales_profile_slug: string
+  customer_phone: string
+  message_content: string
+  customer_name?: string
+}
+
+export interface AIContextResponse {
+  system_prompt: string
+  bot_config: Record<string, any>
+  customer_info: Record<string, any>
+  relevant_inventory: string
+  relevant_faqs: string
+  financing_info: string
+  previous_context: Array<Record<string, string>>
+}
+
+export interface AIReplyPayload extends AIContextPayload {
+  conversation_override?: Array<Record<string, string>>
+}
+
+export interface AIReplyResponse {
+  reply: string
+  tokens_used: number
+  model: string
+  context: AIContextResponse
+}
+
+export interface AIInteractionLogPayload {
+  sales_profile_slug: string
+  customer_phone: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  tokens_used?: number
+}
+
+export interface TrainingSubmissionPayload {
+  sales_profile_slug: string
+  customer_question: string
+  ai_proposed_answer?: string
+}
+
+export interface FlagTrollResponse {
+  status: 'flagged'
+  customer: string
+}
+
 export interface TrainingQueueItem {
   id: number
   sales_profile_id: number
@@ -468,6 +725,7 @@ export interface Role {
   id: number
   name: string
   description?: string
+  is_system_role: boolean
   permissions: Permission[]
 }
 
@@ -480,6 +738,16 @@ export interface User {
   is_superuser: boolean
   role_id?: number
   role?: Role
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CreateUserRequest {
+  username: string
+  email?: string
+  full_name?: string
+  password?: string
+  role_id: number
 }
 
 export interface AuthResponse {
@@ -517,4 +785,95 @@ export interface WarrantyStatus {
   expiration_date?: string
   days_remaining?: number
   detail: string
+}
+
+export interface PublicProduct {
+  id: number
+  nombre: string
+  marca: string
+  modelo: string
+  categoria: Product['categoria']
+  condicion: Product['condicion']
+  precio: number
+  moneda: string
+  capacidad?: string
+  color?: string
+  in_stock: boolean
+}
+
+export interface PublicCatalogFilters {
+  search?: string
+  category?: string
+  per_page?: number
+  page?: number
+}
+
+export interface SetupInitialAdminRequest {
+  username: string
+  password: string
+  email?: string
+  full_name?: string
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page?: number
+  per_page?: number
+  pages?: number
+}
+
+// --- Sincronización Local ↔ API -------------------------------------------------
+export type SyncEntityType =
+  | 'product'
+  | 'stock'
+  | 'supplier'
+  | 'order'
+  | 'stock_transfer'
+  | 'location'
+  | 'sales_profile'
+  | 'profile'
+  | 'return'
+  | 'customer'
+  | 'stock_history'
+  | 'faq'
+  | 'imei'
+  | 'trade_in'
+  | 'financing'
+  | 'ai_profile'
+  | 'rbac'
+  | 'settings'
+
+export type SyncActionType =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'transfer'
+  | 'assign'
+  | 'cancel'
+  | 'resolve'
+
+export interface SyncEventInput {
+  entity: SyncEntityType
+  action: SyncActionType
+  entityId?: number | string | null
+  payload: any
+  origin?: 'local' | 'remote'
+  metadata?: Record<string, any>
+}
+
+export interface SyncEvent extends SyncEventInput {
+  id: string
+  checksum: string
+  timestamp: string
+  retry_count: number
+  last_error?: string
+  synced_at?: string
+}
+
+export interface SyncJournalSummary {
+  pending: number
+  synced: number
+  failed: number
+  lastSyncAt?: string
 }

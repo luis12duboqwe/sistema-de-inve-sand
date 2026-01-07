@@ -24,9 +24,11 @@ export function PrintLabelsDialog({ open, onOpenChange, product }: PrintLabelsDi
             for (const stock of product.stock_items) {
                 if (stock.cantidad_disponible > 0) {
                     try {
-                        const locImeis = await inventoryServiceInstance.getAvailableIMEIs(product.id, stock.location_id)
-                        allImeis.push(...locImeis)
-                    } catch (e) {}
+                      const locImeis = await inventoryServiceInstance.getAvailableIMEIs(product.id, stock.location_id)
+                      allImeis.push(...locImeis)
+                    } catch (error) {
+                      console.warn('Error obteniendo IMEIs para impresión', error)
+                    }
                 }
             }
         }

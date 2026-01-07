@@ -110,7 +110,7 @@ interface NewProductDialogProps {
 export function NewProductDialog({
   open,
   onOpenChange,
-  profiles,
+  profiles: _profiles,
   locations: externalLocations,
   onSubmit
 }: NewProductDialogProps) {

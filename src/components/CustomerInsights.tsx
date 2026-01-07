@@ -5,7 +5,7 @@ import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { Textarea } from './ui/textarea'
 import { Switch } from './ui/switch'
-import { apiClient } from '../lib/apiClient'
+import { inventoryServiceInstance } from '../lib/inventoryServiceFactory'
 import { Customer } from '../lib/types'
 import { toast } from 'sonner'
 import { Spinner, User, ShieldWarning, Chat, MagnifyingGlass } from '@phosphor-icons/react'
@@ -31,7 +31,7 @@ export function CustomerInsights({ open, onOpenChange }: CustomerInsightsProps) 
   const loadCustomers = async (searchTerm = '') => {
     setLoading(true)
     try {
-      const data = await apiClient.getCustomers(searchTerm)
+      const data = await inventoryServiceInstance.getCustomers(searchTerm)
       setCustomers(data)
     } catch {
       toast.error('Error al cargar clientes')
@@ -49,7 +49,7 @@ export function CustomerInsights({ open, onOpenChange }: CustomerInsightsProps) 
     if (!selectedCustomer) return
     setUpdating(true)
     try {
-      await apiClient.updateCustomer(selectedCustomer.id, updates)
+      await inventoryServiceInstance.updateCustomer(selectedCustomer.id, updates)
       
       // Actualizar estado local
       const updated = { ...selectedCustomer, ...updates }

@@ -1,4 +1,4 @@
-#!/workspaces/spark-template/.venv/bin/python
+#!/workspaces/sistema-de-inve-sand/.venv/bin/python
 import sys
 from pytest import console_main
 if __name__ == '__main__':

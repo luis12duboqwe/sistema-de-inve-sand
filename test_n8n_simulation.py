@@ -49,8 +49,7 @@ def test_n8n_flow():
             print(f"   - Config Bot: Modelo {data['bot_config']['model']}")
             print(f"   - Inventario Relevante (Extracto): {data['relevant_inventory'][:100]}...")
             
-            # Simulamos que OpenAI genera una respuesta basada en esto
-            ai_response_text = "Sí, tenemos iPhone 13 disponible en varias capacidades. ¿Qué color buscas?"
+            ai_response_text = "Simulación: respuesta generada manualmente."
         else:
             print(f"❌ Error {resp.status_code}: {resp.text}")
             return
@@ -58,8 +57,30 @@ def test_n8n_flow():
         print(f"❌ Error en request: {e}")
         return
 
-    # 3. Registrar Interacción (Log)
-    print_step(3, "n8n: Guardando Logs (/api/ai/log)")
+    # 3. Generar respuesta real usando el backend
+    print_step(3, "n8n: Solicitando respuesta completa (/api/ai/reply)")
+    payload_reply = {
+        "sales_profile_slug": slug,
+        "customer_phone": customer_phone,
+        "customer_name": customer_name,
+        "message_content": user_message
+    }
+
+    try:
+        resp = requests.post(f"{BASE_URL}/ai/reply", json=payload_reply)
+        if resp.status_code == 200:
+            ai_data = resp.json()
+            ai_response_text = ai_data["reply"]
+            print("✅ Backend generó la respuesta con OpenAI:")
+            print(f"   > {ai_response_text}")
+        else:
+            print(f"⚠️ No se pudo generar respuesta (status {resp.status_code}). Se usará texto simulado.")
+            print(f"   Detalle: {resp.text}")
+    except Exception as e:
+        print(f"⚠️ Error al llamar /api/ai/reply: {e}")
+
+    # 4. Registrar Interacción (Log)
+    print_step(4, "n8n: Guardando Logs (/api/ai/log)")
     
     # Log User Message
     try:
@@ -82,8 +103,8 @@ def test_n8n_flow():
     except Exception as e:
         print(f"❌ Error guardando logs: {e}")
 
-    # 4. Simular Pregunta Difícil (Training Queue)
-    print_step(4, "n8n: Enviando a Cola de Entrenamiento (/api/ai/training/submit)")
+    # 5. Simular Pregunta Difícil (Training Queue)
+    print_step(5, "n8n: Enviando a Cola de Entrenamiento (/api/ai/training/submit)")
     difficult_question = "¿Aceptan pago con criptomonedas?"
     ai_uncertain_answer = "Lo siento, no estoy seguro sobre esa forma de pago."
     

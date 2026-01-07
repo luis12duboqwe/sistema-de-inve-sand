@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request, Response, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 import json
 import locale
+from collections import defaultdict
 
 # Intentar configurar locale a español para fechas, fallback a default
 try:
@@ -16,62 +16,226 @@ except:
 
 from app.database import get_db
 from app.models import (
-    SalesProfile, Product, Stock, FAQEntry, Order, 
+    SalesProfile, Product, Stock, FAQEntry, Order, OrderItem,
     Customer, AIProfileConfig, InteractionLog, TrainingQueue, Location,
     Bank, FinancingOption, TradeInPolicy
 )
-from app.schemas import ProductResponse, TradeInPolicyCreate, TradeInPolicyResponse
+from app.schemas import (
+    AICustomerResponse,
+    AIConfigSchema,
+    AIContextRequest,
+    AIContextResponse,
+    AIProfileMetric,
+    AIReplyRequest,
+    AIReplyResponse,
+    AIStatusResponse,
+    BusinessInsightRecommendation,
+    BusinessInsightSlowMover,
+    BusinessInsightStockAlert,
+    BusinessInsightTopSeller,
+    BusinessInsightTrendPoint,
+    BusinessInsightsFilters,
+    BusinessInsightsKPIs,
+    BusinessInsightsMetrics,
+    BusinessInsightsRequest,
+    BusinessInsightsResponse,
+    ForecastingAlertItem,
+    InteractionLogCreate,
+    LinkOrderRequest,
+    PaginatedResponse,
+    TradeInPolicyCreate,
+    TradeInPolicyResponse,
+    TrainingSubmission,
+    TrainingQueueItemResponse,
+)
+from app.services.forecasting_service import generate_sales_forecasts
+from app.services.openai_service import get_openai_service
+from app.config_production import prod_settings
 
-router = APIRouter(prefix="/api/ai", tags=["AI Intelligence"])
+def _ensure_ai_features_enabled():
+    if not prod_settings.ENABLE_AI_FEATURES:
+        raise HTTPException(status_code=503, detail="Las funcionalidades de IA están deshabilitadas")
+    return True
 
-# --- Schemas Locales (Input/Output) ---
 
-class AIContextRequest(BaseModel):
-    sales_profile_slug: str
-    customer_phone: str
-    message_content: str
-    customer_name: Optional[str] = None
+router = APIRouter(
+    prefix="/api/ai",
+    tags=["AI Intelligence"],
+    dependencies=[Depends(_ensure_ai_features_enabled)],
+)
 
-class AIContextResponse(BaseModel):
-    system_prompt: str
-    bot_config: Dict[str, Any]
-    customer_info: Dict[str, Any]
-    relevant_inventory: str  # Texto resumido para ahorrar tokens
-    relevant_faqs: str       # Texto resumido
-    financing_info: str      # Información de bancos y tasas
-    previous_context: List[Dict[str, str]]
+def _normalize_phone(phone: str) -> str:
+    digits = "".join(filter(str.isdigit, phone or ""))
+    return digits or phone
 
-class InteractionLogCreate(BaseModel):
-    sales_profile_slug: str
-    customer_phone: str
-    role: str  # user, assistant
-    content: str
-    tokens_used: Optional[int] = 0
 
-class TrainingSubmission(BaseModel):
-    sales_profile_slug: str
-    customer_question: str
-    ai_proposed_answer: Optional[str] = None
+def _compose_ai_messages(
+    context: AIContextResponse,
+    user_message: str,
+    override_history: Optional[List[Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    knowledge_blocks = "\n\n".join(
+        [
+            "INVENTARIO DISPONIBLE:\n" + context.relevant_inventory,
+            "FAQ RELEVANTES:\n" + context.relevant_faqs,
+            "FINANCIAMIENTO Y POLITICAS:\n" + context.financing_info,
+        ]
+    )
 
-class AIConfigSchema(BaseModel):
-    sales_profile_id: int
-    model_name: str = "gpt-4o"
-    temperature: float = 0.7
-    system_prompt: str
-    initial_greeting: Optional[str] = None
-    voice_tone: Optional[str] = None
-    context_rules: Optional[str] = None
-    is_active: bool = True
-    admin_notification_phone: Optional[str] = None  # Nuevo campo
-    
-    # Personalización Avanzada (V2.2)
-    business_description: Optional[str] = None
-    sales_goal: Optional[str] = None
-    negotiation_style: Optional[str] = None
-    max_discount_rate: Optional[float] = 0.0
-    fallback_human_trigger: Optional[str] = None
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": context.system_prompt},
+        {"role": "system", "content": knowledge_blocks},
+    ]
 
-    model_config = ConfigDict(from_attributes=True)
+    history = override_history if override_history is not None else context.previous_context
+    if history:
+        messages.extend(history)
+
+    messages.append({"role": "user", "content": user_message})
+    return messages
+
+
+def _safe_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _isoformat(dt: Optional[datetime]) -> Optional[str]:
+    if not dt:
+        return None
+    return dt.isoformat()
+
+
+def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _parse_ai_business_response(raw_text: str) -> Dict[str, Any]:
+    if not raw_text:
+        return {}
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        start = raw_text.find("{")
+        end = raw_text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(raw_text[start : end + 1])
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+
+def _build_fallback_recommendations(metrics: Dict[str, Any]) -> List[BusinessInsightRecommendation]:
+    recommendations: List[BusinessInsightRecommendation] = []
+    stock_alerts: List[Dict[str, Any]] = metrics.get("stock_alerts") or []
+    slow_movers: List[Dict[str, Any]] = metrics.get("slow_movers") or []
+    top_sellers: List[Dict[str, Any]] = metrics.get("top_sellers") or []
+
+    if stock_alerts:
+        alert = stock_alerts[0]
+        recommendations.append(
+            BusinessInsightRecommendation(
+                title="Reponer stock crítico",
+                action=f"Reordena {alert.get('product_name')} para cubrir al menos 2 semanas de demanda.",
+                impact=f"Stock restante: {alert.get('stock_available')} uds | Proyección {round(_safe_float(alert.get('days_until_stockout')), 1)} días",
+                category="inventario",
+                priority="alta",
+            )
+        )
+
+    if slow_movers:
+        slow = slow_movers[0]
+        recommendations.append(
+            BusinessInsightRecommendation(
+                title="Liquidar inventario lento",
+                action=f"Aplica bundle o descuento táctico para {slow.get('product_name')} y libera capital inmovilizado.",
+                impact=f"{slow.get('stock_available')} uds sin rotación hace {slow.get('days_without_sales')} días",
+                category="ventas",
+                priority="media",
+            )
+        )
+
+    if top_sellers:
+        top = top_sellers[0]
+        recommendations.append(
+            BusinessInsightRecommendation(
+                title="Potenciar producto estrella",
+                action=f"Garantiza stock y campañas de upsell para {top.get('product_name')}.",
+                impact=f"Ingresos últimos {round(_safe_float(top.get('revenue')), 2)} | Margen {round(_safe_float(top.get('gross_profit')), 2)}",
+                category="crecimiento",
+                priority="media",
+            )
+        )
+
+    if not recommendations:
+        recommendations.append(
+            BusinessInsightRecommendation(
+                title="Revisar estrategia",
+                action="Sin datos suficientes: valida captura de ventas e inventario antes de generar insights.",
+                category="operaciones",
+                priority="media",
+            )
+        )
+
+    return recommendations[:5]
+
+
+openai_service = get_openai_service()
+
+_BUSINESS_INSIGHTS_CACHE_MAX_ENTRIES = 64
+
+
+def _get_business_insights_cache(request: Request) -> Dict[str, Any]:
+    cache = getattr(request.app.state, "business_insights_cache", None)
+    if cache is None:
+        cache = {}
+        request.app.state.business_insights_cache = cache
+    return cache
+
+
+def _business_insights_cache_ttl() -> int:
+    try:
+        ttl = int(getattr(prod_settings, "BUSINESS_INSIGHTS_CACHE_SECONDS", 300))
+    except (TypeError, ValueError):
+        ttl = 300
+    return max(60, ttl)
+
+
+def _utcnow() -> datetime:
+    """Return timezone-aware UTC timestamps for AI endpoints."""
+    return datetime.now(UTC)
+
+
+def _make_business_insights_cache_key(days: int, payload: BusinessInsightsRequest) -> str:
+    return json.dumps(
+        {
+            "days": days,
+            "location_id": payload.location_id,
+            "sales_profile_id": payload.sales_profile_id,
+            "sales_profile_slug": payload.sales_profile_slug,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _cleanup_business_insights_cache(cache: Dict[str, Any]) -> None:
+    now = _utcnow()
+    expired = [key for key, entry in cache.items() if entry.get("expires_at") <= now]
+    for key in expired:
+        cache.pop(key, None)
+
+    while len(cache) > _BUSINESS_INSIGHTS_CACHE_MAX_ENTRIES:
+        cache.pop(next(iter(cache)))
 
 # --- Endpoints ---
 
@@ -124,6 +288,445 @@ def update_ai_config(
     db.commit()
     db.refresh(db_config)
     return db_config
+
+
+@router.get("/status", response_model=AIStatusResponse)
+def get_ai_status(
+    alerts_limit: int = 5,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
+):
+    """Consolida métricas operativas de los bots IA y alertas de pronósticos."""
+    now = _utcnow()
+    last_24h = now - timedelta(hours=24)
+    last_7_days = now - timedelta(days=7)
+    alerts_limit = max(1, min(alerts_limit, 20))
+
+    def _rows_to_int_map(rows):
+        metrics = {}
+        for profile_id, value in rows:
+            if profile_id is None:
+                continue
+            metrics[int(profile_id)] = int(value or 0)
+        return metrics
+
+    profiles = db.query(SalesProfile).options(joinedload(SalesProfile.ai_config)).all()
+    total_profiles = len(profiles)
+
+    interaction_counts_24 = _rows_to_int_map(
+        db.query(InteractionLog.sales_profile_id, func.count(InteractionLog.id))
+        .filter(InteractionLog.created_at >= last_24h)
+        .group_by(InteractionLog.sales_profile_id)
+        .all()
+    )
+
+    interaction_counts_7 = _rows_to_int_map(
+        db.query(InteractionLog.sales_profile_id, func.count(InteractionLog.id))
+        .filter(InteractionLog.created_at >= last_7_days)
+        .group_by(InteractionLog.sales_profile_id)
+        .all()
+    )
+
+    token_counts_24 = _rows_to_int_map(
+        db.query(InteractionLog.sales_profile_id, func.sum(InteractionLog.tokens_used))
+        .filter(InteractionLog.created_at >= last_24h)
+        .group_by(InteractionLog.sales_profile_id)
+        .all()
+    )
+
+    token_counts_7 = _rows_to_int_map(
+        db.query(InteractionLog.sales_profile_id, func.sum(InteractionLog.tokens_used))
+        .filter(InteractionLog.created_at >= last_7_days)
+        .group_by(InteractionLog.sales_profile_id)
+        .all()
+    )
+
+    last_interaction_map = {
+        pid: last_at
+        for pid, last_at in db.query(
+            InteractionLog.sales_profile_id, func.max(InteractionLog.created_at)
+        )
+        .group_by(InteractionLog.sales_profile_id)
+        .all()
+        if pid is not None
+    }
+
+    training_rows = (
+        db.query(TrainingQueue.sales_profile_id, func.count(TrainingQueue.id))
+        .filter(TrainingQueue.status == "pending")
+        .group_by(TrainingQueue.sales_profile_id)
+        .all()
+    )
+    training_pending_map = {}
+    training_backlog = 0
+    for profile_id, count in training_rows:
+        clean_count = int(count or 0)
+        training_backlog += clean_count
+        if profile_id is not None:
+            training_pending_map[int(profile_id)] = clean_count
+
+    customers_flagged = (
+        db.query(func.count(Customer.id))
+        .filter(or_(Customer.is_troll == True, Customer.is_blocked == True))
+        .scalar()
+        or 0
+    )
+
+    interactions_last_24h = sum(interaction_counts_24.values())
+    tokens_last_24h = sum(token_counts_24.values())
+    avg_tokens_per_response = (
+        tokens_last_24h / interactions_last_24h if interactions_last_24h else 0.0
+    )
+
+    profile_metrics: List[AIProfileMetric] = []
+    active_profiles = 0
+    inactive_profiles = 0
+
+    for profile in profiles:
+        is_ai_active = bool(profile.ai_config and profile.ai_config.is_active)
+        if is_ai_active:
+            active_profiles += 1
+        else:
+            inactive_profiles += 1
+
+        profile_metrics.append(
+            AIProfileMetric(
+                sales_profile_id=profile.id,
+                sales_profile_name=profile.name,
+                slug=profile.slug,
+                is_ai_active=is_ai_active,
+                last_interaction_at=last_interaction_map.get(profile.id),
+                interactions_last_7_days=interaction_counts_7.get(profile.id, 0),
+                tokens_last_7_days=token_counts_7.get(profile.id, 0),
+                pending_training_items=training_pending_map.get(profile.id, 0),
+            )
+        )
+
+    profile_metrics.sort(key=lambda metric: metric.interactions_last_7_days, reverse=True)
+
+    forecasts = generate_sales_forecasts(db)
+    forecasting_alerts: List[ForecastingAlertItem] = []
+
+    for forecast in forecasts:
+        if forecast.restock_recommendation <= 0 and forecast.days_until_stockout > 10:
+            continue
+        forecasting_alerts.append(
+            ForecastingAlertItem(
+                product_id=forecast.product_id,
+                product_name=forecast.product_name,
+                days_until_stockout=forecast.days_until_stockout,
+                restock_recommendation=forecast.restock_recommendation,
+                trend=forecast.trend,
+            )
+        )
+        if len(forecasting_alerts) >= alerts_limit:
+            break
+
+    if not forecasting_alerts:
+        for forecast in forecasts[:alerts_limit]:
+            forecasting_alerts.append(
+                ForecastingAlertItem(
+                    product_id=forecast.product_id,
+                    product_name=forecast.product_name,
+                    days_until_stockout=forecast.days_until_stockout,
+                    restock_recommendation=forecast.restock_recommendation,
+                    trend=forecast.trend,
+                )
+            )
+            if len(forecasting_alerts) >= alerts_limit:
+                break
+
+    return AIStatusResponse(
+        snapshot_generated_at=now,
+        total_sales_profiles=total_profiles,
+        ai_profiles_active=active_profiles,
+        ai_profiles_inactive=inactive_profiles,
+        interactions_last_24h=interactions_last_24h,
+        tokens_last_24h=tokens_last_24h,
+        avg_tokens_per_response=round(avg_tokens_per_response, 2),
+        customers_flagged=int(customers_flagged),
+        training_backlog=training_backlog,
+        ai_profiles=profile_metrics,
+        forecasting_alerts=forecasting_alerts,
+    )
+
+
+@router.post("/business-insights", response_model=BusinessInsightsResponse)
+def generate_business_insights(
+    payload: BusinessInsightsRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view")),
+):
+    """Genera insights de negocio usando métricas locales y (opcional) GPT-4."""
+    days = max(7, min(payload.days, 120))
+    now = _utcnow()
+    period_start = now - timedelta(days=days)
+
+    cache_store = _get_business_insights_cache(request)
+    cache_key = _make_business_insights_cache_key(days, payload)
+    cache_entry = cache_store.get(cache_key) if payload.use_cache and not payload.force_refresh else None
+    if cache_entry and cache_entry.get("expires_at") and cache_entry["expires_at"] > now:
+        response.headers["X-AI-Business-Cache"] = "HIT"
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, BusinessInsightsResponse):
+            return cached_value.model_copy(deep=True)
+        return cached_value
+
+    sales_profile_id = payload.sales_profile_id
+    if payload.sales_profile_slug:
+        profile = db.query(SalesProfile).filter(SalesProfile.slug == payload.sales_profile_slug).first()
+        if not profile:
+            raise HTTPException(status_code=404, detail="Sales Profile not found")
+        sales_profile_id = profile.id
+    elif sales_profile_id:
+        profile = db.query(SalesProfile).filter(SalesProfile.id == sales_profile_id).first()
+        if not profile:
+            raise HTTPException(status_code=404, detail="Sales Profile not found")
+
+    if payload.location_id:
+        location_exists = db.query(Location).filter(Location.id == payload.location_id).first()
+        if not location_exists:
+            raise HTTPException(status_code=404, detail="Location not found")
+
+    orders_query = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(OrderItem.product))
+        .filter(Order.created_at >= period_start)
+        .filter(Order.estado != "cancelada")
+    )
+    if sales_profile_id:
+        orders_query = orders_query.filter(Order.sales_profile_id == sales_profile_id)
+    if payload.location_id:
+        orders_query = orders_query.filter(Order.source_location_id == payload.location_id)
+
+    orders = orders_query.all()
+
+    sales_map: Dict[int, Dict[str, Any]] = {}
+    daily_revenue = defaultdict(float)
+    total_revenue = 0.0
+    gross_profit_total = 0.0
+
+    for order in orders:
+        order_total = _safe_float(order.total)
+        total_revenue += order_total
+        order_created_at = _ensure_aware(order.created_at)
+        if order_created_at:
+            daily_key = order_created_at.date().isoformat()
+            daily_revenue[daily_key] += order_total
+        for item in order.items:
+            product = item.product
+            if not product:
+                continue
+            entry = sales_map.setdefault(
+                product.id,
+                {
+                    "product_name": product.nombre,
+                    "units_sold": 0,
+                    "revenue": 0.0,
+                    "gross_profit": 0.0,
+                    "last_sale_at": None,
+                },
+            )
+            entry["units_sold"] += item.cantidad
+            item_revenue = _safe_float(item.precio_unitario) * item.cantidad
+            entry["revenue"] += item_revenue
+            item_cost = _safe_float(product.costo) * item.cantidad
+            profit = item_revenue - item_cost
+            entry["gross_profit"] += profit
+            gross_profit_total += profit
+            if order_created_at:
+                last_sale_at = entry.get("last_sale_at")
+                if not last_sale_at or order_created_at > last_sale_at:
+                    entry["last_sale_at"] = order_created_at
+
+    orders_count = len(orders)
+    avg_order_value = total_revenue / orders_count if orders_count else 0.0
+
+    products = (
+        db.query(Product)
+        .options(joinedload(Product.stock_items).joinedload(Stock.location))
+        .filter(Product.activo == True)
+        .all()
+    )
+
+    top_sellers = [
+        {
+            "product_id": product_id,
+            "product_name": data["product_name"],
+            "units_sold": data["units_sold"],
+            "revenue": round(data["revenue"], 2),
+            "gross_profit": round(data["gross_profit"], 2),
+        }
+        for product_id, data in sales_map.items()
+        if data["units_sold"] > 0
+    ]
+    top_sellers.sort(key=lambda item: item["revenue"], reverse=True)
+    top_sellers = top_sellers[:5]
+
+    slow_movers: List[Dict[str, Any]] = []
+    stock_alerts: List[Dict[str, Any]] = []
+
+    for product in products:
+        stock_available = 0
+        for stock in product.stock_items:
+            if payload.location_id and stock.location_id != payload.location_id:
+                continue
+            available = max(0, (stock.cantidad_disponible or 0) - (stock.cantidad_reservada or 0))
+            stock_available += available
+
+        if stock_available <= 0:
+            continue
+
+        sale_info = sales_map.get(product.id)
+        last_sale_at: Optional[datetime] = sale_info.get("last_sale_at") if sale_info else None
+        days_without_sales = (now - last_sale_at).days if last_sale_at else days + 30
+        units_sold = sale_info["units_sold"] if sale_info else 0
+
+        if units_sold == 0 or days_without_sales > max(14, days // 2):
+            slow_movers.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.nombre,
+                    "stock_available": stock_available,
+                    "days_without_sales": int(days_without_sales),
+                    "last_sale_at": _isoformat(last_sale_at),
+                }
+            )
+
+        avg_daily_demand = (sale_info["units_sold"] / days) if sale_info and days else 0.0
+        days_until_stockout = (stock_available / avg_daily_demand) if avg_daily_demand > 0 else None
+        if avg_daily_demand > 0 and stock_available < max(5, avg_daily_demand * 5):
+            stock_alerts.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.nombre,
+                    "stock_available": stock_available,
+                    "avg_daily_demand": round(avg_daily_demand, 2),
+                    "days_until_stockout": round(days_until_stockout, 1) if days_until_stockout else None,
+                }
+            )
+
+    slow_movers.sort(key=lambda item: (item["days_without_sales"], item["stock_available"]), reverse=True)
+    slow_movers = slow_movers[:5]
+
+    stock_alerts.sort(key=lambda item: item["days_until_stockout"] if item["days_until_stockout"] is not None else 9999)
+    stock_alerts = stock_alerts[:5]
+
+    revenue_trends = [
+        {"date": date_key, "revenue": round(value, 2)}
+        for date_key, value in sorted(daily_revenue.items())
+    ]
+    revenue_trends = revenue_trends[-14:]
+
+    metrics_model = BusinessInsightsMetrics(
+        kpis=BusinessInsightsKPIs(
+            total_revenue=round(total_revenue, 2),
+            orders_count=orders_count,
+            avg_order_value=round(avg_order_value, 2),
+            gross_margin_estimate=round(gross_profit_total, 2),
+        ),
+        top_sellers=[BusinessInsightTopSeller(**item) for item in top_sellers],
+        slow_movers=[BusinessInsightSlowMover(**item) for item in slow_movers],
+        stock_alerts=[BusinessInsightStockAlert(**item) for item in stock_alerts],
+        revenue_trends=[BusinessInsightTrendPoint(**item) for item in revenue_trends],
+    )
+
+    recommendations: List[BusinessInsightRecommendation] = []
+    ai_summary: Optional[str] = None
+    tokens_used = 0
+    raw_response: Optional[str] = None
+
+    metrics_payload = metrics_model.model_dump()
+
+    if prod_settings.ENABLE_AI_FEATURES and prod_settings.OPENAI_API_KEY:
+        try:
+            metrics_json = json.dumps(metrics_payload, ensure_ascii=False)
+            prompt = (
+                "Analiza el siguiente JSON de métricas (periodo de "
+                f"{days} días) y devuelve recomendaciones accionables.\n"
+                "Responde ÚNICAMENTE en JSON con el formato:\n"
+                "{\n"
+                "  \"summary\": \"...\",\n"
+                "  \"recommendations\": [\n"
+                "    {\n"
+                "      \"title\": \"\",\n"
+                "      \"action\": \"\",\n"
+                "      \"impact\": \"\",\n"
+                "      \"category\": \"inventario|ventas|operaciones|finanzas\",\n"
+                "      \"priority\": \"alta|media|baja|critica\"\n"
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                f"Contexto:\n{metrics_json}"
+            )
+
+            completion = openai_service.create_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Eres un analista de retail que entrega planes concretos basados en datos.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                model=prod_settings.OPENAI_MODEL,
+                temperature=0.4,
+            )
+
+            raw_response = completion.get("reply") or ""
+            tokens_used = int((completion.get("usage") or {}).get("total_tokens") or 0)
+            parsed = _parse_ai_business_response(raw_response)
+            ai_summary = parsed.get("summary")
+            for rec in parsed.get("recommendations", []) or []:
+                action = rec.get("action") or rec.get("recommendation")
+                title = rec.get("title") or rec.get("headline") or action or "Recomendación"
+                priority = (rec.get("priority") or "media").lower()
+                if priority not in {"alta", "media", "baja", "critica"}:
+                    priority = "media"
+                recommendations.append(
+                    BusinessInsightRecommendation(
+                        title=title,
+                        action=action or title,
+                        impact=rec.get("impact"),
+                        category=rec.get("category"),
+                        priority=priority, 
+                    )
+                )
+        except RuntimeError as exc:
+            # Log y continuar con heurísticas
+            print(f"AI Business Insights error: {exc}")
+
+    if not recommendations:
+        recommendations = _build_fallback_recommendations(metrics_payload)
+        if not ai_summary:
+            ai_summary = "Se generaron recomendaciones basadas en heurísticas locales."
+    result = BusinessInsightsResponse(
+        generated_at=_utcnow(),
+        period_days=days,
+        filters=BusinessInsightsFilters(
+            location_id=payload.location_id,
+            sales_profile_id=sales_profile_id,
+            sales_profile_slug=payload.sales_profile_slug,
+        ),
+        metrics=metrics_model,
+        recommendations=recommendations,
+        ai_summary=ai_summary,
+        tokens_used=tokens_used,
+        raw_response=raw_response,
+    )
+
+    if payload.use_cache:
+        _cleanup_business_insights_cache(cache_store)
+        cache_store[cache_key] = {
+            "expires_at": _utcnow() + timedelta(seconds=_business_insights_cache_ttl()),
+            "value": result.model_copy(deep=True),
+        }
+        response.headers.setdefault("X-AI-Business-Cache", "MISS")
+    else:
+        response.headers.setdefault("X-AI-Business-Cache", "BYPASS")
+
+    return result
 
 @router.post("/context", response_model=AIContextResponse)
 def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
@@ -450,18 +1053,20 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     
     # V2.4: Agregar timestamps relativos al historial
     context_history = []
-    now = datetime.now()
+    reference_now = _utcnow()
     
     for log in reversed(recent_logs):
         # Calcular diferencia de tiempo amigable
         try:
             # Asumiendo que log.created_at es naive UTC o timezone aware, normalizar
             log_time = log.created_at
+            if log_time is None:
+                raise ValueError("log_time missing")
             if log_time.tzinfo is None:
-                # Si es naive, asumir UTC (como se guarda en DB)
-                diff = datetime.utcnow() - log_time
+                normalized_log_time = log_time.replace(tzinfo=UTC)
             else:
-                diff = datetime.now(log_time.tzinfo) - log_time
+                normalized_log_time = log_time.astimezone(UTC)
+            diff = reference_now - normalized_log_time
                 
             minutes = int(diff.total_seconds() / 60)
             hours = int(minutes / 60)
@@ -552,6 +1157,70 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
         previous_context=context_history
     )
 
+
+@router.post("/reply", response_model=AIReplyResponse)
+def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
+    """Genera una respuesta completa usando el cliente oficial de OpenAI."""
+    if not prod_settings.ENABLE_AI_FEATURES:
+        raise HTTPException(status_code=503, detail="Las funcionalidades de IA estan deshabilitadas")
+    if not prod_settings.OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY no esta configurada")
+
+    context = get_ai_context(request, db)
+    messages = _compose_ai_messages(context, request.message_content, request.conversation_override)
+
+    try:
+        completion = openai_service.create_chat_completion(
+            messages=messages,
+            model=context.bot_config.get("model"),
+            temperature=context.bot_config.get("temperature"),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    reply_text = (completion.get("reply") or "").strip()
+    usage = completion.get("usage") or {}
+    tokens_used = int(usage.get("total_tokens") or 0)
+    model_name = completion.get("model") or context.bot_config.get("model") or prod_settings.OPENAI_MODEL
+
+    normalized_phone = _normalize_phone(request.customer_phone)
+    profile = db.query(SalesProfile).filter(SalesProfile.slug == request.sales_profile_slug).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Sales Profile not found")
+
+    customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+    if not customer:
+        customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    customer_phone_value = customer.phone_number
+
+    user_log = InteractionLogCreate(
+        sales_profile_slug=request.sales_profile_slug,
+        customer_phone=customer_phone_value,
+        role="user",
+        content=request.message_content,
+        tokens_used=0,
+    )
+    bot_log = InteractionLogCreate(
+        sales_profile_slug=request.sales_profile_slug,
+        customer_phone=customer_phone_value,
+        role="assistant",
+        content=reply_text,
+        tokens_used=tokens_used,
+    )
+
+    log_interaction(user_log, db)
+    log_interaction(bot_log, db)
+
+    return AIReplyResponse(
+        reply=reply_text,
+        tokens_used=tokens_used,
+        model=model_name,
+        context=context,
+    )
+
 @router.post("/log")
 def log_interaction(log_data: InteractionLogCreate, db: Session = Depends(get_db)):
     """Guarda un mensaje en el historial"""
@@ -573,7 +1242,7 @@ def log_interaction(log_data: InteractionLogCreate, db: Session = Depends(get_db
     db.add(new_log)
     
     # Actualizar contadores del cliente
-    now = datetime.utcnow()
+    now = _utcnow()
     
     # V2.5: Resetear contador diario si es un nuevo día
     if customer.last_interaction_at:
@@ -619,20 +1288,56 @@ def flag_troll(phone_number: str = Body(..., embed=True), reason: str = Body(...
 
 # --- Training & Insights Endpoints ---
 
-@router.get("/training-queue", response_model=List[Dict[str, Any]])
-def list_training_queue(status: str = "pending", db: Session = Depends(get_db)):
-    """Lista preguntas pendientes de revisión"""
-    items = db.query(TrainingQueue).filter(TrainingQueue.status == status).order_by(TrainingQueue.created_at.desc()).all()
-    return [{
-        "id": i.id,
-        "customer_question": i.customer_question,
-        "ai_proposed_answer": i.ai_proposed_answer,
-        "status": i.status,
-        "created_at": i.created_at,
-        "sales_profile": {
-            "name": i.sales_profile.name if i.sales_profile else "Desconocido"
-        }
-    } for i in items]
+@router.get(
+    "/training-queue",
+    response_model=PaginatedResponse[TrainingQueueItemResponse],
+)
+def list_training_queue(
+    status: str = Query("pending", description="Filtrar por estado"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=10, le=200, description="Resultados por página"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
+):
+    """Lista preguntas pendientes de revisión con paginación."""
+
+    query = (
+        db.query(TrainingQueue)
+        .options(joinedload(TrainingQueue.sales_profile))
+        .filter(TrainingQueue.status == status)
+    )
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    items = (
+        query.order_by(TrainingQueue.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+
+    records = [
+        TrainingQueueItemResponse(
+            id=item.id,
+            sales_profile_id=item.sales_profile_id,
+            customer_question=item.customer_question,
+            ai_proposed_answer=item.ai_proposed_answer,
+            admin_correction=item.admin_correction,
+            status=item.status,
+            created_at=item.created_at,
+            sales_profile_name=item.sales_profile.name if item.sales_profile else None,
+        )
+        for item in items
+    ]
+
+    pages = max(0, (total + per_page - 1) // per_page)
+    return PaginatedResponse(
+        items=records,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 @router.post("/training-queue/{item_id}/resolve")
 def resolve_training_item(item_id: int, action: str = Body(..., embed=True), correction: str = Body(None, embed=True), db: Session = Depends(get_db)):
@@ -672,25 +1377,68 @@ def resolve_training_item(item_id: int, action: str = Body(..., embed=True), cor
     db.commit()
     return {"status": "resolved"}
 
-@router.get("/customers", response_model=List[Dict[str, Any]])
-def list_customers_ai(search: Optional[str] = None, db: Session = Depends(get_db)):
-    """Lista clientes con datos de inteligencia"""
+@router.get(
+    "/customers",
+    response_model=PaginatedResponse[AICustomerResponse],
+)
+def list_customers_ai(
+    search: Optional[str] = Query(None, description="Texto a buscar por nombre o teléfono"),
+    is_troll: Optional[bool] = Query(None, description="Filtrar por clientes marcados como troll"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=10, le=200, description="Resultados por página"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
+):
+    """Lista clientes con datos de inteligencia."""
+
     query = db.query(Customer)
+
     if search:
-        query = query.filter(Customer.phone_number.contains(search) | Customer.name.contains(search))
-    
-    customers = query.order_by(Customer.last_interaction_at.desc()).limit(50).all()
-    return [{
-        "id": c.id,
-        "phone_number": c.phone_number,
-        "name": c.name,
-        "is_troll": c.is_troll,
-        "is_blocked": c.is_blocked,
-        "reputation_score": c.reputation_score,
-        "daily_message_count": c.daily_message_count,
-        "last_interaction_at": c.last_interaction_at,
-        "created_at": c.created_at
-    } for c in customers]
+        like_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Customer.phone_number.ilike(like_term),
+                Customer.name.ilike(like_term),
+            )
+        )
+
+    if is_troll is not None:
+        query = query.filter(Customer.is_troll == is_troll)
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    customers = (
+        query.order_by(Customer.last_interaction_at.desc().nullslast(), Customer.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+
+    records = [
+        AICustomerResponse(
+            id=customer.id,
+            phone_number=customer.phone_number,
+            name=customer.name,
+            email=customer.email,
+            notes=customer.notes,
+            is_troll=customer.is_troll,
+            is_blocked=customer.is_blocked,
+            reputation_score=customer.reputation_score,
+            daily_message_count=customer.daily_message_count,
+            last_interaction_at=customer.last_interaction_at,
+            created_at=customer.created_at,
+        )
+        for customer in customers
+    ]
+
+    pages = max(0, (total + per_page - 1) // per_page)
+    return PaginatedResponse(
+        items=records,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 @router.patch("/customers/{customer_id}")
 def update_customer_ai(customer_id: int, updates: Dict[str, Any], db: Session = Depends(get_db)):
@@ -762,10 +1510,6 @@ def delete_trade_in_policy(
     db.delete(policy)
     db.commit()
     return {"status": "deleted"}
-
-class LinkOrderRequest(BaseModel):
-    customer_phone: str
-    order_id: int
 
 @router.post("/link-order")
 def link_order_to_interaction(request: LinkOrderRequest, db: Session = Depends(get_db)):

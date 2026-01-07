@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { Badge } from './ui/badge'
-import { apiClient } from '../lib/apiClient'
+import { inventoryServiceInstance } from '../lib/inventoryServiceFactory'
 import { TrainingQueueItem } from '../lib/types'
 import { toast } from 'sonner'
 import { Spinner, CheckCircle, XCircle, BookOpen, Robot, ListDashes } from '@phosphor-icons/react'
@@ -31,7 +31,7 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
   const loadItems = async () => {
     setLoading(true)
     try {
-      const data = await apiClient.getTrainingQueue('pending')
+      const data = await inventoryServiceInstance.listTrainingQueue('pending')
       setItems(data)
     } catch {
       toast.error('Error al cargar cola de entrenamiento')
@@ -49,7 +49,7 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
 
     setProcessing(true)
     try {
-      await apiClient.resolveTrainingItem(selectedItem.id, action, correction)
+      await inventoryServiceInstance.resolveTrainingQueueItem(selectedItem.id, action, correction)
       toast.success(
         action === 'convert_to_faq' 
           ? 'FAQ creada y aprendizaje registrado' 

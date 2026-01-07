@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { Bank } from '@/lib/types'
 import { toast } from 'sonner'
 import { Plus, Trash2, Edit, Save, X } from 'lucide-react'
@@ -25,7 +25,7 @@ export function FinancingSettings() {
 
   const loadBanks = async () => {
     try {
-      const data = await apiClient.getBanks(false) // Get all banks, active and inactive
+      const data = await inventoryServiceInstance.getBanks(false) // Get all banks, active and inactive
       setBanks(data)
     } catch (error) {
       console.error(error)
@@ -36,7 +36,7 @@ export function FinancingSettings() {
   const handleCreateBank = async () => {
     if (!newBankName.trim()) return
     try {
-      await apiClient.createBank({
+      await inventoryServiceInstance.createBank({
         name: newBankName,
         active: true,
         normal_card_rate: parseFloat(newBankRate) / 100,
@@ -54,7 +54,7 @@ export function FinancingSettings() {
 
   const handleUpdateBank = async (bank: Bank) => {
     try {
-      await apiClient.updateBank(bank.id, {
+      await inventoryServiceInstance.updateBank(bank.id, {
         name: bank.name,
         active: bank.active,
         normal_card_rate: bank.normal_card_rate
@@ -71,7 +71,7 @@ export function FinancingSettings() {
   const handleAddOption = async (bankId: number) => {
     if (!newOptionMonths || !newOptionRate) return
     try {
-      await apiClient.createFinancingOption(bankId, {
+      await inventoryServiceInstance.createFinancingOption(bankId, {
         months: parseInt(newOptionMonths),
         rate: parseFloat(newOptionRate) / 100,
         active: true
@@ -89,7 +89,7 @@ export function FinancingSettings() {
   const handleDeleteOption = async (optionId: number) => {
     if (!confirm('¿Estás seguro de eliminar esta opción?')) return
     try {
-      await apiClient.deleteFinancingOption(optionId)
+      await inventoryServiceInstance.deleteFinancingOption(optionId)
       toast.success('Opción eliminada')
       loadBanks()
     } catch (error) {

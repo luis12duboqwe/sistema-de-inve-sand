@@ -83,6 +83,8 @@ class ProductionSettings:
     ENABLE_TRADE_IN: bool = os.getenv("ENABLE_TRADE_IN", "true").lower() == "true"
     ENABLE_FINANCING: bool = os.getenv("ENABLE_FINANCING", "true").lower() == "true"
     ENABLE_IMEI_TRACKING: bool = os.getenv("ENABLE_IMEI_TRACKING", "true").lower() == "true"
+    ENABLE_FORECAST_SCHEDULER: bool = os.getenv("ENABLE_FORECAST_SCHEDULER", "false").lower() == "true"
+    BUSINESS_INSIGHTS_CACHE_SECONDS: int = int(os.getenv("BUSINESS_INSIGHTS_CACHE_SECONDS", "300"))
     
     # ===== MANTENIMIENTO =====
     MAINTENANCE_MODE: bool = os.getenv("MAINTENANCE_MODE", "false").lower() == "true"

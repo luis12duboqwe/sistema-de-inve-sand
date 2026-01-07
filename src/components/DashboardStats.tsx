@@ -1,13 +1,56 @@
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { ProductWithStock, OrderWithItems, Location, SalesProfile, User } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot, CalendarCheck } from '@phosphor-icons/react'
+import type {
+  ProductWithStock,
+  OrderWithItems,
+  Location,
+  SalesProfile,
+  User,
+  DashboardStats,
+  InventoryAlert,
+  SalesReport,
+  StockSummaryByLocation,
+  SalesSummaryByLocation,
+  BusinessInsightsResponse,
+  BusinessInsightRecommendation
+} from '@/lib/types'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot, CalendarCheck, ArrowClockwise, MagicWand } from '@phosphor-icons/react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+
+const ALERT_STYLES: Record<InventoryAlert['alert_level'], { label: string; className: string }> = {
+  out_of_stock: {
+    label: 'Agotado',
+    className: 'border border-red-600 bg-red-600 text-white'
+  },
+  critical: {
+    label: 'Crítico',
+    className: 'border border-red-200 bg-red-100 text-red-700 dark:border-transparent dark:bg-red-500/20 dark:text-red-50'
+  },
+  low: {
+    label: 'Stock Bajo',
+    className: 'border border-amber-200 bg-amber-100 text-amber-800 dark:border-transparent dark:bg-amber-500/20 dark:text-amber-50'
+  }
+}
+
+const INSIGHT_PRIORITY_STYLES: Record<BusinessInsightRecommendation['priority'], string> = {
+  critica: 'bg-red-500/15 text-red-50 border border-red-400/40',
+  alta: 'bg-orange-500/15 text-orange-50 border border-orange-400/40',
+  media: 'bg-amber-500/15 text-amber-50 border border-amber-400/40',
+  baja: 'bg-emerald-500/15 text-emerald-50 border border-emerald-400/40'
+}
+
+const INSIGHT_PRIORITY_LABELS: Record<BusinessInsightRecommendation['priority'], string> = {
+  critica: 'Crítica',
+  alta: 'Alta',
+  media: 'Media',
+  baja: 'Baja'
+}
 
 interface DashboardStatsProps {
   products: ProductWithStock[]
@@ -20,6 +63,17 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const [locations, setLocations] = useState<Location[]>([])
   const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
   const [apiError, setApiError] = useState<string | null>(null)
+  const [dashboardMetrics, setDashboardMetrics] = useState<DashboardStats | null>(null)
+  const [salesReport, setSalesReport] = useState<SalesReport | null>(null)
+  const [inventoryAlerts, setInventoryAlerts] = useState<InventoryAlert[]>([])
+  const [salesSummaryByLocation, setSalesSummaryByLocation] = useState<SalesSummaryByLocation[]>([])
+  const [stockSummaryByLocation, setStockSummaryByLocation] = useState<StockSummaryByLocation[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [businessInsights, setBusinessInsights] = useState<BusinessInsightsResponse | null>(null)
+  const [insightsSource, setInsightsSource] = useState<'backend' | 'local' | null>(null)
+  const [isRefreshingInsights, setIsRefreshingInsights] = useState(false)
+  const [insightsError, setInsightsError] = useState<string | null>(null)
 
   const loadLocations = useCallback(async () => {
     try {
@@ -45,28 +99,149 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     }
   }, [])
 
+  const loadDashboardInsights = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setApiError(null)
+      const insightsPromise = inventoryServiceInstance.generateBusinessInsights({ use_cache: true }).catch(error => {
+        console.error('Error loading business insights:', error)
+        const message = error instanceof Error ? error.message : 'No fue posible generar insights con IA'
+        setInsightsError(message)
+        return null
+      })
+
+      const [stats, report, alerts, salesByLocation, stockByLocation, insights] = await Promise.all([
+        inventoryServiceInstance.getDashboardStats().catch(() => null),
+        inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(() => null),
+        inventoryServiceInstance.getInventoryAlerts().catch(() => []),
+        inventoryServiceInstance.getSalesSummaryByLocation().catch(() => []),
+        inventoryServiceInstance.getStockSummaryByLocation(true).catch(() => []),
+        insightsPromise
+      ])
+
+      if (stats) {
+        setDashboardMetrics(stats)
+      }
+      if (report) {
+        setSalesReport(report)
+      }
+      setInventoryAlerts(alerts)
+      setSalesSummaryByLocation(salesByLocation)
+      setStockSummaryByLocation(stockByLocation)
+      if (insights) {
+        setBusinessInsights(insights)
+        const source = insights.tokens_used > 0 || Boolean(insights.raw_response) ? 'backend' : 'local'
+        setInsightsSource(source)
+        setInsightsError(null)
+      } else {
+        setBusinessInsights(null)
+        setInsightsSource(null)
+      }
+      setLastUpdated(new Date().toISOString())
+    } catch (error) {
+      console.error('Error loading dashboard insights:', error)
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      if (message.toLowerCase().includes('failed to fetch')) {
+        setApiError('bloqueador')
+      } else {
+        setApiError(message)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const refreshBusinessInsights = useCallback(async () => {
+    setIsRefreshingInsights(true)
+    try {
+      const insights = await inventoryServiceInstance.generateBusinessInsights({
+        use_cache: false,
+        force_refresh: true
+      })
+      if (insights) {
+        setBusinessInsights(insights)
+        const source = insights.tokens_used > 0 || Boolean(insights.raw_response) ? 'backend' : 'local'
+        setInsightsSource(source)
+        setInsightsError(null)
+      }
+    } catch (error) {
+      console.error('Error refreshing business insights:', error)
+      const message = error instanceof Error ? error.message : 'No fue posible regenerar las recomendaciones'
+      setInsightsError(message)
+    } finally {
+      setIsRefreshingInsights(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadLocations()
     loadSalesProfiles()
-  }, [loadLocations, loadSalesProfiles])
+    loadDashboardInsights()
+  }, [loadLocations, loadSalesProfiles, loadDashboardInsights])
 
   const activeProducts = products.filter(p => p.activo).length
-  const lowStockProducts = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
-  const outOfStockProducts = products.filter(p => p.activo && p.stock_disponible === 0).length
-  const totalProducts = products.filter(p => p.activo).length
+  const totalProducts = products.length
 
   const pendingOrders = orders.filter(o => o.estado === 'pendiente').length
   const readyToDeliverOrders = orders.filter(o => o.estado === 'por_entregar').length
   const completedOrders = orders.filter(o => o.estado === 'completada').length
   const totalOrders = orders.length
 
-  const totalRevenue = orders
-    .filter(o => o.estado === 'completada')
-    .reduce((sum, order) => sum + Number(order.total), 0)
+  const fallbackDashboardStats = useMemo<DashboardStats>(() => {
+    const lowStockCount = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
+    const outOfStockCount = products.filter(p => p.activo && p.stock_disponible === 0).length
+    const totalInventoryValue = products
+      .filter(p => p.activo)
+      .reduce((sum, product) => sum + (Number(product.precio) * product.stock_disponible), 0)
 
-  const inventoryValue = products
-    .filter(p => p.activo)
-    .reduce((sum, product) => sum + (Number(product.precio) * product.stock_disponible), 0)
+    const today = new Date()
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const endOfToday = new Date(startOfToday)
+    endOfToday.setHours(23, 59, 59, 999)
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+    const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0)
+    endOfLastMonth.setHours(23, 59, 59, 999)
+
+    const nonCancelledOrders = orders.filter(o => o.estado !== 'cancelada')
+    const ordersToday = nonCancelledOrders.filter(o => {
+      const createdAt = new Date(o.created_at)
+      return createdAt >= startOfToday && createdAt <= endOfToday
+    })
+    const ordersThisMonth = nonCancelledOrders.filter(o => new Date(o.created_at) >= startOfMonth)
+    const ordersLastMonth = nonCancelledOrders.filter(o => {
+      const createdAt = new Date(o.created_at)
+      return createdAt >= startOfLastMonth && createdAt <= endOfLastMonth
+    })
+
+    const sumTotals = (list: OrderWithItems[]) => list.reduce((sum, order) => sum + Number(order.total || 0), 0)
+    const totalRevenueToday = sumTotals(ordersToday)
+    const totalRevenueMonth = sumTotals(ordersThisMonth)
+    const totalRevenueLastMonth = sumTotals(ordersLastMonth)
+    const averageTicketMonth = ordersThisMonth.length > 0
+      ? Number((totalRevenueMonth / ordersThisMonth.length).toFixed(2))
+      : 0
+
+    return {
+      active_products: activeProducts,
+      total_products: totalProducts,
+      low_stock_count: lowStockCount,
+      out_of_stock_count: outOfStockCount,
+      total_inventory_value: totalInventoryValue,
+      pending_orders: pendingOrders,
+      total_orders_today: ordersToday.length,
+      total_revenue_today: totalRevenueToday,
+      total_revenue_month: totalRevenueMonth,
+      total_revenue_last_month: totalRevenueLastMonth,
+      gross_margin_month: 0,
+      average_ticket_month: averageTicketMonth
+    }
+  }, [products, orders, activeProducts, totalProducts, pendingOrders])
+
+  const mergedDashboardStats = dashboardMetrics ?? fallbackDashboardStats
+  const lowStockProducts = mergedDashboardStats.low_stock_count
+  const outOfStockProducts = mergedDashboardStats.out_of_stock_count
+  const inventoryValue = mergedDashboardStats.total_inventory_value
 
   const last7Days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i)
@@ -88,7 +263,16 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     { name: 'Cancelada', value: orders.filter(o => o.estado === 'cancelada').length, color: '#ef4444' },
   ].filter(s => s.value > 0), [pendingOrders, readyToDeliverOrders, completedOrders, orders])
 
-  const topProducts = useMemo(() => {
+  const serviceTopProducts = useMemo(() => {
+    if (!salesReport?.top_products?.length) return []
+    return salesReport.top_products.map(product => ({
+      nombre: product.product_name,
+      cantidad: product.units_sold,
+      ingresos: product.total_revenue
+    }))
+  }, [salesReport])
+
+  const fallbackTopProducts = useMemo(() => {
     const productSales = orders
       .filter(o => o.estado === 'completada')
       .flatMap(o => o.items)
@@ -108,22 +292,60 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       .slice(0, 5)
   }, [orders])
 
+  const topProducts = serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts
+
+  const inventorySummaryMap = useMemo(() => {
+    const map = new Map<number, StockSummaryByLocation>()
+    stockSummaryByLocation.forEach(summary => map.set(summary.location_id, summary))
+    return map
+  }, [stockSummaryByLocation])
+
+  const serviceStatsByLocation = useMemo(() => {
+    if (!salesSummaryByLocation.length) return []
+    return salesSummaryByLocation.map(summary => {
+      const location = locations.find(loc => loc.id === summary.location_id)
+      const inventorySummary = inventorySummaryMap.get(summary.location_id)
+      return {
+        nombre: summary.location_nombre,
+        tipo: location?.tipo ?? 'tienda',
+        ordenes: summary.total_ordenes,
+        completadas: summary.total_ordenes,
+        ingresos: summary.total_ingresos,
+        ticket_promedio: summary.ticket_promedio,
+        unidades: summary.total_unidades_vendidas,
+        inventory: inventorySummary ? inventorySummary.valor_inventario : null,
+        productos_unicos: inventorySummary ? inventorySummary.total_productos : null
+      }
+    })
+  }, [salesSummaryByLocation, locations, inventorySummaryMap])
+
   // V2.0: Stats by location
-  const statsByLocation = useMemo(() => {
+  const fallbackStatsByLocation = useMemo(() => {
     return locations.map(location => {
       const locationOrders = orders.filter(o => o.source_location_id === location.id)
       const completedLocationOrders = locationOrders.filter(o => o.estado === 'completada')
       const revenue = completedLocationOrders.reduce((sum, o) => sum + Number(o.total), 0)
+      const unidades = completedLocationOrders.reduce((sum, order) => {
+        const itemsTotal = order.items?.reduce((acc, item) => acc + item.cantidad, 0) ?? 0
+        return sum + itemsTotal
+      }, 0)
+      const ticketPromedio = completedLocationOrders.length > 0 ? revenue / completedLocationOrders.length : null
       
       return {
         nombre: location.nombre,
         tipo: location.tipo,
         ordenes: locationOrders.length,
         completadas: completedLocationOrders.length,
-        ingresos: revenue
+        ingresos: revenue,
+        unidades,
+        ticket_promedio: ticketPromedio,
+        inventory: null,
+        productos_unicos: null
       }
     }).filter(s => s.ordenes > 0)
   }, [locations, orders])
+
+  const statsByLocation = serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation
 
   // V2.0: Stats by sales profile
   const statsByProfile = useMemo(() => {
@@ -155,11 +377,21 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     return orders.filter(o => isSameDay(new Date(o.created_at), today)).length
   }, [orders])
 
+  const currencyFormatter = useMemo(() => new Intl.NumberFormat('es-HN', {
+    style: 'currency',
+    currency: 'HNL',
+    maximumFractionDigits: 2
+  }), [])
+
+  const formatCurrency = useCallback((value: number) => currencyFormatter.format(value ?? 0), [currencyFormatter])
+
+  const lastUpdatedLabel = useMemo(() => (lastUpdated ? format(new Date(lastUpdated), 'dd/MM HH:mm') : null), [lastUpdated])
+
   const stats = [
     {
       title: 'Productos Activos',
-      value: activeProducts,
-      subtitle: `${totalProducts} total`,
+      value: mergedDashboardStats.active_products,
+      subtitle: `${mergedDashboardStats.total_products} total`,
       icon: Package,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
@@ -167,29 +399,29 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     {
       title: 'Órdenes Totales',
       value: totalOrders,
-      subtitle: `${completedOrders} completadas`,
+      subtitle: `${completedOrders} completadas • ${mergedDashboardStats.pending_orders} pendientes`,
       icon: ShoppingCart,
       color: 'text-blue-600',
       bgColor: 'bg-blue-600/10',
     },
     {
-      title: 'Ingresos Totales',
-      value: canViewFinancials ? `L ${totalRevenue.toFixed(2)}` : '---',
-      subtitle: 'Ventas completadas',
+      title: 'Ingresos del Mes',
+      value: canViewFinancials ? formatCurrency(mergedDashboardStats.total_revenue_month) : '---',
+      subtitle: canViewFinancials ? `Hoy: ${formatCurrency(mergedDashboardStats.total_revenue_today)}` : 'Ventas completadas',
       icon: Money,
       color: 'text-green-600',
       bgColor: 'bg-green-600/10',
     },
     canViewFinancials ? {
       title: 'Valor del Inventario',
-      value: `L ${inventoryValue.toFixed(2)}`,
-      subtitle: 'Total en stock',
+      value: formatCurrency(inventoryValue),
+      subtitle: `${lowStockProducts + outOfStockProducts} productos en alerta`,
       icon: ChartLineUp,
       color: 'text-accent',
       bgColor: 'bg-accent/10',
     } : {
       title: 'Órdenes de Hoy',
-      value: dailyOrders,
+      value: mergedDashboardStats.total_orders_today || dailyOrders,
       subtitle: 'Procesadas hoy',
       icon: CalendarCheck,
       color: 'text-accent',
@@ -199,6 +431,47 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">Panel Inteligente</p>
+          <p className="text-xs text-muted-foreground">
+            Última actualización: {lastUpdatedLabel ?? 'Automática'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadDashboardInsights}
+            disabled={isLoading}
+            className="flex items-center"
+          >
+            <ArrowClockwise
+              size={16}
+              className={`mr-2 ${isLoading ? 'animate-spin' : ''}`}
+            />
+            {isLoading ? 'Actualizando...' : 'Actualizar'}
+          </Button>
+        </div>
+      </div>
+
+      {apiError && apiError !== 'bloqueador' && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <WarningCircle className="h-5 w-5 text-destructive" />
+              <div>
+                <p className="font-semibold text-destructive">No pudimos cargar los reportes</p>
+                <p className="text-sm text-destructive/80">{apiError}</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadDashboardInsights} disabled={isLoading}>
+              Reintentar
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Advertencia de bloqueador de anuncios */}
       {apiError === 'bloqueador' && (
         <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
@@ -299,6 +572,161 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                   Ver Reporte
                 </Button>
               )}
+            </div>
+          </Card>
+        </motion.div>
+      )}
+
+      {inventoryAlerts.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45, duration: 0.3 }}
+        >
+          <Card className="p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Productos críticos</h3>
+                <p className="text-sm text-muted-foreground">
+                  Prioriza reposición en los próximos envíos
+                </p>
+              </div>
+              <Badge variant="outline" className="border border-dashed border-muted-foreground/40">
+                {inventoryAlerts.length} alertas
+              </Badge>
+            </div>
+            <div className="space-y-3">
+              {inventoryAlerts.slice(0, 5).map(alert => {
+                const severity = ALERT_STYLES[alert.alert_level]
+                return (
+                  <div
+                    key={`${alert.product_id}-${alert.sku}-${alert.alert_level}`}
+                    className="flex items-center justify-between rounded-lg border px-4 py-3"
+                  >
+                    <div>
+                      <p className="font-semibold">{alert.product_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {alert.sku} • {alert.category}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className={severity.className}>
+                        {severity.label}
+                      </Badge>
+                      <span className="font-semibold">{alert.current_stock} u</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {inventoryAlerts.length > 5 && (
+                <p className="text-xs text-muted-foreground">
+                  y {inventoryAlerts.length - 5} producto{inventoryAlerts.length - 5 === 1 ? '' : 's'} más con alerta
+                </p>
+              )}
+            </div>
+          </Card>
+        </motion.div>
+      )}
+
+      {businessInsights && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.3 }}
+        >
+          <Card className="relative overflow-hidden border border-slate-900/40 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-white">
+            <div className="pointer-events-none absolute inset-0 opacity-40">
+              <div className="absolute -top-20 -right-16 h-48 w-48 rounded-full bg-emerald-400/30 blur-3xl" />
+              <div className="absolute -bottom-16 -left-10 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />
+            </div>
+              <div className="relative flex flex-col gap-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                    <MagicWand size={16} className="text-emerald-300" />
+                    IA Operativa
+                  </div>
+                  <h3 className="text-xl font-semibold mt-1">Recomendaciones Inteligentes</h3>
+                  <p className="text-sm text-white/70">
+                    {businessInsights.ai_summary ?? `Análisis de ${businessInsights.period_days} días de ventas.`}
+                  </p>
+                </div>
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <Badge variant="outline" className="border-white/30 text-white">
+                      {insightsSource === 'backend' ? 'Fuente: IA Avanzada' : insightsSource === 'local' ? 'Fuente: Análisis Local' : 'Fuente desconocida'}
+                    </Badge>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={refreshBusinessInsights}
+                      disabled={isRefreshingInsights}
+                      className="bg-white/10 text-white hover:bg-white/20 border border-white/30"
+                    >
+                      <MagicWand size={14} className={`mr-2 ${isRefreshingInsights ? 'animate-spin' : ''}`} />
+                      {isRefreshingInsights ? 'Generando...' : 'Regenerar IA'}
+                    </Button>
+                  </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-white/60">Órdenes Analizadas</p>
+                  <p className="text-2xl font-semibold mt-1">{businessInsights.metrics.kpis.orders_count}</p>
+                  <p className="text-xs text-white/60">Últimos {businessInsights.period_days} días</p>
+                </div>
+                {canViewFinancials && (
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/60">Ingresos Evaluados</p>
+                    <p className="text-2xl font-semibold mt-1">{formatCurrency(businessInsights.metrics.kpis.total_revenue)}</p>
+                    <p className="text-xs text-white/60">Ticket promedio {formatCurrency(businessInsights.metrics.kpis.avg_order_value)}</p>
+                  </div>
+                )}
+                <div className={`rounded-lg border border-white/10 bg-white/5 p-4 ${canViewFinancials ? '' : 'md:col-span-2'}`}>
+                  <p className="text-xs uppercase tracking-wide text-white/60">Margen estimado</p>
+                  <p className="text-2xl font-semibold mt-1">{(businessInsights.metrics.kpis.gross_margin_estimate ?? 0).toFixed(1)}%</p>
+                  <p className="text-xs text-white/60">Proyección basada en ventas completadas</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {businessInsights.recommendations.length > 0 ? (
+                  businessInsights.recommendations.slice(0, 3).map((recommendation, index) => (
+                    <div
+                      key={`${recommendation.title}-${index}`}
+                      className="rounded-lg border border-white/10 bg-white/5 p-4"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">{recommendation.title}</p>
+                          {recommendation.action && (
+                            <p className="text-sm text-white/70">{recommendation.action}</p>
+                          )}
+                          {recommendation.impact && (
+                            <p className="text-xs text-white/50 mt-1">{recommendation.impact}</p>
+                          )}
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={INSIGHT_PRIORITY_STYLES[recommendation.priority]}
+                        >
+                          {INSIGHT_PRIORITY_LABELS[recommendation.priority]}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-white/20 bg-white/5 p-4 text-sm text-white/70">
+                    No hay recomendaciones todavía. Continúa registrando ventas para habilitar insights avanzados.
+                  </div>
+                )}
+                {insightsError && (
+                  <p className="text-xs text-red-200/90">
+                    {insightsError}
+                  </p>
+                )}
+              </div>
+
+              {/* Usuario no desea detalle visual de top sellers / slow movers aquí */}
             </div>
           </Card>
         </motion.div>
@@ -475,10 +903,36 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                               <span className="text-muted-foreground">Completadas:</span>
                               <span className="font-medium">{stat.completadas}</span>
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Ingresos:</span>
-                              <span className="font-medium">L {stat.ingresos.toFixed(2)}</span>
-                            </div>
+                            {canViewFinancials && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Ingresos:</span>
+                                <span className="font-medium">{formatCurrency(stat.ingresos)}</span>
+                              </div>
+                            )}
+                            {canViewFinancials && typeof stat.ticket_promedio === 'number' && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Ticket promedio:</span>
+                                <span className="font-medium">{formatCurrency(stat.ticket_promedio)}</span>
+                              </div>
+                            )}
+                            {stat.unidades && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Unidades vendidas:</span>
+                                <span className="font-medium">{stat.unidades}</span>
+                              </div>
+                            )}
+                            {canViewFinancials && typeof stat.inventory === 'number' && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Inventario:</span>
+                                <span className="font-medium">{formatCurrency(stat.inventory)}</span>
+                              </div>
+                            )}
+                            {typeof stat.productos_unicos === 'number' && stat.productos_unicos > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Productos únicos:</span>
+                                <span className="font-medium">{stat.productos_unicos}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

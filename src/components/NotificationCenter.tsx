@@ -72,6 +72,7 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
     0
   )
   const [notificationSettings] = useKV<any>('notification-settings', {})
+  const lowStockThresholdSetting = notificationSettings?.lowStockThreshold
 
   useEffect(() => {
     const newNotifications: Notification[] = []
@@ -83,7 +84,7 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
           const location = locations.find(l => l.id === stock.location_id)
           if (!location || !location.activo) return
 
-          const threshold = notificationSettings?.lowStockThreshold || 10
+          const threshold = lowStockThresholdSetting ?? 10
           const notifId = `${product.id}-${location.id}-${stock.cantidad_disponible}`
 
           if ((dismissedIds ?? []).includes(notifId)) return
@@ -194,7 +195,21 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
     }
 
     setNotifications(newNotifications)
-  }, [products, profiles, orders, dismissedIds, optimizationAlertEnabled, optimizationThreshold, setNotifications, lastOptimizationCheck, lastOptimizationScore, setLastOptimizationCheck, setLastOptimizationScore])
+  }, [
+    products,
+    profiles,
+    orders,
+    locations,
+    dismissedIds,
+    optimizationAlertEnabled,
+    optimizationThreshold,
+    setNotifications,
+    lastOptimizationCheck,
+    lastOptimizationScore,
+    setLastOptimizationCheck,
+    setLastOptimizationScore,
+    lowStockThresholdSetting
+  ])
 
   const activeNotifications = (notifications ?? []).filter(n => !(dismissedIds ?? []).includes(n.id))
 

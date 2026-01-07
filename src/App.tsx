@@ -42,6 +42,8 @@ import { ReportsDialog } from '@/components/ReportsDialog'
 import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
 import { AIForecastingDialog } from '@/components/AIForecastingDialog'
 import { ForecastingWidget } from '@/components/ForecastingWidget'
+import { AIStatusWidget } from '@/components/AIStatusWidget'
+import { AIStatusDialog } from '@/components/AIStatusDialog'
 import { OptimizationInsightsDialog } from '@/components/OptimizationInsightsDialog'
 import { SyncIndicator } from '@/components/SyncIndicator'
 import { BackendConnectionCheck } from '@/components/BackendConnectionCheck'
@@ -60,6 +62,7 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
 import { useForecasting } from '@/hooks/use-forecasting'
+import { useAIStatus } from '@/hooks/use-ai-status'
 import { useRealtimeSync } from '@/hooks/use-realtime-sync'
 import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF } from '@/lib/pdfExport'
@@ -109,6 +112,7 @@ function MainApp() {
   const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
   const [showTransferListDialog, setShowTransferListDialog] = useState(false)
   const [showAITraining, setShowAITraining] = useState(false)
+  const [showAIStatusDialog, setShowAIStatusDialog] = useState(false)
   const [showCustomerInsights, setShowCustomerInsights] = useState(false)
   const [showManageUsersDialog, setShowManageUsersDialog] = useState(false)
   const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
@@ -213,7 +217,19 @@ function MainApp() {
     false
   )
 
+  const {
+    status: aiStatus,
+    isLoading: isAIStatusLoading,
+    error: aiStatusError,
+    refresh: refreshAIStatus,
+    isApiMode: isAIStatusAvailable,
+  } = useAIStatus(useAPI ? 180000 : 0)
+
   const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
+  const aiAttentionCount = Math.min(
+    99,
+    (aiStatus?.forecasting_alerts?.length ?? 0) + (aiStatus?.training_backlog ?? 0)
+  )
 
   useEffect(() => {
     const loadData = async () => {
@@ -837,6 +853,21 @@ function MainApp() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    onClick={() => setShowAIStatusDialog(true)}
+                    title="Panel IA Ops"
+                    className="relative hover:bg-primary/10 text-primary"
+                    disabled={!isAIStatusAvailable}
+                  >
+                    <ChartLine size={20} weight="duotone" />
+                    {isAIStatusAvailable && aiAttentionCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-amber-500 text-white rounded-full text-[10px] flex items-center justify-center px-1 font-bold">
+                        {aiAttentionCount > 99 ? '99+' : aiAttentionCount}
+                      </span>
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setShowForecastingDialog(true)}
                     title="Pronóstico de Ventas IA (Alt + F)"
                     className="relative hover:bg-primary/10"
@@ -975,14 +1006,24 @@ function MainApp() {
                 />
               </div>
               <div>
-                <ForecastingWidget
-                  summary={forecastingSummary ?? null}
-                  criticalAlerts={getCriticalAlerts()}
-                  lastUpdated={forecastingLastUpdated ?? null}
-                  isGenerating={isForecastingGenerating}
-                  onViewDetails={() => setShowForecastingDialog(true)}
-                  onRefresh={generateForecastData}
-                />
+                <div className="space-y-6">
+                  <ForecastingWidget
+                    summary={forecastingSummary ?? null}
+                    criticalAlerts={getCriticalAlerts()}
+                    lastUpdated={forecastingLastUpdated ?? null}
+                    isGenerating={isForecastingGenerating}
+                    onViewDetails={() => setShowForecastingDialog(true)}
+                    onRefresh={generateForecastData}
+                  />
+                  <AIStatusWidget
+                    status={aiStatus}
+                    isLoading={isAIStatusLoading}
+                    error={aiStatusError}
+                    isApiMode={isAIStatusAvailable}
+                    onRefresh={refreshAIStatus}
+                    onOpenDetails={() => setShowAIStatusDialog(true)}
+                  />
+                </div>
               </div>
             </div>
             
@@ -2063,6 +2104,16 @@ function MainApp() {
       <AITrainingCenter
         open={showAITraining}
         onOpenChange={setShowAITraining}
+      />
+
+      <AIStatusDialog
+        open={showAIStatusDialog}
+        onOpenChange={setShowAIStatusDialog}
+        status={aiStatus}
+        isLoading={isAIStatusLoading}
+        error={aiStatusError}
+        onRefresh={refreshAIStatus}
+        isApiMode={isAIStatusAvailable}
       />
 
       <CustomerInsights

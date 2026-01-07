@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -15,7 +15,7 @@ FINANCING_METHODS = {"tarjeta", "financiamiento"}
 
 def compute_financing_from_payload(
     db: Session,
-    financing_data: Optional[dict],
+    financing_data: Optional[Dict[str, Any]],
     metodo_pago: str,
     total_after_tradeins: Decimal,
     trade_in_total: Decimal

@@ -8,7 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { Warning, Package, CaretDown, CaretUp } from '@phosphor-icons/react'
+import { Warning, CaretDown, CaretUp } from '@phosphor-icons/react'
 import type { ProductWithStock, Location } from '@/lib/types'
 
 interface LowStockAlertProps {

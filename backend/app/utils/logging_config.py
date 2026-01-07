@@ -13,7 +13,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 import json
 
@@ -28,7 +28,7 @@ class StructuredFormatter(logging.Formatter):
     
     def format(self, record: logging.LogRecord) -> str:
         log_data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -88,9 +88,9 @@ class ColoredConsoleFormatter(logging.Formatter):
 def setup_logging(
     log_level: Optional[str] = None,
     log_dir: Optional[str] = None,
-    enable_file_logging: bool = True,
-    enable_console_logging: bool = True,
-    structured: bool = False
+    enable_file_logging: Optional[bool] = None,
+    enable_console_logging: Optional[bool] = None,
+    structured: Optional[bool] = None
 ):
     """
     Configura el sistema de logging para toda la aplicación.
@@ -105,7 +105,7 @@ def setup_logging(
     
     # Determinar nivel de logging
     if log_level is None:
-        log_level = "DEBUG" if settings.debug else "INFO"
+        log_level = settings.log_level or ("DEBUG" if settings.debug else "INFO")
     
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
     
@@ -115,6 +115,15 @@ def setup_logging(
     
     # Limpiar handlers existentes
     root_logger.handlers.clear()
+
+    if enable_file_logging is None:
+        enable_file_logging = settings.log_to_files
+    if enable_console_logging is None:
+        enable_console_logging = settings.log_include_console
+    if structured is None:
+        structured = settings.log_structured
+    if log_dir is None:
+        log_dir = settings.log_directory
     
     # === CONSOLE HANDLER ===
     if enable_console_logging:
@@ -134,9 +143,6 @@ def setup_logging(
     
     # === FILE HANDLERS ===
     if enable_file_logging:
-        if log_dir is None:
-            log_dir = "./logs"
-        
         log_path = Path(log_dir)
         log_path.mkdir(parents=True, exist_ok=True)
         
@@ -188,7 +194,16 @@ def setup_logging(
     auth_logger = logging.getLogger("app.auth")
     auth_logger.setLevel(logging.INFO)
     
-    logging.info(f"Sistema de logging configurado - Nivel: {log_level}, Archivos: {enable_file_logging}")
+    logging.info(
+        "Sistema de logging configurado",
+        extra={
+            "log_level": log_level,
+            "structured": structured,
+            "file_logging": enable_file_logging,
+            "console_logging": enable_console_logging,
+            "log_dir": str(log_dir) if log_dir else None,
+        },
+    )
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -305,4 +320,4 @@ def log_function_call(logger: Optional[logging.Logger] = None):
 
 # Inicializar logging al importar el módulo (si está en producción)
 if not settings.debug:
-    setup_logging(enable_console_logging=True, enable_file_logging=True)
+    setup_logging()

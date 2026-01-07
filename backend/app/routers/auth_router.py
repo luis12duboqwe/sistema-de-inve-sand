@@ -1,17 +1,27 @@
+import math
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User, Role
-from app.schemas import Token, UserCreate, UserResponse, UserUpdate, RoleResponse
+from app.models import Permission, Role, User
+from app.schemas import (
+    PermissionResponse,
+    RoleResponse,
+    Token,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+    PaginatedResponse,
+)
 from app.auth import (
     authenticate_user,
     create_access_token,
     get_password_hash,
     get_current_active_user,
-    get_current_superuser
+    check_permission,
 )
 from app.config import settings
 
@@ -57,7 +67,11 @@ def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_superuser)):
+def register_user(
+    user: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("users:manage"))
+):
     """
     Register a new user. Requires Superuser privileges.
     """
@@ -199,23 +213,34 @@ from app.models import User, Role
 
 # ... existing imports ...
 
-@router.get("/roles", response_model=List[RoleResponse])
+@router.get("/roles", response_model=PaginatedResponse[RoleResponse])
 def list_roles(
-    current_user: User = Depends(get_current_active_user),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=200, description="Resultados por página"),
+    current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db)
 ):
-    """
-    List all available roles.
-    """
-    roles = db.query(Role).all()
-    return roles
+    """Lista roles disponibles con paginación."""
+    query = db.query(Role).order_by(Role.name.asc())
+    total = query.count()
+    offset = (page - 1) * per_page
+    roles = query.offset(offset).limit(per_page).all()
+    pages = math.ceil(total / per_page) if total else 0
+
+    return PaginatedResponse(
+        items=roles,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 
 @router.put("/users/{user_id}/role", response_model=UserResponse)
 def update_user_role(
     user_id: int,
     role_id: int = Query(..., description="ID of the new role"),
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db)
 ):
     """
@@ -245,7 +270,7 @@ def update_user_role(
 def update_user_admin(
     user_id: int,
     updates: UserUpdate,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db)
 ):
     """
@@ -298,31 +323,50 @@ def update_user_admin(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
 def list_users(
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_superuser),
+    search: Optional[str] = Query(None, description="Filtro por nombre, usuario o email"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=200, description="Resultados por página"),
+    current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db)
 ):
-    """
-    List all users (superuser only).
-    
-    Args:
-        - skip: Number of records to skip
-        - limit: Maximum number of records to return
-        
-    Returns:
-        List of users
-    """
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
+    """Lista usuarios con filtrado y paginación."""
+    query = db.query(User)
+
+    if search:
+        like_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                User.username.ilike(like_term),
+                User.full_name.ilike(like_term),
+                User.email.ilike(like_term),
+            )
+        )
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    users = (
+        query.order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+    pages = math.ceil(total / per_page) if total else 0
+
+    return PaginatedResponse(
+        items=users,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db)
 ):
     """
@@ -358,3 +402,26 @@ def delete_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting user: {str(e)}"
         )
+
+
+@router.get("/permissions", response_model=PaginatedResponse[PermissionResponse])
+def list_permissions(
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(100, ge=10, le=500, description="Resultados por página"),
+    current_user: User = Depends(check_permission("users:manage")),
+    db: Session = Depends(get_db)
+):
+    """Lista todos los permisos registrados con paginación."""
+    query = db.query(Permission).order_by(Permission.module.asc(), Permission.slug.asc())
+    total = query.count()
+    offset = (page - 1) * per_page
+    permissions = query.offset(offset).limit(per_page).all()
+    pages = math.ceil(total / per_page) if total else 0
+
+    return PaginatedResponse(
+        items=permissions,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )

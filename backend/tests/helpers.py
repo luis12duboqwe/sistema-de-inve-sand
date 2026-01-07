@@ -1,7 +1,14 @@
 import json
+from typing import Any, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - hints for tests only
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from app.models import Location, SalesProfile
 
 
-def seed_location_and_sales_profile(db):
+def seed_location_and_sales_profile(db: "Session") -> Tuple["Location", "SalesProfile"]:
     from app.models import Location, SalesProfile
 
     location = Location(nombre="Tienda Test", tipo="tienda", direccion="", telefono=None, activo=True)
@@ -22,7 +29,27 @@ def seed_location_and_sales_profile(db):
     return location, sales_profile
 
 
-def seed_product(client, location_id: int):
+def seed_product(
+    client: "TestClient",
+    location_id: int,
+    *,
+    stock_inicial: int = 1,
+    imei_values: Optional[List[str]] = None,
+    is_serialized: bool = True,
+) -> dict[str, Any]:
+    """Crea un producto de prueba permitiendo ajustar stock e IMEIs."""
+
+    if is_serialized:
+        imei_list = imei_values or ["111111111111111"]
+        imeis_con_ubicacion = [
+            {"imei": str(imei), "location_id": location_id}
+            for imei in imei_list
+        ]
+        stock_value = len(imei_list)
+    else:
+        imeis_con_ubicacion = []
+        stock_value = stock_inicial
+
     payload = {
         "sku": "TEST-DEVICE-001",
         "nombre": "Telefono Test",
@@ -34,11 +61,12 @@ def seed_product(client, location_id: int):
         "costo": 500,
         "moneda": "Lps",
         "garantia_meses": 12,
-        "stock_inicial": 1,
+        "stock_inicial": stock_value,
         "initial_location_id": location_id,
-        "is_serialized": True,
-        "imeis_con_ubicacion": [{"imei": "111111111111111", "location_id": location_id}],
+        "is_serialized": is_serialized,
+        "imeis_con_ubicacion": imeis_con_ubicacion,
     }
+
     response = client.post("/api/products", json=payload)
     assert response.status_code == 201, response.text
     return response.json()

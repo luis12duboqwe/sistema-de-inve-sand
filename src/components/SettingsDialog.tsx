@@ -12,13 +12,23 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
 import { useKV } from '@/hooks/use-kv'
-import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users, WarningOctagon } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { clearAllData } from '@/lib/dataInitializer'
 import { syncService } from '@/lib/syncService'
 import { toast } from 'sonner'
 import { ManageUsersDialog } from '@/components/ManageUsersDialog'
+
+type SyncProgressState = {
+  status: 'idle' | 'processing' | 'success' | 'error'
+  processed: number
+  total: number
+  lastEntity?: string
+  lastAction?: string
+  lastError?: string
+}
 
 interface SettingsDialogProps {
   open: boolean
@@ -30,11 +40,14 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings, onOpenSyncSettings }: SettingsDialogProps) {
   const [apiUrl, setApiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [useApi, setUseApi] = useKV<boolean>('settings_use_api', false)
+  const [pendingSyncFlag] = useKV<boolean>('settings_pending_sync', false)
   const [isTestingConnection, setIsTestingConnection] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [localApiUrl, setLocalApiUrl] = useState('')
   const [showManageUsers, setShowManageUsers] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({ status: 'idle', processed: 0, total: 0 })
 
   useEffect(() => {
     if (apiUrl) {
@@ -49,6 +62,26 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
       }
     }
   }, [apiUrl])
+
+  useEffect(() => {
+    if (!pendingSyncFlag && !isSyncing) {
+      setSyncProgress({ status: 'idle', processed: 0, total: 0 })
+    }
+  }, [pendingSyncFlag, isSyncing])
+
+  const syncProgressPercent = syncProgress.total > 0
+    ? Math.min(100, Math.round((syncProgress.processed / syncProgress.total) * 100))
+    : isSyncing
+      ? 5
+      : 0
+
+  const syncProgressLabel = syncProgress.total > 0
+    ? `${syncProgress.processed} / ${syncProgress.total} eventos`
+    : isSyncing
+      ? 'Preparando sincronización...'
+      : 'Sin eventos pendientes'
+
+  const showSyncProgress = isSyncing || syncProgress.status !== 'idle'
 
   const testConnection = async () => {
     setIsTestingConnection(true)
@@ -96,16 +129,72 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
       toast.error('Debe activar el modo API primero')
       return
     }
-    
+    if (isSyncing) {
+      return
+    }
+
+    setIsSyncing(true)
+    setSyncProgress({ status: 'processing', processed: 0, total: 0 })
+
     const toastId = toast.loading('Sincronizando datos locales a la nube...')
     try {
-      const result = await syncService.syncLocalToRemote()
-      toast.dismiss(toastId)
-      toast.success(`Sincronización completada: ${result.counts.products} productos, ${result.counts.locations} ubicaciones`)
+      const result = await syncService.syncLocalToRemote({
+        onProgress: event => {
+          setSyncProgress({
+            status: event.status,
+            processed: event.processed,
+            total: event.total,
+            lastEntity: event.event.entity,
+            lastAction: event.event.action,
+            lastError: event.error
+          })
+        }
+      })
+
+      if (result.total === 0) {
+        setSyncProgress({ status: 'success', processed: 0, total: 0 })
+        toast.success('No hay eventos pendientes por sincronizar.')
+        return
+      }
+
+      const remainingEvents = result.pendingEvents ?? 0
+      const pendingAfterSync = remainingEvents || result.failed
+
+      setSyncProgress(prev => ({
+        ...prev,
+        status: result.failed > 0 ? 'error' : 'success',
+        processed: result.total,
+        total: result.total,
+        lastError:
+          result.failed > 0
+            ? `Quedan ${pendingAfterSync} evento(s) pendientes por sincronizar. Revisa el historial para más detalles.`
+            : undefined
+      }))
+
+      const baseSummary = `Sincronización completada: ${result.synced}/${result.total} eventos`
+      const snapshotSummary = result.snapshot
+        ? `Datos actualizados (${result.snapshot.products} productos, ${result.snapshot.orders} órdenes, ${result.snapshot.stockEntries} existencias).`
+        : 'Sincronización finalizada.'
+
+      if (result.failed > 0) {
+        toast.warning(`${baseSummary}. ${result.failed} evento(s) con error. Quedan ${pendingAfterSync} pendientes.`)
+      } else if (remainingEvents > 0) {
+        toast.info(`${baseSummary}. Hay ${remainingEvents} evento(s) nuevos pendientes de sincronizar.`)
+      } else {
+        toast.success(`${baseSummary}. ${snapshotSummary}`)
+      }
     } catch (error) {
-      toast.dismiss(toastId)
-      toast.error('Error durante la sincronización')
+      const message = error instanceof Error ? error.message : 'Error durante la sincronización'
+      setSyncProgress(prev => ({
+        ...prev,
+        status: 'error',
+        lastError: message
+      }))
+      toast.error(message)
       console.error(error)
+    } finally {
+      toast.dismiss(toastId)
+      setIsSyncing(false)
     }
   }
 
@@ -293,10 +382,36 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
                   variant="secondary"
                   className="w-full"
                   size="sm"
+                  disabled={isSyncing}
                 >
-                  <ArrowsClockwise className="mr-2 h-4 w-4" />
-                  Sincronizar Local -&gt; Nube
+                  <ArrowsClockwise className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Sincronizando...' : 'Sincronizar Local -&gt; Nube'}
                 </Button>
+
+                {showSyncProgress && (
+                  <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                    <div className="flex items-center justify-between font-medium">
+                      <span>{syncProgressLabel}</span>
+                      <span>{syncProgressPercent}%</span>
+                    </div>
+                    <Progress value={syncProgressPercent} />
+                    {syncProgress.lastEntity && (
+                      <p className="text-muted-foreground">
+                        Último evento: {syncProgress.lastEntity} · {syncProgress.lastAction}
+                      </p>
+                    )}
+                    {syncProgress.status === 'error' && syncProgress.lastError && (
+                      <p className="text-destructive">{syncProgress.lastError}</p>
+                    )}
+                  </div>
+                )}
+
+                {pendingSyncFlag && !isSyncing && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-400/40 bg-amber-50/80 p-3 text-xs text-amber-700">
+                    <WarningOctagon size={14} />
+                    <span>Hay eventos pendientes por sincronizar. Reintenta cuando estés listo.</span>
+                  </div>
+                )}
               </div>
             </>
           )}

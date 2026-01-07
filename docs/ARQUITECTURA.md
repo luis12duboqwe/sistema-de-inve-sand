@@ -14,6 +14,8 @@
 
 El sistema ahora separa claramente dos conceptos:
 
+> **Nota de moneda:** Toda la operación financiera del sistema se realiza en **Lempiras (HNL)**. El campo `moneda` de `Product` se mantiene solo por compatibilidad, pero todas las órdenes, reportes y KPIs se calculan en HNL.
+
 ### **Ubicaciones Físicas** (Locations)
 - Tienda 1, Tienda 2, Tienda 3, Bodega, etc.
 - Cada ubicación tiene su propio inventario
@@ -457,10 +459,10 @@ curl http://localhost:8000/api/products
    - Alertas de stock bajo por ubicación
    - Métricas de ventas por perfil/canal
 
-4. **Multi-Moneda por Ubicación**
-   - Tienda en Honduras: HNL
-   - Tienda en USA: USD
-   - Conversión automática
+4. **Multi-Moneda por Ubicación (Descartado)**
+  - Se elimina del roadmap inmediato
+  - Toda la operación se mantiene en HNL conforme a la decisión estratégica
+  - Cualquier iniciativa futura requerirá tasas históricas y rediseño financiero completo
 
 ---
 

@@ -39,8 +39,8 @@
   - Implementado cálculo de tendencias y recomendaciones de reabastecimiento basado en historial real de BD.
 
 ### 3. Soporte Multi-moneda
-- **Estado**: Limitado/Documentado.
-- **Acción**: Se decidió limitar la versión actual a moneda única por complejidad. Documentado en `docs/LIMITATIONS.md`.
+- **Estado**: Fuera de alcance (confirmado).
+- **Acción**: Se cierra el experimento de multi-moneda y se estandariza la plataforma a **Lempiras (HNL)** en todas las operaciones. La justificación y el lineamiento oficial quedaron documentados en `docs/LIMITATIONS.md`.
 
 ### 4. Gestión de Usuarios
 - **Estado**: Completado.

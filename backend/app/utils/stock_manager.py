@@ -12,15 +12,22 @@ Características:
 """
 
 from typing import List, Optional, Tuple
+
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from decimal import Decimal
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 
 from app.models import Product, Stock, Location, ProductIMEI, StockHistory, IMEIHistory
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    """Return timezone-aware UTC timestamps for stock audits."""
+    return datetime.now(UTC)
 
 
 class StockValidationError(Exception):
@@ -282,6 +289,9 @@ class StockManager:
             raise StockValidationError("La cantidad debe ser mayor a 0")
 
         # Validación crítica: prevenir stock por debajo de reservado
+        self.db.flush()
+        self.db.refresh(stock)
+
         stock_resultante = stock.cantidad_disponible - quantity
 
         if stock_resultante < 0:
@@ -296,9 +306,33 @@ class StockManager:
                 f"Esto no debería ocurrir si las validaciones previas fueron correctas."
             )
         
-        # Decrementar stock
         stock_anterior = stock.cantidad_disponible
-        stock.cantidad_disponible -= quantity
+        stock_reservado = stock.cantidad_reservada
+
+        stock_libre = stock_anterior - stock_reservado
+        if stock_libre < quantity:
+            raise StockValidationError(
+                f"Stock insuficiente: libre={stock_libre}, solicitado={quantity}."
+            )
+
+        update_stmt = text(
+            """
+            UPDATE stock
+            SET cantidad_disponible = cantidad_disponible - :qty
+            WHERE id = :stock_id AND cantidad_disponible = :expected
+            """
+        )
+        result = self.db.execute(
+            update_stmt,
+            {"qty": quantity, "stock_id": stock.id, "expected": stock_anterior},
+        )
+
+        if result.rowcount != 1:
+            raise StockValidationError(
+                "El stock cambió durante la operación o no hay cantidad suficiente. Intente nuevamente."
+            )
+
+        self.db.refresh(stock)
 
         # Safety net: re-validar invariantes
         self._assert_stock_invariants(stock, context=f"decrease_stock:{operation_type}")
@@ -321,7 +355,7 @@ class StockManager:
             referencia_tipo="order" if order_id else None,
             notas=notes or f"Operación: {operation_type}",
             usuario=user_id,
-            created_at=datetime.utcnow()
+            created_at=_utcnow()
         )
         
         self.db.add(history_entry)
@@ -408,11 +442,110 @@ class StockManager:
             stock_nuevo=stock.cantidad_disponible,
             notas=notes or f"Operación: {operation_type}",
             usuario=user_id,
-            created_at=datetime.utcnow()
+            created_at=_utcnow()
         )
         
         self.db.add(history_entry)
         return stock, history_entry
+
+    def process_return_stock(
+        self,
+        *,
+        product_id: int,
+        location_id: int,
+        quantity: int,
+        defective: bool,
+        reference_id: int,
+        notes: Optional[str] = None,
+        user_id: Optional[str] = None,
+        create_if_missing: bool = True,
+    ) -> Tuple[Stock, StockHistory]:
+        """Gestiona el reintegro de stock por una devolución (defectuoso o vendible)."""
+        if quantity <= 0:
+            raise HTTPException(status_code=400, detail="La cantidad debe ser mayor a 0")
+
+        stock = (
+            self.db.query(Stock)
+            .filter(Stock.product_id == product_id, Stock.location_id == location_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not stock:
+            if not create_if_missing:
+                raise HTTPException(status_code=404, detail="Stock no encontrado para devolución")
+            stock = Stock(
+                product_id=product_id,
+                location_id=location_id,
+                cantidad_disponible=0,
+                cantidad_reservada=0,
+                cantidad_defectuosa=0,
+            )
+            self.db.add(stock)
+            self.db.flush()
+
+        if getattr(stock, "cantidad_defectuosa", None) is None:
+            stock.cantidad_defectuosa = 0
+
+        stock_anterior = stock.cantidad_disponible
+
+        if defective:
+            stock.cantidad_defectuosa = (stock.cantidad_defectuosa or 0) + quantity
+        else:
+            stock.cantidad_disponible += quantity
+
+        self._assert_stock_invariants(stock, context="process_return_stock")
+
+        history_entry = StockHistory(
+            product_id=product_id,
+            location_id=location_id,
+            tipo_cambio="devolucion_defectuosa" if defective else "devolucion",
+            cantidad=quantity,
+            stock_anterior=stock_anterior,
+            stock_nuevo=stock.cantidad_disponible,
+            referencia_id=reference_id,
+            referencia_tipo="return",
+            notas=notes or "Reingreso por devolución",
+            usuario=user_id,
+            created_at=_utcnow(),
+        )
+
+        self.db.add(history_entry)
+        return stock, history_entry
+
+    def process_return_imeis(
+        self,
+        imeis: List[ProductIMEI],
+        *,
+        return_id: int,
+        condition: str,
+        action: str,
+        user_id: Optional[str] = None,
+    ) -> List[IMEIHistory]:
+        """Libera IMEIs vendidos registrando el historial como devolución."""
+        history_entries: List[IMEIHistory] = []
+
+        for imei_record in imeis:
+            imei_record.vendido = False
+            imei_record.fecha_venta = None
+            imei_record.order_id = None
+
+            history_entry = IMEIHistory(
+                imei=imei_record.imei,
+                product_id=imei_record.product_id,
+                location_id=imei_record.location_id,
+                event_type="devolucion",
+                reference_id=return_id,
+                reference_type="return",
+                notes=f"Devolución por {condition} - Acción: {action}",
+                created_by=user_id,
+                created_at=_utcnow(),
+            )
+
+            self.db.add(history_entry)
+            history_entries.append(history_entry)
+
+        return history_entries
     
     def mark_imeis_as_sold(
         self,
@@ -437,7 +570,7 @@ class StockManager:
         
         for imei_record in imeis:
             imei_record.vendido = True
-            imei_record.fecha_venta = datetime.utcnow()
+            imei_record.fecha_venta = _utcnow()
             imei_record.order_id = order_id
             
             # Registrar en historial
@@ -450,7 +583,7 @@ class StockManager:
                 reference_type="order",
                 notes=notes or f"Vendido en orden #{order_id}",
                 created_by=user_id,
-                created_at=datetime.utcnow()
+                created_at=_utcnow()
             )
             
             self.db.add(history_entry)
@@ -500,7 +633,7 @@ class StockManager:
                 reference_type="transfer",
                 notes=notes or f"Transferido de {from_location_id} a {to_location_id}",
                 created_by=user_id,
-                created_at=datetime.utcnow()
+                created_at=_utcnow()
             )
             
             self.db.add(history_entry)
@@ -547,7 +680,7 @@ class StockManager:
                 reference_type="manual_release",
                 notes=notes or "Liberado manualmente o por cancelación",
                 created_by=user_id,
-                created_at=datetime.utcnow()
+                created_at=_utcnow()
             )
             
             self.db.add(history_entry)
@@ -584,17 +717,40 @@ class StockManager:
         if quantity <= 0:
             raise StockValidationError("La cantidad debe ser mayor a 0")
 
+        # Refrescar desde la base para evitar reservar sobre snapshots obsoletos
+        self.db.refresh(stock)
+
         self._assert_stock_invariants(stock, context="reserve_stock:pre")
 
-        # Validar que hay suficiente stock libre
+        # Validar que hay suficiente stock libre con los datos más recientes
         stock_libre = stock.cantidad_disponible - stock.cantidad_reservada
         if stock_libre < quantity:
             raise StockValidationError(
                 f"Stock insuficiente para reservar. Libre: {stock_libre}, Solicitado: {quantity}"
             )
-            
+
         stock_anterior_libre = stock_libre
-        stock.cantidad_reservada += quantity
+
+        rows_updated = (
+            self.db.query(Stock)
+            .filter(
+                Stock.id == stock.id,
+                Stock.cantidad_disponible == stock.cantidad_disponible,
+                Stock.cantidad_reservada == stock.cantidad_reservada,
+            )
+            .update(
+                {Stock.cantidad_reservada: Stock.cantidad_reservada + quantity},
+                synchronize_session=False,
+            )
+        )
+
+        if rows_updated != 1:
+            raise StockValidationError(
+                "El stock cambió mientras se intentaba reservar. Intente de nuevo."
+            )
+
+        self.db.flush()
+        self.db.refresh(stock)
         stock_nuevo_libre = stock.cantidad_disponible - stock.cantidad_reservada
 
         self._assert_stock_invariants(stock, context="reserve_stock:post")
@@ -610,7 +766,7 @@ class StockManager:
             referencia_tipo='transfer_pending',
             notas=notes or f"Reserva para transferencia #{transfer_id}",
             usuario=user_id,
-            created_at=datetime.utcnow()
+            created_at=_utcnow()
         )
         
         self.db.add(history_entry)
@@ -668,7 +824,7 @@ class StockManager:
                 referencia_tipo='transfer_rejected',
                 notas=notes or f"Reserva liberada de transferencia #{transfer_id}",
                 usuario=user_id,
-                created_at=datetime.utcnow()
+                created_at=_utcnow()
             )
             self.db.add(history_entry)
             return history_entry

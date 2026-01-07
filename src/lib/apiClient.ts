@@ -14,8 +14,34 @@ import type {
   CreateReturnRequest,
   Return,
   IMEIHistory,
+  ProductIMEI,
   AIProfileConfig,
-  WarrantyStatus
+  WarrantyStatus,
+  AIStatusResponse,
+  BusinessInsightsResponse,
+  DashboardStats,
+  SalesReport,
+  InventoryAlert,
+  StockSummaryByLocation,
+  SalesSummaryByLocation,
+  TopProductByLocationEntry,
+  CustomerStats,
+  CustomerHistory,
+  StockHistory,
+  StockHistoryStats,
+  StockHistoryCreateRequest,
+  AIContextPayload,
+  AIContextResponse,
+  AIReplyPayload,
+  AIReplyResponse,
+  AIInteractionLogPayload,
+  TrainingSubmissionPayload,
+  FlagTrollResponse,
+  PublicProduct,
+  PublicCatalogFilters,
+  PaginatedResponse,
+  SetupInitialAdminRequest,
+  AuthResponse
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
@@ -252,13 +278,13 @@ class ApiClient {
     throw lastError || new Error('Request failed after retries')
   }
 
-  async login(username: string, password: string): Promise<import('./types').AuthResponse> {
+  async login(username: string, password: string): Promise<AuthResponse> {
     const formData = new URLSearchParams()
     formData.append('username', username)
     formData.append('password', password)
 
     // Note: request method adds Content-Type: application/json by default, so we override it
-    const response = await this.request<import('./types').AuthResponse>('/auth/token', {
+    const response = await this.request<AuthResponse>('/auth/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -280,6 +306,19 @@ class ApiClient {
       }
     }
     
+    return response
+  }
+
+  async setupInitialAdmin(payload: SetupInitialAdminRequest): Promise<AuthResponse> {
+    const response = await this.request<AuthResponse>('/auth/setup', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+
+    if (response.access_token) {
+      this.setToken(response.access_token)
+    }
+
     return response
   }
 
@@ -346,6 +385,70 @@ class ApiClient {
     }
   }
 
+  // --- Reports & Analytics ---
+
+  async getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats> {
+    const queryParams = new URLSearchParams()
+    if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+    if (params?.location_id) queryParams.append('location_id', params.location_id.toString())
+
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/dashboard?${query}` : '/reports/dashboard'
+    return this.request<DashboardStats>(endpoint)
+  }
+
+  async getSalesReport(params?: {
+    sales_profile_slug?: string
+    date_from?: string
+    date_to?: string
+    top_limit?: number
+  }): Promise<SalesReport> {
+    const queryParams = new URLSearchParams()
+    if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+    if (params?.date_from) queryParams.append('date_from', params.date_from)
+    if (params?.date_to) queryParams.append('date_to', params.date_to)
+    if (params?.top_limit) queryParams.append('top_limit', params.top_limit.toString())
+
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/sales?${query}` : '/reports/sales'
+    return this.request<SalesReport>(endpoint)
+  }
+
+  async getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.location_id) queryParams.append('location_id', params.location_id.toString())
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/inventory/alerts?${query}` : '/reports/inventory/alerts'
+    return this.request<InventoryAlert[]>(endpoint)
+  }
+
+  async getStockSummaryByLocation(activeOnly = true): Promise<StockSummaryByLocation[]> {
+    const query = activeOnly ? '?active_only=true' : '?active_only=false'
+    return this.request<StockSummaryByLocation[]>(`/reports/stock-summary-by-location${query}`)
+  }
+
+  async getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.start_date) queryParams.append('start_date', params.start_date)
+    if (params?.end_date) queryParams.append('end_date', params.end_date)
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/sales-summary-by-location?${query}` : '/reports/sales-summary-by-location'
+    return this.request<SalesSummaryByLocation[]>(endpoint)
+  }
+
+  async getTopProductsByLocation(
+    locationId: number,
+    params?: { start_date?: string; end_date?: string; limit?: number }
+  ): Promise<TopProductByLocationEntry[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.start_date) queryParams.append('start_date', params.start_date)
+    if (params?.end_date) queryParams.append('end_date', params.end_date)
+    if (params?.limit) queryParams.append('limit', params.limit.toString())
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/top-products-by-location/${locationId}?${query}` : `/reports/top-products-by-location/${locationId}`
+    return this.request<TopProductByLocationEntry[]>(endpoint)
+  }
+
   // --- AI Intelligence Methods ---
   // (Moved to bottom of file to avoid duplicates)
 
@@ -371,6 +474,15 @@ class ApiClient {
     } catch (error) {
       console.error('Error getting location from API:', error)
       throw new Error(`Failed to get location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getLocationStock(locationId: number): Promise<StockByLocation[]> {
+    try {
+      return await this.request<StockByLocation[]>(`/locations/${locationId}/stock`)
+    } catch (error) {
+      console.error('Error getting location stock via API:', error)
+      throw new Error(`Failed to get location stock: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -483,23 +595,56 @@ class ApiClient {
     includeInactive = false
   ): Promise<ProductWithStock[]> {
     try {
-      const params = new URLSearchParams()
-      // V2.0: profile_slug is ignored by backend, removing to avoid confusion
-      // if (profileSlug) params.append('profile_slug', profileSlug)
-      if (search) params.append('search', search)
-      if (includeInactive) params.append('include_inactive', 'true')
-      params.append('per_page', '100') // Límite máximo del backend
+      const perPage = 100
+      let page = 1
+      const collected: ProductWithStock[] = []
 
-      const query = params.toString()
-      const endpoint = query ? `/products?${query}` : '/products?per_page=100'
-      
-      const response = await this.request<{ items: ProductWithStock[]; total: number }>(endpoint)
-      // El backend devuelve { items: [], total, page, per_page, pages }
-      return response.items || []
+      while (true) {
+        const params = new URLSearchParams()
+        // V2.0: profile_slug is ignored by backend, removing to avoid confusion
+        // if (profileSlug) params.append('profile_slug', profileSlug)
+        if (search) params.append('search', search)
+        if (includeInactive) params.append('include_inactive', 'true')
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/products?${params.toString()}`
+        const response = await this.request<{
+          items: ProductWithStock[]
+          total?: number
+          page?: number
+          per_page?: number
+          pages?: number
+        }>(endpoint)
+
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+
+      return collected
     } catch (error) {
       console.error('Error fetching products from API:', error)
       throw new Error(`Failed to fetch products: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  async getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>> {
+    const queryParams = new URLSearchParams()
+    if (filters?.search) queryParams.append('search', filters.search)
+    if (filters?.category) queryParams.append('category', filters.category)
+    if (filters?.per_page) queryParams.append('per_page', filters.per_page.toString())
+    if (filters?.page) queryParams.append('page', filters.page.toString())
+    const query = queryParams.toString()
+    const endpoint = query ? `/public/catalog?${query}` : '/public/catalog'
+    return this.request<PaginatedResponse<PublicProduct>>(endpoint)
   }
 
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
@@ -510,6 +655,47 @@ class ApiClient {
       console.error('Error fetching IMEIs from API:', error)
       return []
     }
+  }
+
+  async fetchProductIMEIs(filters: {
+    vendido?: boolean
+    location_id?: number
+    product_id?: number
+    search?: string
+  } = {}): Promise<ProductIMEI[]> {
+    const perPage = 250
+    let page = 1
+    const collected: ProductIMEI[] = []
+
+    try {
+      while (true) {
+        const params = new URLSearchParams()
+        if (filters.vendido !== undefined) params.append('vendido', String(filters.vendido))
+        if (filters.location_id) params.append('location_id', filters.location_id.toString())
+        if (filters.product_id) params.append('product_id', filters.product_id.toString())
+        if (filters.search) params.append('search', filters.search)
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/imeis?${params.toString()}`
+        const response = await this.request<PaginatedResponse<ProductIMEI>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+    } catch (error) {
+      console.error('Error fetching product IMEIs:', error)
+      throw new Error(`Failed to fetch IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+
+    return collected
   }
 
   async createProduct(
@@ -669,18 +855,38 @@ class ApiClient {
 
   async fetchOrders(salesProfileSlug?: string): Promise<OrderWithItems[]> {
     try {
-      const params = new URLSearchParams()
-      if (salesProfileSlug) params.append('sales_profile_slug', salesProfileSlug)
-      params.append('per_page', '100') // Límite máximo del backend
+      const perPage = 100
+      let page = 1
+      const orders: OrderWithItems[] = []
 
-      const query = params.toString()
-      const endpoint = query ? `/orders?${query}` : '/orders?per_page=100'
-      
-      const response = await this.request<{ items: ApiOrderResponse[]; total: number }>(endpoint)
-      // El backend devuelve { items: [], total, page, per_page, pages }
-      const apiOrders = response.items || []
-      
-      return apiOrders.map(order => this.mapApiOrder(order))
+      while (true) {
+        const params = new URLSearchParams()
+        if (salesProfileSlug) params.append('sales_profile_slug', salesProfileSlug)
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/orders?${params.toString()}`
+        const response = await this.request<{
+          items: ApiOrderResponse[]
+          total?: number
+          page?: number
+          per_page?: number
+          pages?: number
+        }>(endpoint)
+
+        const apiOrders = response.items || []
+        orders.push(...apiOrders.map(order => this.mapApiOrder(order)))
+
+        const total = typeof response.total === 'number' ? response.total : orders.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (apiOrders.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+
+      return orders
     } catch (error) {
       console.error('Error fetching orders from API:', error)
       throw new Error(`Failed to fetch orders: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -961,6 +1167,47 @@ class ApiClient {
     }
   }
 
+  async fetchIMEIHistoryEntries(filters: {
+    imei?: string
+    product_id?: number
+    location_id?: number
+    days?: number
+  } = {}): Promise<IMEIHistory[]> {
+    const perPage = 250
+    let page = 1
+    const collected: IMEIHistory[] = []
+
+    try {
+      while (true) {
+        const params = new URLSearchParams()
+        if (filters.imei) params.append('imei', filters.imei)
+        if (filters.product_id) params.append('product_id', filters.product_id.toString())
+        if (filters.location_id) params.append('location_id', filters.location_id.toString())
+        if (filters.days) params.append('days', filters.days.toString())
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/imeis/history?${params.toString()}`
+        const response = await this.request<PaginatedResponse<IMEIHistory>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+    } catch (error) {
+      console.error('Error fetching IMEI history:', error)
+      throw new Error(`Failed to fetch IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+
+    return collected
+  }
+
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
     try {
       return this.request<IMEIHistory[]>(`/imeis/history/${imei}`)
@@ -1004,6 +1251,65 @@ class ApiClient {
     }
   }
 
+  async generateBusinessInsights(params: {
+    sales_profile_slug?: string
+    sales_profile_id?: number
+    location_id?: number
+    days?: number
+    use_cache?: boolean
+    force_refresh?: boolean
+  } = {}): Promise<BusinessInsightsResponse> {
+    try {
+      const payload = {
+        ...params,
+        use_cache: params.use_cache ?? true,
+        force_refresh: params.force_refresh ?? false
+      }
+      return await this.request<BusinessInsightsResponse>('/ai/business-insights', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+    } catch (error) {
+      console.error('Error generating business insights:', error)
+      throw new Error(`Failed to generate business insights: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getAIContext(payload: AIContextPayload): Promise<AIContextResponse> {
+    return this.request<AIContextResponse>('/ai/context', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
+    return this.request<AIReplyResponse>('/ai/reply', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
+    return this.request<{ status: string }>('/ai/log', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }> {
+    return this.request<{ status: string }>('/ai/training/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse> {
+    return this.request<FlagTrollResponse>('/ai/flag-troll', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phoneNumber, reason })
+    })
+  }
+
   async linkOrderToInteraction(customerPhone: string, orderId: number): Promise<void> {
     try {
       await this.request('/ai/link-order', {
@@ -1017,12 +1323,36 @@ class ApiClient {
   }
 
   async listTrainingQueue(status = 'pending'): Promise<import('./types').TrainingQueueItem[]> {
+    const perPage = 100
+    let page = 1
+    const collected: import('./types').TrainingQueueItem[] = []
+
     try {
-      return await this.request<import('./types').TrainingQueueItem[]>(`/ai/training-queue?status=${status}`)
+      while (true) {
+        const params = new URLSearchParams()
+        params.append('status', status)
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/ai/training-queue?${params.toString()}`
+        const response = await this.request<PaginatedResponse<import('./types').TrainingQueueItem>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
     } catch (error) {
       console.error('Error fetching training queue:', error)
       return []
     }
+
+    return collected
   }
 
   async getTrainingQueue(status: string = 'pending'): Promise<any[]> {
@@ -1066,32 +1396,87 @@ class ApiClient {
     throw new Error("Generic updates to training queue items are not supported in API mode yet. Only status resolution is supported.")
   }
 
-  async listCustomers(search?: string): Promise<import('./types').Customer[]> {
+  async listCustomers(search?: string, options?: { isTroll?: boolean }): Promise<import('./types').Customer[]> {
+    const perPage = 100
+    let page = 1
+    const collected: import('./types').Customer[] = []
+
     try {
-      const query = search ? `?search=${encodeURIComponent(search)}` : ''
-      return await this.request<import('./types').Customer[]>(`/ai/customers${query}`)
+      while (true) {
+        const params = new URLSearchParams()
+        if (search) params.append('search', search)
+        if (options?.isTroll !== undefined) params.append('is_troll', String(options.isTroll))
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/ai/customers?${params.toString()}`
+        const response = await this.request<PaginatedResponse<import('./types').Customer>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
     } catch (error) {
       console.error('Error listing customers:', error)
       return []
     }
+
+    return collected
   }
 
-  async listCustomerStats(search?: string): Promise<any[]> {
+  async listCustomerStats(params?: {
+    sales_profile_slug?: string
+    page?: number
+    per_page?: number
+  }): Promise<CustomerStats[]> {
     try {
-      const params = new URLSearchParams()
-      if (search) params.append('search', search)
-      params.append('limit', '50')
-      
-      const response = await this.request<{ items: any[] }>(`/customers?${params.toString()}`)
-      return response.items || []
+      const queryParams = new URLSearchParams()
+      if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+      if (params?.page) queryParams.append('page', params.page.toString())
+      if (params?.per_page) queryParams.append('per_page', params.per_page.toString())
+      const query = queryParams.toString()
+      const endpoint = query ? `/customers?${query}` : '/customers'
+      return await this.request<CustomerStats[]>(endpoint)
     } catch (error) {
       console.error('Error fetching customer stats:', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to fetch customer stats')
     }
   }
 
-  async getCustomers(search?: string): Promise<any[]> {
-      return this.listCustomerStats(search)
+  async getCustomerStatsByPhone(
+    customerPhone: string,
+    params?: { sales_profile_slug?: string }
+  ): Promise<CustomerStats> {
+    const queryParams = new URLSearchParams()
+    if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+    const query = queryParams.toString()
+    const endpoint = query
+      ? `/customers/${encodeURIComponent(customerPhone)}/stats?${query}`
+      : `/customers/${encodeURIComponent(customerPhone)}/stats`
+    return this.request<CustomerStats>(endpoint)
+  }
+
+  async getCustomerHistory(
+    customerPhone: string,
+    params?: { sales_profile_slug?: string }
+  ): Promise<CustomerHistory> {
+    const queryParams = new URLSearchParams()
+    if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+    const query = queryParams.toString()
+    const endpoint = query
+      ? `/customers/${encodeURIComponent(customerPhone)}/history?${query}`
+      : `/customers/${encodeURIComponent(customerPhone)}/history`
+    return this.request<CustomerHistory>(endpoint)
+  }
+
+  async getCustomers(search?: string): Promise<import('./types').Customer[]> {
+    return this.listCustomers(search)
   }
 
   async updateCustomerStatus(id: number, updates: { is_troll?: boolean; is_blocked?: boolean; notes?: string }): Promise<import('./types').Customer> {
@@ -1111,14 +1496,6 @@ class ApiClient {
     return this.updateCustomerStatus(customerId, updates)
   }
 
-  async getCustomerInteractions(customerId: number): Promise<any[]> {
-    try {
-      return this.request<any[]>(`/customers/${customerId}/interactions`)
-    } catch (error) {
-      console.error('Error fetching interactions:', error)
-      return []
-    }
-  }
 
   async getBanks(activeOnly: boolean = true): Promise<Bank[]> {
     try {
@@ -1157,8 +1534,37 @@ class ApiClient {
   }
 
   // User Management
-  async listUsers(): Promise<import('./types').User[]> {
-    return this.request<import('./types').User[]>('/auth/users')
+  async listUsers(search?: string): Promise<import('./types').User[]> {
+    const perPage = 100
+    let page = 1
+    const collected: import('./types').User[] = []
+
+    try {
+      while (true) {
+        const params = new URLSearchParams()
+        if (search) params.append('search', search)
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/auth/users?${params.toString()}`
+        const response = await this.request<PaginatedResponse<import('./types').User>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+    } catch (error) {
+      console.error('Error listing users:', error)
+      return []
+    }
+
+    return collected
   }
 
   async createUser(user: Partial<import('./types').User> & { password?: string }): Promise<import('./types').User> {
@@ -1175,13 +1581,80 @@ class ApiClient {
   }
 
   async listRoles(): Promise<import('./types').Role[]> {
-    return this.request<import('./types').Role[]>('/auth/roles')
+    const perPage = 100
+    let page = 1
+    const collected: import('./types').Role[] = []
+
+    try {
+      while (true) {
+        const params = new URLSearchParams()
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/auth/roles?${params.toString()}`
+        const response = await this.request<PaginatedResponse<import('./types').Role>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+    } catch (error) {
+      console.error('Error listing roles:', error)
+      return []
+    }
+
+    return collected
   }
 
   async updateUserRole(userId: number, roleId: number): Promise<import('./types').User> {
     return this.request<import('./types').User>(`/auth/users/${userId}/role?role_id=${roleId}`, {
       method: 'PUT'
     })
+  }
+
+  async updateUser(userId: number, updates: Partial<import('./types').User> & { password?: string; role_id?: number }): Promise<import('./types').User> {
+    return this.request<import('./types').User>(`/auth/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    })
+  }
+
+  async listPermissions(): Promise<import('./types').Permission[]> {
+    const perPage = 200
+    let page = 1
+    const collected: import('./types').Permission[] = []
+
+    try {
+      while (true) {
+        const params = new URLSearchParams()
+        params.append('per_page', perPage.toString())
+        params.append('page', page.toString())
+
+        const endpoint = `/auth/permissions?${params.toString()}`
+        const response = await this.request<PaginatedResponse<import('./types').Permission>>(endpoint)
+        const items = response.items || []
+        collected.push(...items)
+
+        const total = typeof response.total === 'number' ? response.total : collected.length
+        const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
+        if (items.length < perPage || page >= totalPages) {
+          break
+        }
+
+        page += 1
+      }
+    } catch (error) {
+      console.error('Error listing permissions:', error)
+      return []
+    }
+
+    return collected
   }
 
   // Trade-In Policies
@@ -1206,14 +1679,57 @@ class ApiClient {
     tipo_cambio?: string
     date_from?: string
     date_to?: string
-  }): Promise<import('./types').StockHistory[]> {
+  }): Promise<StockHistory[]> {
     const queryParams = new URLSearchParams()
     if (params?.limit) queryParams.append('limit', params.limit.toString())
     if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
     if (params?.date_from) queryParams.append('date_from', params.date_from)
     if (params?.date_to) queryParams.append('date_to', params.date_to)
     
-    return this.request<import('./types').StockHistory[]>(`/stock-history/product/${productId}?${queryParams.toString()}`)
+    return this.request<StockHistory[]>(`/stock-history/product/${productId}?${queryParams.toString()}`)
+  }
+
+  async getLocationStockHistory(locationId: number, params?: {
+    limit?: number
+    tipo_cambio?: string
+    days?: number
+  }): Promise<StockHistory[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.limit) queryParams.append('limit', params.limit.toString())
+    if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
+    if (params?.days) queryParams.append('days', params.days.toString())
+    const query = queryParams.toString()
+    const endpoint = query
+      ? `/stock-history/location/${locationId}?${query}`
+      : `/stock-history/location/${locationId}`
+    return this.request<StockHistory[]>(endpoint)
+  }
+
+  async getProfileStockHistory(profileId: number, params?: {
+    limit?: number
+    tipo_cambio?: string
+    days?: number
+  }): Promise<StockHistory[]> {
+    const queryParams = new URLSearchParams()
+    if (params?.limit) queryParams.append('limit', params.limit.toString())
+    if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
+    if (params?.days) queryParams.append('days', params.days.toString())
+    const query = queryParams.toString()
+    const endpoint = query
+      ? `/stock-history/profile/${profileId}?${query}`
+      : `/stock-history/profile/${profileId}`
+    return this.request<StockHistory[]>(endpoint)
+  }
+
+  async createStockHistoryEntry(payload: StockHistoryCreateRequest): Promise<StockHistory> {
+    return this.request<StockHistory>('/stock-history', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async getProductStockStats(productId: number, days = 30): Promise<StockHistoryStats> {
+    return this.request<StockHistoryStats>(`/stock-history/stats/${productId}?days=${days}`)
   }
 
   // FAQ Management
@@ -1253,6 +1769,16 @@ class ApiClient {
     } catch (error) {
       console.error('Error fetching forecasting:', error)
       throw new Error(`Failed to fetch forecasting: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async getAIStatus(alertsLimit = 5): Promise<AIStatusResponse> {
+    try {
+      const params = new URLSearchParams({ alerts_limit: alertsLimit.toString() })
+      return this.request<AIStatusResponse>(`/ai/status?${params.toString()}`)
+    } catch (error) {
+      console.error('Error fetching AI status:', error)
+      throw new Error(`Failed to fetch AI status: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 }

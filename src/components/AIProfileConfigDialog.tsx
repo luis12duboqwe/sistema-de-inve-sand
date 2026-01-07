@@ -6,7 +6,7 @@ import { Label } from './ui/label'
 import { Textarea } from './ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Switch } from './ui/switch'
-import { apiClient } from '../lib/apiClient'
+import { inventoryServiceInstance } from '../lib/inventoryServiceFactory'
 import { AIProfileConfig } from '../lib/types'
 import { toast } from 'sonner'
 import { Spinner, Robot, Sparkle } from '@phosphor-icons/react'
@@ -45,7 +45,7 @@ export function AIProfileConfigDialog({
   const loadConfig = async (id: number) => {
     setLoading(true)
     try {
-      const data = await apiClient.getAIProfileConfig(id)
+      const data = await inventoryServiceInstance.getAIProfileConfig(id)
       if (data) {
         setConfig(data)
       } else {
@@ -73,7 +73,7 @@ export function AIProfileConfigDialog({
 
     setSaving(true)
     try {
-      await apiClient.updateAIProfileConfig(salesProfileId, {
+      await inventoryServiceInstance.updateAIProfileConfig(salesProfileId, {
         ...config,
         sales_profile_id: salesProfileId
       })

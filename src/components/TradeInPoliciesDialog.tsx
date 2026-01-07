@@ -8,8 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Trash, Plus } from '@phosphor-icons/react'
-import { apiClient } from '@/lib/apiClient'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { TradeInPolicy } from '@/lib/types'
+import { validateTradeInPolicy, type TradeInPolicyDraft } from '@/lib/validation/tradeInPolicySchema'
 
 interface TradeInPoliciesDialogProps {
   open: boolean
@@ -20,16 +21,27 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
   const [policies, setPolicies] = useState<TradeInPolicy[]>([])
   
   // Form State
-  const [newPolicy, setNewPolicy] = useState({
+  const [newPolicy, setNewPolicy] = useState<TradeInPolicyDraft>({
     rule_type: 'model_rejection',
     pattern: '',
     action: 'reject',
     reason: ''
   })
+  type PolicyField = 'rule_type' | 'pattern' | 'action' | 'reason'
+  const [formErrors, setFormErrors] = useState<Partial<Record<PolicyField, string>>>({})
+
+  const clearFieldError = (field: PolicyField) => {
+    setFormErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   const loadPolicies = async () => {
     try {
-      const data = await apiClient.getTradeInPolicies()
+      const data = await inventoryServiceInstance.getTradeInPolicies()
       setPolicies(data)
     } catch (error) {
       console.error(error)
@@ -44,13 +56,21 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
   }, [open])
 
   const handleCreate = async () => {
-    if (!newPolicy.pattern) {
-      toast.error('El patrón es obligatorio')
+    const validation = validateTradeInPolicy(newPolicy)
+    if (!validation.ok) {
+      const mapped: Partial<Record<PolicyField, string>> = {}
+      validation.issues.forEach(issue => {
+        if (issue.field && ['rule_type', 'pattern', 'action', 'reason'].includes(issue.field)) {
+          mapped[issue.field as PolicyField] = issue.message
+        }
+      })
+      setFormErrors(mapped)
+      toast.error(validation.issues[0]?.message ?? 'Revisa la información de la política')
       return
     }
 
     try {
-      await apiClient.createTradeInPolicy({
+      await inventoryServiceInstance.createTradeInPolicy({
         ...newPolicy,
         is_active: true
       } as any)
@@ -62,6 +82,7 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
         action: 'reject',
         reason: ''
       })
+      setFormErrors({})
       loadPolicies()
     } catch (error) {
       console.error(error)
@@ -73,7 +94,7 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
     if (!confirm('¿Está seguro de eliminar esta regla?')) return
     
     try {
-      await apiClient.deleteTradeInPolicy(id)
+      await inventoryServiceInstance.deleteTradeInPolicy(id)
       toast.success('Política eliminada')
       loadPolicies()
     } catch (error) {
@@ -93,12 +114,15 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 gap-2 items-end border p-4 rounded-md bg-slate-50">
+          <div className="grid gap-2 items-end border p-4 rounded-md bg-slate-50 md:grid-cols-5">
             <div className="space-y-2">
               <Label>Tipo de Regla</Label>
               <Select 
                 value={newPolicy.rule_type} 
-                onValueChange={v => setNewPolicy({...newPolicy, rule_type: v})}
+                onValueChange={v => {
+                  setNewPolicy({...newPolicy, rule_type: v})
+                  clearFieldError('rule_type')
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -109,24 +133,62 @@ export function TradeInPoliciesDialog({ open, onOpenChange }: TradeInPoliciesDia
                   <SelectItem value="condition_rejection">Rechazar Condición</SelectItem>
                 </SelectContent>
               </Select>
+              {formErrors.rule_type && (
+                <p className="text-xs text-red-600">{formErrors.rule_type}</p>
+              )}
             </div>
             
             <div className="space-y-2">
               <Label>Patrón (ej. "Xiaomi", "iPhone 7")</Label>
               <Input 
                 value={newPolicy.pattern}
-                onChange={e => setNewPolicy({...newPolicy, pattern: e.target.value})}
+                onChange={e => {
+                  setNewPolicy({...newPolicy, pattern: e.target.value})
+                  clearFieldError('pattern')
+                }}
                 placeholder="Texto a buscar..."
               />
+              {formErrors.pattern && (
+                <p className="text-xs text-red-600">{formErrors.pattern}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Acción al Coincidir</Label>
+              <Select
+                value={newPolicy.action}
+                onValueChange={value => {
+                  setNewPolicy({ ...newPolicy, action: value })
+                  clearFieldError('action')
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="reject">Rechazar automático</SelectItem>
+                  <SelectItem value="review">Marcar para revisión</SelectItem>
+                  <SelectItem value="allow">Permitir (marca blanca)</SelectItem>
+                </SelectContent>
+              </Select>
+              {formErrors.action && (
+                <p className="text-xs text-red-600">{formErrors.action}</p>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label>Razón (Opcional)</Label>
               <Input 
                 value={newPolicy.reason}
-                onChange={e => setNewPolicy({...newPolicy, reason: e.target.value})}
+                onChange={e => {
+                  setNewPolicy({...newPolicy, reason: e.target.value})
+                  clearFieldError('reason')
+                }}
                 placeholder="Por qué se rechaza..."
               />
+              {formErrors.reason && (
+                <p className="text-xs text-red-600">{formErrors.reason}</p>
+              )}
             </div>
 
             <Button onClick={handleCreate}>

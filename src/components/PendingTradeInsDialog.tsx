@@ -8,11 +8,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Wrench, CheckCircle, Gear } from '@phosphor-icons/react'
-import { apiClient } from '@/lib/apiClient'
-import { getUseApiSetting, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { ProductWithStock, Location } from '@/lib/types'
 import { useKV } from '@/hooks/use-kv'
 import { TradeInPoliciesDialog } from './TradeInPoliciesDialog'
+import { validateTradeInActivation, type TradeInActivationDraft } from '@/lib/validation/tradeInActivationSchema'
 
 interface PendingTradeInsDialogProps {
   open: boolean
@@ -26,31 +26,30 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
   const [showPolicies, setShowPolicies] = useState(false)
   
   // Activation Form State
-  const [activationForm, setActivationForm] = useState({
+  const [activationForm, setActivationForm] = useState<TradeInActivationDraft>({
     imei: '',
     color: '',
     capacidad: '',
     precio: '',
     targetLocationId: ''
   })
+  type ActivationField = keyof TradeInActivationDraft
+  const [formErrors, setFormErrors] = useState<Partial<Record<ActivationField, string>>>({})
+
+  const clearFieldError = (field: ActivationField) => {
+    setFormErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   const loadPendingProducts = async () => {
     try {
-      const useApi = await getUseApiSetting()
-
-      if (useApi) {
-        // Fetch inactive products and filter by category 'pendiente_revision'
-        const response = await apiClient.getProducts({ 
-          include_inactive: true,
-          per_page: 100 
-        })
-        const pending = response.items.filter(p => p.categoria === 'pendiente_revision')
-        setProducts(pending)
-      } else {
-        const pending = (await inventoryServiceInstance.fetchProducts(undefined, undefined, true))
-          .filter(p => p.categoria === 'pendiente_revision')
-        setProducts(pending)
-      }
+      const pending = (await inventoryServiceInstance.fetchProducts(undefined, undefined, true))
+        .filter(p => p.categoria === 'pendiente_revision')
+      setProducts(pending)
     } catch (error) {
       console.error(error)
       toast.error('Error al cargar retomas pendientes')
@@ -75,45 +74,36 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
       precio: product.precio.toString(),
       targetLocationId: currentLocation?.toString() || ''
     })
+    setFormErrors({})
   }
 
   const handleActivate = async () => {
     if (!selectedProduct) return
-    if (!activationForm.imei) {
-      toast.error('El IMEI es obligatorio para activar')
-      return
-    }
-    if (!activationForm.targetLocationId) {
-      toast.error('Debe seleccionar una ubicación de destino')
+
+    const validation = validateTradeInActivation(activationForm)
+    if (!validation.ok) {
+      const mapped: Partial<Record<ActivationField, string>> = {}
+      validation.issues.forEach(issue => {
+        if (issue.field && ['imei', 'color', 'capacidad', 'precio', 'targetLocationId'].includes(issue.field)) {
+          mapped[issue.field as ActivationField] = issue.message
+        }
+      })
+      setFormErrors(mapped)
+      toast.error(validation.issues[0]?.message ?? 'Revisa los datos de activación')
       return
     }
 
     try {
-      const useApi = await getUseApiSetting()
-
-      if (useApi) {
-        await apiClient.updateProduct(selectedProduct.id, {
-          ...selectedProduct,
-          imei: activationForm.imei, // Legacy field update
-          color: activationForm.color,
-          capacidad: activationForm.capacidad,
-          precio: parseFloat(activationForm.precio),
-          categoria: 'celular',
-          activo: true,
-          is_serialized: true
-        })
-      } else {
-        await inventoryServiceInstance.updateProduct(selectedProduct.id, {
-          ...selectedProduct,
-          imei: activationForm.imei,
-          color: activationForm.color,
-          capacidad: activationForm.capacidad,
-          precio: parseFloat(activationForm.precio),
-          categoria: 'celular',
-          activo: true,
-          is_serialized: true
-        })
-      }
+      await inventoryServiceInstance.updateProduct(selectedProduct.id, {
+        ...selectedProduct,
+        imei: activationForm.imei,
+        color: activationForm.color,
+        capacidad: activationForm.capacidad,
+        precio: parseFloat(activationForm.precio),
+        categoria: 'celular',
+        activo: true,
+        is_serialized: true
+      })
 
       const currentLocationId = selectedProduct.stock_items?.find(s => s.cantidad_disponible > 0)?.location_id
       const targetLocationId = parseInt(activationForm.targetLocationId)
@@ -128,17 +118,14 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
           imeis: [activationForm.imei]
         }
 
-        if (useApi) {
-          await apiClient.createStockTransfer(transferPayload)
-        } else {
-          await inventoryServiceInstance.createStockTransfer(transferPayload)
-        }
+        await inventoryServiceInstance.createStockTransfer(transferPayload)
         toast.success('Producto activado y transferido exitosamente')
       } else {
         toast.success('Producto activado exitosamente')
       }
 
       setSelectedProduct(null)
+      setFormErrors({})
       loadPendingProducts()
     } catch (error) {
       console.error(error)
@@ -175,37 +162,64 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
                 <Label>IMEI (Verificado)</Label>
                 <Input 
                   value={activationForm.imei} 
-                  onChange={e => setActivationForm({...activationForm, imei: e.target.value})}
+                  onChange={e => {
+                    setActivationForm({...activationForm, imei: e.target.value})
+                    clearFieldError('imei')
+                  }}
                   placeholder="Escanee o ingrese IMEI"
                 />
+                {formErrors.imei && (
+                  <p className="text-xs text-red-600">{formErrors.imei}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Precio de Venta (HNL)</Label>
                 <Input 
                   type="number"
                   value={activationForm.precio} 
-                  onChange={e => setActivationForm({...activationForm, precio: e.target.value})}
+                  onChange={e => {
+                    setActivationForm({...activationForm, precio: e.target.value})
+                    clearFieldError('precio')
+                  }}
                 />
+                {formErrors.precio && (
+                  <p className="text-xs text-red-600">{formErrors.precio}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Color</Label>
                 <Input 
                   value={activationForm.color} 
-                  onChange={e => setActivationForm({...activationForm, color: e.target.value})}
+                  onChange={e => {
+                    setActivationForm({...activationForm, color: e.target.value})
+                    clearFieldError('color')
+                  }}
                 />
+                {formErrors.color && (
+                  <p className="text-xs text-red-600">{formErrors.color}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Capacidad</Label>
                 <Input 
                   value={activationForm.capacidad} 
-                  onChange={e => setActivationForm({...activationForm, capacidad: e.target.value})}
+                  onChange={e => {
+                    setActivationForm({...activationForm, capacidad: e.target.value})
+                    clearFieldError('capacidad')
+                  }}
                 />
+                {formErrors.capacidad && (
+                  <p className="text-xs text-red-600">{formErrors.capacidad}</p>
+                )}
               </div>
               <div className="space-y-2 col-span-1 md:col-span-2">
                 <Label>Ubicación de Destino (Para Venta)</Label>
                 <Select 
                   value={activationForm.targetLocationId} 
-                  onValueChange={v => setActivationForm({...activationForm, targetLocationId: v})}
+                  onValueChange={v => {
+                    setActivationForm({...activationForm, targetLocationId: v})
+                    clearFieldError('targetLocationId')
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione ubicación" />
@@ -221,6 +235,9 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
                 <p className="text-xs text-muted-foreground">
                   Si selecciona una ubicación diferente a la actual, se creará una transferencia automática.
                 </p>
+                {formErrors.targetLocationId && (
+                  <p className="text-xs text-red-600">{formErrors.targetLocationId}</p>
+                )}
               </div>
             </div>
 
