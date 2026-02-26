@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Tuple
@@ -19,12 +20,13 @@ from app.schemas import (
     PaginatedResponse,
     TradeInResponse
 )
-from app.auth import get_current_active_user, get_current_user_optional, check_permission
+from app.auth import check_permission, get_current_active_user
 from app.services.order_service import OrderService, resolve_user_label
 from app.services.stock_transaction_helper import (
     PreparedSaleItem,
     StockTransactionHelper,
 )
+from app.services.notification_service import NotificationService
 from app.utils.order_financing import recompute_financing_from_details
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_tradeins import compute_trade_in_total
@@ -35,51 +37,22 @@ from app.utils.order_validators import (
     normalize_customer_phone,
 )
 from app.utils.stock_manager import StockManager, StockValidationError
+from app.utils.product_serializer import build_product_response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
     """Serializa un producto para incluirlo en la respuesta de una orden."""
-    # V2.0: el stock está distribuido por ubicación; si se conoce la ubicación de origen,
-    # se reporta el stock específico, de lo contrario se envía el total consolidado.
-    stock_disponible = 0
-    if hasattr(product, "stock_items") and product.stock_items:
-        if location_id:
-            matching_stock = next((s for s in product.stock_items if s.location_id == location_id), None)
-            if matching_stock:
-                reservado = matching_stock.cantidad_reservada or 0
-                stock_libre = (matching_stock.cantidad_disponible or 0) - reservado
-                stock_disponible = max(stock_libre, 0)
-            else:
-                stock_disponible = 0
-        else:
-            total = 0
-            for s in product.stock_items:
-                reservado = s.cantidad_reservada or 0
-                stock_libre = (s.cantidad_disponible or 0) - reservado
-                total += max(stock_libre, 0)
-            stock_disponible = total
-
-    return {
-        "id": product.id,
-        "profile_id": product.profile_id,
-        "sku": product.sku,
-        "nombre": product.nombre,
-        "categoria": product.categoria,
-        "marca": product.marca,
-        "modelo": product.modelo,
-        "color": product.color,
-        "capacidad": product.capacidad,
-        "condicion": product.condicion,
-        "precio": product.precio,
-        "costo": product.costo,
-        "moneda": product.moneda,
-        "garantia_meses": product.garantia_meses,
-        "activo": product.activo,
-        "is_serialized": product.is_serialized,
-        "stock_disponible": stock_disponible,
-    }
+    payload = build_product_response(
+        product,
+        target_location_id=location_id,
+        include_stock_items=False,
+        include_imeis=False,
+    )
+    return payload.model_dump()
 
 
 def _serialize_order(order: Order) -> OrderResponse:
@@ -105,6 +78,7 @@ def _serialize_order(order: Order) -> OrderResponse:
             "product_id": item.product_id,
             "cantidad": item.cantidad,
             "precio_unitario": item.precio_unitario,
+            "costo_unitario": getattr(item, "costo_unitario", None),
             "es_regalo_promocion": item.es_regalo_promocion,
             "product": ProductResponse(**_serialize_product_for_order(item.product, order.source_location_id)) if item.product else None,
             "imeis": imeis_list if imeis_list else None
@@ -134,12 +108,54 @@ def _serialize_order(order: Order) -> OrderResponse:
         trade_ins=trade_ins_response
     )
 
-@router.get("", response_model=PaginatedResponse[OrderResponse])
+
+def _emit_trade_in_alert_notification(
+    db: Session,
+    *,
+    order_id: int,
+    alerts: List[str],
+    location_id: Optional[int],
+    trade_in_ids: List[int],
+) -> None:
+    """Registra una notificación del sistema si hay incidencias con retomas."""
+    if not alerts:
+        return
+
+    notification_service = NotificationService(db)
+    metadata = {
+        "order_id": order_id,
+        "location_id": location_id,
+        "alerts": alerts,
+        "trade_in_ids": trade_in_ids,
+    }
+
+    try:
+        notification_service.create(
+            type="trade_in_issue",
+            title="Incidencias al revertir retomas",
+            message=(
+                f"Se detectaron problemas al revertir las retomas de la orden #{order_id}. "
+                "Revisa el historial de notas para más detalles."
+            ),
+            severity="warning",
+            source="orders",
+            metadata=metadata,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "No se pudo registrar la notificación de retomas para la orden %s",
+            order_id,
+        )
+
+@router.get("", response_model=PaginatedResponse[OrderResponse], dependencies=[Depends(check_permission("orders:view"))])
 def list_orders(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta (ej: 'bot-whatsapp')"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:view")),
 ):
     """
     Lista órdenes del sistema con paginación.
@@ -178,13 +194,14 @@ def list_orders(
     )
 
 
-@router.post("/search", response_model=PaginatedResponse[OrderResponse])
+@router.post("/search", response_model=PaginatedResponse[OrderResponse], dependencies=[Depends(check_permission("orders:view"))])
 def search_orders(
     search_params: OrderSearchParams,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:view")),
 ):
     """
     Búsqueda avanzada de órdenes con múltiples filtros y paginación.
@@ -262,11 +279,11 @@ def search_orders(
     )
 
 
-@router.post("", response_model=OrderResponse, status_code=201)
+@router.post("", response_model=OrderResponse, status_code=201, dependencies=[Depends(check_permission("orders:create"))])
 def create_order(
     order: OrderCreate, 
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(check_permission("orders:create"))
 ):
     """Crea una orden usando OrderService para centralizar la lógica V2.0."""
     service = OrderService(db)
@@ -274,7 +291,7 @@ def create_order(
     return _serialize_order(created_order)
 
 
-@router.put("/{order_id}/status", response_model=OrderResponse)
+@router.put("/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:edit"))])
 def update_order_status(
     order_id: int, 
     payload: OrderStatusUpdate, 
@@ -311,12 +328,16 @@ def update_order_status(
         db.commit()
         db.refresh(order)
         return _serialize_order(order)
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar estado: {str(e)}")
+        logger.exception("Error al actualizar estado de la orden %s", order_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al actualizar el estado de la orden. Intente nuevamente o contacte al administrador."
+        )
 
 
-@router.put("/{order_id}", response_model=OrderResponse)
+@router.put("/{order_id}", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:edit"))])
 def update_order(
     order_id: int, 
     updates: OrderUpdate, 
@@ -444,6 +465,7 @@ def update_order(
                     product_id=item_data.product.id,
                     cantidad=item_data.cantidad,
                     precio_unitario=item_data.precio_unitario,
+                    costo_unitario=item_data.product.costo if item_data.product and item_data.product.costo is not None else Decimal("0.00"),
                     es_regalo_promocion=item_data.es_regalo_promocion
                 )
                 db.add(new_item)
@@ -512,12 +534,20 @@ def update_order(
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar la orden: {str(e)}")
+        logger.exception("Error al actualizar la orden %s", order_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al actualizar la orden. Intente nuevamente o contacte al administrador."
+        )
 
-@router.get("/{order_id}", response_model=OrderResponse)
-def get_order(order_id: int, db: Session = Depends(get_db)):
+@router.get("/{order_id}", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:view"))])
+def get_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:view"))
+):
     """
     Obtiene una orden por su ID con todos sus items y detalles de productos.
     
@@ -540,7 +570,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
     return _serialize_order(order)
 
 
-@router.post("/{order_id}/cancel", response_model=OrderResponse)
+@router.post("/{order_id}/cancel", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:edit"))])
 def cancel_order(
     order_id: int,
     reason: Optional[str] = None,
@@ -582,19 +612,13 @@ def cancel_order(
             detail="La orden ya está cancelada. El stock ya fue devuelto anteriormente."
         )
     
-    # Validar que no se cancele una orden completada (debe usar proceso de devolución)
     # V2.0 FIX: Permitimos cancelar órdenes completadas para facilitar correcciones
-    # if order.estado == "completada":
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail="No se puede cancelar una orden completada. Use el proceso de devolución o ajuste de inventario."
-    #     )
     
     try:
         # StockHistory y ProductIMEI ya están importados globalmente
         
-        print(f"🔄 Cancelando orden {order_id} - Estado actual: {order.estado}")
-        print(f"  📋 Orden tiene {len(order.items)} items")
+        logger.info("Cancelando orden %s - estado actual: %s", order_id, order.estado)
+        logger.debug("Orden %s tiene %s items", order_id, len(order.items))
         
         # Inicializar StockManager
         stock_manager = StockManager(db)
@@ -602,7 +626,14 @@ def cancel_order(
         
         # Procesar cada item de la orden
         for idx, item in enumerate(order.items):
-            print(f"  🔢 Item {idx + 1}/{len(order.items)}: Producto {item.product_id}, Cantidad {item.cantidad}")
+            logger.debug(
+                "Procesando item %s/%s de la orden %s (producto %s, cantidad %s)",
+                idx + 1,
+                len(order.items),
+                order_id,
+                item.product_id,
+                item.cantidad
+            )
             
             # 1. Devolver stock a la ubicación de origen
             if order.source_location_id:
@@ -630,8 +661,38 @@ def cancel_order(
                         user_id=user_identifier
                 )
 
+        trade_in_alerts: List[str] = []
+
         # Revertir retomas ingresadas automáticamente al crear la orden
         if order.trade_ins:
+            def _register_trade_in_alert(
+                message: str,
+                trade_in_obj: TradeIn,
+                product_id: Optional[int] = None,
+                stock_entry: Optional[Stock] = None,
+            ) -> None:
+                logger.warning(message)
+                trade_in_alerts.append(message)
+                if trade_in_obj:
+                    prefix = " | " if trade_in_obj.notas else ""
+                    trade_in_obj.notas = f"{trade_in_obj.notas or ''}{prefix}{message}"
+
+                if product_id:
+                    stock_before = int(stock_entry.cantidad_disponible) if stock_entry else 0
+                    stock_history = StockHistory(
+                        product_id=product_id,
+                        location_id=order.source_location_id,
+                        tipo_cambio="retoma_alerta",
+                        cantidad=0,
+                        stock_anterior=stock_before,
+                        stock_nuevo=stock_before,
+                        referencia_id=order_id,
+                        referencia_tipo="order_cancellation",
+                        notas=message,
+                        usuario=user_identifier,
+                    )
+                    db.add(stock_history)
+
             for trade_in in order.trade_ins:
                 target_product = None
                 stock_entry = None
@@ -666,8 +727,30 @@ def cancel_order(
                             Stock.location_id == order.source_location_id
                         ).with_for_update().first()
 
+                can_adjust_stock = True
+                if not target_product:
+                    _register_trade_in_alert(
+                        message=(
+                            f"No se encontró producto coincidente para la retoma #{trade_in.id} "
+                            f"al cancelar la orden {order_id}."
+                        ),
+                        trade_in_obj=trade_in,
+                    )
+                    can_adjust_stock = False
+                elif not stock_entry or stock_entry.cantidad_disponible <= 0:
+                    _register_trade_in_alert(
+                        message=(
+                            f"Sin stock disponible para revertir la retoma #{trade_in.id} del producto {target_product.id} "
+                            f"al cancelar la orden {order_id}."
+                        ),
+                        trade_in_obj=trade_in,
+                        product_id=target_product.id,
+                        stock_entry=stock_entry,
+                    )
+                    can_adjust_stock = False
+
                 # Ajustar stock de la retoma
-                if target_product and stock_entry and stock_entry.cantidad_disponible > 0:
+                if can_adjust_stock:
                     try:
                         stock_manager.decrease_stock(
                             stock=stock_entry,
@@ -677,9 +760,18 @@ def cancel_order(
                             user_id=user_identifier,
                             order_id=order_id
                         )
-                    except StockValidationError:
-                        # Si falla por reservas u otro motivo, loguear y continuar (no bloquear cancelación)
-                        print(f"⚠️ No se pudo revertir stock de retoma para producto {target_product.id}")
+                    except StockValidationError as exc:
+                        logger.error(f"ERROR CRÍTICO EN RETOMA: Falló reversión de stock para orden #{order_id}. Exception: {exc}")
+                        warning_msg = (
+                            f"No se pudo revertir stock de retoma para producto {target_product.id}"
+                            f" al cancelar la orden {order_id}: {exc}"
+                        )
+                        _register_trade_in_alert(
+                            message=warning_msg,
+                            trade_in_obj=trade_in,
+                            product_id=target_product.id,
+                            stock_entry=stock_entry,
+                        )
 
                 # Eliminar IMEI ingresado por la retoma (si se creó)
                 if imei_record:
@@ -702,6 +794,11 @@ def cancel_order(
                     if total_stock == 0 and target_product.sku and target_product.sku.startswith('RET-'):
                         target_product.activo = False
         
+        if trade_in_alerts:
+            alert_text = " || ".join(trade_in_alerts)
+            note_prefix = "ADVERTENCIA RETOMA: "
+            order.notes = (order.notes + " | " if order.notes else "") + note_prefix + alert_text
+
         # 3. Actualizar estado de la orden PRIMERO (para evitar doble procesamiento)
         old_estado = order.estado
         order.estado = "cancelada"
@@ -711,26 +808,45 @@ def cancel_order(
         # Flush para que el estado se actualice inmediatamente
         db.flush()
         
-        print(f"✅ Orden {order_id} cancelada: {old_estado} → cancelada")
+        logger.info("Orden %s cancelada: %s -> cancelada", order_id, old_estado)
         
         db.commit()
         db.refresh(order)
+
+        if trade_in_alerts:
+            trade_in_ids = [
+                trade_in.id
+                for trade_in in (order.trade_ins or [])
+                if getattr(trade_in, "id", None)
+            ]
+            _emit_trade_in_alert_notification(
+                db,
+                order_id=order.id,
+                alerts=trade_in_alerts.copy(),
+                location_id=order.source_location_id,
+                trade_in_ids=trade_in_ids,
+            )
         
         return _serialize_order(order)
     
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
+        logger.exception("Error al cancelar la orden %s", order_id)
         raise HTTPException(
             status_code=500,
-            detail=f"Error al cancelar la orden: {str(e)}"
+            detail="Error interno al cancelar la orden. Intente nuevamente o contacte al administrador."
         )
 
 
-@router.delete("/{order_id}", status_code=204)
-def delete_order(order_id: int, db: Session = Depends(get_db)):
+@router.delete("/{order_id}", status_code=204, dependencies=[Depends(check_permission("orders:delete"))])
+def delete_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit"))
+):
     """
     Elimina una orden del sistema y repone el stock de los productos.
     
@@ -749,86 +865,41 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
         - 404: Si la orden no existe
         - 500: Si ocurre un error al eliminar
     """
-    print(f"🗑️ [DELETE ORDER] Iniciando eliminación de orden {order_id}")
+    logger.info("Iniciando eliminación de la orden %s", order_id)
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
-        print(f"❌ [DELETE ORDER] Orden {order_id} no encontrada")
+        logger.error("Orden %s no encontrada al intentar eliminarla", order_id)
         raise HTTPException(
             status_code=404,
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
     
-    # Advertir si se intenta eliminar orden completada (mejor usar cancelación)
-    if order.estado == "completada":
+    # En V2.0 la eliminación directa está prohibida salvo que ya esté cancelada
+    if order.estado != "cancelada":
         raise HTTPException(
             status_code=400,
-            detail="No se puede eliminar una orden completada. Use POST /orders/{order_id}/cancel para cancelar o desactive la orden."
+            detail="Elimina solo órdenes ya canceladas. Usa POST /orders/{order_id}/cancel para cancelar y liberar stock/IMEIs."
         )
     
-    print(f"✅ [DELETE ORDER] Orden {order_id} encontrada, tiene {len(order.items)} items")
-    print(f"  📊 Estado de la orden: {order.estado}")
+    logger.info(
+        "Orden %s encontrada para eliminación; contiene %s items",
+        order_id,
+        len(order.items)
+    )
+    logger.debug("Estado actual de la orden %s: %s", order_id, order.estado)
     
     try:
-        # Solo devolver stock si la orden NO está cancelada (las canceladas ya devolvieron el stock)
-        if order.estado != "cancelada":
-            print(f"  ♻️ Devolviendo stock (orden en estado '{order.estado}')")
-            # Reponer stock antes de eliminar
-            for item in order.items:
-                # V2.0: Devolver stock a la ubicación de origen
-                if order.source_location_id:
-                    stock = db.query(Stock).filter(
-                        Stock.product_id == item.product_id,
-                        Stock.location_id == order.source_location_id
-                    ).first()
-                else:
-                    # Legacy: Sin ubicación específica
-                    stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
-
-                # Crear el registro de stock si fue eliminado accidentalmente (solo cuando hay ubicación)
-                if not stock:
-                    if order.source_location_id:
-                        stock = Stock(
-                            product_id=item.product_id,
-                            location_id=order.source_location_id,
-                            cantidad_disponible=0,
-                            cantidad_reservada=0
-                        )
-                        db.add(stock)
-                        db.flush()
-                        old_stock = 0
-                    else:
-                        # No hay ubicación (legacy) y tampoco registro de stock; no se puede reponer
-                        old_stock = 0
-                        stock = None
-                else:
-                    old_stock = stock.cantidad_disponible
-
-                if stock:
-                    stock.cantidad_disponible += item.cantidad
-                    print(f"    📦 Producto {item.product_id}: stock {old_stock} -> {stock.cantidad_disponible}")
-                
-                # Liberar IMEIs asociados a esta orden
-                # ProductIMEI ya está importado globalmente
-                imeis_vendidos = db.query(ProductIMEI).filter(
-                    ProductIMEI.order_id == order.id,
-                    ProductIMEI.product_id == item.product_id,
-                    ProductIMEI.vendido == True
-                ).all()
-                
-                for imei_obj in imeis_vendidos:
-                    imei_obj.vendido = False
-                    imei_obj.order_id = None
-                    print(f"    🔓 IMEI {imei_obj.imei} liberado")
-        else:
-            print(f"  ⏭️  Orden ya cancelada - stock ya fue devuelto, no se vuelve a devolver")
-        
-        # Eliminar orden (items se eliminan en cascada)
-        print(f"🗑️ [DELETE ORDER] Eliminando orden {order_id} de la base de datos...")
+        # Eliminar orden (items se eliminan en cascada). No se toca stock/IMEIs porque la
+        # cancelación previa ya devolvió todo mediante StockManager.
+        logger.info("Eliminando orden %s de la base de datos (ya cancelada)", order_id)
         db.delete(order)
         db.commit()
-        print(f"✅ [DELETE ORDER] Orden {order_id} eliminada exitosamente")
+        logger.info("Orden %s eliminada exitosamente", order_id)
         return None
-    except Exception as e:
-        print(f"❌ [DELETE ORDER] Error al eliminar orden {order_id}: {str(e)}")
+    except Exception as exc:
+        logger.exception("Error al eliminar la orden %s", order_id)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al eliminar orden: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al eliminar la orden. Intente nuevamente o contacte al administrador."
+        )

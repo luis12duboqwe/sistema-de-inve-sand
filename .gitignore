@@ -27,6 +27,9 @@ dist-ssr
 .env
 backend/.env
 deploy/.env*
+.env.production
+.env.local
+.env.*.local
 **/agent-eval-report*
 packages
 pids
@@ -34,3 +37,29 @@ pids
 .devcontainer/
 
 .spark-workbench-id
+
+# Production files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+inventory.db-shm
+inventory.db-wal
+backend/inventory.db-shm
+backend/inventory.db-wal
+backups/
+logs/
+uploads/
+
+# Python virtual envs
+.venv/
+.venv-*/
+venv/
+
+# Generic temp artifacts
+*.tmp
+*.temp
+
+# Docker volumes
+postgres_data/
+redis_data/

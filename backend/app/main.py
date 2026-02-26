@@ -6,11 +6,36 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import logging
 
 from app.database import init_db, get_db, check_db_connection
+from app.auth import check_permission
 from app.routers import (
-    profiles, products, orders, faq, customers, reports, 
-    auth_router, stock_transfers, suppliers, stock_history,
-    locations, sales_profiles, returns, imeis, ai_intelligence,
-    financing, public, forecasting, analytics
+    profiles,
+    products,
+    orders,
+    faq,
+    customers,
+    reports,
+    auth_router,
+    stock_transfers,
+    suppliers,
+    stock_history,
+    locations,
+    sales_profiles,
+    returns,
+    imeis,
+    ai_intelligence,
+    financing,
+    public,
+    forecasting,
+    analytics,
+    notifications,
+    webhooks,
+    message_templates,
+    ai_analytics,
+    cash,
+    audit,
+    inventory_count,
+    stock,
+    system_settings,
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
@@ -109,6 +134,15 @@ app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
 app.include_router(forecasting.router)
 app.include_router(analytics.router)
+app.include_router(notifications.router)
+app.include_router(webhooks.router)
+app.include_router(message_templates.router)
+app.include_router(ai_analytics.router)
+app.include_router(cash.router)
+app.include_router(audit.router)
+app.include_router(inventory_count.router)
+app.include_router(stock.router)
+app.include_router(system_settings.router)
 
 @app.get("/")
 def read_root():
@@ -124,19 +158,34 @@ def read_root():
         "docs": "/docs"
     }
 
-@app.post("/api/init-data", tags=["Inicialización"])
+
+@app.get("/health")
+def health_check():
+    """Health check básico para monitoreo e infraestructura."""
+    return {
+        "status": "ok",
+        "service": "inventory-api",
+        "version": "2.0.0"
+    }
+
+
+@app.get("/api/health")
+def api_health_check():
+    """Alias legado/compatibilidad para health check bajo prefijo /api."""
+    return health_check()
+
+@app.post("/api/init-data", tags=["Inicialización"], dependencies=[Depends(check_permission("settings:edit"))])
 def initialize_sample_data(db: Session = Depends(get_db)):
     """
     Inicializa datos de ejemplo en la base de datos.
-    
-    Crea un perfil "Softmobile" con productos de ejemplo si no existen.
-    Es idempotente: si ya existen datos, no los duplica.
-    
-    Returns:
-        - message: Mensaje de confirmación
-        - profile: Información del perfil creado
-        - products_created: Número de productos inicializados
+    Bloqueado en producción para evitar datos no autorizados.
     """
+    if prod_settings.is_production():
+        raise HTTPException(
+            status_code=403,
+            detail="Endpoint deshabilitado en producción"
+        )
+
     try:
         existing_profile = db.query(Profile).filter(Profile.slug == "softmobile").first()
         if existing_profile:
@@ -150,7 +199,6 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         db.add(profile)
         db.flush()
 
-        # V2.0: crear ubicación por defecto para asignar stock inicial
         default_location = db.query(Location).filter(Location.nombre == "Tienda Principal").first()
         if not default_location:
             default_location = Location(

@@ -74,6 +74,7 @@ Esto crea:
 
 # Tienda 1
 curl -X POST http://localhost:8000/api/locations \
+  -H "Authorization: Bearer TU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
     "nombre": "Tienda 1 - Centro",
@@ -90,6 +91,7 @@ curl -X POST http://localhost:8000/api/locations \
 ```bash
 # Bot WhatsApp 1
 curl -X POST http://localhost:8000/api/sales-profiles \
+  -H "Authorization: Bearer TU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Bot WhatsApp 1",
@@ -113,6 +115,7 @@ curl -X POST http://localhost:8000/api/sales-profiles \
 **Desde la API:**
 ```bash
 curl -X POST http://localhost:8000/api/locations \
+  -H "Authorization: Bearer TU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
     "nombre": "Tienda Centro",
@@ -133,6 +136,7 @@ curl -X POST http://localhost:8000/api/locations \
 **Desde la API:**
 ```bash
 curl -X POST http://localhost:8000/api/sales-profiles \
+  -H "Authorization: Bearer TU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Bot WhatsApp Tienda 1",

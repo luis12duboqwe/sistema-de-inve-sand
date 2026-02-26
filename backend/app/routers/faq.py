@@ -3,15 +3,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 import math
+import logging
 from app.database import get_db
 from app.models import FAQEntry, User
 from app.schemas import FAQEntryCreate, FAQEntryResponse, FAQEntryUpdate, PaginatedResponse
 from app.auth import check_permission
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-@router.get("", response_model=PaginatedResponse[FAQEntryResponse])
+@router.get("", response_model=PaginatedResponse[FAQEntryResponse], dependencies=[Depends(check_permission("settings:view"))])
 def list_faq_entries(
     activa: bool = Query(True, description="Filtrar por entradas activas"),
     categoria: str = Query(None, description="Filtrar por categoría"),
@@ -52,7 +54,7 @@ def list_faq_entries(
     )
 
 
-@router.get("/search", response_model=List[FAQEntryResponse])
+@router.get("/search", response_model=List[FAQEntryResponse], dependencies=[Depends(check_permission("settings:view"))])
 def search_faq_entries(
     query: str = Query(..., description="Texto de la pregunta del cliente"),
     limit: int = Query(3, description="Número máximo de resultados"),
@@ -110,10 +112,11 @@ def search_faq_entries(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al buscar entradas FAQ: {str(e)}")
+        logger.exception("Error al buscar entradas FAQ")
+        raise HTTPException(status_code=500, detail="Error interno al buscar entradas FAQ. Intente nuevamente o contacte al administrador.")
 
 
-@router.post("", response_model=FAQEntryResponse, status_code=201)
+@router.post("", response_model=FAQEntryResponse, status_code=201, dependencies=[Depends(check_permission("settings:edit"))])
 def create_faq_entry(
     faq_entry: FAQEntryCreate, 
     db: Session = Depends(get_db),
@@ -145,10 +148,11 @@ def create_faq_entry(
         return db_faq
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al crear entrada FAQ: {str(e)}")
+        logger.exception("Error al crear entrada FAQ")
+        raise HTTPException(status_code=500, detail="Error interno al crear entrada FAQ. Intente nuevamente o contacte al administrador.")
 
 
-@router.get("/{faq_id}", response_model=FAQEntryResponse)
+@router.get("/{faq_id}", response_model=FAQEntryResponse, dependencies=[Depends(check_permission("settings:view"))])
 def get_faq_entry(faq_id: int, db: Session = Depends(get_db)):
     """
     Obtiene una entrada FAQ por su ID.
@@ -169,7 +173,7 @@ def get_faq_entry(faq_id: int, db: Session = Depends(get_db)):
     return faq_entry
 
 
-@router.patch("/{faq_id}", response_model=FAQEntryResponse)
+@router.patch("/{faq_id}", response_model=FAQEntryResponse, dependencies=[Depends(check_permission("settings:edit"))])
 def update_faq_entry(
     faq_id: int, 
     updates: FAQEntryUpdate, 
@@ -218,10 +222,11 @@ def update_faq_entry(
         return faq_entry
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar entrada FAQ: {str(e)}")
+        logger.exception("Error al actualizar entrada FAQ")
+        raise HTTPException(status_code=500, detail="Error interno al actualizar entrada FAQ. Intente nuevamente o contacte al administrador.")
 
 
-@router.delete("/{faq_id}", status_code=204)
+@router.delete("/{faq_id}", status_code=204, dependencies=[Depends(check_permission("settings:edit"))])
 def delete_faq_entry(
     faq_id: int, 
     db: Session = Depends(get_db),
@@ -253,4 +258,5 @@ def delete_faq_entry(
         return None
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al eliminar entrada FAQ: {str(e)}")
+        logger.exception("Error al eliminar entrada FAQ")
+        raise HTTPException(status_code=500, detail="Error interno al eliminar entrada FAQ. Intente nuevamente o contacte al administrador.")

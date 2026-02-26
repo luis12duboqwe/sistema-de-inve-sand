@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 from typing import List, Optional
 from datetime import UTC, datetime
+import logging
 
 from app.database import get_db
 from app.models import StockTransfer, Product, Location, Stock, StockHistory, IMEIHistory, User
@@ -14,11 +15,12 @@ from app.schemas import (
     PaginatedResponse
 )
 
-from app.auth import get_current_active_user, check_permission
+from app.auth import check_permission, get_current_active_user
 from app.utils.stock_manager import StockManager, StockValidationError
 from app.utils.order_validators import validate_product_exists, validate_location_exists
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock_transfers"])
+logger = logging.getLogger(__name__)
 
 def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
     """Serializa una transferencia de stock con información adicional de ubicaciones V2.0"""
@@ -48,11 +50,11 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
     )
 
 
-@router.post("", response_model=StockTransferResponse, status_code=201)
+@router.post("", response_model=StockTransferResponse, status_code=201, dependencies=[Depends(check_permission("inventory:edit"))])
 def create_transfer(
     transfer: StockTransferCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(check_permission("inventory:edit"))
 ):
     """
     Crea una nueva transferencia de stock entre ubicaciones físicas (V2.0).
@@ -147,9 +149,10 @@ def create_transfer(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         db.rollback()
+        logger.exception("Error al crear transferencia")
         raise HTTPException(
             status_code=500,
-            detail=f"Error al crear la transferencia: {str(e)}"
+            detail="Error interno al crear la transferencia. Intente nuevamente o contacte al administrador."
         )
 
 
@@ -205,7 +208,7 @@ def list_transfers(
     )
 
 
-@router.get("/{transfer_id}", response_model=StockTransferResponse)
+@router.get("/{transfer_id}", response_model=StockTransferResponse, dependencies=[Depends(check_permission("inventory:view"))])
 def get_transfer(
     transfer_id: int,
     db: Session = Depends(get_db)
@@ -396,9 +399,10 @@ def confirm_transfer(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         db.rollback()
+        logger.exception("Error al confirmar transferencia")
         raise HTTPException(
             status_code=500,
-            detail=f"Error al confirmar la transferencia: {str(e)}"
+            detail="Error interno al confirmar la transferencia. Intente nuevamente o contacte al administrador."
         )
 
 
@@ -484,9 +488,10 @@ def reject_transfer(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         db.rollback()
+        logger.exception("Error al rechazar transferencia")
         raise HTTPException(
             status_code=500,
-            detail=f"Error al rechazar la transferencia: {str(e)}"
+            detail="Error interno al rechazar la transferencia. Intente nuevamente o contacte al administrador."
         )
 
 
@@ -565,7 +570,8 @@ def cancel_transfer(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         db.rollback()
+        logger.exception("Error al cancelar transferencia")
         raise HTTPException(
             status_code=500,
-            detail=f"Error al cancelar la transferencia: {str(e)}"
+            detail="Error interno al cancelar la transferencia. Intente nuevamente o contacte al administrador."
         )

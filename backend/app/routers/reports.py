@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
 from typing import Optional, List
 from datetime import datetime, timedelta, date
 from decimal import Decimal
@@ -16,7 +16,7 @@ from app.utils.order_validators import validate_location_exists
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
-@router.get("/dashboard", response_model=DashboardStats)
+@router.get("/dashboard", response_model=DashboardStats, dependencies=[Depends(check_permission("reports:view"))])
 def get_dashboard_stats(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar ventas por canal de venta"),
     location_id: Optional[int] = Query(None, description="Filtrar stock por ubicación"),
@@ -47,18 +47,28 @@ def get_dashboard_stats(
     if location_id:
         location_obj = validate_location_exists(db, location_id)
         stock_query = stock_query.filter(Stock.location_id == location_obj.id)
-    
-    stocks = stock_query.all()
-    low_stock_count = sum(1 for s in stocks if 0 < s.cantidad_disponible < 10)
-    out_of_stock_count = sum(1 for s in stocks if s.cantidad_disponible == 0)
-    
-    # Inventory value - Por ubicación si se especifica
-    total_inventory_value = Decimal("0.00")
-    for stock in stocks:
-        if stock.product:
-            # V2.0: Usar costo si existe, sino precio (fallback)
-            valor_unitario = stock.product.costo if stock.product.costo > 0 else stock.product.precio
-            total_inventory_value += valor_unitario * stock.cantidad_disponible
+
+    unit_value_expr = func.coalesce(
+        func.nullif(Product.costo, 0),
+        Product.precio
+    )
+
+    stock_stats = stock_query.with_entities(
+        func.sum(
+            case((Stock.cantidad_disponible == 0, 1), else_=0)
+        ).label("out_of_stock"),
+        func.sum(
+            case(
+                (((Stock.cantidad_disponible > 0) & (Stock.cantidad_disponible < 10)), 1),
+                else_=0
+            )
+        ).label("low_stock"),
+        func.sum(Stock.cantidad_disponible * unit_value_expr).label("inventory_value")
+    ).first()
+
+    low_stock_count = int((stock_stats.low_stock if stock_stats else 0) or 0)
+    out_of_stock_count = int((stock_stats.out_of_stock if stock_stats else 0) or 0)
+    total_inventory_value = Decimal((stock_stats.inventory_value if stock_stats else 0) or 0)
     
     # Orders stats - Filtrar por sales_profile si se especifica
     today = datetime.now().date()
@@ -73,47 +83,67 @@ def get_dashboard_stats(
     pending_orders = orders_query.filter(Order.estado == "pendiente").count()
     
     # CRÍTICO: Excluir órdenes canceladas de revenue
-    orders_today = orders_query.filter(
+    orders_today_stats = orders_query.filter(
         Order.created_at >= today_start,
         Order.created_at <= today_end,
         Order.estado != "cancelada"  # Excluir canceladas
-    ).all()
+    ).with_entities(
+        func.count(Order.id),
+        func.coalesce(func.sum(Order.total), 0)
+    ).first()
     
-    total_orders_today = len(orders_today)
-    total_revenue_today = sum(o.total for o in orders_today)
+    total_orders_today = int(orders_today_stats[0] or 0)
+    total_revenue_today = Decimal(orders_today_stats[1] or 0)
     
     # Month stats
     month_start = today.replace(day=1)
     month_start_dt = datetime.combine(month_start, datetime.min.time())
     
-    orders_this_month = orders_query.filter(
+    orders_this_month_stats = orders_query.filter(
         Order.created_at >= month_start_dt,
         Order.estado != "cancelada"  # Excluir canceladas
-    ).all()
+    ).with_entities(
+        func.count(Order.id),
+        func.coalesce(func.sum(Order.total), 0)
+    ).first()
     
-    total_revenue_month = sum(o.total for o in orders_this_month)
+    total_revenue_month = Decimal(orders_this_month_stats[1] or 0)
     
     # V2.1: Calcular Margen Bruto y Ticket Promedio del mes
     gross_margin_month = Decimal(0)
     average_ticket_month = Decimal(0)
-    
-    if orders_this_month:
-        total_cost_month = Decimal(0)
-        count_orders = len(orders_this_month)
-        
-        # Calcular costo total de las órdenes del mes
-        # Nota: Esto puede ser costoso si hay muchas órdenes. 
-        # Idealmente se debería tener un campo 'costo_total' en la tabla Order.
-        # Por ahora iteramos items.
-        for order in orders_this_month:
-            for item in order.items:
-                # Usar costo del producto al momento de la consulta (limitación conocida: costo histórico no guardado en OrderItem)
-                costo_unitario = item.product.costo if item.product.costo > 0 else 0
-                total_cost_month += costo_unitario * item.cantidad
-        
+    total_cost_month = Decimal(0)
+    count_orders = int(orders_this_month_stats[0] or 0)
+
+    if count_orders:
+        cost_query = db.query(
+            func.coalesce(
+                func.sum(
+                    OrderItem.cantidad
+                    * func.coalesce(
+                        OrderItem.costo_unitario,
+                        func.coalesce(Product.costo, 0)
+                    )
+                ),
+                0
+            )
+        ).join(
+            Order, Order.id == OrderItem.order_id
+        ).join(
+            Product, Product.id == OrderItem.product_id
+        ).filter(
+            Order.created_at >= month_start_dt,
+            Order.estado != "cancelada"
+        )
+
+        if sales_profile:
+            cost_query = cost_query.filter(Order.sales_profile_id == sales_profile.id)
+
+        total_cost_month = Decimal(cost_query.scalar() or 0)
+
         if total_revenue_month > 0:
             gross_margin_month = ((total_revenue_month - total_cost_month) / total_revenue_month) * 100
-            
+        
         average_ticket_month = total_revenue_month / count_orders
 
     # Last month stats
@@ -125,13 +155,16 @@ def get_dashboard_stats(
     last_month_start = datetime.combine(last_month, datetime.min.time())
     last_month_end = datetime.combine(month_start - timedelta(days=1), datetime.max.time())
     
-    orders_last_month = orders_query.filter(
+    orders_last_month_stats = orders_query.filter(
         Order.created_at >= last_month_start,
         Order.created_at <= last_month_end,
         Order.estado != "cancelada"  # Excluir canceladas
-    ).all()
+    ).with_entities(
+        func.count(Order.id),
+        func.coalesce(func.sum(Order.total), 0)
+    ).first()
     
-    total_revenue_last_month = sum(o.total for o in orders_last_month)
+    total_revenue_last_month = Decimal(orders_last_month_stats[1] or 0)
     
     return DashboardStats(
         active_products=active_products,
@@ -149,7 +182,7 @@ def get_dashboard_stats(
     )
 
 
-@router.get("/sales", response_model=SalesReport)
+@router.get("/sales", response_model=SalesReport, dependencies=[Depends(check_permission("reports:view"))])
 def get_sales_report(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     date_from: Optional[date] = Query(None, description="Fecha inicial (default: hace 30 días)"),
@@ -195,42 +228,56 @@ def get_sales_report(
     if sales_profile:
         orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
     
-    orders = orders_query.all()
-    
-    total_orders = len(orders)
-    total_revenue = sum(o.total for o in orders)
-    average_order_value = total_revenue / total_orders if total_orders > 0 else Decimal("0.00")
-    
-    # Calculate top products
-    product_sales = {}
-    
-    for order in orders:
-        for item in order.items:
-            if item.product_id not in product_sales:
-                product_sales[item.product_id] = {
-                    "product": item.product,
-                    "units": 0,
-                    "revenue": Decimal("0.00")
-                }
-            product_sales[item.product_id]["units"] += item.cantidad
-            if not item.es_regalo_promocion:
-                product_sales[item.product_id]["revenue"] += item.precio_unitario * item.cantidad
-    
-    # Sort by revenue and get top N
-    top_products_data = sorted(
-        product_sales.values(),
-        key=lambda x: x["revenue"],
-        reverse=True
-    )[:top_limit]
-    
+    stats = orders_query.with_entities(
+        func.count(Order.id),
+        func.coalesce(func.sum(Order.total), 0)
+    ).first()
+
+    total_orders = stats[0] or 0
+    total_revenue = Decimal(stats[1] or 0)
+    average_order_value = total_revenue / total_orders if total_orders else Decimal("0.00")
+
+    revenue_expr = func.coalesce(
+        func.sum(
+            case(
+                (OrderItem.es_regalo_promocion == True, 0),
+                else_=OrderItem.cantidad * OrderItem.precio_unitario
+            )
+        ),
+        0
+    ).label("revenue")
+
+    product_query = db.query(
+        Product.id,
+        Product.nombre,
+        func.coalesce(func.sum(OrderItem.cantidad), 0).label("units"),
+        revenue_expr
+    ).join(
+        OrderItem, Product.id == OrderItem.product_id
+    ).join(
+        Order, Order.id == OrderItem.order_id
+    ).filter(
+        Order.created_at >= start_dt,
+        Order.created_at <= end_dt,
+        Order.estado != "cancelada"
+    )
+
+    if sales_profile:
+        product_query = product_query.filter(Order.sales_profile_id == sales_profile.id)
+
+    top_products_rows = product_query.group_by(
+        Product.id,
+        Product.nombre
+    ).order_by(revenue_expr.desc()).limit(top_limit).all()
+
     top_products = [
         TopProduct(
-            product_id=data["product"].id,
-            product_name=data["product"].nombre,
-            units_sold=data["units"],
-            total_revenue=data["revenue"]
+            product_id=row.id,
+            product_name=row.nombre,
+            units_sold=int(row.units or 0),
+            total_revenue=Decimal(row.revenue or 0)
         )
-        for data in top_products_data
+        for row in top_products_rows
     ]
     
     return SalesReport(
@@ -243,7 +290,7 @@ def get_sales_report(
     )
 
 
-@router.get("/inventory/alerts", response_model=List[InventoryAlert])
+@router.get("/inventory/alerts", response_model=List[InventoryAlert], dependencies=[Depends(check_permission("reports:view"))])
 def get_inventory_alerts(
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
     db: Session = Depends(get_db),
@@ -306,7 +353,7 @@ def get_inventory_alerts(
 
 # ============= REPORTES AVANZADOS POR UBICACIÓN V2.0 =============
 
-@router.get("/stock-summary-by-location")
+@router.get("/stock-summary-by-location", dependencies=[Depends(check_permission("reports:view"))])
 def get_stock_summary_by_location(
     active_only: bool = Query(True, description="Solo ubicaciones activas"),
     db: Session = Depends(get_db),
@@ -361,7 +408,7 @@ def get_stock_summary_by_location(
     ]
 
 
-@router.get("/sales-summary-by-location")
+@router.get("/sales-summary-by-location", dependencies=[Depends(check_permission("reports:view"))])
 def get_sales_summary_by_location(
     start_date: Optional[date] = Query(None, description="Fecha inicial (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="Fecha final (YYYY-MM-DD)"),
@@ -414,7 +461,7 @@ def get_sales_summary_by_location(
     ]
 
 
-@router.get("/top-products-by-location/{location_id}")
+@router.get("/top-products-by-location/{location_id}", dependencies=[Depends(check_permission("reports:view"))])
 def get_top_products_by_location(
     location_id: int,
     limit: int = Query(10, ge=1, le=50, description="Cantidad de productos"),

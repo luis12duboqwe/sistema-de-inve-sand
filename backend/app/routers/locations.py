@@ -1,6 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+import logging
 from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
 from app import models, schemas
 from app.database import get_db
 
@@ -8,9 +12,10 @@ from app.auth import get_current_active_user, check_permission
 from app.models import User
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
+logger = logging.getLogger(__name__)
 
 
-@router.get("", response_model=List[schemas.LocationResponse])
+@router.get("", response_model=List[schemas.LocationResponse], dependencies=[Depends(check_permission("settings:view"))])
 def get_locations(
     skip: int = 0,
     limit: int = 100,
@@ -31,7 +36,7 @@ def get_locations(
     return locations
 
 
-@router.get("/{location_id}", response_model=schemas.LocationResponse)
+@router.get("/{location_id}", response_model=schemas.LocationResponse, dependencies=[Depends(check_permission("settings:view"))])
 def get_location(location_id: int, db: Session = Depends(get_db)):
     """Obtener una ubicación específica"""
     location = db.query(models.Location).filter(models.Location.id == location_id).first()
@@ -40,25 +45,48 @@ def get_location(location_id: int, db: Session = Depends(get_db)):
     return location
 
 
-@router.post("", response_model=schemas.LocationResponse, status_code=201)
+@router.post("", response_model=schemas.LocationResponse, status_code=201, dependencies=[Depends(check_permission("settings:edit"))])
 def create_location(
     location: schemas.LocationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Crear una nueva ubicación"""
+    # Validar que el nombre sea único (case-insensitive)
+    nombre_limpio = (location.nombre or "").strip()
+    if not nombre_limpio:
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre de la ubicación no puede estar vacío"
+        )
+    
+    existing = db.query(models.Location).filter(
+        func.lower(models.Location.nombre) == nombre_limpio.lower()
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La ubicación '{nombre_limpio}' ya existe"
+        )
+    
     try:
-        db_location = models.Location(**location.model_dump())
+        location_data = location.model_dump()
+        location_data['nombre'] = nombre_limpio
+        db_location = models.Location(**location_data)
         db.add(db_location)
         db.commit()
         db.refresh(db_location)
         return db_location
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al crear ubicación: {str(e)}")
+        logger.exception("Error al crear ubicación")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al crear la ubicación. Intente nuevamente o contacte al administrador."
+        )
 
 
-@router.put("/{location_id}", response_model=schemas.LocationResponse)
+@router.put("/{location_id}", response_model=schemas.LocationResponse, dependencies=[Depends(check_permission("settings:edit"))])
 def update_location(
     location_id: int,
     location: schemas.LocationUpdate,
@@ -72,18 +100,43 @@ def update_location(
     
     try:
         update_data = location.model_dump(exclude_unset=True)
+        
+        # Validar nombre único si se está actualizando (case-insensitive)
+        if 'nombre' in update_data:
+            nuevo_nombre = (update_data['nombre'] or "").strip()
+            if not nuevo_nombre:
+                raise HTTPException(
+                    status_code=400,
+                    detail="El nombre de la ubicación no puede estar vacío"
+                )
+            if nuevo_nombre.lower() != db_location.nombre.lower():
+                existing = db.query(models.Location).filter(
+                    func.lower(models.Location.nombre) == nuevo_nombre.lower(),
+                    models.Location.id != location_id
+                ).first()
+                if existing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"La ubicación '{nuevo_nombre}' ya existe"
+                    )
+            update_data['nombre'] = nuevo_nombre
+        
         for field, value in update_data.items():
             setattr(db_location, field, value)
         
         db.commit()
         db.refresh(db_location)
         return db_location
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar ubicación: {str(e)}")
+        logger.exception("Error al actualizar ubicación %s", location_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al actualizar la ubicación. Intente nuevamente o contacte al administrador."
+        )
 
 
-@router.delete("/{location_id}", status_code=204)
+@router.delete("/{location_id}", status_code=204, dependencies=[Depends(check_permission("settings:edit"))])
 def delete_location(
     location_id: int, 
     db: Session = Depends(get_db),
@@ -146,12 +199,16 @@ def delete_location(
         db.delete(db_location)
         db.commit()
         return None
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al eliminar ubicación: {str(e)}")
+        logger.exception("Error al eliminar ubicación %s", location_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al eliminar la ubicación. Intente nuevamente o contacte al administrador."
+        )
 
 
-@router.get("/{location_id}/stock", response_model=List[schemas.StockByLocationResponse])
+@router.get("/{location_id}/stock", response_model=List[schemas.StockByLocationResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_location_stock(
     location_id: int,
     db: Session = Depends(get_db)

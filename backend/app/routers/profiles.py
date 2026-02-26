@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import List
 import math
+import logging
 from app.database import get_db
 from app.models import Profile, User
 from app.schemas import ProfileCreate, ProfileResponse, ProfileUpdate, PaginatedResponse
@@ -9,8 +11,9 @@ from app.auth import check_permission
 
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
+logger = logging.getLogger(__name__)
 
-@router.get("", response_model=PaginatedResponse[ProfileResponse])
+@router.get("", response_model=PaginatedResponse[ProfileResponse], dependencies=[Depends(check_permission("settings:view"))])
 def list_profiles(
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
@@ -46,7 +49,7 @@ def list_profiles(
         pages=math.ceil(total / per_page) if total > 0 else 0
     )
 
-@router.post("", response_model=ProfileResponse, status_code=201)
+@router.post("", response_model=ProfileResponse, status_code=201, dependencies=[Depends(check_permission("settings:edit"))])
 def create_profile(
     profile: ProfileCreate, 
     db: Session = Depends(get_db),
@@ -77,11 +80,25 @@ def create_profile(
         db.commit()
         db.refresh(db_profile)
         return db_profile
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error de integridad: Ya existe un perfil con el slug '{profile.slug}'"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Database error creating profile")
+        raise HTTPException(
+            status_code=500,
+            detail="Error de base de datos al crear perfil."
+        )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al crear perfil: {str(e)}")
+        logger.exception("Error al crear perfil")
+        raise HTTPException(status_code=500, detail="Error interno al crear perfil. Intente nuevamente o contacte al administrador.")
 
-@router.get("/{profile_id}", response_model=ProfileResponse)
+@router.get("/{profile_id}", response_model=ProfileResponse, dependencies=[Depends(check_permission("settings:view"))])
 def get_profile(profile_id: int, db: Session = Depends(get_db)):
     """
     Obtiene un perfil por su ID.
@@ -104,7 +121,7 @@ def get_profile(profile_id: int, db: Session = Depends(get_db)):
     return profile
 
 
-@router.put("/{profile_id}", response_model=ProfileResponse)
+@router.put("/{profile_id}", response_model=ProfileResponse, dependencies=[Depends(check_permission("settings:edit"))])
 def update_profile(
     profile_id: int, 
     updates: ProfileUpdate, 
@@ -153,12 +170,26 @@ def update_profile(
         db.commit()
         db.refresh(profile)
         return profile
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error de integridad: Ya existe otro perfil con el slug '{updates.slug}'"
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Database error updating profile")
+        raise HTTPException(
+            status_code=500,
+            detail="Error de base de datos al actualizar perfil."
+        )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar perfil: {str(e)}")
+        logger.exception("Error al actualizar perfil")
+        raise HTTPException(status_code=500, detail="Error interno al actualizar perfil. Intente nuevamente o contacte al administrador.")
 
 
-@router.delete("/{profile_id}", status_code=204)
+@router.delete("/{profile_id}", status_code=204, dependencies=[Depends(check_permission("settings:edit"))])
 def delete_profile(
     profile_id: int, 
     db: Session = Depends(get_db),
@@ -191,6 +222,20 @@ def delete_profile(
         db.delete(profile)
         db.commit()
         return None
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar el perfil porque tiene registros relacionados."
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Database error deleting profile")
+        raise HTTPException(
+            status_code=500,
+            detail="Error de base de datos al eliminar perfil."
+        )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al eliminar perfil: {str(e)}")
+        logger.exception("Error al eliminar perfil")
+        raise HTTPException(status_code=500, detail="Error interno al eliminar perfil. Intente nuevamente o contacte al administrador.")

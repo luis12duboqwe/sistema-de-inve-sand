@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import json
+import logging
 from app import models, schemas
 from app.database import get_db
 from app.auth import check_permission
 import json
 
 router = APIRouter(prefix="/api/sales-profiles", tags=["sales_profiles"])
+logger = logging.getLogger(__name__)
 
 
-@router.get("", response_model=List[schemas.SalesProfileResponse])
+@router.get("", response_model=List[schemas.SalesProfileResponse], dependencies=[Depends(check_permission("settings:view"))])
 def get_sales_profiles(
     skip: int = 0,
     limit: int = 100,
@@ -47,7 +50,7 @@ def get_sales_profiles(
     return result
 
 
-@router.get("/{profile_id}", response_model=schemas.SalesProfileResponse)
+@router.get("/{profile_id}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_permission("settings:view"))])
 def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
     """Obtener un perfil de venta específico"""
     profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
@@ -83,7 +86,7 @@ def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
     return profile_dict
 
 
-@router.get("/slug/{slug}", response_model=schemas.SalesProfileResponse)
+@router.get("/slug/{slug}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_permission("settings:view"))])
 def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
     """Obtener un perfil de venta por su slug"""
     profile = db.query(models.SalesProfile).filter(models.SalesProfile.slug == slug).first()
@@ -119,7 +122,7 @@ def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
     return profile_dict
 
 
-@router.post("", response_model=schemas.SalesProfileResponse, status_code=201)
+@router.post("", response_model=schemas.SalesProfileResponse, status_code=201, dependencies=[Depends(check_permission("settings:edit"))])
 def create_sales_profile(
     profile: schemas.SalesProfileCreate,
     db: Session = Depends(get_db),
@@ -166,10 +169,11 @@ def create_sales_profile(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al crear perfil de venta: {str(e)}")
+        logger.exception("Error al crear perfil de venta")
+        raise HTTPException(status_code=500, detail="Error interno al crear perfil de venta. Intente nuevamente o contacte al administrador.")
 
 
-@router.put("/{profile_id}", response_model=schemas.SalesProfileResponse)
+@router.put("/{profile_id}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_permission("settings:edit"))])
 def update_sales_profile(
     profile_id: int,
     profile: schemas.SalesProfileUpdate,
@@ -225,10 +229,11 @@ def update_sales_profile(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al actualizar perfil de venta: {str(e)}")
+        logger.exception("Error al actualizar perfil de venta")
+        raise HTTPException(status_code=500, detail="Error interno al actualizar perfil de venta. Intente nuevamente o contacte al administrador.")
 
 
-@router.delete("/{profile_id}", status_code=204)
+@router.delete("/{profile_id}", status_code=204, dependencies=[Depends(check_permission("settings:edit"))])
 def delete_sales_profile(
     profile_id: int, 
     db: Session = Depends(get_db),
@@ -253,10 +258,11 @@ def delete_sales_profile(
         return None
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al eliminar perfil de venta: {str(e)}")
+        logger.exception("Error al eliminar perfil de venta")
+        raise HTTPException(status_code=500, detail="Error interno al eliminar perfil de venta. Intente nuevamente o contacte al administrador.")
 
 
-@router.get("/{profile_id}/orders")
+@router.get("/{profile_id}/orders", dependencies=[Depends(check_permission("orders:view"))])
 def get_sales_profile_orders(
     profile_id: int,
     skip: int = 0,

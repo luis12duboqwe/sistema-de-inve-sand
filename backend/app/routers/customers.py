@@ -12,7 +12,7 @@ from app.auth import get_current_active_user, check_permission
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
 
-@router.get("", response_model=List[CustomerStats])
+@router.get("", response_model=List[CustomerStats], dependencies=[Depends(check_permission("orders:view"))])
 def list_customers(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     page: int = Query(1, ge=1, description="Número de página"),
@@ -103,7 +103,7 @@ def list_customers(
     return response
 
 
-@router.get("/{customer_phone}/stats", response_model=CustomerStats)
+@router.get("/{customer_phone}/stats", response_model=CustomerStats, dependencies=[Depends(check_permission("orders:view"))])
 def get_customer_stats(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
@@ -171,7 +171,7 @@ def get_customer_stats(
     )
 
 
-@router.get("/{customer_phone}/history", response_model=CustomerHistory)
+@router.get("/{customer_phone}/history", response_model=CustomerHistory, dependencies=[Depends(check_permission("orders:view"))])
 def get_customer_history(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),

@@ -15,7 +15,7 @@ from app.auth import get_current_active_user, check_permission
 router = APIRouter(prefix="/stock-history", tags=["stock-history"])
 
 
-@router.get("/product/{product_id}", response_model=List[StockHistoryResponse])
+@router.get("/product/{product_id}", response_model=List[StockHistoryResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_stock_history(
     product_id: int,
     limit: int = Query(100, ge=1, le=1000),
@@ -58,7 +58,7 @@ def get_product_stock_history(
     return history
 
 
-@router.get("/location/{location_id}", response_model=List[StockHistoryResponse])
+@router.get("/location/{location_id}", response_model=List[StockHistoryResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_location_stock_history(
     location_id: int,
     limit: int = Query(100, ge=1, le=1000),
@@ -100,7 +100,7 @@ def get_location_stock_history(
     return history
 
 
-@router.get("/profile/{profile_id}", response_model=List[StockHistoryResponse])
+@router.get("/profile/{profile_id}", response_model=List[StockHistoryResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_profile_stock_history(
     profile_id: int,
     limit: int = Query(100, ge=1, le=1000),
@@ -140,7 +140,7 @@ def get_profile_stock_history(
     return history
 
 
-@router.post("/", response_model=StockHistoryResponse)
+@router.post("/", response_model=StockHistoryResponse, dependencies=[Depends(check_permission("inventory:edit"))])
 def create_stock_history_entry(
     entry: StockHistoryCreate,
     db: Session = Depends(get_db),
@@ -165,7 +165,7 @@ def create_stock_history_entry(
     return db_entry
 
 
-@router.get("/stats/{product_id}")
+@router.get("/stats/{product_id}", dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_stock_stats(
     product_id: int,
     days: int = Query(30, ge=1, le=365),
