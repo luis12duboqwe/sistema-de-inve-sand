@@ -87,7 +87,7 @@ def _serialize_product(product: Product) -> ProductResponse:
     )
 
 
-@router.get("/{product_id}/imeis", response_model=List[str])
+@router.get("/{product_id}/imeis", response_model=List[str], dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_imeis(
     product_id: int,
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
@@ -109,7 +109,7 @@ def get_product_imeis(
     return [i.imei for i in imeis]
 
 
-@router.get("/imei/{imei}", response_model=ProductResponse)
+@router.get("/imei/{imei}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
     """
     Busca un producto por su IMEI.
@@ -126,7 +126,7 @@ def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
     return _serialize_product(product)
 
 
-@router.get("", response_model=PaginatedResponse[ProductResponse])
+@router.get("", response_model=PaginatedResponse[ProductResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def list_products(
     search: Optional[str] = Query(None, description="Buscar por nombre, marca o modelo"),
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación con stock disponible"),
@@ -435,7 +435,7 @@ def create_product(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
 
-@router.get("/{product_id}", response_model=ProductResponse)
+@router.get("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:view"))])
 def get_product(product_id: int, db: Session = Depends(get_db)):
     """
     Obtiene un producto por su ID.
@@ -459,69 +459,6 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
         )
     
     return _serialize_product(product)
-
-
-@router.get("/{product_id}/stock/by-location", response_model=PaginatedResponse[StockByLocationResponse])
-def get_product_stock_by_location(
-    product_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Obtiene el desglose de stock de un producto por ubicación (V2.0).
-    
-    Retorna una lista de todas las ubicaciones donde el producto tiene stock,
-    incluyendo información de cada ubicación.
-    
-    Args:
-        product_id: ID del producto
-        
-    Returns:
-        Lista paginada de stock por ubicación con detalles de cada ubicación
-        
-    Raises:
-        404: Si el producto no existe
-    """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Producto con ID {product_id} no encontrado"
-        )
-    
-    # Obtener todos los registros de stock para este producto
-    stock_items = db.query(Stock).filter(
-        Stock.product_id == product_id
-    ).join(Location).filter(Location.activo == True).all()
-    
-    # Serializar con información de ubicación
-    from app.schemas import StockByLocationResponse, LocationResponse
-    
-    items = []
-    for stock_item in stock_items:
-        items.append(StockByLocationResponse(
-            id=stock_item.id,
-            product_id=stock_item.product_id,
-            location_id=stock_item.location_id,
-            cantidad_disponible=stock_item.cantidad_disponible,
-            location=LocationResponse(
-                id=stock_item.location.id,
-                nombre=stock_item.location.nombre,
-                tipo=stock_item.location.tipo,
-                direccion=stock_item.location.direccion,
-                telefono=stock_item.location.telefono,
-                activo=stock_item.location.activo,
-                created_at=stock_item.location.created_at,
-                updated_at=stock_item.location.updated_at
-            ) if stock_item.location else None
-        ))
-    
-    return PaginatedResponse(
-        items=items,
-        total=len(items),
-        page=1,
-        per_page=len(items),
-        pages=1
-    )
 
 
 @router.put("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:edit"))])
@@ -603,7 +540,7 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
         raise HTTPException(status_code=500, detail=f"Error al actualizar producto: {str(e)}")
 
 
-@router.put("/{product_id}/stock")
+@router.put("/{product_id}/stock", dependencies=[Depends(check_permission("inventory:edit"))])
 def update_product_stock(
     product_id: int, 
     update: StockUpdate, 
@@ -679,7 +616,7 @@ def update_product_stock(
         raise HTTPException(status_code=500, detail=f"Error al actualizar stock: {str(e)}")
 
 
-@router.post("/bulk", response_model=List[ProductResponse], status_code=201)
+@router.post("/bulk", response_model=List[ProductResponse], status_code=201, dependencies=[Depends(check_permission("inventory:create"))])
 def bulk_create_products(
     payload: dict, 
     db: Session = Depends(get_db),
@@ -884,7 +821,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")
 
 
-@router.post("/{product_id}/stock/location/{location_id}")
+@router.post("/{product_id}/stock/location/{location_id}", dependencies=[Depends(check_permission("inventory:edit"))])
 def set_product_stock_at_location(
     product_id: int,
     location_id: int,
@@ -970,7 +907,7 @@ def set_product_stock_at_location(
     }
 
 
-@router.get("/{product_id}/stock/total")
+@router.get("/{product_id}/stock/total", dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_total_stock(
     product_id: int,
     db: Session = Depends(get_db)
@@ -994,7 +931,7 @@ def get_product_total_stock(
     }
 
 
-@router.get("/{product_id}/stock/by-location", response_model=List[StockByLocationResponse])
+@router.get("/{product_id}/stock/by-location", response_model=List[StockByLocationResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_stock_by_location(
     product_id: int,
     include_inactive_locations: bool = Query(False, description="Incluir ubicaciones inactivas"),
