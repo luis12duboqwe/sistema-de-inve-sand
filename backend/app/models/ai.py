@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -20,10 +20,18 @@ class Customer(Base):
     reputation_score = Column(Integer, default=100)
     daily_message_count = Column(Integer, default=0)
     last_interaction_at = Column(DateTime(timezone=True), nullable=True)
+    conversation_summary = Column(Text, nullable=True)
+    ai_memory_json = Column(Text, nullable=True)
+    last_referenced_product_id = Column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_referenced_product_name = Column(String, nullable=True)
+    last_referenced_color = Column(String, nullable=True)
+    last_referenced_variant = Column(String, nullable=True)
+    memory_updated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     interactions = relationship("InteractionLog", back_populates="customer", cascade="all, delete-orphan")
+    last_referenced_product = relationship("Product", foreign_keys=[last_referenced_product_id])
 
 
 class AIProfileConfig(Base):
@@ -86,4 +94,24 @@ class TrainingQueue(Base):
     sales_profile = relationship("SalesProfile")
 
 
-__all__ = ["Customer", "AIProfileConfig", "InteractionLog", "TrainingQueue"]
+class ProcessedMessage(Base):
+    """Cache de mensajes procesados para evitar deduplicación (persistente)."""
+
+    __tablename__ = "processed_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(String, unique=True, nullable=False, index=True)
+    channel = Column(String, nullable=False, index=True)
+    customer_phone = Column(String, nullable=True, index=True)
+    sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
+    processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    sales_profile = relationship("SalesProfile")
+
+    __table_args__ = (
+        Index("idx_processed_message_expires", "expires_at"),
+        Index("idx_processed_message_channel_profile", "channel", "sales_profile_id"),
+    )
+
+
+__all__ = ["Customer", "AIProfileConfig", "InteractionLog", "TrainingQueue", "ProcessedMessage"]

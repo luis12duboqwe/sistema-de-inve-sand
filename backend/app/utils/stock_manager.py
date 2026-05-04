@@ -527,7 +527,7 @@ class StockManager:
 
         for imei_record in imeis:
             imei_record.vendido = False
-            imei_record.fecha_venta = None
+            imei_record.sold_at = None
             imei_record.order_id = None
 
             history_entry = IMEIHistory(
@@ -547,6 +547,86 @@ class StockManager:
 
         return history_entries
     
+    def process_warranty_replacement_imei(
+        self,
+        *,
+        replacement_imei_record: ProductIMEI,
+        original_order_id: int,
+        return_id: int,
+        user_id: Optional[str] = None,
+    ) -> IMEIHistory:
+        """
+        Procesa la salida del equipo de reemplazo en un cambio por garantía.
+
+        - Marca el IMEI de reemplazo como vendido (asociado a la orden original).
+        - Registra el historial con event_type='garantia_salida'.
+        - Descuenta el stock de la ubicación del equipo de reemplazo.
+
+        Returns:
+            Entrada de IMEIHistory creada para el equipo de reemplazo.
+        """
+        if replacement_imei_record.vendido:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El IMEI de reemplazo {replacement_imei_record.imei} ya está marcado como vendido",
+            )
+
+        location_id = replacement_imei_record.location_id
+
+        # Descontar stock del equipo de reemplazo
+        if location_id:
+            stock = (
+                self.db.query(Stock)
+                .filter(
+                    Stock.product_id == replacement_imei_record.product_id,
+                    Stock.location_id == location_id,
+                )
+                .with_for_update()
+                .first()
+            )
+            if stock and stock.cantidad_disponible > 0:
+                stock_anterior = stock.cantidad_disponible
+                stock.cantidad_disponible -= 1
+                self._assert_stock_invariants(stock, context="warranty_replacement")
+                history = StockHistory(
+                    product_id=replacement_imei_record.product_id,
+                    location_id=location_id,
+                    tipo_cambio="garantia_salida",
+                    cantidad=1,
+                    stock_anterior=stock_anterior,
+                    stock_nuevo=stock.cantidad_disponible,
+                    referencia_id=return_id,
+                    referencia_tipo="return",
+                    notas=f"Equipo de reemplazo por garantía - Devolución #{return_id}",
+                    usuario=user_id,
+                    created_at=_utcnow(),
+                )
+                self.db.add(history)
+
+        # Marcar IMEI de reemplazo como vendido
+        replacement_imei_record.vendido = True
+        replacement_imei_record.sold_at = _utcnow()
+        replacement_imei_record.order_id = original_order_id
+
+        imei_history = IMEIHistory(
+            imei=replacement_imei_record.imei,
+            product_id=replacement_imei_record.product_id,
+            location_id=location_id,
+            event_type="garantia_salida",
+            reference_id=return_id,
+            reference_type="return",
+            notes=f"Equipo de reemplazo entregado al cliente - Devolución #{return_id} (Orden #{original_order_id})",
+            created_by=user_id,
+            created_at=_utcnow(),
+        )
+        self.db.add(imei_history)
+
+        logger.info(
+            f"IMEI reemplazo por garantía - IMEI: {replacement_imei_record.imei}, "
+            f"Product: {replacement_imei_record.product_id}, Return: {return_id}"
+        )
+        return imei_history
+
     def mark_imeis_as_sold(
         self,
         imeis: List[ProductIMEI],
@@ -570,7 +650,7 @@ class StockManager:
         
         for imei_record in imeis:
             imei_record.vendido = True
-            imei_record.fecha_venta = _utcnow()
+            imei_record.sold_at = _utcnow()
             imei_record.order_id = order_id
             
             # Registrar en historial
@@ -667,7 +747,7 @@ class StockManager:
         
         for imei_record in imeis:
             imei_record.vendido = False
-            imei_record.fecha_venta = None
+            imei_record.sold_at = None
             imei_record.order_id = None
             
             # Registrar en historial

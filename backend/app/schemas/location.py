@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -57,7 +57,7 @@ class SalesProfileBase(BaseModel):
     tipo: TipoSalesProfileEnum
     canales: Optional[List[str]] = None
     active: bool = True
-    configuracion: Optional[Dict[str, str]] = None
+    configuracion: Optional[Dict[str, Any]] = None
 
 
 class SalesProfileCreate(SalesProfileBase):
@@ -70,7 +70,7 @@ class SalesProfileUpdate(BaseModel):
     tipo: Optional[TipoSalesProfileEnum] = None
     canales: Optional[List[str]] = None
     active: Optional[bool] = None
-    configuracion: Optional[Dict[str, str]] = None
+    configuracion: Optional[Dict[str, Any]] = None
 
 
 class SalesProfileResponse(SalesProfileBase):

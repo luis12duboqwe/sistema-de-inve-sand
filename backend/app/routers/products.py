@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
@@ -5,9 +6,9 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, User
+from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, StockHistory, IMEIHistory, User
 from app.schemas import (
-    ProductCreate, ProductResponse, ProductUpdate, StockUpdate, 
+    ProductCreate, ProductResponse, ProductUpdate, ProductRestockRequest, StockUpdate,
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
 )
 from app.auth import check_permission, get_current_active_user
@@ -398,10 +399,28 @@ def create_product(
                 db_imei = ProductIMEI(
                     product_id=db_product.id,
                     location_id=loc_id,
+                    supplier_id=db_product.supplier_id,
                     imei=imei_val.strip(),
-                    vendido=False
+                    vendido=False,
+                    received_at=datetime.now(UTC),
+                    acquisition_type='initial_stock',
+                    received_notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                    received_by=current_user.username,
                 )
                 db.add(db_imei)
+                db.add(
+                    IMEIHistory(
+                        imei=imei_val.strip(),
+                        product_id=db_product.id,
+                        location_id=loc_id,
+                        supplier_id=db_product.supplier_id,
+                        event_type='purchase',
+                        reference_id=db_product.id,
+                        reference_type='product_creation',
+                        notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                        created_by=current_user.username,
+                    )
+                )
         
         # LEGACY: Si hay IMEIs sin ubicación (para compatibilidad V1)
         elif imeis and len(imeis) > 0:
@@ -420,10 +439,28 @@ def create_product(
                     db_imei = ProductIMEI(
                         product_id=db_product.id,
                         location_id=initial_location_id if initial_location_id else None,  # Asignar a ubicación inicial si existe
+                        supplier_id=db_product.supplier_id,
                         imei=imei_value.strip(),
-                        vendido=False
+                        vendido=False,
+                        received_at=datetime.now(UTC),
+                        acquisition_type='initial_stock',
+                        received_notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                        received_by=current_user.username,
                     )
                     db.add(db_imei)
+                    db.add(
+                        IMEIHistory(
+                            imei=imei_value.strip(),
+                            product_id=db_product.id,
+                            location_id=initial_location_id if initial_location_id else None,
+                            supplier_id=db_product.supplier_id,
+                            event_type='purchase',
+                            reference_id=db_product.id,
+                            reference_type='product_creation',
+                            notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                            created_by=current_user.username,
+                        )
+                    )
         
         db.commit()
         db.refresh(db_product)
@@ -614,6 +651,151 @@ def update_product_stock(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar stock: {str(e)}")
+
+
+@router.post("/{product_id}/restock", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:edit"))])
+def restock_product(
+    product_id: int,
+    payload: ProductRestockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Reabastece inventario de un producto existente con trazabilidad de IMEIs."""
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"El producto con ID {product_id} no fue encontrado")
+
+    location = db.query(Location).filter(Location.id == payload.location_id).first()
+    if not location or not location.activo:
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada o inactiva")
+
+    supplier_name: Optional[str] = None
+    if payload.supplier_id is not None:
+        supplier = db.query(Supplier).filter(Supplier.id == payload.supplier_id).first()
+        if not supplier:
+            raise HTTPException(status_code=404, detail=f"Proveedor con ID {payload.supplier_id} no encontrado")
+        supplier_name = supplier.nombre
+
+    imeis_limpios: List[str] = []
+    if payload.imeis:
+        imeis_limpios = [imei.strip() for imei in payload.imeis if imei and imei.strip()]
+
+    if product.is_serialized:
+        if len(imeis_limpios) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Este producto es serializado. Debe ingresar IMEIs para el reabastecimiento.",
+            )
+        if len(imeis_limpios) != payload.cantidad:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La cantidad de IMEIs ({len(imeis_limpios)}) debe coincidir con la cantidad a agregar ({payload.cantidad})",
+            )
+    elif len(imeis_limpios) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Este producto no es serializado. No debe enviar IMEIs.",
+        )
+
+    if len(set(imeis_limpios)) != len(imeis_limpios):
+        raise HTTPException(status_code=400, detail="La lista de IMEIs contiene valores duplicados")
+
+    if imeis_limpios:
+        existentes = db.query(ProductIMEI).filter(ProductIMEI.imei.in_(imeis_limpios)).all()
+        if existentes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El IMEI '{existentes[0].imei}' ya está registrado en el sistema",
+            )
+
+    stock = db.query(Stock).filter(
+        Stock.product_id == product_id,
+        Stock.location_id == payload.location_id,
+    ).first()
+
+    if not stock:
+        stock = Stock(
+            product_id=product_id,
+            location_id=payload.location_id,
+            cantidad_disponible=0,
+            cantidad_reservada=0,
+        )
+        db.add(stock)
+        db.flush()
+
+    stock_anterior = stock.cantidad_disponible
+    stock.cantidad_disponible = stock_anterior + payload.cantidad
+
+    notas_restock = f"Reabastecimiento manual de '{product.nombre}'"
+    if supplier_name:
+        notas_restock += f" | Proveedor: {supplier_name}"
+    if payload.notas:
+        notas_restock += f" | Nota: {payload.notas.strip()}"
+
+    db.add(
+        StockHistory(
+            product_id=product_id,
+            location_id=payload.location_id,
+            tipo_cambio='compra',
+            cantidad=payload.cantidad,
+            stock_anterior=stock_anterior,
+            stock_nuevo=stock.cantidad_disponible,
+            referencia_id=product_id,
+            referencia_tipo='manual_adjustment',
+            notas=notas_restock,
+            usuario=current_user.username,
+        )
+    )
+
+    for imei in imeis_limpios:
+        db.add(
+            ProductIMEI(
+                product_id=product_id,
+                location_id=payload.location_id,
+                supplier_id=payload.supplier_id,
+                imei=imei,
+                vendido=False,
+                received_at=datetime.now(UTC),
+                acquisition_type='restock',
+                received_notes=notas_restock,
+                received_by=current_user.username,
+            )
+        )
+        db.add(
+            IMEIHistory(
+                imei=imei,
+                product_id=product_id,
+                location_id=payload.location_id,
+                supplier_id=payload.supplier_id,
+                event_type='purchase',
+                reference_id=product_id,
+                reference_type='restock',
+                notes=notas_restock,
+                created_by=current_user.username,
+            )
+        )
+
+    try:
+        db.commit()
+        product_refreshed = (
+            db.query(Product)
+            .options(
+                joinedload(Product.stock_items).joinedload(Stock.location),
+                joinedload(Product.imeis),
+            )
+            .filter(Product.id == product_id)
+            .first()
+        )
+        if not product_refreshed:
+            raise HTTPException(status_code=404, detail="Producto no encontrado después de reabastecer")
+        return _serialize_product(product_refreshed)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al reabastecer producto: {str(e)}")
 
 
 @router.post("/bulk", response_model=List[ProductResponse], status_code=201, dependencies=[Depends(check_permission("inventory:create"))])

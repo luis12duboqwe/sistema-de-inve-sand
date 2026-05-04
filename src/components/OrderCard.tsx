@@ -80,7 +80,8 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
     const text: Record<string, string> = {
       whatsapp: 'WhatsApp',
       facebook: 'Facebook',
-      instagram: 'Instagram'
+      instagram: 'Instagram',
+      tienda: 'Tienda Física'
     }
     return canal ? (text[canal] || canal) : 'N/A'
   }
@@ -152,6 +153,19 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
             <span className="text-muted-foreground">Método de Pago:</span>
             <p className="font-medium">{getPaymentText(order.metodo_pago)}</p>
           </div>
+
+          {order.metodo_pago === 'transferencia' && (order.transfer_bank_name || order.transfer_reference) && (
+            <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-sm">
+              <p>
+                <span className="text-muted-foreground">Banco:</span>{' '}
+                <span className="font-medium">{order.transfer_bank_name || 'N/A'}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Referencia:</span>{' '}
+                <span className="font-mono font-medium">{order.transfer_reference || 'N/A'}</span>
+              </p>
+            </div>
+          )}
           
           {/* V2.0: Sales Profile */}
           {salesProfile && (
@@ -170,7 +184,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
           {/* V2.0: Source Location */}
           {sourceLocation && (
             <div>
-              <span className="text-muted-foreground">Origen del Stock:</span>
+              <span className="text-muted-foreground">{order.canal === 'tienda' ? 'Tienda reportada:' : 'Origen del Stock:'}</span>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <MapPin size={14} className="text-primary" />
                 <p className="font-medium">{sourceLocation.nombre}</p>

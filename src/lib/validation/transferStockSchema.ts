@@ -56,7 +56,7 @@ export const createTransferStockSchema = (product: ProductWithStock | null | und
   z
     .object({
       fromLocationId: normalizeId('la ubicación de origen'),
-      toLocationId: normalizeId('la ubicación de destino'),
+      toLocationId: normalizeId('la ubicación de recepción'),
       cantidad: cantidadSchema,
       notas: notasSchema
     })
@@ -64,7 +64,7 @@ export const createTransferStockSchema = (product: ProductWithStock | null | und
       if (data.fromLocationId === data.toLocationId) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'La ubicación destino debe ser diferente a la de origen',
+          message: 'La ubicación de recepción debe ser diferente a la de origen',
           path: ['toLocationId']
         })
       }

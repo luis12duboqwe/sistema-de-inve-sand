@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from _pytest.monkeypatch import MonkeyPatch
 
 from .helpers import seed_location_and_sales_profile, seed_product
-from app.models import AIProfileConfig, InteractionLog, Location, Order, OrderItem, SalesProfile
+from app.models import AIProfileConfig, Customer, FAQEntry, InteractionLog, Location, Order, OrderItem, SalesProfile, TrainingQueue, ProcessedMessage
 from app.config_production import prod_settings
 from app.routers import ai_intelligence
 
@@ -257,3 +257,291 @@ def test_ai_endpoints_return_503_when_disabled(
 
     # Restaurar bandera para otras pruebas
     monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+
+
+def test_training_queue_patch_updates_generic_fields(client: TestClient, db_session: Session) -> None:
+    _, sales_profile = seed_location_and_sales_profile(db_session)
+    queue_item = TrainingQueue(
+        sales_profile_id=_require_pk(sales_profile.id, "sales_profile.id"),
+        customer_question="¿Tienen iPhone 13?",
+        ai_proposed_answer="No estoy seguro.",
+        status="pending",
+    )
+    db_session.add(queue_item)
+    db_session.commit()
+
+    response: Response = client.patch(
+        f"/api/ai/training-queue/{_require_pk(queue_item.id, 'queue_item.id')}",
+        json={
+            "customer_question": "¿Tienen iPhone 13 Pro?",
+            "ai_proposed_answer": "Sí, disponible en tienda centro",
+            "status": "approved",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["customer_question"] == "¿Tienen iPhone 13 Pro?"
+    assert payload["ai_proposed_answer"] == "Sí, disponible en tienda centro"
+    assert payload["status"] == "approved"
+
+
+def test_training_queue_patch_convert_to_faq_creates_faq(client: TestClient, db_session: Session) -> None:
+    _, sales_profile = seed_location_and_sales_profile(db_session)
+    queue_item = TrainingQueue(
+        sales_profile_id=_require_pk(sales_profile.id, "sales_profile.id"),
+        customer_question="¿Hacen envíos a domicilio?",
+        ai_proposed_answer="Tal vez.",
+        status="pending",
+    )
+    db_session.add(queue_item)
+    db_session.commit()
+
+    response: Response = client.patch(
+        f"/api/ai/training-queue/{_require_pk(queue_item.id, 'queue_item.id')}",
+        json={
+            "status": "converted_to_faq",
+            "admin_correction": "Sí, hacemos envíos en Tegucigalpa con costo adicional.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "converted_to_faq"
+    assert payload["admin_correction"] == "Sí, hacemos envíos en Tegucigalpa con costo adicional."
+
+    faq = (
+        db_session.query(FAQEntry)
+        .filter(FAQEntry.pregunta_clave == "¿Hacen envíos a domicilio?")
+        .first()
+    )
+    assert faq is not None
+    faq_respuesta = cast(str, faq.respuesta)
+    assert faq_respuesta == "Sí, hacemos envíos en Tegucigalpa con costo adicional."
+
+
+def test_ai_create_order_from_intent_by_product_query(client: TestClient, db_session: Session) -> None:
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    product = seed_product(client, location_id)
+
+    response: Response = client.post(
+        "/api/ai/create-order",
+        json={
+            "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+            "source_location_id": location_id,
+            "customer_phone": "50470001111",
+            "customer_name": "Cliente IA",
+            "items": [
+                {
+                    "product_query": str(product["nombre"]),
+                    "cantidad": 1,
+                    "imeis": ["111111111111111"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "created"
+    assert isinstance(payload["order_id"], int)
+    assert payload["linked_interaction"] is False
+
+    created_order = db_session.query(Order).filter(Order.id == payload["order_id"]).first()
+    assert created_order is not None
+    created_phone = cast(str, created_order.customer_phone)
+    assert created_phone == "50470001111"
+
+
+def test_ai_create_order_from_intent_links_existing_interaction(client: TestClient, db_session: Session) -> None:
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    product = seed_product(client, location_id)
+    profile_id = _require_pk(sales_profile.id, "sales_profile.id")
+
+    customer = Customer(
+        phone_number="50472223333",
+        name="Cliente Conversación",
+        reputation_score=100,
+    )
+    db_session.add(customer)
+    db_session.commit()
+    db_session.refresh(customer)
+
+    interaction = InteractionLog(
+        sales_profile_id=profile_id,
+        customer_id=_require_pk(customer.id, "customer.id"),
+        role="user",
+        content="Quiero comprar ese teléfono",
+        tokens_used=0,
+    )
+    db_session.add(interaction)
+    db_session.commit()
+
+    response: Response = client.post(
+        "/api/ai/create-order",
+        json={
+            "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+            "source_location_id": location_id,
+            "customer_phone": "50472223333",
+            "items": [
+                {
+                    "product_id": int(product["id"]),
+                    "cantidad": 1,
+                    "imeis": ["111111111111111"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "created"
+    assert payload["linked_interaction"] is True
+
+
+def test_ai_handle_message_returns_reply_without_order(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    seed_product(client, location_id)
+    _configure_ai_profile(db_session, _require_pk(sales_profile.id, "sales_profile.id"))
+
+    monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    monkeypatch.setattr(prod_settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_intelligence, "openai_service", _DummyOpenAIService())
+
+    response: Response = client.post(
+        "/api/ai/handle-message",
+        json={
+            "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+            "customer_phone": "50476667777",
+            "customer_name": "Cliente Orquestado",
+            "message_content": "Hola, tienen equipos?",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["reply"] == "Respuesta simulada"
+    assert payload.get("order") is None
+
+
+def test_ai_handle_message_creates_order_when_intent_present(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    product = seed_product(client, location_id)
+    _configure_ai_profile(db_session, _require_pk(sales_profile.id, "sales_profile.id"))
+
+    monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    monkeypatch.setattr(prod_settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_intelligence, "openai_service", _DummyOpenAIService())
+
+    response: Response = client.post(
+        "/api/ai/handle-message",
+        json={
+            "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+            "customer_phone": "50478889999",
+            "customer_name": "Cliente Orquestado",
+            "message_content": "Quiero ese teléfono",
+            "order_intent": {
+                "source_location_id": location_id,
+                "items": [
+                    {
+                        "product_id": int(product["id"]),
+                        "cantidad": 1,
+                        "imeis": ["111111111111111"],
+                    }
+                ],
+                "metodo_pago": "efectivo",
+                "canal": "whatsapp",
+                "auto_create": True,
+                "auto_link_interaction": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["reply"] == "Respuesta simulada"
+    order_payload = payload.get("order")
+    assert order_payload is not None
+    assert order_payload["status"] == "created"
+    assert isinstance(order_payload["order_id"], int)
+
+
+def test_ai_handle_message_is_idempotent_with_message_id(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    seed_product(client, location_id)
+    _configure_ai_profile(db_session, _require_pk(sales_profile.id, "sales_profile.id"))
+
+    monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    monkeypatch.setattr(prod_settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_intelligence, "openai_service", _DummyOpenAIService())
+
+    payload = {
+        "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+        "customer_phone": "50470000001",
+        "customer_name": "Cliente Idempotente",
+        "message_content": "Hola, tienen disponibilidad?",
+        "message_id": "msg-dup-001",
+        "channel_hint": "whatsapp",
+    }
+
+    first = client.post("/api/ai/handle-message", json=payload)
+    assert first.status_code == 200, first.text
+
+    second = client.post("/api/ai/handle-message", json=payload)
+    assert second.status_code == 200, second.text
+    assert second.json()["model"] == "duplicate-guard"
+
+    rows = db_session.query(ProcessedMessage).filter(ProcessedMessage.message_id == "msg-dup-001").count()
+    assert rows == 1
+
+
+def test_ai_reply_uses_local_fallback_when_openai_fails(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class _FailingOpenAIService:
+        def create_chat_completion(self, **kwargs: Any) -> Dict[str, Any]:
+            raise RuntimeError("OpenAI unavailable")
+
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = _require_pk(location.id, "location.id")
+    seed_product(client, location_id)
+    _configure_ai_profile(db_session, _require_pk(sales_profile.id, "sales_profile.id"))
+
+    monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    monkeypatch.setattr(prod_settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_intelligence, "openai_service", _FailingOpenAIService())
+
+    response = client.post(
+        "/api/ai/reply",
+        json={
+            "sales_profile_slug": _require_str(sales_profile.slug, "sales_profile.slug"),
+            "customer_phone": "50470000002",
+            "customer_name": "Cliente Fallback",
+            "message_content": "¿Cuánto cuesta?",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["model"] == "fallback-local"
+    assert isinstance(payload["reply"], str)
+    assert payload["reply"] != ""

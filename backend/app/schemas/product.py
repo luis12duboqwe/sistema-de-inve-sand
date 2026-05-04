@@ -124,6 +124,14 @@ class ProductUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProductRestockRequest(BaseModel):
+    location_id: int
+    cantidad: int = Field(..., gt=0, le=100000)
+    supplier_id: Optional[int] = None
+    notas: Optional[str] = None
+    imeis: Optional[List[str]] = None
+
+
 class ProductResponse(BaseModel):
     id: int
     profile_id: Optional[int] = None
@@ -165,6 +173,7 @@ __all__ = [
     "IMEIWithLocation",
     "ProductBase",
     "ProductCreate",
+    "ProductRestockRequest",
     "ProductUpdate",
     "ProductResponse",
     "StockUpdate",

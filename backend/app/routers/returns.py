@@ -1,14 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, User
+from app.models import Order, Return, ReturnItem, ProductIMEI, IMEIHistory, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
+from datetime import UTC, datetime
 
 from app.auth import check_permission
 from app.services.stock_transaction_helper import PreparedReturnItem, StockTransactionHelper
 from app.utils.order_validators import validate_location_exists
 from app.utils.stock_manager import StockManager
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
 
@@ -78,7 +83,8 @@ def create_return(
             quantity=prepared.quantity,
             condition=prepared.condition,
             action=prepared.action,
-            imei=prepared.imei_value
+            imei=prepared.imei_value,
+            replacement_imei=prepared.replacement_imei_value,
         )
         db.add(return_item)
 
@@ -94,11 +100,44 @@ def create_return(
             )
 
         if prepared.imeis_to_release:
+            # Para warranty_exchange registra como 'garantia_entrada' en lugar de 'devolucion'
+            effective_event = (
+                "garantia_entrada" if prepared.action == "warranty_exchange" else "devolucion"
+            )
             stock_manager.process_return_imeis(
                 prepared.imeis_to_release,
                 return_id=new_return.id,
                 condition=prepared.condition,
                 action=prepared.action,
+                user_id=user_name,
+            )
+            # Actualizar el event_type al más específico para garantías
+            if effective_event == "garantia_entrada":
+                for imei_rec in prepared.imeis_to_release:
+                    # La entrada más reciente de historial es la que se acaba de crear
+                    last_history = (
+                        db.query(IMEIHistory)
+                        .filter(
+                            IMEIHistory.imei == imei_rec.imei,
+                            IMEIHistory.reference_id == new_return.id,
+                            IMEIHistory.reference_type == "return",
+                        )
+                        .order_by(IMEIHistory.id.desc())
+                        .first()
+                    )
+                    if last_history:
+                        last_history.event_type = "garantia_entrada"
+                        last_history.notes = (
+                            f"Equipo defectuoso recibido del cliente - Devolución #{new_return.id} "
+                            f"(Orden #{order.id}) - Condición: {prepared.condition}"
+                        )
+
+        # Procesar equipo de reemplazo en cambios por garantía
+        if prepared.action == "warranty_exchange" and prepared.replacement_imei_record:
+            stock_manager.process_warranty_replacement_imei(
+                replacement_imei_record=prepared.replacement_imei_record,
+                original_order_id=order.id,
+                return_id=new_return.id,
                 user_id=user_name,
             )
 

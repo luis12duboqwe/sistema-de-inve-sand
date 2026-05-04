@@ -4,14 +4,13 @@ from pathlib import Path
 from typing import Dict, List, TypedDict
 
 from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
 from app.models import Location, Order, Product, Stock
 from app.services.stock_transaction_helper import StockTransactionHelper
 from app.utils.stock_manager import StockManager, StockValidationError
+from postgres_test_utils import create_postgres_test_engine
 
 
 class SaleItemDict(TypedDict):
@@ -41,18 +40,14 @@ def _int_value(value: object, label: str) -> int:
     raise AssertionError(f"{label} must be an int")
 
 
-def _bootstrap_engine(tmp_path: Path, name: str) -> Engine:
-    db_path = tmp_path / name
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False},
-    )
+def _bootstrap_engine(tmp_path: Path, name: str):
+    engine, _, cleanup = create_postgres_test_engine(name)
     Base.metadata.create_all(bind=engine)
-    return engine
+    return engine, cleanup
 
 
 def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
-    engine = _bootstrap_engine(tmp_path, "stock_reservations.db")
+    engine, cleanup = _bootstrap_engine(tmp_path, "stock_reservations")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     seed_session: Session = SessionLocal()
@@ -176,10 +171,11 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         assert reservada <= disponible
     finally:
         check_session.close()
+        cleanup()
 
 
 def test_release_reservation_allows_future_order(tmp_path: Path) -> None:
-    engine = _bootstrap_engine(tmp_path, "release_reservation.db")
+    engine, cleanup = _bootstrap_engine(tmp_path, "release_reservation")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     seed_session: Session = SessionLocal()
@@ -293,3 +289,4 @@ def test_release_reservation_allows_future_order(tmp_path: Path) -> None:
         assert _int_value(stock_row.cantidad_reservada, "stock.cantidad_reservada") == 0
     finally:
         final_session.close()
+        cleanup()

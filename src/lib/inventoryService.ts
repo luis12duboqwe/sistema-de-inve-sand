@@ -14,6 +14,7 @@ import type {
   StockByLocation,
   StockTransfer,
   StockHistory,
+  IMEIDetail,
   ProductIMEI,
   TradeIn,
   CreateReturnRequest,
@@ -41,7 +42,11 @@ import type {
   AIContextResponse,
   AIReplyPayload,
   AIReplyResponse,
+  AIHandleMessagePayload,
+  AIHandleMessageResponse,
   AIInteractionLogPayload,
+  AICreateOrderPayload,
+  AICreateOrderResponse,
   TrainingSubmissionPayload,
   FlagTrollResponse,
   PublicProduct,
@@ -58,7 +63,8 @@ import type {
   Role,
   User,
   CreateUserRequest,
-  SyncEventInput
+  SyncEventInput,
+  ProductRestockPayload
 } from './types'
 import { generateAIForecasts, generateRestockAlerts, SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
@@ -127,12 +133,21 @@ type RoleSeedDefinition = {
 }
 
 const PERMISSION_SEED_DATA: PermissionSeedDefinition[] = [
-  { slug: 'users:manage', module: 'usuarios', description: 'Administrar usuarios, roles y permisos' },
-  { slug: 'inventory:read', module: 'inventario', description: 'Consultar el inventario y niveles de stock' },
-  { slug: 'inventory:write', module: 'inventario', description: 'Crear o actualizar productos y existencias' },
-  { slug: 'orders:read', module: 'ordenes', description: 'Ver órdenes y su progreso' },
-  { slug: 'orders:write', module: 'ordenes', description: 'Crear, actualizar o cancelar órdenes' },
-  { slug: 'settings:edit', module: 'configuracion', description: 'Cambiar la configuración avanzada de la app' }
+  { slug: 'inventory:view', module: 'inventario', description: 'Ver inventario y stock' },
+  { slug: 'inventory:create', module: 'inventario', description: 'Crear productos' },
+  { slug: 'inventory:edit', module: 'inventario', description: 'Editar productos y stock' },
+  { slug: 'inventory:delete', module: 'inventario', description: 'Eliminar productos' },
+  { slug: 'inventory:adjust', module: 'inventario', description: 'Ajustar stock manualmente' },
+  { slug: 'orders:view', module: 'ordenes', description: 'Ver órdenes' },
+  { slug: 'orders:create', module: 'ordenes', description: 'Crear órdenes' },
+  { slug: 'orders:edit', module: 'ordenes', description: 'Editar órdenes' },
+  { slug: 'orders:delete', module: 'ordenes', description: 'Eliminar/Cancelar órdenes' },
+  { slug: 'locations:view', module: 'ubicaciones', description: 'Ver ubicaciones' },
+  { slug: 'locations:manage', module: 'ubicaciones', description: 'Crear/Editar/Borrar ubicaciones' },
+  { slug: 'settings:view', module: 'configuracion', description: 'Ver configuraciones' },
+  { slug: 'settings:edit', module: 'configuracion', description: 'Editar configuraciones críticas' },
+  { slug: 'users:manage', module: 'usuarios', description: 'Administrar usuarios y roles' },
+  { slug: 'reports:view', module: 'reportes', description: 'Ver reportes financieros' }
 ]
 
 const ROLE_SEED_DATA: RoleSeedDefinition[] = [
@@ -144,15 +159,55 @@ const ROLE_SEED_DATA: RoleSeedDefinition[] = [
   },
   {
     name: 'Admin',
-    description: 'Gestiona inventario, órdenes y configuraciones básicas',
+    description: 'Administración operativa del sistema',
     is_system_role: true,
-    permissionSlugs: ['inventory:read', 'inventory:write', 'orders:read', 'orders:write']
+    permissionSlugs: [
+      'inventory:view',
+      'inventory:create',
+      'inventory:edit',
+      'inventory:delete',
+      'inventory:adjust',
+      'orders:view',
+      'orders:create',
+      'orders:edit',
+      'orders:delete',
+      'locations:view',
+      'locations:manage',
+      'settings:view',
+      'settings:edit',
+      'reports:view',
+      'users:manage'
+    ]
+  },
+  {
+    name: 'Gerente',
+    description: 'Gestión de inventario y ventas',
+    is_system_role: true,
+    permissionSlugs: [
+      'inventory:view',
+      'inventory:create',
+      'inventory:edit',
+      'inventory:delete',
+      'orders:view',
+      'orders:create',
+      'orders:edit',
+      'orders:delete',
+      'locations:view',
+      'settings:view',
+      'reports:view'
+    ]
   },
   {
     name: 'Vendedor',
     description: 'Opera ventas y consulta inventario',
     is_system_role: true,
-    permissionSlugs: ['inventory:read', 'orders:read']
+    permissionSlugs: ['inventory:view', 'orders:view', 'orders:create', 'locations:view']
+  },
+  {
+    name: 'Invitado',
+    description: 'Vista de catálogo solamente',
+    is_system_role: true,
+    permissionSlugs: ['inventory:view']
   }
 ]
 
@@ -390,28 +445,67 @@ export class InventoryService {
     const release = await inventoryLock.acquire()
     try {
       const kv = getKV()
-      let permissions = await kv.get<Permission[]>(STORAGE_KEYS.PERMISSIONS) || []
-      if (!permissions.length) {
-        permissions = PERMISSION_SEED_DATA.map((definition, index) => ({
-          id: index + 1,
-          slug: definition.slug,
-          module: definition.module,
-          description: definition.description
-        }))
+      const permissions = await kv.get<Permission[]>(STORAGE_KEYS.PERMISSIONS) || []
+      const permissionBySlug = new Map(permissions.map(permission => [permission.slug, permission] as const))
+      let nextPermissionId = Math.max(0, ...permissions.map(permission => permission.id)) + 1
+      let permissionsChanged = false
+      for (const definition of PERMISSION_SEED_DATA) {
+        if (!permissionBySlug.has(definition.slug)) {
+          const permission: Permission = {
+            id: nextPermissionId++,
+            slug: definition.slug,
+            module: definition.module,
+            description: definition.description
+          }
+          permissions.push(permission)
+          permissionBySlug.set(definition.slug, permission)
+          permissionsChanged = true
+        }
+      }
+      if (permissionsChanged || !permissions.length) {
         await kv.set(STORAGE_KEYS.PERMISSIONS, permissions)
       }
 
-      let roles = await kv.get<Role[]>(STORAGE_KEYS.ROLES) || []
-      if (!roles.length) {
-        roles = ROLE_SEED_DATA.map((definition, index) => ({
-          id: index + 1,
-          name: definition.name,
-          description: definition.description,
-          is_system_role: definition.is_system_role,
-          permissions: definition.permissionSlugs
-            .map(slug => permissions.find(permission => permission.slug === slug))
-            .filter((permission): permission is Permission => Boolean(permission))
-        }))
+      const roles = await kv.get<Role[]>(STORAGE_KEYS.ROLES) || []
+      const roleByName = new Map(roles.map(role => [role.name.toLowerCase(), role] as const))
+      let nextRoleId = Math.max(0, ...roles.map(role => role.id)) + 1
+      let rolesChanged = false
+
+      for (const definition of ROLE_SEED_DATA) {
+        const rolePermissions = definition.permissionSlugs
+          .map(slug => permissionBySlug.get(slug))
+          .filter((permission): permission is Permission => Boolean(permission))
+
+        const existingRole = roleByName.get(definition.name.toLowerCase())
+        if (!existingRole) {
+          const role: Role = {
+            id: nextRoleId++,
+            name: definition.name,
+            description: definition.description,
+            is_system_role: definition.is_system_role,
+            permissions: rolePermissions
+          }
+          roles.push(role)
+          roleByName.set(definition.name.toLowerCase(), role)
+          rolesChanged = true
+          continue
+        }
+        const hasAllSeedPermissions = rolePermissions.every(permission =>
+          existingRole.permissions?.some(existing => existing.slug === permission.slug)
+        )
+
+        if (!hasAllSeedPermissions || !existingRole.permissions?.length) {
+          existingRole.permissions = rolePermissions
+          rolesChanged = true
+        }
+
+        if (!existingRole.description) {
+          existingRole.description = definition.description
+          rolesChanged = true
+        }
+      }
+
+      if (rolesChanged || !roles.length) {
         await kv.set(STORAGE_KEYS.ROLES, roles)
       }
 
@@ -519,26 +613,16 @@ export class InventoryService {
 
   async fetchProducts(profileSlug?: string, search?: string, includeInactive = false): Promise<ProductWithStock[]> {
     try {
-      const [products, stock, , locations, imeis] = await Promise.all([
+      const [products, stock, locations, imeis] = await Promise.all([
         this.loadProducts(),
         this.getStock(),
-        this.loadProfiles(),
         this.loadLocations(),
         this.loadProductIMEIs()
       ])
 
       let filtered = includeInactive ? products : products.filter(p => p.activo)
 
-      // V2.0 CHANGE: Products are global. Do not filter by profile_id even if slug is provided.
-      // Keeping this commented out for reference or legacy fallback if absolutely needed.
-      /*
-      if (profileSlug) {
-        const profile = profiles.find(pr => pr.slug === profileSlug)
-        if (profile) {
-          filtered = filtered.filter(p => p.profile_id === profile.id)
-        }
-      }
-      */
+      // V2.0 CHANGE: Products are global. Do not filter by `profile_id` even if `profileSlug` is provided.
 
       if (search) {
         const searchLower = search.toLowerCase()
@@ -601,6 +685,36 @@ export class InventoryService {
         .map(i => i.imei)
     } catch (error) {
       console.error('Error fetching IMEIs locally:', error)
+      return []
+    }
+  }
+
+  async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
+    try {
+      const [imeis, products, locations, suppliers] = await Promise.all([
+        this.loadProductIMEIs(),
+        this.loadProducts(),
+        this.loadLocations(),
+        this.loadSuppliers(),
+      ])
+
+      const product = products.find(item => item.id === productId)
+
+      return imeis
+        .filter(item => item.product_id === productId)
+        .map(item => ({
+          ...item,
+          product_name: product?.nombre,
+          location_name: locations.find(location => location.id === item.location_id)?.nombre,
+          supplier_name: suppliers.find(supplier => supplier.id === item.supplier_id)?.nombre,
+        }))
+        .sort((a, b) => {
+          const dateA = new Date(b.received_at || b.created_at).getTime()
+          const dateB = new Date(a.received_at || a.created_at).getTime()
+          return dateA - dateB
+        })
+    } catch (error) {
+      console.error('Error fetching product IMEIs locally:', error)
       return []
     }
   }
@@ -712,7 +826,7 @@ export class InventoryService {
         )
       }
 
-      const CANALES_VALIDOS = ['whatsapp', 'facebook', 'instagram']
+      const CANALES_VALIDOS = ['whatsapp', 'facebook', 'instagram', 'tienda']
       if (!request.canal || !CANALES_VALIDOS.includes(request.canal)) {
         throw new Error(
           `Canal inválido: "${request.canal}". ` +
@@ -724,6 +838,44 @@ export class InventoryService {
         throw new Error(
           `Financiamiento solo es compatible con metodo_pago='financiamiento' o 'tarjeta'.`
         )
+      }
+
+      const normalizeTransferReference = (reference?: string): string | undefined => {
+        if (!reference) return undefined
+        const normalized = reference
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '')
+        return normalized || undefined
+      }
+
+      const transferBankName = request.metodo_pago === 'transferencia'
+        ? request.transfer_bank_name?.trim()
+        : undefined
+      const transferReference = request.metodo_pago === 'transferencia'
+        ? request.transfer_reference?.trim()
+        : undefined
+      const transferReferenceNormalized = normalizeTransferReference(transferReference)
+
+      if (request.metodo_pago === 'transferencia') {
+        if (!transferBankName) {
+          throw new Error('Debes indicar el banco cuando el método de pago es transferencia')
+        }
+        if (!transferReference || !transferReferenceNormalized) {
+          throw new Error('Debes indicar un número de referencia válido para transferencia')
+        }
+
+        const duplicatedOrder = orders.find(order => {
+          const existingNormalized =
+            order.transfer_reference_normalized || normalizeTransferReference(order.transfer_reference)
+          return existingNormalized === transferReferenceNormalized
+        })
+
+        if (duplicatedOrder) {
+          throw new Error(
+            `La referencia de transferencia ya fue usada en la orden #${duplicatedOrder.id} (${duplicatedOrder.customer_name})`
+          )
+        }
       }
 
       let total = 0
@@ -779,13 +931,13 @@ export class InventoryService {
            precioFinal = item.precio_unitario
            
            // --- VALIDACIONES DE SEGURIDAD (Local Mode) ---
-           let costoLocal = product.costo
+           let costoLocal = product.costo || 0
            if (product.moneda === 'USD') {
-              costoLocal = product.costo * TASA_CAMBIO
+              costoLocal = (product.costo || 0) * TASA_CAMBIO
            }
            
            // 1. No vender bajo costo
-           if (precioFinal < costoLocal) {
+           if (precioFinal < (costoLocal || 0)) {
               throw new Error(`El precio negociado (${precioFinal}) para '${product.nombre}' es menor al costo. Operación no permitida.`)
            }
            
@@ -912,7 +1064,8 @@ export class InventoryService {
               updatedIMEIs[imeiIndex] = {
                 ...updatedIMEIs[imeiIndex],
                 vendido: true,
-                order_id: newOrderId
+                order_id: newOrderId,
+                sold_at: new Date().toISOString(),
               }
 
               // V2.0: Add IMEI History (Sale)
@@ -1088,7 +1241,7 @@ export class InventoryService {
             product_id: newProduct.id,
             location_id: request.source_location_id,
             delta: 1,
-            stock_anterior,
+            stock_anterior: stockAnterior,
             stock_nuevo: stockNuevo,
             reason: 'trade_in_intake',
             reference_id: newOrderId
@@ -1105,6 +1258,11 @@ export class InventoryService {
                existingImei.location_id = request.source_location_id
                existingImei.vendido = false
                existingImei.order_id = undefined
+               existingImei.sold_at = undefined
+               existingImei.received_at = new Date().toISOString()
+               existingImei.acquisition_type = 'retoma'
+               existingImei.received_notes = `Ingreso por retoma en orden #${newOrderId}`
+               existingImei.received_by = salesProfile?.name || profile?.name || 'Sistema Local'
             } else {
                 const nextImeiId = Math.max(0, ...updatedIMEIs.map(i => i.id), ...tradeInIMEIs.map(i => i.id)) + 1
                 const newImei: ProductIMEI = {
@@ -1113,6 +1271,10 @@ export class InventoryService {
                 location_id: request.source_location_id,
                 imei: tradeIn.imei,
                 vendido: false,
+              received_at: new Date().toISOString(),
+              acquisition_type: 'retoma',
+              received_notes: `Ingreso por retoma en orden #${newOrderId}`,
+              received_by: salesProfile?.name || profile?.name || 'Sistema Local',
                 created_at: new Date().toISOString()
                 }
                 tradeInIMEIs.push(newImei)
@@ -1219,6 +1381,9 @@ export class InventoryService {
         customer_phone: phoneAsString,
         canal: request.canal,
         metodo_pago: request.metodo_pago,
+        transfer_bank_name: transferBankName,
+        transfer_reference: transferReference,
+        transfer_reference_normalized: transferReferenceNormalized,
         total,
         financing_details: financingDetailsString,
         estado: 'pendiente',
@@ -1384,18 +1549,6 @@ export class InventoryService {
       }
       throw new Error(`Failed to create profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-      if (imeiEvents.length > 0) {
-        await this.recordSyncEvent({
-          entity: 'imei',
-          action: 'update',
-          entityId: null,
-          payload: {
-            order_id: newOrderId,
-            source_location_id: request.source_location_id ?? null,
-            events: imeiEvents
-          }
-        })
-      }
   }
 
   async listProfiles(): Promise<Profile[]> {
@@ -1534,7 +1687,7 @@ export class InventoryService {
               product_id: item.product_id,
               location_id: targetLocationId,
               cantidad: item.cantidad,
-              stock_anterior,
+              stock_anterior: stockAnterior,
               stock_nuevo: stockEntry.cantidad_disponible
             })
           } else {
@@ -1546,7 +1699,7 @@ export class InventoryService {
       // 2. Release IMEIs
       for (let i = 0; i < imeis.length; i++) {
         if (imeis[i].order_id === orderId && imeis[i].vendido) {
-            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined, sold_at: undefined }
                 imeiEvents.push({
                   imei: imeis[i].imei,
                   product_id: imeis[i].product_id,
@@ -1668,6 +1821,8 @@ export class InventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -1713,9 +1868,18 @@ export class InventoryService {
         }
       }
 
+      const normalizeTransferReference = (reference?: string): string | undefined => {
+        if (!reference) return undefined
+        const normalized = reference
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '')
+        return normalized || undefined
+      }
+
       // VALIDATION: Channel
       if (updates.canal) {
-        const validChannels = ['whatsapp', 'facebook', 'instagram']
+        const validChannels = ['whatsapp', 'facebook', 'instagram', 'tienda']
         if (!validChannels.includes(updates.canal)) {
           throw new Error(`Canal inválido: ${updates.canal}`)
         }
@@ -1730,6 +1894,37 @@ export class InventoryService {
       const orderBeforeSnapshot = {
         ...currentOrder,
         items: currentItems.map(item => ({ ...item }))
+      }
+
+      const nextMetodoPago = updates.metodo_pago ?? currentOrder.metodo_pago
+      const nextTransferBankName = updates.transfer_bank_name !== undefined
+        ? updates.transfer_bank_name?.trim()
+        : currentOrder.transfer_bank_name
+      const nextTransferReference = updates.transfer_reference !== undefined
+        ? updates.transfer_reference?.trim()
+        : currentOrder.transfer_reference
+      const nextTransferReferenceNormalized = normalizeTransferReference(nextTransferReference)
+
+      if (nextMetodoPago === 'transferencia') {
+        if (!nextTransferBankName) {
+          throw new Error('Debes indicar el banco cuando el método de pago es transferencia')
+        }
+        if (!nextTransferReference || !nextTransferReferenceNormalized) {
+          throw new Error('Debes indicar un número de referencia válido para transferencia')
+        }
+
+        const duplicatedOrder = orders.find(order => {
+          if (order.id === orderId) return false
+          const existingNormalized =
+            order.transfer_reference_normalized || normalizeTransferReference(order.transfer_reference)
+          return existingNormalized === nextTransferReferenceNormalized
+        })
+
+        if (duplicatedOrder) {
+          throw new Error(
+            `La referencia de transferencia ya fue usada en la orden #${duplicatedOrder.id} (${duplicatedOrder.customer_name})`
+          )
+        }
       }
 
       const restoredStockEvents: Array<{
@@ -1799,7 +1994,7 @@ export class InventoryService {
             product_id: item.product_id,
             location_id: locationId,
             cantidad: item.cantidad,
-            stock_anterior,
+            stock_anterior: stockAnterior,
             stock_nuevo: stockEntry.cantidad_disponible
           })
         }
@@ -1808,7 +2003,7 @@ export class InventoryService {
         // Esto permite que sean re-seleccionados si se mantienen en la orden, o liberados si se quitan
         for (let i = 0; i < imeis.length; i++) {
           if (imeis[i].order_id === orderId) {
-            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined }
+            imeis[i] = { ...imeis[i], vendido: false, order_id: undefined, sold_at: undefined }
             imeiEvents.push({
               imei: imeis[i].imei,
               product_id: imeis[i].product_id,
@@ -1903,7 +2098,7 @@ export class InventoryService {
             product_id: item.product_id,
             location_id: locationId,
             cantidad: item.cantidad,
-            stock_anterior,
+            stock_anterior: stockAnterior,
             stock_nuevo: stockEntry.cantidad_disponible
           })
 
@@ -1954,7 +2149,10 @@ export class InventoryService {
         customer_name: updates.customer_name ?? currentOrder.customer_name,
         customer_phone: phoneAsString,
         canal: updates.canal ?? currentOrder.canal,
-        metodo_pago: updates.metodo_pago ?? currentOrder.metodo_pago,
+        metodo_pago: nextMetodoPago,
+        transfer_bank_name: nextMetodoPago === 'transferencia' ? nextTransferBankName : undefined,
+        transfer_reference: nextMetodoPago === 'transferencia' ? nextTransferReference : undefined,
+        transfer_reference_normalized: nextMetodoPago === 'transferencia' ? nextTransferReferenceNormalized : undefined,
         notas: updates.notas !== undefined ? updates.notas : currentOrder.notas,
         updated_at: new Date().toISOString()
       }
@@ -2061,12 +2259,17 @@ export class InventoryService {
         cantidad_reservada: 0
       }
 
-      // Register IMEIs if provided
-      const productIMEIs = await this.loadProductIMEIs()
-      const newIMEIs: ProductIMEI[] = []
+        // Register IMEIs if provided
+        const productIMEIs = await this.loadProductIMEIs()
+        const imeiHistory = await this.loadIMEIHistory()
+        const newIMEIs: ProductIMEI[] = []
+        const newIMEIHistory: IMEIHistory[] = []
+        const now = new Date().toISOString()
+        const initialImeiNotes = `Stock inicial del producto '${newProduct.nombre}' (SKU: ${newProduct.sku})`
       
       if (newProduct.imeis && newProduct.imeis.length > 0) {
           let nextImeiId = Math.max(0, ...productIMEIs.map(i => i.id)) + 1
+          let nextImeiHistoryId = Math.max(0, ...imeiHistory.map(h => h.id)) + 1
           for (const imeiStr of newProduct.imeis) {
               // Check for duplicates globally
               if (productIMEIs.some(pi => pi.imei === imeiStr)) {
@@ -2077,10 +2280,29 @@ export class InventoryService {
                   id: nextImeiId++,
                   product_id: newProduct.id,
                   location_id: locationId,
+              supplier_id: newProduct.supplier_id,
                   imei: imeiStr,
                   vendido: false,
-                  created_at: new Date().toISOString()
+              received_at: now,
+              acquisition_type: 'initial_stock',
+              received_notes: initialImeiNotes,
+              received_by: 'Sistema Local',
+              created_at: now
               })
+
+            newIMEIHistory.push({
+            id: nextImeiHistoryId++,
+            imei: imeiStr,
+            product_id: newProduct.id,
+            location_id: locationId,
+            supplier_id: newProduct.supplier_id,
+            event_type: 'purchase',
+            reference_id: newProduct.id,
+            reference_type: 'product_creation',
+            notes: initialImeiNotes,
+            created_by: 'Sistema Local',
+            created_at: now,
+            })
           }
       }
 
@@ -2106,6 +2328,7 @@ export class InventoryService {
       await this.setStockHistory(stockHistory)
       if (newIMEIs.length > 0) {
           await this.setProductIMEIs([...productIMEIs, ...newIMEIs])
+          await this.setIMEIHistory([...imeiHistory, ...newIMEIHistory])
       }
 
       await this.recordSyncEvent({
@@ -2154,6 +2377,206 @@ export class InventoryService {
     } catch (error) {
       console.error('Error creating product:', error)
       throw new Error(`Failed to create product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock> {
+    const release = await inventoryLock.acquire()
+    try {
+      const [products, stock, locations, stockHistory, productIMEIs, imeiHistory, suppliers] = await Promise.all([
+        this.loadProducts(),
+        this.getStock(),
+        this.loadLocations(),
+        this.loadStockHistory(),
+        this.loadProductIMEIs(),
+        this.loadIMEIHistory(),
+        this.loadSuppliers(),
+      ])
+
+      const product = products.find(p => p.id === productId)
+      if (!product) {
+        throw new Error(`Producto con ID ${productId} no encontrado`)
+      }
+
+      const location = locations.find(l => l.id === payload.location_id)
+      if (!location || !location.activo) {
+        throw new Error('Ubicación no encontrada o inactiva')
+      }
+
+      const supplier = payload.supplier_id
+        ? suppliers.find(s => s.id === payload.supplier_id)
+        : undefined
+
+      if (payload.supplier_id && !supplier) {
+        throw new Error(`Proveedor con ID ${payload.supplier_id} no encontrado`)
+      }
+
+      const cantidad = Number(payload.cantidad)
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        throw new Error('La cantidad a agregar debe ser mayor a 0')
+      }
+
+      const imeisLimpios = (payload.imeis ?? []).map(i => String(i || '').trim()).filter(Boolean)
+      if (product.is_serialized) {
+        if (imeisLimpios.length === 0) {
+          throw new Error('Este producto es serializado. Debe ingresar IMEIs para el reabastecimiento.')
+        }
+        if (imeisLimpios.length !== cantidad) {
+          throw new Error(`La cantidad de IMEIs (${imeisLimpios.length}) debe coincidir con la cantidad a agregar (${cantidad})`)
+        }
+      } else if (imeisLimpios.length > 0) {
+        throw new Error('Este producto no es serializado. No debe enviar IMEIs.')
+      }
+
+      if (new Set(imeisLimpios).size !== imeisLimpios.length) {
+        throw new Error('La lista de IMEIs contiene valores duplicados')
+      }
+
+      for (const imei of imeisLimpios) {
+        if (productIMEIs.some(existing => existing.imei === imei)) {
+          throw new Error(`El IMEI '${imei}' ya está registrado en el sistema`)
+        }
+      }
+
+      let stockEntry = stock.find(s => s.product_id === productId && s.location_id === payload.location_id)
+      if (!stockEntry) {
+        stockEntry = {
+          id: Math.max(0, ...stock.map(s => s.id)) + 1,
+          product_id: productId,
+          location_id: payload.location_id,
+          cantidad_disponible: 0,
+          cantidad_reservada: 0,
+        }
+        stock.push(stockEntry)
+      }
+
+      const stockAnterior = stockEntry.cantidad_disponible
+      stockEntry.cantidad_disponible = stockAnterior + cantidad
+
+      const notasRestockParts = [`Reabastecimiento manual de '${product.nombre}'`]
+      if (supplier?.nombre) {
+        notasRestockParts.push(`Proveedor: ${supplier.nombre}`)
+      }
+      const notasLimpias = payload.notas?.trim()
+      if (notasLimpias) {
+        notasRestockParts.push(`Nota: ${notasLimpias}`)
+      }
+      const notasRestock = notasRestockParts.join(' | ')
+
+      stockHistory.push({
+        id: Math.max(0, ...stockHistory.map(h => h.id)) + 1,
+        product_id: productId,
+        location_id: payload.location_id,
+        tipo_cambio: 'compra',
+        cantidad,
+        stock_anterior: stockAnterior,
+        stock_nuevo: stockEntry.cantidad_disponible,
+        referencia_id: productId,
+        referencia_tipo: 'manual_adjustment',
+        notas: notasRestock,
+        usuario: 'Sistema Local',
+        created_at: new Date().toISOString(),
+      })
+
+      let nextImeiId = Math.max(0, ...productIMEIs.map(i => i.id)) + 1
+      let nextImeiHistoryId = Math.max(0, ...imeiHistory.map(i => i.id)) + 1
+
+      for (const imei of imeisLimpios) {
+        productIMEIs.push({
+          id: nextImeiId++,
+          product_id: productId,
+          location_id: payload.location_id,
+          supplier_id: payload.supplier_id,
+          imei,
+          vendido: false,
+          received_at: new Date().toISOString(),
+          acquisition_type: 'restock',
+          received_notes: notasRestock,
+          received_by: 'Sistema Local',
+          created_at: new Date().toISOString(),
+        })
+
+        imeiHistory.push({
+          id: nextImeiHistoryId++,
+          imei,
+          product_id: productId,
+          location_id: payload.location_id,
+          supplier_id: payload.supplier_id,
+          event_type: 'purchase',
+          reference_id: productId,
+          reference_type: 'restock',
+          notes: notasRestock,
+          created_at: new Date().toISOString(),
+          created_by: 'Sistema Local',
+        })
+      }
+
+      await this.setStock(stock)
+      await this.setStockHistory(stockHistory)
+      await this.setProductIMEIs(productIMEIs)
+      await this.setIMEIHistory(imeiHistory)
+
+      await this.recordSyncEvent({
+        entity: 'stock',
+        action: 'update',
+        entityId: `${productId}:${payload.location_id}`,
+        payload: {
+          product_id: productId,
+          location_id: payload.location_id,
+          cantidad: stockEntry.cantidad_disponible,
+          stock_anterior: stockAnterior,
+          stock_nuevo: stockEntry.cantidad_disponible,
+          incremento: cantidad,
+        },
+      })
+
+      if (imeisLimpios.length > 0) {
+        await this.recordSyncEvent({
+          entity: 'imei',
+          action: 'assign',
+          entityId: null,
+          payload: {
+            product_id: productId,
+            location_id: payload.location_id,
+            imeis: imeisLimpios,
+          },
+        })
+      }
+
+      const stockItems = stock
+        .filter(s => s.product_id === productId)
+        .map(s => {
+          const itemLocation = s.location_id ? locations.find(l => l.id === s.location_id) : undefined
+          const cantidadReservada = s.cantidad_reservada || 0
+          const stockLibre = Math.max((s.cantidad_disponible || 0) - cantidadReservada, 0)
+          return {
+            ...s,
+            location_id: s.location_id || 0,
+            cantidad_reservada: cantidadReservada,
+            stock_libre: stockLibre,
+            location: itemLocation,
+          }
+        })
+
+      const stockTotal = stockItems.reduce((sum, s) => sum + (s.stock_libre ?? 0), 0)
+      const imeisDisponibles = productIMEIs
+        .filter(i => i.product_id === productId && !i.vendido && !i.transfer_id)
+        .map(i => i.imei)
+
+      return {
+        ...product,
+        stock_disponible: stockTotal,
+        stock_items: stockItems,
+        imeis: imeisDisponibles.length > 0 ? imeisDisponibles : undefined,
+      }
+    } catch (error) {
+      console.error('Error restocking product:', error)
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error(`Failed to restock product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -2415,12 +2838,12 @@ export class InventoryService {
           id: Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id)) + 1,
           product_id: item.product_id,
           location_id: locationId,
-          tipo_cambio: 'reversa_venta',
+          tipo_cambio: 'devolucion',
           cantidad: item.cantidad,
           stock_anterior: stockAnterior,
           stock_nuevo: stockItem.cantidad_disponible,
           referencia_id: orderId,
-          referencia_tipo: 'order_deleted',
+          referencia_tipo: 'manual_adjustment',
           notas: `Reversión de orden #${orderId} eliminada`,
           usuario: 'Sistema Local',
           created_at: new Date().toISOString()
@@ -2428,9 +2851,9 @@ export class InventoryService {
 
         stockRestorations.push({
           product_id: item.product_id,
-          location_id,
+          location_id: locationId,
           cantidad: item.cantidad,
-          stock_anterior,
+          stock_anterior: stockAnterior,
           stock_nuevo: stockItem.cantidad_disponible
         })
         
@@ -2447,7 +2870,8 @@ export class InventoryService {
               updatedIMEIs[imeiIndex] = {
                 ...updatedIMEIs[imeiIndex],
                 vendido: false,
-                order_id: undefined
+                order_id: undefined,
+                sold_at: undefined,
               }
               imeiEvents.push({
                 imei: updatedIMEIs[imeiIndex].imei,
@@ -2719,8 +3143,9 @@ export class InventoryService {
 
     const nextId = Math.max(0, ...history.map(h => h.id)) + 1
     const createdEntry: StockHistory = {
+      created_at: (entry as any).created_at || new Date().toISOString(),
       id: nextId,
-      created_at: entry.created_at || new Date().toISOString(),
+      
       ...entry
     }
 
@@ -2808,7 +3233,7 @@ export class InventoryService {
       return {
         ...product,
         stock_disponible: totalStock,
-        stock_items: productStock
+        stock_items: productStock as import('./types').StockByLocation[]
       }
     } catch (error) {
       console.error('Error getting product by IMEI:', error)
@@ -2850,7 +3275,7 @@ export class InventoryService {
       const newLocation = {
         id: 1,
         nombre: 'Ubicación Principal',
-        tipo: 'tienda',
+        tipo: 'tienda' as import('./types').Location['tipo'],
         direccion: 'Por definir',
         telefono: '',
         activo: true,
@@ -4050,14 +4475,14 @@ export class InventoryService {
         cantidad: number
         stock_anterior: number
         stock_nuevo: number
-        condition: ReturnItem['condition']
+        condition: import('./types').ReturnItem['condition']
       }> = []
       const imeiEvents: Array<{
         imei: string
         product_id: number
         location_id: number
-        condition: ReturnItem['condition']
-        action: ReturnItem['action']
+        condition: import('./types').ReturnItem['condition']
+        action: import('./types').ReturnItem['action']
       }> = []
 
       for (const item of request.items) {
@@ -4090,12 +4515,12 @@ export class InventoryService {
               cantidad_defectuosa: isDefective ? item.quantity : 0
             }
             updatedStock.push(newEntry)
-            stockNuevo = newEntry[stockField]
+            stockNuevo = newEntry[stockField] || 0
           }
 
           stockAdjustments.push({
             product_id: item.product_id,
-            location_id,
+            location_id: locationId,
             field: stockField,
             cantidad: item.quantity,
             stock_anterior: stockAnterior,
@@ -4119,24 +4544,28 @@ export class InventoryService {
             created_at: now
           })
 
-          // Update IMEI if present
+          // Update IMEI if present (equipo defectuoso que entra)
           if (item.imei) {
             const imeiRecord = updatedIMEIs.find(i => i.imei === item.imei)
             if (imeiRecord) {
               imeiRecord.vendido = false
               imeiRecord.order_id = undefined
+              imeiRecord.sold_at = undefined
 
               // Add IMEI History
               const nextIMEIHistoryId = Math.max(0, ...updatedIMEIHistory.map(h => h.id)) + 1
+              const eventType = item.action === 'warranty_exchange' ? 'garantia_entrada' : 'devolucion'
               updatedIMEIHistory.push({
                 id: nextIMEIHistoryId,
                 imei: item.imei,
                 product_id: item.product_id,
                 location_id: locationId,
-                event_type: 'devolucion',
+                event_type: eventType,
                 reference_id: nextReturnId,
                 reference_type: 'return',
-                notes: `Devolución orden #${order.id}: ${item.condition}`,
+                notes: item.action === 'warranty_exchange'
+                  ? `Equipo defectuoso recibido - Garantía orden #${order.id}: ${item.condition}`
+                  : `Devolución orden #${order.id}: ${item.condition}`,
                 created_at: now,
                 created_by: request.created_by || 'Sistema Local'
               })
@@ -4144,9 +4573,61 @@ export class InventoryService {
               imeiEvents.push({
                 imei: item.imei,
                 product_id: item.product_id,
-                location_id,
+                location_id: locationId,
                 condition: item.condition,
                 action: item.action
+              })
+            }
+          }
+
+          // Procesar IMEI del equipo de reemplazo (solo warranty_exchange)
+          if (item.action === 'warranty_exchange' && item.replacement_imei) {
+            const replRecord = updatedIMEIs.find(i => i.imei === item.replacement_imei)
+            if (replRecord) {
+              const replLocationId = replRecord.location_id ?? locationId
+
+              // Marcar como vendido y asociar a la orden original
+              replRecord.vendido = true
+              replRecord.order_id = order.id
+              replRecord.sold_at = now
+
+              // Descontar stock del equipo de reemplazo
+              const replStock = updatedStock.find(
+                s => s.product_id === replRecord.product_id && s.location_id === replLocationId
+              )
+              if (replStock && replStock.cantidad_disponible > 0) {
+                const replStockAnterior = replStock.cantidad_disponible
+                replStock.cantidad_disponible -= 1
+                const nextReplHistId = Math.max(0, ...newStockHistory.map(h => h.id)) + 1
+                newStockHistory.push({
+                  id: nextReplHistId,
+                  product_id: replRecord.product_id,
+                  location_id: replLocationId,
+                  tipo_cambio: 'garantia_salida',
+                  cantidad: 1,
+                  stock_anterior: replStockAnterior,
+                  stock_nuevo: replStock.cantidad_disponible,
+                  referencia_id: nextReturnId,
+                  referencia_tipo: 'return',
+                  notas: `Equipo de reemplazo entregado - Garantía orden #${order.id}`,
+                  usuario: request.created_by || 'Sistema Local',
+                  created_at: now
+                })
+              }
+
+              // Registrar historial IMEI para el reemplazo
+              const nextReplIMEIHistId = Math.max(0, ...updatedIMEIHistory.map(h => h.id)) + 1
+              updatedIMEIHistory.push({
+                id: nextReplIMEIHistId,
+                imei: item.replacement_imei,
+                product_id: replRecord.product_id,
+                location_id: replLocationId,
+                event_type: 'garantia_salida',
+                reference_id: nextReturnId,
+                reference_type: 'return',
+                notes: `Equipo de reemplazo entregado al cliente - Garantía orden #${order.id}`,
+                created_at: now,
+                created_by: request.created_by || 'Sistema Local'
               })
             }
           }
@@ -4198,6 +4679,46 @@ export class InventoryService {
     } catch (error) {
       console.error('Error getting IMEI history:', error)
       return []
+    }
+  }
+
+  async getIMEIDetail(imei: string): Promise<IMEIDetail | null> {
+    try {
+      const [productIMEIs, products, locations, suppliers, orders] = await Promise.all([
+        this.loadProductIMEIs(),
+        this.loadProducts(),
+        this.loadLocations(),
+        this.loadSuppliers(),
+        this.getOrders(),
+      ])
+
+      const record = productIMEIs.find(item => item.imei === imei)
+      if (!record) return null
+
+      const product = products.find(item => item.id === record.product_id)
+      const location = locations.find(item => item.id === record.location_id)
+      const supplier = suppliers.find(item => item.id === record.supplier_id)
+      const order = orders.find(item => item.id === record.order_id)
+      const soldAt = record.sold_at || order?.created_at
+      const warrantyExpiresAt = soldAt && product?.garantia_meses
+        ? new Date(new Date(soldAt).getTime() + product.garantia_meses * 30 * 24 * 60 * 60 * 1000).toISOString()
+        : undefined
+
+      return {
+        ...record,
+        product_name: product?.nombre,
+        product_sku: product?.sku,
+        location_name: location?.nombre,
+        supplier_name: supplier?.nombre,
+        customer_name: order?.customer_name,
+        customer_phone: order?.customer_phone,
+        status_label: record.transfer_id ? 'en_transito' : record.vendido ? 'vendido' : 'en_stock',
+        warranty_months: product?.garantia_meses,
+        warranty_expires_at: warrantyExpiresAt,
+      }
+    } catch (error) {
+      console.error('Error getting IMEI detail:', error)
+      return null
     }
   }
 
@@ -4831,8 +5352,8 @@ export class InventoryService {
       revenueTrends.push({ date: dayStart.toISOString(), revenue: Number(dayRevenue.toFixed(2)) })
     }
 
-    const pricingInsights = analyzePricing(products, relevantOrders)
-    const inventoryInsights = analyzeInventory(products, relevantOrders)
+    const pricingInsights = analyzePricing(products as import('./types').ProductWithStock[], relevantOrders)
+    const inventoryInsights = analyzeInventory(products as import('./types').ProductWithStock[], relevantOrders)
     const customerInsights = analyzeCustomers(relevantOrders)
     const recommendations = buildBusinessInsightRecommendations(pricingInsights, inventoryInsights, customerInsights)
 
@@ -4889,7 +5410,7 @@ export class InventoryService {
       throw new Error(`La ubicación ${locationId} no existe en modo local`)
     }
 
-    return stock
+    return (stock as import('./types').StockByLocation[])
       .filter(entry => entry.location_id === locationId)
       .map(entry => {
         const cantidadReservada = entry.cantidad_reservada || 0
@@ -5315,6 +5836,100 @@ export class InventoryService {
       tokens_used: payload.message_content.length,
       model: 'local-mock',
       context
+    }
+  }
+
+  async createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse> {
+    if (!payload.items || payload.items.length === 0) {
+      throw new Error('Debe incluir al menos un item para crear la orden')
+    }
+
+    const products = await this.getProducts()
+    const normalizedLocationId = Number(payload.source_location_id)
+    const resolvedItems: CreateOrderRequest['items'] = payload.items.map((item, index) => {
+      const qty = Number(item.cantidad)
+      if (!Number.isFinite(qty) || qty <= 0) {
+        throw new Error(`Item ${index + 1}: cantidad debe ser mayor a 0`)
+      }
+
+      let resolvedProduct = item.product_id
+        ? products.find(product => product.id === item.product_id)
+        : undefined
+
+      if (!resolvedProduct && item.product_query) {
+        const query = item.product_query.trim().toLowerCase()
+        resolvedProduct = products.find(product => {
+          const hasStockInLocation = (product.stock_items || []).some(
+            stock =>
+              stock.location_id === normalizedLocationId
+              && ((stock.cantidad_disponible || 0) - (stock.cantidad_reservada || 0)) > 0
+          )
+          if (!hasStockInLocation) return false
+
+          const searchable = [product.nombre, product.marca, product.modelo, product.sku]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+          return searchable.includes(query)
+        })
+      }
+
+      if (!resolvedProduct) {
+        throw new Error(`Item ${index + 1}: no se encontró producto con stock para "${item.product_query || item.product_id}"`)
+      }
+
+      return {
+        product_id: resolvedProduct.id,
+        cantidad: qty,
+        precio_unitario: item.precio_unitario,
+        imeis: item.imeis,
+        es_regalo_promocion: false
+      }
+    })
+
+    const orderRequest: CreateOrderRequest = {
+      sales_profile_slug: payload.sales_profile_slug,
+      source_location_id: normalizedLocationId,
+      customer_name: payload.customer_name?.trim() || 'Cliente IA',
+      customer_phone: String(payload.customer_phone || '').trim(),
+      canal: payload.canal || 'whatsapp',
+      metodo_pago: payload.metodo_pago || 'efectivo',
+      items: resolvedItems,
+      notas: payload.notes
+    }
+
+    const createdOrder = await this.createOrder(orderRequest)
+    return {
+      status: 'created',
+      order_id: createdOrder.id,
+      linked_interaction: false
+    }
+  }
+
+  async handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse> {
+    const aiReply = await this.generateAIReply(payload)
+
+    let order: AICreateOrderResponse | undefined
+    if (payload.order_intent?.auto_create !== false) {
+      const orderIntent = payload.order_intent
+      if (orderIntent && orderIntent.items.length > 0) {
+        order = await this.createOrderFromAIIntent({
+          sales_profile_slug: payload.sales_profile_slug,
+          source_location_id: orderIntent.source_location_id,
+          customer_phone: payload.customer_phone,
+          customer_name: payload.customer_name,
+          canal: orderIntent.canal,
+          metodo_pago: orderIntent.metodo_pago,
+          items: orderIntent.items,
+          notes: orderIntent.notes,
+          auto_link_interaction: orderIntent.auto_link_interaction
+        })
+      }
+    }
+
+    return {
+      ...aiReply,
+      order
     }
   }
 
@@ -5914,8 +6529,7 @@ export class InventoryService {
       const updatedItem: TrainingQueueItem = {
         ...items[index],
         status: statusMap[action],
-        admin_correction: correction?.trim() || items[index].admin_correction,
-        updated_at: now
+        admin_correction: correction?.trim() || items[index].admin_correction
       }
 
       items[index] = updatedItem

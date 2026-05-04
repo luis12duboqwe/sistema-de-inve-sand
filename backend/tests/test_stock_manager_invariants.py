@@ -1,13 +1,13 @@
 import threading
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi import HTTPException
 
 from app.database import Base
 from app.models import Location, Product, Stock
 from app.utils.stock_manager import StockManager, StockValidationError
+from postgres_test_utils import create_postgres_test_engine
 
 
 def _create_min_product(**overrides):
@@ -115,22 +115,18 @@ def test_release_reservation_requires_positive_and_no_over_release(db_session):
 def test_concurrent_double_decrement_never_leaves_negative(tmp_path):
     """Simula dos operaciones concurrentes que intentan decrementar el mismo stock.
 
-    Nota: SQLite no respeta SELECT..FOR UPDATE, pero el CHECK constraint de
-    cantidad_disponible >= 0 debe evitar que ambas transacciones confirmen dejando negativo.
+    El CHECK constraint de cantidad_disponible >= 0 debe evitar que ambas
+    transacciones confirmen dejando valores inválidos.
     """
 
-    db_path = tmp_path / "concurrency.db"
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False},
-    )
+    engine, _, cleanup = create_postgres_test_engine("stock_mgr_dec")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    Base.metadata.create_all(bind=engine)
-
-    # Setup base data
-    session = SessionLocal()
     try:
+        Base.metadata.create_all(bind=engine)
+
+        # Setup base data
+        session = SessionLocal()
         loc = _create_location(nombre="Tienda C")
         product = _create_min_product(sku="SKU-C")
         session.add_all([loc, product])
@@ -176,22 +172,19 @@ def test_concurrent_double_decrement_never_leaves_negative(tmp_path):
         assert final.cantidad_reservada <= final.cantidad_disponible
     finally:
         s.close()
+        cleanup()
 
 
 def test_concurrent_reserve_does_not_overbook(tmp_path):
     """Dos reservas concurrentes no deben dejar reservado > disponible."""
 
-    db_path = tmp_path / "reserve.db"
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False},
-    )
+    engine, _, cleanup = create_postgres_test_engine("stock_mgr_rsv")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    Base.metadata.create_all(bind=engine)
-
-    session = SessionLocal()
     try:
+        Base.metadata.create_all(bind=engine)
+
+        session = SessionLocal()
         loc = _create_location(nombre="Tienda R")
         product = _create_min_product(sku="SKU-RSV")
         session.add_all([loc, product])
@@ -235,3 +228,4 @@ def test_concurrent_reserve_does_not_overbook(tmp_path):
         assert final.cantidad_disponible >= 0
     finally:
         s.close()
+        cleanup()

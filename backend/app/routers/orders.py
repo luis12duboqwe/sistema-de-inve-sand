@@ -22,11 +22,12 @@ from app.schemas import (
 )
 from app.auth import check_permission, get_current_active_user
 from app.services.order_service import OrderService, resolve_user_label
+from app.services.order_service import normalize_transfer_reference, ensure_unique_transfer_reference
 from app.services.stock_transaction_helper import (
     PreparedSaleItem,
     StockTransactionHelper,
 )
-from app.services.notification_service import NotificationService
+# from app.services.notification_service import NotificationService
 from app.utils.order_financing import recompute_financing_from_details
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_tradeins import compute_trade_in_total
@@ -37,7 +38,7 @@ from app.utils.order_validators import (
     normalize_customer_phone,
 )
 from app.utils.stock_manager import StockManager, StockValidationError
-from app.utils.product_serializer import build_product_response
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +47,12 @@ router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
     """Serializa un producto para incluirlo en la respuesta de una orden."""
-    payload = build_product_response(
-        product,
-        target_location_id=location_id,
-        include_stock_items=False,
-        include_imeis=False,
-    )
-    return payload.model_dump()
+    from app.routers.products import _serialize_product
+    response = _serialize_product(product)
+    
+    # Adapt to structure expected without crashing
+    payload = response.model_dump()
+    return payload
 
 
 def _serialize_order(order: Order) -> OrderResponse:
@@ -98,6 +98,8 @@ def _serialize_order(order: Order) -> OrderResponse:
         customer_phone=order.customer_phone,
         canal=order.canal,
         metodo_pago=order.metodo_pago,
+        transfer_bank_name=order.transfer_bank_name,
+        transfer_reference=order.transfer_reference,
         total=order.total,
         financing_details=order.financing_details,  # V2.1: Incluir detalles de financiamiento
         estado=order.estado,
@@ -121,28 +123,28 @@ def _emit_trade_in_alert_notification(
     if not alerts:
         return
 
-    notification_service = NotificationService(db)
-    metadata = {
-        "order_id": order_id,
-        "location_id": location_id,
-        "alerts": alerts,
-        "trade_in_ids": trade_in_ids,
-    }
-
-    try:
-        notification_service.create(
-            type="trade_in_issue",
-            title="Incidencias al revertir retomas",
-            message=(
-                f"Se detectaron problemas al revertir las retomas de la orden #{order_id}. "
-                "Revisa el historial de notas para más detalles."
-            ),
-            severity="warning",
-            source="orders",
-            metadata=metadata,
-        )
-        db.commit()
-    except Exception:
+    # notification_service = NotificationService(db)
+#     metadata = {
+#         "order_id": order_id,
+#         "location_id": location_id,
+#         "alerts": alerts,
+#         "trade_in_ids": trade_in_ids,
+#     }
+# 
+#     try:
+#         notification_service.create(
+#             type="trade_in_issue",
+#             title="Incidencias al revertir retomas",
+#             message=(
+#                 f"Se detectaron problemas al revertir las retomas de la orden #{order_id}. "
+#                 "Revisa el historial de notas para más detalles."
+#             ),
+#             severity="warning",
+#             source="orders",
+#             metadata=metadata,
+#         )
+#         db.commit()
+#     except Exception:
         db.rollback()
         logger.exception(
             "No se pudo registrar la notificación de retomas para la orden %s",
@@ -465,7 +467,7 @@ def update_order(
                     product_id=item_data.product.id,
                     cantidad=item_data.cantidad,
                     precio_unitario=item_data.precio_unitario,
-                    costo_unitario=item_data.product.costo if item_data.product and item_data.product.costo is not None else Decimal("0.00"),
+                    costo_unitario=getattr(item_data.product, 'costo', Decimal('0.00')) or Decimal('0.00'),
                     es_regalo_promocion=item_data.es_regalo_promocion
                 )
                 db.add(new_item)
@@ -496,6 +498,43 @@ def update_order(
 
         if updates.metodo_pago is not None:
             order.metodo_pago = updates.metodo_pago
+
+        if hasattr(updates, 'transfer_bank_name') and updates.transfer_bank_name is not None:
+            order.transfer_bank_name = updates.transfer_bank_name.strip() or None
+
+        if hasattr(updates, 'transfer_reference') and updates.transfer_reference is not None:
+            order.transfer_reference = updates.transfer_reference.strip() or None
+
+        # Validación anti-fraude para transferencias
+        if order.metodo_pago == "transferencia":
+            if not order.transfer_bank_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Debe indicar el banco cuando el método de pago es transferencia"
+                )
+            if not order.transfer_reference:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Debe indicar el número de referencia cuando el método de pago es transferencia"
+                )
+
+            normalized_reference = normalize_transfer_reference(order.transfer_reference)
+            if not normalized_reference:
+                raise HTTPException(
+                    status_code=400,
+                    detail="El número de referencia de transferencia no es válido"
+                )
+
+            ensure_unique_transfer_reference(
+                db,
+                normalized_reference,
+                exclude_order_id=order.id,
+            )
+            order.transfer_reference_normalized = normalized_reference
+        else:
+            order.transfer_bank_name = None
+            order.transfer_reference = None
+            order.transfer_reference_normalized = None
         
         if updates.notes is not None:
             order.notes = updates.notes

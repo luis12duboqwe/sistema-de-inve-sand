@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type {
   ProductWithStock,
@@ -8,16 +9,17 @@ import type {
   Location,
   SalesProfile,
   User,
-  DashboardStats,
+  DashboardStats as DashboardStatsType,
   InventoryAlert,
   SalesReport,
   StockSummaryByLocation,
   SalesSummaryByLocation,
   BusinessInsightsResponse,
-  BusinessInsightRecommendation
+  BusinessInsightRecommendation,
+  Return as ProductReturn
 } from '@/lib/types'
-import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot, CalendarCheck, ArrowClockwise, MagicWand } from '@phosphor-icons/react'
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { Package, ShoppingCart, ChartLineUp, WarningCircle, Money, TrendDown, MapPin, Robot, CalendarCheck, ArrowClockwise, MagicWand, FunnelSimple, X } from '@phosphor-icons/react'
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
@@ -57,25 +59,52 @@ interface DashboardStatsProps {
   orders: OrderWithItems[]
   currentUser?: User | null
   onViewLowStockReport?: () => void
+  /** Si es true, renderiza SOLO la card de IA/Recomendaciones Inteligentes */
+  insightsOnly?: boolean
+  /** Si es false, oculta la card de IA/Recomendaciones del renderizado normal */
+  showInsights?: boolean
+  /** Si es true, muestra únicamente el apartado analítico/gráficas */
+  chartsOnly?: boolean
 }
 
-function DashboardStatsComponent({ products, orders, currentUser, onViewLowStockReport }: DashboardStatsProps) {
+function DashboardStatsComponent({ products, orders, currentUser, onViewLowStockReport, insightsOnly = false, showInsights = true, chartsOnly = false }: DashboardStatsProps) {
   const [locations, setLocations] = useState<Location[]>([])
   const [salesProfiles, setSalesProfiles] = useState<SalesProfile[]>([])
   const [apiError, setApiError] = useState<string | null>(null)
-  const [dashboardMetrics, setDashboardMetrics] = useState<DashboardStats | null>(null)
+  const [dashboardMetrics, setDashboardMetrics] = useState<DashboardStatsType | null>(null)
   const [salesReport, setSalesReport] = useState<SalesReport | null>(null)
   const [inventoryAlerts, setInventoryAlerts] = useState<InventoryAlert[]>([])
   const [salesSummaryByLocation, setSalesSummaryByLocation] = useState<SalesSummaryByLocation[]>([])
   const [stockSummaryByLocation, setStockSummaryByLocation] = useState<StockSummaryByLocation[]>([])
+  const [returnsData, setReturnsData] = useState<ProductReturn[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [businessInsights, setBusinessInsights] = useState<BusinessInsightsResponse | null>(null)
   const [insightsSource, setInsightsSource] = useState<'backend' | 'local' | null>(null)
   const [isRefreshingInsights, setIsRefreshingInsights] = useState(false)
   const [insightsError, setInsightsError] = useState<string | null>(null)
+  const [filterLocationId, setFilterLocationId] = useState<string>('all')
+  const [filterCanalFilter, setFilterCanalFilter] = useState<string>('all')
+  const [filterProfileId, setFilterProfileId] = useState<string>('all')
+  const [filterDateFrom, setFilterDateFrom] = useState<string>('')
+  const [filterDateTo, setFilterDateTo] = useState<string>('')
+
+  const canViewSettings = useMemo(() => {
+    if (!currentUser) return true
+    return currentUser.role?.permissions?.some(permission => permission.slug === 'settings:view') ?? false
+  }, [currentUser])
+
+  const canViewReports = useMemo(() => {
+    if (!currentUser) return true
+    return currentUser.role?.permissions?.some(permission => permission.slug === 'reports:view') ?? false
+  }, [currentUser])
 
   const loadLocations = useCallback(async () => {
+    if (!canViewSettings) {
+      setLocations([])
+      return
+    }
+
     try {
       const data = await inventoryServiceInstance.listLocations()
       setLocations(data)
@@ -85,9 +114,14 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       // Si hay error, simplemente no mostramos datos de ubicaciones
       setLocations([])
     }
-  }, [])
+  }, [canViewSettings])
 
   const loadSalesProfiles = useCallback(async () => {
+    if (!canViewSettings) {
+      setSalesProfiles([])
+      return
+    }
+
     try {
       const data = await inventoryServiceInstance.listSalesProfiles()
       setSalesProfiles(data)
@@ -97,9 +131,21 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       // Si hay error, simplemente no mostramos datos de perfiles
       setSalesProfiles([])
     }
-  }, [])
+  }, [canViewSettings])
 
   const loadDashboardInsights = useCallback(async () => {
+    if (!canViewReports) {
+      setDashboardMetrics(null)
+      setSalesReport(null)
+      setInventoryAlerts([])
+      setSalesSummaryByLocation([])
+      setStockSummaryByLocation([])
+      setBusinessInsights(null)
+      setInsightsSource(null)
+      setInsightsError(null)
+      return
+    }
+
     try {
       setIsLoading(true)
       setApiError(null)
@@ -110,12 +156,13 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         return null
       })
 
-      const [stats, report, alerts, salesByLocation, stockByLocation, insights] = await Promise.all([
+      const [stats, report, alerts, salesByLocation, stockByLocation, returnsResult, insights] = await Promise.all([
         inventoryServiceInstance.getDashboardStats().catch(() => null),
         inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(() => null),
         inventoryServiceInstance.getInventoryAlerts().catch(() => []),
         inventoryServiceInstance.getSalesSummaryByLocation().catch(() => []),
         inventoryServiceInstance.getStockSummaryByLocation(true).catch(() => []),
+        inventoryServiceInstance.getReturns().catch(() => []),
         insightsPromise
       ])
 
@@ -125,9 +172,27 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       if (report) {
         setSalesReport(report)
       }
-      setInventoryAlerts(alerts)
+      // Deduplicar alertas por product_id (el backend devuelve una por ubicación).
+      // Conservamos el nivel más crítico y sumamos el stock de todas las ubicaciones.
+      const ALERT_LEVEL_PRIORITY: Record<string, number> = { out_of_stock: 3, critical: 2, low: 1 }
+      const alertsMap = new Map<number, typeof alerts[0]>()
+      for (const alert of (alerts as typeof alerts)) {
+        const existing = alertsMap.get(alert.product_id)
+        if (!existing) {
+          alertsMap.set(alert.product_id, { ...alert })
+        } else {
+          // Sumar stock total entre ubicaciones
+          existing.current_stock = (existing.current_stock ?? 0) + (alert.current_stock ?? 0)
+          // Conservar el nivel más crítico
+          if ((ALERT_LEVEL_PRIORITY[alert.alert_level] ?? 0) > (ALERT_LEVEL_PRIORITY[existing.alert_level] ?? 0)) {
+            existing.alert_level = alert.alert_level
+          }
+        }
+      }
+      setInventoryAlerts(Array.from(alertsMap.values()))
       setSalesSummaryByLocation(salesByLocation)
       setStockSummaryByLocation(stockByLocation)
+      setReturnsData(returnsResult)
       if (insights) {
         setBusinessInsights(insights)
         const source = insights.tokens_used > 0 || Boolean(insights.raw_response) ? 'backend' : 'local'
@@ -149,9 +214,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [canViewReports])
 
   const refreshBusinessInsights = useCallback(async () => {
+    if (!canViewReports) return
+
     setIsRefreshingInsights(true)
     try {
       const insights = await inventoryServiceInstance.generateBusinessInsights({
@@ -171,7 +238,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     } finally {
       setIsRefreshingInsights(false)
     }
-  }, [])
+  }, [canViewReports])
 
   useEffect(() => {
     loadLocations()
@@ -179,15 +246,76 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     loadDashboardInsights()
   }, [loadLocations, loadSalesProfiles, loadDashboardInsights])
 
+  useEffect(() => {
+    if (!canViewReports) {
+      setReturnsData([])
+      return
+    }
+
+    let isActive = true
+
+    const syncReturns = async () => {
+      try {
+        const latestReturns = await inventoryServiceInstance.getReturns()
+        if (isActive) {
+          setReturnsData(latestReturns)
+        }
+      } catch (error) {
+        console.error('Error syncing returns for dashboard charts:', error)
+      }
+    }
+
+    void syncReturns()
+    const intervalId = window.setInterval(syncReturns, 30000)
+    window.addEventListener('focus', syncReturns)
+
+    return () => {
+      isActive = false
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', syncReturns)
+    }
+  }, [canViewReports])
+
   const activeProducts = products.filter(p => p.activo).length
   const totalProducts = products.length
 
+  const refundAmountByReturnId = useMemo(() => {
+    const amountMap = new Map<number, number>()
+
+    for (const productReturn of returnsData) {
+      const order = orders.find(o => o.id === productReturn.order_id)
+      if (!order) {
+        amountMap.set(productReturn.id, 0)
+        continue
+      }
+
+      const totalRefundAmount = (productReturn.items || [])
+        .filter(item => item.action === 'refund')
+        .reduce((sum, item) => {
+          const orderItem = (order.items || []).find(orderLine => orderLine.product_id === item.product_id)
+          if (!orderItem) return sum
+          return sum + (Number(orderItem.precio_unitario || 0) * Number(item.quantity || 0))
+        }, 0)
+
+      amountMap.set(productReturn.id, totalRefundAmount)
+    }
+
+    return amountMap
+  }, [returnsData, orders])
+
+  const getRefundAmountInRange = useCallback((startDate: Date, endDate: Date) => {
+    return returnsData.reduce((sum, productReturn) => {
+      const returnDate = new Date(productReturn.created_at)
+      if (returnDate < startDate || returnDate > endDate) return sum
+      return sum + (refundAmountByReturnId.get(productReturn.id) || 0)
+    }, 0)
+  }, [returnsData, refundAmountByReturnId])
+
   const pendingOrders = orders.filter(o => o.estado === 'pendiente').length
-  const readyToDeliverOrders = orders.filter(o => o.estado === 'por_entregar').length
   const completedOrders = orders.filter(o => o.estado === 'completada').length
   const totalOrders = orders.length
 
-  const fallbackDashboardStats = useMemo<DashboardStats>(() => {
+  const fallbackDashboardStats = useMemo<DashboardStatsType>(() => {
     const lowStockCount = products.filter(p => p.activo && p.stock_disponible > 0 && p.stock_disponible < 5).length
     const outOfStockCount = products.filter(p => p.activo && p.stock_disponible === 0).length
     const totalInventoryValue = products
@@ -215,9 +343,15 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     })
 
     const sumTotals = (list: OrderWithItems[]) => list.reduce((sum, order) => sum + Number(order.total || 0), 0)
-    const totalRevenueToday = sumTotals(ordersToday)
-    const totalRevenueMonth = sumTotals(ordersThisMonth)
-    const totalRevenueLastMonth = sumTotals(ordersLastMonth)
+
+    const grossRevenueToday = sumTotals(ordersToday)
+    const grossRevenueMonth = sumTotals(ordersThisMonth)
+    const grossRevenueLastMonth = sumTotals(ordersLastMonth)
+
+    const totalRevenueToday = Math.max(0, grossRevenueToday - getRefundAmountInRange(startOfToday, endOfToday))
+    const totalRevenueMonth = Math.max(0, grossRevenueMonth - getRefundAmountInRange(startOfMonth, endOfToday))
+    const totalRevenueLastMonth = Math.max(0, grossRevenueLastMonth - getRefundAmountInRange(startOfLastMonth, endOfLastMonth))
+
     const averageTicketMonth = ordersThisMonth.length > 0
       ? Number((totalRevenueMonth / ordersThisMonth.length).toFixed(2))
       : 0
@@ -236,32 +370,71 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       gross_margin_month: 0,
       average_ticket_month: averageTicketMonth
     }
-  }, [products, orders, activeProducts, totalProducts, pendingOrders])
+  }, [products, orders, activeProducts, totalProducts, pendingOrders, getRefundAmountInRange])
 
   const mergedDashboardStats = dashboardMetrics ?? fallbackDashboardStats
   const lowStockProducts = mergedDashboardStats.low_stock_count
   const outOfStockProducts = mergedDashboardStats.out_of_stock_count
   const inventoryValue = mergedDashboardStats.total_inventory_value
 
+  const filteredOrders = useMemo(() => {
+    if (!chartsOnly) return orders
+    let result = orders
+    if (filterLocationId !== 'all') {
+      const locId = parseInt(filterLocationId, 10)
+      result = result.filter(o => o.source_location_id === locId)
+    }
+    if (filterCanalFilter !== 'all') {
+      result = result.filter(o => o.canal === filterCanalFilter)
+    }
+    if (filterProfileId !== 'all') {
+      const profileId = parseInt(filterProfileId, 10)
+      result = result.filter(o => o.sales_profile_id === profileId)
+    }
+    if (filterDateFrom) {
+      const from = new Date(filterDateFrom)
+      from.setHours(0, 0, 0, 0)
+      result = result.filter(o => new Date(o.created_at) >= from)
+    }
+    if (filterDateTo) {
+      const to = new Date(filterDateTo)
+      to.setHours(23, 59, 59, 999)
+      result = result.filter(o => new Date(o.created_at) <= to)
+    }
+    return result
+  }, [chartsOnly, orders, filterLocationId, filterCanalFilter, filterProfileId, filterDateFrom, filterDateTo])
+
+  const chartOrders = chartsOnly ? filteredOrders : orders
+
   const last7Days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i)
-    const dayOrders = orders.filter(o => {
+    const dayOrders = chartOrders.filter(o => {
       const orderDate = new Date(o.created_at)
       return isSameDay(orderDate, date)
     })
+    const start = new Date(date)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(date)
+    end.setHours(23, 59, 59, 999)
+
+    const grossSales = dayOrders
+      .filter(o => o.estado === 'completada')
+      .reduce((sum, o) => sum + Number(o.total), 0)
+    const refunds = getRefundAmountInRange(start, end)
+
     return {
       date: format(date, 'dd/MM'),
       ordenes: dayOrders.length,
-      ventas: dayOrders.filter(o => o.estado === 'completada').reduce((sum, o) => sum + Number(o.total), 0)
+      ventas: Math.max(0, grossSales - refunds)
     }
-  }), [orders])
+  }), [chartOrders, getRefundAmountInRange])
 
   const ordersByStatus = useMemo(() => [
-    { name: 'Pendiente', value: pendingOrders, color: '#f59e0b' },
-    { name: 'Por Entregar', value: readyToDeliverOrders, color: '#3b82f6' },
-    { name: 'Completada', value: completedOrders, color: '#10b981' },
-    { name: 'Cancelada', value: orders.filter(o => o.estado === 'cancelada').length, color: '#ef4444' },
-  ].filter(s => s.value > 0), [pendingOrders, readyToDeliverOrders, completedOrders, orders])
+    { name: 'Pendiente', value: chartOrders.filter(o => o.estado === 'pendiente').length, color: '#f59e0b' },
+    { name: 'Por Entregar', value: chartOrders.filter(o => o.estado === 'por_entregar').length, color: '#3b82f6' },
+    { name: 'Completada', value: chartOrders.filter(o => o.estado === 'completada').length, color: '#10b981' },
+    { name: 'Cancelada', value: chartOrders.filter(o => o.estado === 'cancelada').length, color: '#ef4444' },
+  ].filter(s => s.value > 0), [chartOrders])
 
   const serviceTopProducts = useMemo(() => {
     if (!salesReport?.top_products?.length) return []
@@ -273,7 +446,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   }, [salesReport])
 
   const fallbackTopProducts = useMemo(() => {
-    const productSales = orders
+    const productSales = chartOrders
       .filter(o => o.estado === 'completada')
       .flatMap(o => o.items)
       .filter(item => item.product?.nombre)
@@ -290,7 +463,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     return Object.values(productSales)
       .sort((a, b) => b.ingresos - a.ingresos)
       .slice(0, 5)
-  }, [orders])
+  }, [chartOrders])
 
   const topProducts = serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts
 
@@ -322,7 +495,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   // V2.0: Stats by location
   const fallbackStatsByLocation = useMemo(() => {
     return locations.map(location => {
-      const locationOrders = orders.filter(o => o.source_location_id === location.id)
+      const locationOrders = chartOrders.filter(o => o.source_location_id === location.id)
       const completedLocationOrders = locationOrders.filter(o => o.estado === 'completada')
       const revenue = completedLocationOrders.reduce((sum, o) => sum + Number(o.total), 0)
       const unidades = completedLocationOrders.reduce((sum, order) => {
@@ -343,14 +516,14 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         productos_unicos: null
       }
     }).filter(s => s.ordenes > 0)
-  }, [locations, orders])
+  }, [locations, chartOrders])
 
   const statsByLocation = serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation
 
   // V2.0: Stats by sales profile
   const statsByProfile = useMemo(() => {
     return salesProfiles.map(profile => {
-      const profileOrders = orders.filter(o => o.sales_profile_id === profile.id)
+      const profileOrders = chartOrders.filter(o => o.sales_profile_id === profile.id)
       const completedProfileOrders = profileOrders.filter(o => o.estado === 'completada')
       const revenue = completedProfileOrders.reduce((sum, o) => sum + Number(o.total), 0)
       
@@ -362,13 +535,12 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         ingresos: revenue
       }
     }).filter(s => s.ordenes > 0)
-  }, [salesProfiles, orders])
+  }, [salesProfiles, chartOrders])
 
   // Permission check for financial data
   const canViewFinancials = useMemo(() => {
     if (!currentUser) return true // Fallback for local mode
-    return currentUser.role?.is_system_role || 
-           currentUser.role?.permissions?.some(p => p.slug === 'reports:view')
+    return currentUser.role?.permissions?.some(p => p.slug === 'reports:view') ?? false
   }, [currentUser])
 
   // Calculate daily orders for non-financial view
@@ -386,6 +558,142 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const formatCurrency = useCallback((value: number) => currencyFormatter.format(value ?? 0), [currencyFormatter])
 
   const lastUpdatedLabel = useMemo(() => (lastUpdated ? format(new Date(lastUpdated), 'dd/MM HH:mm') : null), [lastUpdated])
+
+  const revenuePeriods = useMemo(() => {
+    const validOrders = chartOrders.filter(order => order.estado !== 'cancelada')
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const weekStart = new Date(todayStart)
+    const currentDay = weekStart.getDay()
+    const diffToMonday = currentDay === 0 ? 6 : currentDay - 1
+    weekStart.setDate(weekStart.getDate() - diffToMonday)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const yearStart = new Date(now.getFullYear(), 0, 1)
+
+    const sumOrders = (startDate: Date) => {
+      const periodOrders = validOrders.filter(order => new Date(order.created_at) >= startDate)
+      const grossRevenue = periodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+      const refunds = getRefundAmountInRange(startDate, now)
+      return {
+        revenue: Math.max(0, grossRevenue - refunds),
+        count: periodOrders.length
+      }
+    }
+
+    const daily = sumOrders(todayStart)
+    const weekly = sumOrders(weekStart)
+    const monthly = sumOrders(monthStart)
+    const yearly = sumOrders(yearStart)
+
+    // Gráfica diaria: ingresos por hora (0-23)
+    const hourlyData = Array.from({ length: 24 }, (_, h) => {
+      const hourOrders = validOrders.filter(o => {
+        const d = new Date(o.created_at)
+        return isSameDay(d, now) && d.getHours() === h
+      })
+      const hourStart = new Date(now)
+      hourStart.setHours(h, 0, 0, 0)
+      const hourEnd = new Date(now)
+      hourEnd.setHours(h, 59, 59, 999)
+      const gross = hourOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)
+      const refunds = getRefundAmountInRange(hourStart, hourEnd)
+      return { label: `${h}h`, value: Math.max(0, gross - refunds) }
+    })
+
+    // Gráfica semanal: ingresos por día (Lun–Dom)
+    const DAY_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    const weeklyChartData = Array.from({ length: 7 }, (_, i) => {
+      const dayDate = new Date(weekStart)
+      dayDate.setDate(dayDate.getDate() + i)
+      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayStart = new Date(dayDate)
+      dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(dayDate)
+      dayEnd.setHours(23, 59, 59, 999)
+      const gross = dayOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)
+      const refunds = getRefundAmountInRange(dayStart, dayEnd)
+      return { label: DAY_LABELS[i], value: Math.max(0, gross - refunds) }
+    })
+
+    // Gráfica mensual: ingresos por día del mes
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    const monthlyChartData = Array.from({ length: daysInMonth }, (_, i) => {
+      const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1)
+      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayStart = new Date(dayDate)
+      dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date(dayDate)
+      dayEnd.setHours(23, 59, 59, 999)
+      const gross = dayOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)
+      const refunds = getRefundAmountInRange(dayStart, dayEnd)
+      return { label: `${i + 1}`, value: Math.max(0, gross - refunds) }
+    })
+
+    // Gráfica anual: ingresos por mes (Ene–Dic)
+    const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    const yearlyChartData = Array.from({ length: 12 }, (_, m) => {
+      const mStart = new Date(now.getFullYear(), m, 1)
+      const mEnd = new Date(now.getFullYear(), m + 1, 0, 23, 59, 59, 999)
+      const mOrders = validOrders.filter(o => {
+        const d = new Date(o.created_at)
+        return d >= mStart && d <= mEnd
+      })
+      const gross = mOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)
+      const refunds = getRefundAmountInRange(mStart, mEnd)
+      return { label: MONTH_LABELS[m], value: Math.max(0, gross - refunds) }
+    })
+
+    return [
+      {
+        key: 'diario',
+        title: 'Ingresos de Hoy',
+        subtitle: 'Por hora (00–23h)',
+        value: daily.revenue,
+        orders: daily.count,
+        icon: CalendarCheck,
+        color: 'text-blue-600',
+        bgColor: 'bg-blue-600/10',
+        chartColor: '#3b82f6',
+        chartData: hourlyData
+      },
+      {
+        key: 'semanal',
+        title: 'Ingresos de la Semana',
+        subtitle: 'Por día (Lun–Dom)',
+        value: weekly.revenue,
+        orders: weekly.count,
+        icon: ChartLineUp,
+        color: 'text-violet-600',
+        bgColor: 'bg-violet-600/10',
+        chartColor: '#8b5cf6',
+        chartData: weeklyChartData
+      },
+      {
+        key: 'mensual',
+        title: 'Ingresos del Mes',
+        subtitle: 'Por día del mes',
+        value: monthly.revenue,
+        orders: monthly.count,
+        icon: Money,
+        color: 'text-green-600',
+        bgColor: 'bg-green-600/10',
+        chartColor: '#10b981',
+        chartData: monthlyChartData
+      },
+      {
+        key: 'anual',
+        title: 'Ingresos del Año',
+        subtitle: 'Por mes (Ene–Dic)',
+        value: yearly.revenue,
+        orders: yearly.count,
+        icon: ChartLineUp,
+        color: 'text-amber-600',
+        bgColor: 'bg-amber-600/10',
+        chartColor: '#f59e0b',
+        chartData: yearlyChartData
+      }
+    ]
+  }, [chartOrders, getRefundAmountInRange])
 
   const stats = [
     {
@@ -433,9 +741,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold">Panel Inteligente</p>
+          <p className="text-sm font-semibold">
+            {chartsOnly ? 'Centro de Gráficas' : 'Panel Inteligente'}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Última actualización: {lastUpdatedLabel ?? 'Automática'}
+            {chartsOnly ? 'Todas las métricas visuales y comparativos de ingresos en un solo lugar.' : 'Última actualización: '}{chartsOnly ? '' : (lastUpdatedLabel ?? 'Automática')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -499,7 +809,103 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </Card>
       )}
       
-      <Tabs defaultValue="general" className="w-full">
+      {chartsOnly && (
+        <Card className="p-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <FunnelSimple size={16} className="text-muted-foreground" />
+              <span className="text-sm font-medium">Filtros</span>
+              {(filterLocationId !== 'all' || filterCanalFilter !== 'all' || filterProfileId !== 'all' || filterDateFrom || filterDateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground"
+                  onClick={() => {
+                    setFilterLocationId('all')
+                    setFilterCanalFilter('all')
+                    setFilterProfileId('all')
+                    setFilterDateFrom('')
+                    setFilterDateTo('')
+                  }}
+                >
+                  <X size={12} className="mr-1" />
+                  Limpiar filtros
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Ubicación</label>
+                <Select value={filterLocationId} onValueChange={setFilterLocationId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las ubicaciones</SelectItem>
+                    {locations.map(loc => (
+                      <SelectItem key={loc.id} value={String(loc.id)}>{loc.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Canal</label>
+                <Select value={filterCanalFilter} onValueChange={setFilterCanalFilter}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los canales</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                    <SelectItem value="tienda">Tienda Física</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Perfil de Venta</label>
+                <Select value={filterProfileId} onValueChange={setFilterProfileId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los perfiles</SelectItem>
+                    {salesProfiles.map(profile => (
+                      <SelectItem key={profile.id} value={String(profile.id)}>{profile.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Desde</label>
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={e => setFilterDateFrom(e.target.value)}
+                  className="h-8 text-xs rounded-md border border-input bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Hasta</label>
+                <input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={e => setFilterDateTo(e.target.value)}
+                  className="h-8 text-xs rounded-md border border-input bg-background px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+            {(filterLocationId !== 'all' || filterCanalFilter !== 'all' || filterProfileId !== 'all' || filterDateFrom || filterDateTo) && (
+              <p className="text-xs text-muted-foreground">
+                Mostrando <strong>{filteredOrders.length}</strong> de <strong>{orders.length}</strong> órdenes según los filtros aplicados.
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {!insightsOnly && <Tabs defaultValue="general" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="general">
             <ChartLineUp className="mr-2 h-4 w-4" />
@@ -516,7 +922,64 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </TabsList>
 
         <TabsContent value="general" className="space-y-6 mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {chartsOnly && canViewFinancials && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {revenuePeriods.map((period, index) => (
+                <motion.div
+                  key={period.key}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.08, duration: 0.3 }}
+                >
+                  <Card className="p-5 hover:shadow-lg transition-shadow overflow-hidden">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide truncate">{period.title}</p>
+                        <p className="text-2xl font-semibold mt-1 leading-tight">{formatCurrency(period.value)}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-muted-foreground">{period.orders} órdenes</span>
+                          <span className="text-xs text-muted-foreground/50">·</span>
+                          <span className="text-xs text-muted-foreground/70">{period.subtitle}</span>
+                        </div>
+                      </div>
+                      <div className={`ml-3 p-2 rounded-lg ${period.bgColor} shrink-0`}>
+                        <period.icon size={18} className={period.color} />
+                      </div>
+                    </div>
+                    <div className="h-[72px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={period.chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id={`grad-${period.key}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={period.chartColor} stopOpacity={0.25} />
+                              <stop offset="95%" stopColor={period.chartColor} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <Tooltip
+                            contentStyle={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px' }}
+                            formatter={(v: number) => [formatCurrency(v), 'Ingresos']}
+                            labelFormatter={(l: string) => l}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="value"
+                            stroke={period.chartColor}
+                            strokeWidth={1.5}
+                            fill={`url(#grad-${period.key})`}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          {!chartsOnly && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => (
           <motion.div
             key={stat.title}
@@ -539,8 +1002,9 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
           </motion.div>
         ))}
       </div>
+          )}
 
-      {(lowStockProducts > 0 || outOfStockProducts > 0) && (
+      {!chartsOnly && (lowStockProducts > 0 || outOfStockProducts > 0) && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -577,7 +1041,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </motion.div>
       )}
 
-      {inventoryAlerts.length > 0 && (
+      {!chartsOnly && inventoryAlerts.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -596,11 +1060,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
               </Badge>
             </div>
             <div className="space-y-3">
-              {inventoryAlerts.slice(0, 5).map(alert => {
+              {inventoryAlerts.slice(0, 5).map((alert, index) => {
                 const severity = ALERT_STYLES[alert.alert_level]
                 return (
                   <div
-                    key={`${alert.product_id}-${alert.sku}-${alert.alert_level}`}
+                    key={`${alert.product_id}-${index}`}
                     className="flex items-center justify-between rounded-lg border px-4 py-3"
                   >
                     <div>
@@ -628,7 +1092,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </motion.div>
       )}
 
-      {businessInsights && (
+      {showInsights && businessInsights && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -728,6 +1192,41 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
               {/* Usuario no desea detalle visual de top sellers / slow movers aquí */}
             </div>
+          </Card>
+        </motion.div>
+      )}
+
+      {chartsOnly && canViewFinancials && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.3 }}
+        >
+          <Card className="p-6">
+            <h3 className="text-lg font-semibold mb-4">Comparativo de Ingresos por Período</h3>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={revenuePeriods.map(period => ({
+                periodo: period.title.replace('Ingresos ', ''),
+                ingresos: period.value,
+                ordenes: period.orders
+              }))}>
+                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.005 250)" />
+                <XAxis dataKey="periodo" stroke="oklch(0.50 0.01 250)" fontSize={12} />
+                <YAxis stroke="oklch(0.50 0.01 250)" fontSize={12} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'oklch(1 0 0)',
+                    border: '1px solid oklch(0.90 0.005 250)',
+                    borderRadius: '0.5rem'
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'ingresos') return [formatCurrency(value), 'Ingresos']
+                    return [value, 'Órdenes']
+                  }}
+                />
+                <Bar dataKey="ingresos" fill="oklch(0.45 0.12 250)" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </Card>
         </motion.div>
       )}
@@ -1033,7 +1532,18 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
             </Card>
           )}
         </TabsContent>
-      </Tabs>
+      </Tabs>}
+
+      {insightsOnly && !businessInsights && !isLoading && (
+        <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          No hay recomendaciones de IA disponibles aún. Registra más ventas para activar el análisis inteligente.
+        </div>
+      )}
+      {insightsOnly && isLoading && (
+        <div className="rounded-xl border border-border p-8 text-center text-sm text-muted-foreground animate-pulse">
+          Generando recomendaciones inteligentes...
+        </div>
+      )}
     </div>
   )
 }

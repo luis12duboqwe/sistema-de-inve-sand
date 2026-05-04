@@ -14,7 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { useKV } from '@/hooks/use-kv'
-import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users, WarningOctagon } from '@phosphor-icons/react'
+import { Database, CloudArrowUp, CloudSlash, Bell, ArrowsClockwise, Trash, Users, WarningOctagon, LockKey, CheckCircle } from '@phosphor-icons/react'
 import { apiClient } from '@/lib/apiClient'
 import { clearAllData } from '@/lib/dataInitializer'
 import { syncService } from '@/lib/syncService'
@@ -49,6 +49,13 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>({ status: 'idle', processed: 0, total: 0 })
 
+  // ── Estado para Cierre de Día ──────────────────────────────────────────────
+  const [dcNewCode, setDcNewCode] = useState('')
+  const [dcConfirmCode, setDcConfirmCode] = useState('')
+  const [dcCurrentCode, setDcCurrentCode] = useState('')
+  const [dcConfigured, setDcConfigured] = useState<boolean | null>(null)
+  const [dcSaving, setDcSaving] = useState(false)
+
   useEffect(() => {
     if (apiUrl) {
       setLocalApiUrl(apiUrl)
@@ -61,7 +68,13 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
         console.error('Error parseando usuario de auth_user', err)
       }
     }
-  }, [apiUrl])
+    // Verificar si el código de cierre de día está configurado
+    if (useApi) {
+      apiClient.getDailyCloseConfig()
+        .then(cfg => setDcConfigured(cfg.configured))
+        .catch(() => setDcConfigured(null))
+    }
+  }, [apiUrl, useApi])
 
   useEffect(() => {
     if (!pendingSyncFlag && !isSyncing) {
@@ -113,6 +126,38 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
     }
     
     onOpenChange(false)
+  }
+
+  const handleDcSaveCode = async () => {
+    if (!dcNewCode || !dcConfirmCode) {
+      toast.error('Complete todos los campos del código')
+      return
+    }
+    if (dcNewCode !== dcConfirmCode) {
+      toast.error('Los códigos no coinciden')
+      return
+    }
+    if (dcNewCode.length < 4) {
+      toast.error('El código debe tener al menos 4 caracteres')
+      return
+    }
+    setDcSaving(true)
+    try {
+      const res = await apiClient.setDailyCloseConfig({
+        new_code: dcNewCode,
+        confirm_code: dcConfirmCode,
+        current_code: dcConfigured ? dcCurrentCode : undefined,
+      })
+      toast.success(res.mensaje)
+      setDcConfigured(true)
+      setDcNewCode('')
+      setDcConfirmCode('')
+      setDcCurrentCode('')
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al guardar el código')
+    } finally {
+      setDcSaving(false)
+    }
   }
 
   const handleInitializeBackend = async () => {
@@ -415,6 +460,69 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
               </div>
             </>
           )}
+
+          {/* ── Cierre de Día (solo admin, modo API) ───────────────────────────── */}
+          {useApi && currentUser?.is_superuser === true || (useApi && ['admin', 'super admin', 'superadmin'].includes((currentUser?.role?.name ?? '').toLowerCase())) ? (
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 p-4 space-y-3 bg-emerald-50/60 dark:bg-emerald-900/10">
+              <div>
+                <p className="text-sm font-medium mb-1 text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                  <LockKey size={16} weight="bold" />
+                  Código de Validación — Cierre de Día
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {dcConfigured
+                    ? '✅ Código configurado. Ingrese el código actual para cambiarlo.'
+                    : '⚠️ Sin código configurado. Defina uno para habilitar el cierre de día.'}
+                </p>
+              </div>
+
+              {dcConfigured && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Código actual</Label>
+                  <Input
+                    type="password"
+                    placeholder="Código actual"
+                    value={dcCurrentCode}
+                    onChange={e => setDcCurrentCode(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Nuevo código (mín. 4 caracteres)</Label>
+                  <Input
+                    type="password"
+                    placeholder="Nuevo código"
+                    value={dcNewCode}
+                    onChange={e => setDcNewCode(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Confirmar nuevo código</Label>
+                  <Input
+                    type="password"
+                    placeholder="Confirmar código"
+                    value={dcConfirmCode}
+                    onChange={e => setDcConfirmCode(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                onClick={handleDcSaveCode}
+                disabled={dcSaving || !dcNewCode || !dcConfirmCode}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white w-full"
+              >
+                <CheckCircle size={14} className="mr-1.5" weight="fill" />
+                {dcSaving ? 'Guardando...' : dcConfigured ? 'Cambiar Código' : 'Guardar Código'}
+              </Button>
+            </div>
+          ) : null}
 
           <div className="rounded-lg border border-destructive/50 p-4 space-y-3 bg-destructive/5">
             <div>

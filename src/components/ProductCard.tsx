@@ -1,12 +1,13 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise, MapPin, Printer } from '@phosphor-icons/react'
+import { Phone, Plugs, PencilSimple, Power, Trash, ArrowsLeftRight, ClockCounterClockwise, MapPin, Printer, Barcode } from '@phosphor-icons/react'
 import type { ProductWithStock } from '@/lib/types'
 import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { StockByLocationDialog } from './StockByLocationDialog'
 import { PrintLabelsDialog } from './PrintLabelsDialog'
+import { ProductIMEIRegistryDialog } from './ProductIMEIRegistryDialog'
 
 interface ProductCardProps {
   product: ProductWithStock
@@ -20,6 +21,7 @@ interface ProductCardProps {
 export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTransfer, onViewHistory }: ProductCardProps) {
   const [showStockDialog, setShowStockDialog] = useState(false)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
+  const [showImeiRegistry, setShowImeiRegistry] = useState(false)
   
   const getStockBadgeColor = (stock: number) => {
     if (stock === 0) return 'bg-muted text-muted-foreground'
@@ -194,6 +196,17 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
             )}
           </div>
           <div className="flex items-center gap-2">
+            {product.is_serialized && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowImeiRegistry(true)}
+                className="gap-1"
+              >
+                <Barcode className="w-4 h-4" />
+                Registro IMEIs
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -216,7 +229,12 @@ export function ProductCard({ product, onEdit, onToggleActive, onDelete, onTrans
         onOpenChange={setShowStockDialog}
         productId={product.id}
         productName={product.nombre}
-        editable={false}
+      />
+
+      <ProductIMEIRegistryDialog
+        open={showImeiRegistry}
+        onOpenChange={setShowImeiRegistry}
+        product={product}
       />
 
       <PrintLabelsDialog

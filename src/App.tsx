@@ -6,19 +6,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise } from '@phosphor-icons/react'
-import type { Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User as UserIcon, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise, Camera, CaretUpDown, SquaresFour, Rows } from '@phosphor-icons/react'
+import type { User, Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
 import { OrderCard } from '@/components/OrderCard'
-// import { ProfileCard } from '@/components/ProfileCard' // DEPRECATED V1.0
 import { ManageSuppliersDialog } from '@/components/ManageSuppliersDialog'
 import { ReturnsListDialog } from '@/components/ReturnsListDialog'
 import { WarrantyCheckDialog } from '@/components/WarrantyCheckDialog'
 import { FinancingSettings } from '@/components/FinancingSettings'
 import { NewProductDialog } from '@/components/NewProductDialog'
+import { RestockProductDialog } from '@/components/RestockProductDialog'
 import { NewOrderDialog } from '@/components/NewOrderDialog'
-// import { NewProfileDialog } from '@/components/NewProfileDialog' // DEPRECATED V1.0
 import { EditProductDialog } from '@/components/EditProductDialog'
 import { TransferStockDialog } from '@/components/TransferStockDialog'
 import { TransferListDialog } from '@/components/TransferListDialog'
@@ -26,19 +27,15 @@ import { EditOrderDialog } from '@/components/EditOrderDialog'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { ImportProductsDialog } from '@/components/ImportProductsDialog'
-// import { ProfileSettingsDialog } from '@/components/ProfileSettingsDialog' // DEPRECATED V1.0
-// import { ProfileDetailsDialog } from '@/components/ProfileDetailsDialog' // DEPRECATED V1.0
-// import { ProfileSetupGuide } from '@/components/ProfileSetupGuide' // DEPRECATED V1.0
 import { DashboardStats } from '@/components/DashboardStats'
 import { HealthCheckDialog } from '@/components/HealthCheckDialog'
 import { LowStockAlert } from '@/components/LowStockAlert'
-// import { ProfileConfigPrompt } from '@/components/ProfileConfigPrompt' // DEPRECATED V1.0
-// import { ProfilesConfigSummary } from '@/components/ProfilesConfigSummary' // DEPRECATED V1.0
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { NotificationSettingsDialog } from '@/components/NotificationSettingsDialog'
 import { LowStockReportDialog } from '@/components/LowStockReportDialog'
 import { AdvancedSearchDialog } from '@/components/AdvancedSearchDialog'
 import { ReportsDialog } from '@/components/ReportsDialog'
+import { SalesHistoryDialog } from '@/components/SalesHistoryDialog'
 import { CustomerHistoryDialog } from '@/components/CustomerHistoryDialog'
 import { AIForecastingDialog } from '@/components/AIForecastingDialog'
 import { ForecastingWidget } from '@/components/ForecastingWidget'
@@ -52,12 +49,16 @@ import { LocationsList } from '@/components/LocationsList'
 import { SalesProfilesList } from '@/components/SalesProfilesList'
 import { AITrainingCenter } from '@/components/AITrainingCenter'
 import { CustomerInsights } from '@/components/CustomerInsights'
+import { AIChatOrchestratorDialog } from '@/components/AIChatOrchestratorDialog'
+import { ChannelHealthDialog } from '@/components/ChannelHealthDialog'
 import { ManageUsersDialog } from '@/components/ManageUsersDialog'
-import { LoginDialog } from '@/components/LoginDialog'
+import { LoginPage } from '@/components/LoginPage'
 import { PendingTradeInsDialog } from '@/components/PendingTradeInsDialog'
+import { PhotoRequestsDashboardDialog } from '@/components/PhotoRequestsDashboardDialog'
 import { apiClient } from '@/lib/apiClient'
 import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
+import { DailyCloseDialog } from '@/components/DailyCloseDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -86,14 +87,16 @@ function MainApp() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [showInactive, setShowInactive] = useState(false)
+  const [productViewMode, setProductViewMode] = useKV<'grid' | 'list'>('inventory_product_view_mode', 'grid')
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
   const [orderDateFrom, setOrderDateFrom] = useState<string>('')
   const [orderDateTo, setOrderDateTo] = useState<string>('')
   const [activeTab, setActiveTab] = useState('products')
   const [showNewProductDialog, setShowNewProductDialog] = useState(false)
+  const [showRestockDialog, setShowRestockDialog] = useState(false)
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false)
-  // V1.0 LEGACY: const [showNewProfileDialog, setShowNewProfileDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
+  const [showDailyCloseDialog, setShowDailyCloseDialog] = useState(false)
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showSuppliersDialog, setShowSuppliersDialog] = useState(false)
@@ -102,6 +105,7 @@ function MainApp() {
   const [showLowStockReport, setShowLowStockReport] = useState(false)
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
   const [showReportsDialog, setShowReportsDialog] = useState(false)
+  const [showSalesHistoryDialog, setShowSalesHistoryDialog] = useState(false)
   const [showCustomerHistory, setShowCustomerHistory] = useState(false)
   const [showForecastingDialog, setShowForecastingDialog] = useState(false)
   const [showOptimizationDialog, setShowOptimizationDialog] = useState(false)
@@ -110,19 +114,27 @@ function MainApp() {
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
   const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
+  const [quickTransferProductId, setQuickTransferProductId] = useState<string>('')
+  const [quickTransferSearchTerm, setQuickTransferSearchTerm] = useState('')
+  const [quickTransferProductOpen, setQuickTransferProductOpen] = useState(false)
+  const [transferOriginFilter, setTransferOriginFilter] = useState<string>('all')
+  const [quickTransferToLocationId, setQuickTransferToLocationId] = useState<string>('all')
   const [showTransferListDialog, setShowTransferListDialog] = useState(false)
   const [showAITraining, setShowAITraining] = useState(false)
   const [showAIStatusDialog, setShowAIStatusDialog] = useState(false)
   const [showCustomerInsights, setShowCustomerInsights] = useState(false)
+  const [showAIChatOrchestrator, setShowAIChatOrchestrator] = useState(false)
+  const [showChannelHealthDialog, setShowChannelHealthDialog] = useState(false)
+  const [channelHealthReady, setChannelHealthReady] = useState<boolean | null>(null)
+  const [, setIsChannelHealthLoading] = useState(false)
   const [showManageUsersDialog, setShowManageUsersDialog] = useState(false)
   const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
+  const [showPhotoRequestsDialog, setShowPhotoRequestsDialog] = useState(false)
+  const [photoRequestPendingCount, setPhotoRequestPendingCount] = useState(0)
   const [showReturnsListDialog, setShowReturnsListDialog] = useState(false)
   const [showWarrantyCheck, setShowWarrantyCheck] = useState(false)
   const [viewingProductHistory, setViewingProductHistory] = useState<ProductWithStock | null>(null)
-  // const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [editingOrder, setEditingOrder] = useState<OrderWithItems | null>(null)
-  // const [profileWithSettings, setProfileWithSettings] = useState<Profile | null>(null)
-  // const [viewingProfile, setViewingProfile] = useState<Profile | null>(null)
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
@@ -159,6 +171,72 @@ function MainApp() {
       console.log('🔐 Is System Role:', currentUser.role?.is_system_role)
     }
   }, [currentUser])
+
+  useEffect(() => {
+    if (!useAPI) {
+      setChannelHealthReady(null)
+      setIsChannelHealthLoading(false)
+      return
+    }
+
+    let mounted = true
+
+    const refreshChannelHealth = async () => {
+      if (!mounted) return
+      setIsChannelHealthLoading(true)
+      try {
+        const health = await apiClient.getChannelsHealth()
+        if (!mounted) return
+        setChannelHealthReady(Boolean(health.ready))
+      } catch (error) {
+        if (!mounted) return
+        console.warn('No se pudo obtener estado de canales:', error)
+        setChannelHealthReady(null)
+      } finally {
+        if (mounted) {
+          setIsChannelHealthLoading(false)
+        }
+      }
+    }
+
+    refreshChannelHealth()
+    const intervalId = window.setInterval(refreshChannelHealth, 120000)
+
+    return () => {
+      mounted = false
+      window.clearInterval(intervalId)
+    }
+  }, [useAPI])
+
+  useEffect(() => {
+    if (!useAPI || !currentUser) {
+      setPhotoRequestPendingCount(0)
+      return
+    }
+
+    let mounted = true
+
+    const refreshPhotoSummary = async () => {
+      try {
+        const summary = await apiClient.getPhotoRequestSummary()
+        if (!mounted) return
+        setPhotoRequestPendingCount(summary.assigned_to_me || summary.pending_total || 0)
+      } catch (error) {
+        if (!mounted) return
+        console.warn('No se pudo obtener resumen de solicitudes de fotos:', error)
+      }
+    }
+
+    void refreshPhotoSummary()
+    const intervalId = window.setInterval(() => {
+      void refreshPhotoSummary()
+    }, 20000)
+
+    return () => {
+      mounted = false
+      window.clearInterval(intervalId)
+    }
+  }, [useAPI, currentUser])
 
   const handleLoginSuccess = (user: User, _token: string) => {
     console.log('✅ Login Success:', user)
@@ -217,13 +295,79 @@ function MainApp() {
     false
   )
 
+  const hasPermission = (slug: string): boolean => {
+    if (!useAPI) return true
+    if (currentUser?.is_superuser) return true
+    return currentUser?.role?.permissions?.some(permission => permission.slug === slug) ?? false
+  }
+
+  const canViewSettings = hasPermission('settings:view')
+  const canEditSettings = hasPermission('settings:edit')
+  const canViewReports = hasPermission('reports:view')
+  const canCreateInventory = hasPermission('inventory:create')
+  const canEditInventory = hasPermission('inventory:edit')
+  const canDeleteInventory = hasPermission('inventory:delete')
+  const canViewOrders = hasPermission('orders:view')
+  const canManageLocations = hasPermission('locations:manage')
+  const canCreateOrders = hasPermission('orders:create')
+  const canEditOrders = hasPermission('orders:edit')
+  const canDeleteOrders = hasPermission('orders:delete')
+  const canManageUsers = hasPermission('users:manage')
+
+  const normalizedRoleName = (currentUser?.role?.name ?? '').trim().toLowerCase()
+  const isAdminOrSuperAdmin = !useAPI || currentUser?.is_superuser === true || ['admin', 'super admin', 'superadmin', 'super-admin'].includes(normalizedRoleName)
+  const canAccessAIOps = isAdminOrSuperAdmin && canViewReports
+  const transferProducts = (products ?? []).filter(product => {
+    if (!product.stock_items || product.stock_items.length === 0) return false
+    if (transferOriginFilter === 'all') return true
+
+    return product.stock_items.some(stockItem => {
+      const sameLocation = String(stockItem.location_id) === transferOriginFilter
+      const stockLibre = Math.max(0, (stockItem.cantidad_disponible || 0) - (stockItem.cantidad_reservada || 0))
+      return sameLocation && stockLibre > 0
+    })
+  })
+
+  const getTransferAvailableStock = (product: ProductWithStock, locationId?: string) => {
+    if (!locationId || locationId === 'all') return product.stock_disponible ?? 0
+
+    const stockItem = product.stock_items?.find(item => String(item.location_id) === locationId)
+    if (!stockItem) return 0
+
+    return Math.max(0, (stockItem.cantidad_disponible || 0) - (stockItem.cantidad_reservada || 0))
+  }
+
+  const filteredTransferProducts = transferProducts
+    .filter(product => {
+      const term = quickTransferSearchTerm.trim().toLowerCase()
+      if (!term) return true
+      const nombre = String(product.nombre ?? '').toLowerCase()
+      const marca = String(product.marca ?? '').toLowerCase()
+      const modelo = String(product.modelo ?? '').toLowerCase()
+      const sku = String(product.sku ?? '').toLowerCase()
+      return (
+        nombre.includes(term) ||
+        marca.includes(term) ||
+        modelo.includes(term) ||
+        sku.includes(term)
+      )
+    })
+    .sort((a, b) => {
+      const stockA = getTransferAvailableStock(a, transferOriginFilter)
+      const stockB = getTransferAvailableStock(b, transferOriginFilter)
+      if (stockB !== stockA) return stockB - stockA
+      return a.nombre.localeCompare(b.nombre)
+    })
+
+  const selectedQuickTransferProduct = (products ?? []).find(product => String(product.id) === quickTransferProductId) ?? null
+
   const {
     status: aiStatus,
     isLoading: isAIStatusLoading,
     error: aiStatusError,
     refresh: refreshAIStatus,
     isApiMode: isAIStatusAvailable,
-  } = useAIStatus(useAPI ? 180000 : 0)
+  } = useAIStatus(useAPI && canAccessAIOps ? 180000 : 0, !useAPI || canAccessAIOps)
 
   const service = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
   const aiAttentionCount = Math.min(
@@ -234,6 +378,7 @@ function MainApp() {
   useEffect(() => {
     const loadData = async () => {
       if (!isInitialized) return
+      if (useAPI && !currentUser) return
       
       try {
         console.log('🔄 Cargando datos iniciales...')
@@ -256,10 +401,10 @@ function MainApp() {
         const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
         const [loadedProducts, loadedOrders, loadedProfiles, loadedSalesProfiles, loadedLocations] = await Promise.all([
           currentService.getProducts(),
-          currentService.getOrders(),
-          currentService.getProfiles(),
-          currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
-          currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
+          canViewOrders ? currentService.getOrders() : Promise.resolve([]),
+          canViewSettings ? currentService.getProfiles() : Promise.resolve([]),
+          canViewSettings && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
+          canViewSettings && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
         
         console.log('✅ Datos cargados:', {
@@ -284,7 +429,7 @@ function MainApp() {
     }
 
     loadData()
-  }, [isInitialized, useAPI, apiUrl, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
+  }, [isInitialized, useAPI, apiUrl, currentUser, canViewOrders, canViewSettings, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
 
   const handleBulkDeleteProducts = async () => {
     if (selectedProducts.size === 0) return
@@ -453,7 +598,7 @@ function MainApp() {
       key: ',',
       ctrlKey: true,
       action: () => {
-        if (currentUser?.role?.is_system_role) {
+        if (canViewSettings) {
           setShowSettingsDialog(true)
         }
       },
@@ -484,7 +629,7 @@ function MainApp() {
       key: 'f',
       altKey: true,
       action: () => {
-        if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) {
+        if (canViewReports) {
           setShowForecastingDialog(true)
         }
       },
@@ -496,7 +641,7 @@ function MainApp() {
       key: 'o',
       altKey: true,
       action: () => {
-        if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) {
+        if (canViewReports) {
           setShowOptimizationDialog(true)
         }
       },
@@ -521,7 +666,11 @@ function MainApp() {
     {
       id: 'nav-orders',
       key: '2',
-      action: () => setActiveTab('orders'),
+      action: () => {
+        if (canViewOrders) {
+          setActiveTab('orders')
+        }
+      },
       description: 'Ir a Órdenes',
       category: 'navigation'
     },
@@ -538,15 +687,14 @@ function MainApp() {
       ctrlKey: true,
       action: () => {
         if (activeTab === 'products') {
-          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) {
+          if (canCreateInventory) {
             setShowNewProductDialog(true)
           }
         } else if (activeTab === 'orders') {
-          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:create')) {
+          if (canCreateOrders) {
             setShowNewOrderDialog(true)
           }
         }
-        // V1.0 LEGACY: profiles tab removed
       },
       description: 'Crear nuevo elemento',
       category: 'actions'
@@ -568,7 +716,7 @@ function MainApp() {
       ctrlKey: true,
       action: () => {
         if (activeTab === 'products') {
-          if (currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) {
+          if (canCreateInventory) {
             setShowImportDialog(true)
           }
         }
@@ -627,7 +775,7 @@ function MainApp() {
 
   const handleImportProducts = async (productsData: Partial<ProductWithStock>[], locationId: number | null) => {
     try {
-      const importedProducts = await service.bulkCreateProducts(productsData, locationId)
+      const importedProducts = await service.bulkCreateProducts(productsData, locationId ?? undefined)
       setProducts((current: ProductWithStock[]) => [...(current ?? []), ...importedProducts])
       toast.success(`${importedProducts.length} productos importados exitosamente`)
     } catch (error) {
@@ -712,31 +860,34 @@ function MainApp() {
   const channelOptions = activeSalesProfiles.length ? activeSalesProfiles : activeProfiles
 
   const handleTabChange = (value: string) => {
+    if (value === 'orders' && !canViewOrders) return
+    if (value === 'locations' && !canManageLocations) return
+    if (value === 'sales-profiles' && !canViewSettings) return
+    if (value === 'financing' && !canEditSettings) return
+    if (value === 'ai-ops' && !canAccessAIOps) return
+
     setActiveTab(value)
     setBulkActionMode(false)
     setSelectedProducts(new Set())
     setSelectedOrders(new Set())
   }
 
-  // V1.0 LEGACY: Función no usada - comentada
-  // const handleUpdateProfileSettings = async (profileId: number, settings: ProfileSettings) => {
-  //   try {
-  //     const updatedProfile = (profiles ?? []).find(p => p.id === profileId)
-  //     if (!updatedProfile) return
-
-  //     const profileWithNewSettings = { ...updatedProfile, settings }
-  //     setProfiles(current => (current ?? []).map(p => p.id === profileId ? profileWithNewSettings : p))
-  //     toast.success('Configuración guardada exitosamente')
-  //     setProfileWithSettings(null)
-  //   } catch (error) {
-  //     console.error('Error updating profile settings:', error)
-  //     toast.error('Error al guardar configuración')
-  //   }
-  // }
+  useEffect(() => {
+    if (activeTab === 'orders' && !canViewOrders) {
+      setActiveTab('products')
+    }
+    if (activeTab === 'ai-ops' && !canAccessAIOps) {
+      setActiveTab('products')
+    }
+  }, [activeTab, canViewOrders, canAccessAIOps])
 
   // Verificar conexión del backend primero
   if (!backendConnected) {
     return <BackendConnectionCheck onSuccess={() => setBackendConnected(true)} />
+  }
+
+  if (useAPI && showLoginDialog) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />
   }
 
   if (isLoading || !dataLoaded) {
@@ -814,7 +965,7 @@ function MainApp() {
                       {currentUser.full_name || currentUser.username}
                     </span>
                     <span className="text-xs text-muted-foreground hidden md:inline-block">
-                      {currentUser.role?.name || 'Usuario'}
+                      {currentUser.is_superuser ? 'Super Admin' : (currentUser.role?.name || 'Usuario')}
                     </span>
                   </div>
                   <Button variant="ghost" size="icon" onClick={handleLogout} title="Cerrar Sesión">
@@ -833,73 +984,35 @@ function MainApp() {
                 products={products ?? []}
                 profiles={profiles ?? []}
                 locations={locations ?? []}
-                orders={orders ?? []}
-                onOpenOptimization={() => setShowOptimizationDialog(true)}
               />
               
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowOptimizationDialog(true)}
-                title="Insights de Optimización (Alt + O)"
-                className="relative hover:bg-accent/20"
-              >
-                <Lightbulb size={20} weight="duotone" className="text-accent" />
-              </Button>
+              {canAccessAIOps && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setActiveTab('ai-ops')}
+                  title="Ir a Centro IA"
+                  className="relative hover:bg-accent/20"
+                >
+                  <Lightbulb size={20} weight="duotone" className="text-accent" />
+                </Button>
+              )}
               
-              {/* Botones de IA y Análisis - Solo para Admin/Gerente */}
-              {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowAIStatusDialog(true)}
-                    title="Panel IA Ops"
-                    className="relative hover:bg-primary/10 text-primary"
-                    disabled={!isAIStatusAvailable}
-                  >
-                    <ChartLine size={20} weight="duotone" />
-                    {isAIStatusAvailable && aiAttentionCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-amber-500 text-white rounded-full text-[10px] flex items-center justify-center px-1 font-bold">
-                        {aiAttentionCount > 99 ? '99+' : aiAttentionCount}
-                      </span>
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowForecastingDialog(true)}
-                    title="Pronóstico de Ventas IA (Alt + F)"
-                    className="relative hover:bg-primary/10"
-                  >
-                    <Sparkle size={20} weight="duotone" />
-                    {getCriticalAlerts().length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center font-bold">
-                        {getCriticalAlerts().length}
-                      </span>
-                    )}
-                  </Button>
-                  
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowAITraining(true)}
-                    title="Centro de Entrenamiento IA"
-                    className="relative hover:bg-primary/10 text-blue-600"
-                  >
-                    <GraduationCap size={20} />
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowCustomerInsights(true)}
-                    title="Insights de Clientes"
-                    className="relative hover:bg-primary/10 text-purple-600"
-                  >
-                    <ShieldCheck size={20} />
-                  </Button>
-                </>
+              {canAccessAIOps && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setActiveTab('ai-ops')}
+                  title="Ir a Centro IA"
+                  className="relative hover:bg-primary/10 text-primary"
+                >
+                  <Robot size={20} />
+                  {isAIStatusAvailable && aiAttentionCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-amber-500 text-white rounded-full text-[10px] flex items-center justify-center px-1 font-bold">
+                      {aiAttentionCount > 99 ? '99+' : aiAttentionCount}
+                    </span>
+                  )}
+                </Button>
               )}
 
               <Button
@@ -922,7 +1035,7 @@ function MainApp() {
                 <Keyboard size={20} />
               </Button>
               
-              {currentUser?.role?.is_system_role && (
+              {canViewSettings && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -934,7 +1047,7 @@ function MainApp() {
                 </Button>
               )}
               
-              {currentUser?.role?.is_system_role && (
+              {canManageUsers && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -945,6 +1058,18 @@ function MainApp() {
                   <ShieldCheck size={20} />
                 </Button>
               )}
+
+              {isAdminOrSuperAdmin && useAPI && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowDailyCloseDialog(true)}
+                  title="Cierre de Día — Validar Ventas"
+                  className="hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600"
+                >
+                  <CheckCircle size={20} weight="fill" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -952,18 +1077,26 @@ function MainApp() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-6 max-w-5xl mb-6">
+          <TabsList className="grid w-full grid-cols-8 max-w-7xl mb-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package size={18} />
               <span className="hidden sm:inline">Productos</span>
             </TabsTrigger>
-            <TabsTrigger value="orders" className="flex items-center gap-2">
-              <ShoppingCart size={18} />
-              <span className="hidden sm:inline">Órdenes</span>
-            </TabsTrigger>
+            {canViewReports && (
+              <TabsTrigger value="charts" className="flex items-center gap-2">
+                <ChartLine size={18} />
+                <span className="hidden sm:inline">Gráficas</span>
+              </TabsTrigger>
+            )}
+            {canViewOrders && (
+              <TabsTrigger value="orders" className="flex items-center gap-2">
+                <ShoppingCart size={18} />
+                <span className="hidden sm:inline">Órdenes</span>
+              </TabsTrigger>
+            )}
             
             {/* Solo mostrar Transferencias si tiene permiso de inventory:edit o es admin */}
-            {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) && (
+            {canEditInventory && (
               <TabsTrigger value="transfers" className="flex items-center gap-2">
                 <ArrowsLeftRight size={18} />
                 <span className="hidden sm:inline">Transferencias</span>
@@ -971,7 +1104,7 @@ function MainApp() {
             )}
 
             {/* Solo mostrar Ubicaciones si tiene permiso locations:manage */}
-            {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'locations:manage')) && (
+            {canManageLocations && (
               <TabsTrigger value="locations" className="flex items-center gap-2">
                 <MapPin size={18} />
                 <span className="hidden sm:inline">Ubicaciones</span>
@@ -979,7 +1112,7 @@ function MainApp() {
             )}
 
             {/* Solo mostrar Canales si es admin */}
-            {currentUser?.role?.is_system_role && (
+            {canViewSettings && (
               <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
                 <Robot size={18} />
                 <span className="hidden sm:inline">Canales</span>
@@ -987,46 +1120,22 @@ function MainApp() {
             )}
 
             {/* Solo mostrar Financiamiento si es admin */}
-            {currentUser?.role?.is_system_role && (
+            {canEditSettings && (
               <TabsTrigger value="financing" className="flex items-center gap-2">
                 <CreditCard size={18} />
                 <span className="hidden sm:inline">Financiamiento</span>
               </TabsTrigger>
             )}
+
+            {canAccessAIOps && (
+              <TabsTrigger value="ai-ops" className="flex items-center gap-2">
+                <Robot size={18} />
+                <span className="hidden sm:inline">Centro IA</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="products" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
-                <DashboardStats
-                  products={products ?? []}
-                  orders={orders ?? []}
-                  currentUser={currentUser}
-                  onViewLowStockReport={() => setShowLowStockReport(true)}
-                />
-              </div>
-              <div>
-                <div className="space-y-6">
-                  <ForecastingWidget
-                    summary={forecastingSummary ?? null}
-                    criticalAlerts={getCriticalAlerts()}
-                    lastUpdated={forecastingLastUpdated ?? null}
-                    isGenerating={isForecastingGenerating}
-                    onViewDetails={() => setShowForecastingDialog(true)}
-                    onRefresh={generateForecastData}
-                  />
-                  <AIStatusWidget
-                    status={aiStatus}
-                    isLoading={isAIStatusLoading}
-                    error={aiStatusError}
-                    isApiMode={isAIStatusAvailable}
-                    onRefresh={refreshAIStatus}
-                    onOpenDetails={() => setShowAIStatusDialog(true)}
-                  />
-                </div>
-              </div>
-            </div>
-            
             {/* V2.0: LowStockAlert filters by LOCATION */}
             <LowStockAlert
               products={products ?? []}
@@ -1068,7 +1177,18 @@ function MainApp() {
                 >
                   {bulkActionMode ? <CheckSquare size={18} /> : <Square size={18} />}
                 </Button>
-                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
+                {canViewReports && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSalesHistoryDialog(true)}
+                    title="Ver historial completo de ventas"
+                  >
+                    <ChartLine size={16} className="mr-2" />
+                    Historial
+                  </Button>
+                )}
+                {canViewReports && (
                   <Button
                     variant="outline"
                     size="icon"
@@ -1088,7 +1208,7 @@ function MainApp() {
                   <ShieldCheck size={18} />
                 </Button>
                 
-                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) && (
+                {canCreateInventory && (
                   <>
                     <Button
                       variant="outline"
@@ -1104,7 +1224,7 @@ function MainApp() {
                       onClick={() => setShowSuppliersDialog(true)}
                       title="Gestionar Proveedores"
                     >
-                      <User size={18} />
+                      <UserIcon size={18} />
                     </Button>
                     <Button
                       variant="outline"
@@ -1118,6 +1238,9 @@ function MainApp() {
                     <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
                       Nuevo Producto
                     </Button>
+                    <Button variant="secondary" onClick={() => setShowRestockDialog(true)} className="flex-1 sm:flex-none">
+                      Agregar más
+                    </Button>
                   </>
                 )}
               </div>
@@ -1129,27 +1252,53 @@ function MainApp() {
                   {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
                 </span>
                 <div className="flex gap-2 ml-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleBulkToggleProductStatus}
-                  >
-                    <Power size={16} className="mr-2" />
-                    Cambiar Estado
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleBulkDeleteProducts}
-                  >
-                    <Trash size={16} className="mr-2" />
-                    Eliminar
-                  </Button>
+                  {canEditInventory && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkToggleProductStatus}
+                    >
+                      <Power size={16} className="mr-2" />
+                      Cambiar Estado
+                    </Button>
+                  )}
+                  {canDeleteInventory && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBulkDeleteProducts}
+                    >
+                      <Trash size={16} className="mr-2" />
+                      Eliminar
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 rounded-lg border p-1">
+                <Button
+                  variant={productViewMode === 'grid' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setProductViewMode('grid')}
+                  className="gap-2"
+                >
+                  <SquaresFour size={16} />
+                  Cuadrícula
+                </Button>
+                <Button
+                  variant={productViewMode === 'list' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setProductViewMode('list')}
+                  className="gap-2"
+                >
+                  <Rows size={16} />
+                  Lista
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
               <input
                 type="checkbox"
                 id="show-inactive"
@@ -1171,6 +1320,7 @@ function MainApp() {
                   </button>
                 </>
               )}
+              </div>
             </div>
 
             {filteredProducts.length === 0 ? (
@@ -1182,12 +1332,84 @@ function MainApp() {
                 <p className="text-muted-foreground mb-4">
                   Comienza agregando tu primer producto al inventario
                 </p>
-                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:create')) && (
+                {canCreateInventory && (
                   <Button onClick={() => setShowNewProductDialog(true)}>
                     <Plus size={18} className="mr-2" />
                     Agregar Producto
                   </Button>
                 )}
+              </div>
+            ) : productViewMode === 'list' ? (
+              <div className="space-y-3">
+                {filteredProducts.map(product => (
+                  <div key={product.id} className="relative rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
+                    {bulkActionMode && (
+                      <div className="absolute top-3 left-3 z-10">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleProductSelection(product.id)
+                          }}
+                          className="w-6 h-6 rounded bg-background border-2 border-primary flex items-center justify-center hover:bg-accent transition-colors"
+                        >
+                          {selectedProducts.has(product.id) && (
+                            <CheckCircle size={20} weight="fill" className="text-primary" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className={`grid gap-4 ${bulkActionMode ? 'pl-10' : ''} lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_auto] items-start`}>
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-lg truncate">{product.nombre}</h3>
+                          <Badge variant="outline">{product.categoria === 'celular' ? 'Celular' : 'Accesorio'}</Badge>
+                          {!product.activo && <Badge variant="outline">Inactivo</Badge>}
+                          {product.is_serialized && <Badge className="bg-blue-600 text-white">Serializado</Badge>}
+                        </div>
+                        <div className="text-sm text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+                          <span>SKU: {product.sku || 'N/A'}</span>
+                          <span>Marca: {product.marca || 'N/A'}</span>
+                          <span>Modelo: {product.modelo || 'N/A'}</span>
+                          <span>Capacidad: {product.capacidad || 'N/A'}</span>
+                          <span>Condición: {product.condicion || 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-muted-foreground">Precio</p>
+                          <p className="font-semibold text-primary">{product.moneda} {product.precio.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Stock</p>
+                          <Badge variant={product.stock_disponible > 0 ? 'default' : 'secondary'}>
+                            {product.stock_disponible} unidades
+                          </Badge>
+                        </div>
+                        <div className="col-span-2 text-xs text-muted-foreground">
+                          Garantía: {product.garantia_meses > 0 ? `${product.garantia_meses} meses` : 'Sin garantía'}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {canEditInventory && (
+                          <Button variant="outline" size="sm" onClick={() => setEditingProduct(product)}>
+                            Editar
+                          </Button>
+                        )}
+                        {canEditInventory && (
+                          <Button variant="outline" size="sm" onClick={() => setTransferringProduct(product)}>
+                            Transferir
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => setViewingProductHistory(product)}>
+                          Historial
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1210,30 +1432,29 @@ function MainApp() {
                     )}
                     <ProductCard
                       product={product}
-                      onEdit={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? setEditingProduct : undefined}
-                      onTransfer={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? setTransferringProduct : undefined}
+                      onEdit={canEditInventory ? setEditingProduct : undefined}
+                      onTransfer={canEditInventory ? setTransferringProduct : undefined}
                       onViewHistory={setViewingProductHistory}
-                      onToggleActive={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:edit')) ? async (p) => {
+                      onToggleActive={canEditInventory ? async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
                         setProducts((current: ProductWithStock[]) => (current ?? []).map(pr => pr.id === updated.id ? updated : pr))
                         toast.success(`Producto ${updated.activo ? 'activado' : 'desactivado'}`)
                       } : undefined}
-                      onDelete={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'inventory:delete')) ? async (p) => {
+                      onDelete={canDeleteInventory ? async (p) => {
                         if (!confirm(`¿Estás seguro de eliminar "${p.nombre}"?\n\nEsta acción no se puede deshacer.`)) {
                           return
                         }
-                        
+
                         try {
                           await service.deleteProduct(p.id)
                           setProducts((current: ProductWithStock[]) => (current ?? []).filter(pr => pr.id !== p.id))
                           toast.success('Producto eliminado exitosamente')
                         } catch (error) {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
-                          
-                          // Check if error is about references
+
                           if (message.includes('referenciado') || message.includes('orders') || message.includes('históricas')) {
                              console.log('Delete prevented due to existing references (expected behavior)')
-                             
+
                              if (confirm(`No se puede eliminar el producto "${p.nombre}" porque tiene historial de ventas.\n\n¿Deseas desactivarlo en su lugar para que no aparezca en nuevas ventas?`)) {
                                 try {
                                     const updated = await service.updateProduct(p.id, { ...p, activo: false })
@@ -1257,6 +1478,109 @@ function MainApp() {
             )}
           </TabsContent>
 
+          {canAccessAIOps && (
+          <TabsContent value="ai-ops" className="space-y-6">
+            <DashboardStats
+              products={products ?? []}
+              orders={orders ?? []}
+              currentUser={currentUser}
+              onViewLowStockReport={() => setShowLowStockReport(true)}
+              insightsOnly
+            />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+                  <h3 className="text-lg font-semibold mb-1">Centro IA Operativo</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Herramientas de IA y monitoreo operativo disponibles para administradores.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Button variant="outline" onClick={() => setShowAIStatusDialog(true)} disabled={!isAIStatusAvailable} className="justify-start">
+                      <ChartLine size={18} className="mr-2" />
+                      Panel IA
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowOptimizationDialog(true)} className="justify-start">
+                      <Lightbulb size={18} className="mr-2" />
+                      Insights de Optimización
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowForecastingDialog(true)} className="justify-start">
+                      <Sparkle size={18} className="mr-2" />
+                      Pronóstico de Ventas IA
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowAITraining(true)} className="justify-start text-blue-600 border-blue-200 hover:bg-blue-50">
+                      <GraduationCap size={18} className="mr-2" />
+                      Centro de Entrenamiento
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowCustomerInsights(true)} className="justify-start text-purple-600 border-purple-200 hover:bg-purple-50">
+                      <ShieldCheck size={18} className="mr-2" />
+                      Insights de Clientes
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowAIChatOrchestrator(true)} className="justify-start text-emerald-600 border-emerald-200 hover:bg-emerald-50">
+                      <Robot size={18} className="mr-2" />
+                      Chat IA Operativo
+                    </Button>
+
+                    <Button variant="outline" onClick={() => setShowPhotoRequestsDialog(true)} className="justify-start text-violet-600 border-violet-200 hover:bg-violet-50">
+                      <Camera size={18} className="mr-2" />
+                      Solicitudes de fotos {photoRequestPendingCount > 0 ? `(${photoRequestPendingCount})` : ''}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowChannelHealthDialog(true)}
+                      className="justify-start text-sky-600 border-sky-200 hover:bg-sky-50 sm:col-span-2"
+                    >
+                      <CloudArrowUp size={18} className="mr-2" />
+                      Diagnóstico de Canales {channelHealthReady === null ? '(estado desconocido)' : channelHealthReady ? '(ready)' : '(incompleto)'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="space-y-6">
+                  <ForecastingWidget
+                    summary={forecastingSummary ?? null}
+                    criticalAlerts={getCriticalAlerts()}
+                    lastUpdated={forecastingLastUpdated ?? null}
+                    isGenerating={isForecastingGenerating}
+                    onViewDetails={() => setShowForecastingDialog(true)}
+                    onRefresh={generateForecastData}
+                  />
+                  <AIStatusWidget
+                    status={aiStatus}
+                    isLoading={isAIStatusLoading}
+                    error={aiStatusError}
+                    isApiMode={isAIStatusAvailable}
+                    onRefresh={refreshAIStatus}
+                    onOpenDetails={() => setShowAIStatusDialog(true)}
+                  />
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+          )}
+
+          {canViewReports && (
+            <TabsContent value="charts" className="space-y-6">
+              <DashboardStats
+                products={products ?? []}
+                orders={orders ?? []}
+                currentUser={currentUser}
+                onViewLowStockReport={() => setShowLowStockReport(true)}
+                showInsights={false}
+                chartsOnly
+              />
+            </TabsContent>
+          )}
+
+          {canViewOrders && (
           <TabsContent value="orders" className="space-y-6">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
@@ -1325,32 +1649,36 @@ function MainApp() {
                 >
                   <FunnelSimple size={18} />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    const currentProfile = selectedSalesChannel !== 'all' 
-                      ? (profiles ?? []).find(p => p.slug === selectedSalesChannel)
-                      : (profiles ?? [])[0]
-                    
-                    if (currentProfile) {
-                      setShowReportsDialog(true)
-                    } else {
-                      toast.error('Selecciona un perfil primero')
-                    }
-                  }}
-                  title="Ver reportes"
-                >
-                  <ChartLine size={18} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowReturnsListDialog(true)}
-                  title="Ver devoluciones"
-                >
-                  <ArrowCounterClockwise size={18} />
-                </Button>
+                {canViewReports && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const currentProfile = selectedSalesChannel !== 'all' 
+                        ? (profiles ?? []).find(p => p.slug === selectedSalesChannel)
+                        : (profiles ?? [])[0]
+                      
+                      if (currentProfile) {
+                        setShowReportsDialog(true)
+                      } else {
+                        toast.error('Selecciona un perfil primero')
+                      }
+                    }}
+                    title="Ver reportes"
+                  >
+                    <ChartLine size={18} />
+                  </Button>
+                )}
+                {canEditOrders && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowReturnsListDialog(true)}
+                    title="Ver devoluciones"
+                  >
+                    <ArrowCounterClockwise size={18} />
+                  </Button>
+                )}
                 <Button
                   variant={bulkActionMode && activeTab === 'orders' ? "default" : "outline"}
                   size="icon"
@@ -1362,7 +1690,7 @@ function MainApp() {
                 >
                   {bulkActionMode && activeTab === 'orders' ? <CheckSquare size={18} /> : <Square size={18} />}
                 </Button>
-                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'reports:view')) && (
+                {canViewReports && (
                   <Button
                     variant="outline"
                     size="icon"
@@ -1372,10 +1700,12 @@ function MainApp() {
                     <Download size={18} />
                   </Button>
                 )}
+                {canCreateOrders && (
                 <Button onClick={() => setShowNewOrderDialog(true)} className="flex-1 sm:flex-none">
                   <Plus size={18} className="mr-2" />
                   Nueva Orden
                 </Button>
+                )}
               </div>
             </div>
 
@@ -1385,7 +1715,7 @@ function MainApp() {
                   {selectedOrders.size} orden{selectedOrders.size !== 1 ? 'es' : ''} seleccionada{selectedOrders.size !== 1 ? 's' : ''}
                 </span>
                 <div className="flex flex-wrap gap-2 sm:ml-auto">
-                  {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) && (
+                  {canEditOrders && (
                     <>
                       <Button
                         variant="outline"
@@ -1419,7 +1749,7 @@ function MainApp() {
                       </Button>
                     </>
                   )}
-                  {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:delete')) && (
+                  {canDeleteOrders && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -1453,7 +1783,7 @@ function MainApp() {
                 <p className="text-muted-foreground mb-4">
                   Crea tu primera orden de venta
                 </p>
-                {(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:create')) && (
+                {canCreateOrders && (
                   <Button onClick={() => setShowNewOrderDialog(true)}>
                     <Plus size={18} className="mr-2" />
                     Crear Orden
@@ -1481,7 +1811,7 @@ function MainApp() {
                     )}
                     <OrderCard
                       order={order}
-                      onStatusChange={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) ? async (orderId, newStatus) => {
+                      onStatusChange={canEditOrders ? async (orderId, newStatus) => {
                         console.log(`🔄 Cambiando estado de orden ${orderId} a: ${newStatus}`)
                         const updated = await service.updateOrderStatus(orderId, newStatus)
                         console.log('✅ Orden actualizada:', updated)
@@ -1493,7 +1823,7 @@ function MainApp() {
                         const updatedProducts = await service.getProducts()
                         setProducts(updatedProducts)
                       } : undefined}
-                      onEdit={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:edit')) ? setEditingOrder : undefined}
+                      onEdit={canEditOrders ? setEditingOrder : undefined}
                       onViewCustomerHistory={(phone) => {
                         setSelectedCustomerPhone(phone)
                         setShowCustomerHistory(true)
@@ -1537,7 +1867,7 @@ function MainApp() {
                           generateOrderPDF(order, profile)
                         }
                       }}
-                      onDelete={(currentUser?.role?.is_system_role || currentUser?.role?.permissions?.some(p => p.slug === 'orders:delete')) ? async (order) => {
+                      onDelete={canDeleteOrders ? async (order) => {
                         console.log('🗑️ Intentando eliminar orden:', order.id)
                         if (!confirm(`¿Estás seguro de eliminar la orden #${order.id}?\n\nEsta acción no se puede deshacer y se repondrá el stock de los productos.`)) {
                           console.log('❌ Eliminación cancelada por el usuario')
@@ -1576,6 +1906,7 @@ function MainApp() {
               </div>
             )}
           </TabsContent>
+          )}
 
           <TabsContent value="locations" className="space-y-6">
             <LocationsList />
@@ -1598,6 +1929,178 @@ function MainApp() {
                 </Button>
               </div>
 
+              <div className="rounded-lg border p-4 space-y-3">
+                <h3 className="font-semibold">Nueva transferencia rápida</h3>
+                <p className="text-sm text-muted-foreground">
+                  Elige el origen, el destino y el producto; luego haz clic en <strong>Iniciar transferencia</strong>.
+                </p>
+
+                {/* Fila 1: Origen → Destino */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                      <MapPin size={12} weight="fill" /> Ubicación de origen
+                    </p>
+                    <Select
+                      value={transferOriginFilter}
+                      onValueChange={(value) => {
+                        setTransferOriginFilter(value)
+                        setQuickTransferProductId('')
+                        setQuickTransferSearchTerm('')
+                        setQuickTransferProductOpen(false)
+                        if (value !== 'all' && value === quickTransferToLocationId) setQuickTransferToLocationId('all')
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona origen" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Cualquier ubicación</SelectItem>
+                        {(locations ?? [])
+                          .filter(location => location.activo)
+                          .sort((a, b) => a.nombre.localeCompare(b.nombre))
+                          .map(location => (
+                            <SelectItem key={location.id} value={String(location.id)}>
+                              {location.nombre}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                      <MapPin size={12} weight="fill" /> Ubicación de destino
+                    </p>
+                    <Select
+                      value={quickTransferToLocationId}
+                      onValueChange={(value) => {
+                        setQuickTransferToLocationId(value)
+                        setQuickTransferProductOpen(false)
+                        if (value !== 'all' && value === transferOriginFilter) setTransferOriginFilter('all')
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona destino" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Cualquier ubicación</SelectItem>
+                        {(locations ?? [])
+                          .filter(location => location.activo)
+                          .sort((a, b) => a.nombre.localeCompare(b.nombre))
+                          .map(location => (
+                            <SelectItem key={location.id} value={String(location.id)}>
+                              {location.nombre}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Indicador visual cuando se seleccionan ambas */}
+                {transferOriginFilter !== 'all' && quickTransferToLocationId !== 'all' && (
+                  <div className="flex items-center gap-2 text-sm bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+                    <MapPin size={14} weight="fill" className="text-blue-600 shrink-0" />
+                    <span className="font-medium text-blue-900 dark:text-blue-100">
+                      {(locations ?? []).find(l => String(l.id) === transferOriginFilter)?.nombre}
+                    </span>
+                    <ArrowsLeftRight size={14} weight="bold" className="text-blue-500 shrink-0" />
+                    <MapPin size={14} weight="fill" className="text-blue-600 shrink-0" />
+                    <span className="font-medium text-blue-900 dark:text-blue-100">
+                      {(locations ?? []).find(l => String(l.id) === quickTransferToLocationId)?.nombre}
+                    </span>
+                  </div>
+                )}
+
+                {/* Fila 2: Producto + Botón */}
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-end">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Producto a transferir
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {filteredTransferProducts.length} producto(s) encontrado(s)
+                    </p>
+                    <Popover open={quickTransferProductOpen} onOpenChange={setQuickTransferProductOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={quickTransferProductOpen}
+                          className="w-full justify-between font-normal"
+                        >
+                          <span className="truncate text-left">
+                            {selectedQuickTransferProduct
+                              ? `${selectedQuickTransferProduct.nombre} · ${selectedQuickTransferProduct.sku} · ${getTransferAvailableStock(selectedQuickTransferProduct, transferOriginFilter)} uds`
+                              : 'Buscar y seleccionar producto'}
+                          </span>
+                          <CaretUpDown size={16} className="ml-2 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            value={quickTransferSearchTerm}
+                            onValueChange={(value) => {
+                              setQuickTransferSearchTerm(value)
+                              setQuickTransferProductId('')
+                            }}
+                            placeholder="Buscar por nombre, marca, modelo o SKU..."
+                          />
+                          <CommandList>
+                            <CommandEmpty>No se encontraron productos.</CommandEmpty>
+                            {filteredTransferProducts.map(product => (
+                              <CommandItem
+                                key={product.id}
+                                value={String(product.id)}
+                                onSelect={() => {
+                                  setQuickTransferProductId(String(product.id))
+                                  setQuickTransferSearchTerm('')
+                                  setQuickTransferProductOpen(false)
+                                }}
+                              >
+                                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate font-medium">{product.nombre}</p>
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {product.marca || 'Sin marca'} {product.modelo || ''} · SKU: {product.sku || 'Sin SKU'}
+                                    </p>
+                                  </div>
+                                  <Badge variant="secondary" className="shrink-0">
+                                    {getTransferAvailableStock(product, transferOriginFilter)} uds
+                                  </Badge>
+                                </div>
+                                {quickTransferProductId === String(product.id) && (
+                                  <CheckCircle size={16} weight="fill" className="ml-auto text-primary" />
+                                )}
+                              </CommandItem>
+                            ))}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      const selected = (products ?? []).find(p => String(p.id) === quickTransferProductId)
+                      if (!selected) {
+                        toast.error('Selecciona un producto para transferir')
+                        return
+                      }
+                      setTransferringProduct(selected)
+                    }}
+                    disabled={!canEditInventory || !quickTransferProductId}
+                    className="gap-2"
+                  >
+                    <ArrowsLeftRight size={18} weight="bold" />
+                    Iniciar transferencia
+                  </Button>
+                </div>
+              </div>
+
               {/* Instrucciones mejoradas */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
@@ -1606,11 +2109,13 @@ function MainApp() {
                     Cómo hacer una transferencia:
                   </h3>
                   <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
-                    <li>Ve a la pestaña <strong>"Productos"</strong></li>
-                    <li>Busca el producto que quieres transferir</li>
-                    <li>Haz clic en el botón <ArrowsLeftRight className="inline w-4 h-4 mx-1" /> <strong>Transferir</strong></li>
-                    <li>Selecciona ubicación origen y destino</li>
-                    <li>Ingresa la cantidad y confirma</li>
+                    <li>Elige la <strong>ubicación de origen</strong> (de dónde sale el stock)</li>
+                    <li>Elige la <strong>ubicación de destino</strong> (a dónde llega el stock)</li>
+                    <li>Selecciona el <strong>producto</strong> a mover</li>
+                    <li>Haz clic en <strong>Iniciar transferencia</strong></li>
+                    <li>Confirma la cantidad y (si aplica) escanea los IMEIs</li>
+                    <li>En recepción, confirma la llegada para completar la transferencia</li>
+                    <li>Da seguimiento en <strong>Ver Transferencias</strong></li>
                   </ol>
                 </div>
 
@@ -1641,20 +2146,19 @@ function MainApp() {
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-semibold">Productos con Inventario Multi-Ubicación</h3>
                   <Badge variant="secondary">
-                    {(products ?? []).filter(p => p.stock_items && p.stock_items.length > 1).length} productos en múltiples ubicaciones
+                    {transferProducts.filter(p => (p.stock_items?.length || 0) > 1).length} productos en múltiples ubicaciones
                   </Badge>
                 </div>
                 
-                {(products ?? []).filter(p => p.stock_items && p.stock_items.length > 0).length === 0 ? (
+                {transferProducts.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground border rounded-lg bg-muted/20">
                     <ArrowsLeftRight size={48} className="mx-auto mb-4 opacity-50" weight="duotone" />
-                    <p className="font-medium">No hay productos con stock asignado a ubicaciones</p>
-                    <p className="text-sm mt-2">Agrega productos y asígnalos a ubicaciones en la pestaña <strong>Productos</strong></p>
+                    <p className="font-medium">No hay productos transferibles con el filtro actual</p>
+                    <p className="text-sm mt-2">Prueba otra ubicación de origen o asigna stock a una tienda/bodega</p>
                   </div>
                 ) : (
                   <div className="grid gap-3">
-                    {(products ?? [])
-                      .filter(p => p.stock_items && p.stock_items.length > 0)
+                    {transferProducts
                       .sort((a, b) => (b.stock_items?.length || 0) - (a.stock_items?.length || 0)) // Ordenar por cantidad de ubicaciones
                       .map(product => (
                         <div key={product.id} className="rounded-lg border p-4 hover:shadow-md transition-shadow">
@@ -1787,8 +2291,28 @@ function MainApp() {
             return created
           } catch (error) {
             console.error('❌ Error al crear producto:', error)
-            toast.error(`Error al crear producto: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+            const rawMessage = error instanceof Error ? error.message : 'Error desconocido'
+            const normalized = rawMessage.toLowerCase()
+
+            if (normalized.includes('sku') && normalized.includes('ya existe')) {
+              toast.error('Ese producto ya existe (SKU duplicado).')
+              toast.info('Para agregar más inventario: abre el producto → "Ver por Ubicación" → ícono de lápiz y ajusta la cantidad.')
+              return
+            }
+
+            toast.error(`Error al crear producto: ${rawMessage}`)
           }
+        }}
+      />
+
+      <RestockProductDialog
+        open={showRestockDialog}
+        onOpenChange={setShowRestockDialog}
+        products={products ?? []}
+        locations={locations.filter(l => l.activo)}
+        onSuccess={async () => {
+          const updatedProducts = await service.getProducts()
+          setProducts(updatedProducts)
         }}
       />
 
@@ -1827,33 +2351,6 @@ function MainApp() {
         }}
       />
 
-      {/* DEPRECATED V1.0 - Profile Business Units
-      <NewProfileDialog
-        open={showNewProfileDialog}
-        onOpenChange={setShowNewProfileDialog}
-        onSubmit={async (name, slug) => {
-          try {
-            console.log('Creating profile:', { name, slug })
-            const created = await service.createProfile({ name, slug, active: true })
-            console.log('Profile created:', created)
-            
-            // Actualizar estado de forma segura
-            setProfiles(current => {
-              const updated = [...(current ?? []), created]
-              console.log('Updated profiles list:', updated)
-              return updated
-            })
-            
-            toast.success('Perfil creado exitosamente')
-            setShowNewProfileDialog(false)
-          } catch (error) {
-            console.error('Error creating profile:', error)
-            toast.error(error instanceof Error ? error.message : 'Error al crear perfil')
-          }
-        }}
-      />
-      */}
-
       {editingProduct && (
         <EditProductDialog
           open={true}
@@ -1874,6 +2371,8 @@ function MainApp() {
           open={true}
           product={transferringProduct}
           onOpenChange={(open) => !open && setTransferringProduct(null)}
+                    initialFromLocationId={transferOriginFilter !== 'all' ? Number(transferOriginFilter) : undefined}
+                    initialToLocationId={quickTransferToLocationId !== 'all' ? Number(quickTransferToLocationId) : undefined}
           onTransferComplete={async () => {
             // Recargar productos después de la transferencia
             const updatedProducts = await inventoryServiceInstance.getProducts()
@@ -1901,27 +2400,12 @@ function MainApp() {
         />
       )}
 
-      {/* DEPRECATED V1.0 - Edit Profile Business Units
-      {editingProfile && (
-        <EditProfileDialog
-          open={true}
-          profile={editingProfile}
-          onOpenChange={(open) => !open && setEditingProfile(null)}
-          onSubmit={async (profileId, name, active) => {
-            const savedProfile = await service.updateProfile(profileId, { name, active })
-            setProfiles(current => (current ?? []).map(p => p.id === savedProfile.id ? savedProfile : p))
-            toast.success('Perfil actualizado exitosamente')
-            setEditingProfile(null)
-          }}
-        />
-      )}
-      */}
-
       {editingOrder && (
         <EditOrderDialog
           open={true}
           order={editingOrder}
           products={(products ?? []).filter(p => p.activo)}
+          salesProfiles={activeSalesProfiles}
           onOpenChange={(open) => !open && setEditingOrder(null)}
           onSubmit={async (orderId, updates) => {
             const savedOrder = await service.updateOrder(orderId, updates)
@@ -1943,6 +2427,17 @@ function MainApp() {
         onOpenSyncSettings={() => setShowSyncSettings(true)}
       />
 
+      <DailyCloseDialog
+        open={showDailyCloseDialog}
+        onOpenChange={setShowDailyCloseDialog}
+        onValidated={() => {
+          // Recargar órdenes después de la validación
+          if (useAPI) {
+            apiClient.fetchOrders().then(data => setOrders(data)).catch(() => {})
+          }
+        }}
+      />
+
       <KeyboardShortcutsDialog
         open={showKeyboardDialog}
         onOpenChange={setShowKeyboardDialog}
@@ -1959,31 +2454,6 @@ function MainApp() {
         open={showSuppliersDialog}
         onOpenChange={setShowSuppliersDialog}
       />
-
-      {/* DEPRECATED V1.0 - Profile Settings
-      {profileWithSettings && (
-        <ProfileSettingsDialog
-          open={true}
-          profile={profileWithSettings}
-          onOpenChange={(open) => !open && setProfileWithSettings(null)}
-          onSubmit={handleUpdateProfileSettings}
-        />
-      )}
-      */}
-
-      {/* DEPRECATED V1.0 - Profile Details
-      {viewingProfile && (
-        <ProfileDetailsDialog
-          open={true}
-          profile={viewingProfile}
-          productCount={(products ?? []).filter(p => p.profile_id === viewingProfile.id && p.activo).length}
-          orderCount={(orders ?? []).filter(o => o.profile_id === viewingProfile.id).length}
-          onOpenChange={(open) => !open && setViewingProfile(null)}
-          onEdit={setEditingProfile}
-          onSettings={setProfileWithSettings}
-        />
-      )}
-      */}
 
       <HealthCheckDialog
         open={showHealthCheckDialog}
@@ -2056,6 +2526,14 @@ function MainApp() {
         )
       })()}
 
+      <SalesHistoryDialog
+        open={showSalesHistoryDialog}
+        onOpenChange={setShowSalesHistoryDialog}
+        orders={orders ?? []}
+        locations={locations ?? []}
+        salesProfiles={salesProfiles ?? []}
+      />
+
       {showCustomerHistory && (
         <CustomerHistoryDialog
           open={showCustomerHistory}
@@ -2121,6 +2599,18 @@ function MainApp() {
         onOpenChange={setShowCustomerInsights}
       />
 
+      <AIChatOrchestratorDialog
+        open={showAIChatOrchestrator}
+        onOpenChange={setShowAIChatOrchestrator}
+        salesProfiles={activeSalesProfiles}
+        locations={locations.filter(location => location.activo)}
+      />
+
+      <ChannelHealthDialog
+        open={showChannelHealthDialog}
+        onOpenChange={setShowChannelHealthDialog}
+      />
+
       {viewingProductHistory && (
         <StockHistoryDialog
           open={!!viewingProductHistory}
@@ -2128,11 +2618,6 @@ function MainApp() {
           product={viewingProductHistory}
         />
       )}
-
-      <LoginDialog 
-        open={showLoginDialog && !!useAPI} 
-        onLoginSuccess={handleLoginSuccess} 
-      />
 
       <ManageUsersDialog
         open={showManageUsersDialog}
@@ -2142,6 +2627,11 @@ function MainApp() {
       <PendingTradeInsDialog
         open={showPendingTradeIns}
         onOpenChange={setShowPendingTradeIns}
+      />
+
+      <PhotoRequestsDashboardDialog
+        open={showPhotoRequestsDialog}
+        onOpenChange={setShowPhotoRequestsDialog}
       />
 
       <ReturnsListDialog

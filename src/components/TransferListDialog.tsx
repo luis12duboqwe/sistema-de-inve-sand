@@ -33,7 +33,22 @@ export function TransferListDialog({
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [confirmedBy, setConfirmedBy] = useState('')
-  const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
+  const [receiveScanInput, setReceiveScanInput] = useState('')
+  const [scannedReceiveImeis, setScannedReceiveImeis] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState<'in_transit' | 'received' | 'incidents'>('in_transit')
+
+  useEffect(() => {
+    if (!selectedTransfer) {
+      setConfirmedBy('')
+      setReceiveScanInput('')
+      setScannedReceiveImeis([])
+      return
+    }
+
+    setConfirmedBy('')
+    setReceiveScanInput('')
+    setScannedReceiveImeis([])
+  }, [selectedTransfer])
 
   const loadTransfers = useCallback(async () => {
     setLoading(true)
@@ -66,18 +81,13 @@ export function TransferListDialog({
       toast.error('Por favor ingresa tu nombre para confirmar')
       return
     }
-    
-    // V2.0: Check for serialized items
-    let scannedImeis: string[] | undefined = undefined;
-    if (transfer.imeis && transfer.imeis.length > 0) {
-        const message = `Esta transferencia incluye ${transfer.imeis.length} productos serializados (IMEIs).\n\n` +
-                        `IMEIs esperados:\n${transfer.imeis.join('\\n')}\n\n` +
-                        `¿Confirma que ha verificado físicamente estos seriales?`;
-        
-        if (!confirm(message)) {
-            return;
-        }
-        scannedImeis = transfer.imeis;
+
+    const expectedImeis = transfer.imeis || []
+    const scannedImeis = expectedImeis.length > 0 ? scannedReceiveImeis : undefined
+
+    if (expectedImeis.length > 0 && scannedReceiveImeis.length !== expectedImeis.length) {
+      toast.error(`Debes volver a escanear ${expectedImeis.length} IMEIs en la ubicación de recepción`)
+      return
     }
 
     setActionLoading(true)
@@ -142,6 +152,33 @@ export function TransferListDialog({
     return locations.find(l => l.id === locationId)?.nombre || `Ubicación ${locationId}`
   }
 
+  const handleAddReceptionScan = () => {
+    if (!selectedTransfer) return
+
+    const scanned = receiveScanInput.trim()
+    if (!scanned) return
+
+    const expectedImeis = selectedTransfer.imeis || []
+
+    if (expectedImeis.length === 0) {
+      toast.error('Esta transferencia no requiere escaneo por IMEI')
+      return
+    }
+
+    if (!expectedImeis.includes(scanned)) {
+      toast.error('Este IMEI no pertenece a la transferencia esperada')
+      return
+    }
+
+    if (scannedReceiveImeis.includes(scanned)) {
+      toast.error('Este IMEI ya fue escaneado en recepción')
+      return
+    }
+
+    setScannedReceiveImeis(prev => [...prev, scanned])
+    setReceiveScanInput('')
+  }
+
   const getStatusBadge = (estado: string) => {
     const variants: Record<string, { variant: any; icon: any; label: string }> = {
       pendiente: { variant: 'default', icon: Clock, label: 'Pendiente' },
@@ -161,12 +198,46 @@ export function TransferListDialog({
     )
   }
 
-  const pendingTransfers = transfers.filter(t => t.estado === 'pendiente')
-  const completedTransfers = transfers.filter(t => t.estado !== 'pendiente')
+  const getOperationalStage = (transfer: StockTransfer) => {
+    if (transfer.estado === 'confirmada') {
+      return {
+        label: 'Recibida',
+        description: 'La ubicación de recepción confirmó y escaneó el ingreso completo.',
+        className: 'border-green-200 bg-green-50 text-green-800'
+      }
+    }
+
+    if (transfer.estado === 'pendiente') {
+      return {
+        label: 'Despachada / En tránsito',
+        description: 'Salida validada en origen. Pendiente de escaneo y confirmación en recepción.',
+        className: 'border-amber-200 bg-amber-50 text-amber-800'
+      }
+    }
+
+    if (transfer.estado === 'rechazada') {
+      return {
+        label: 'Rechazada',
+        description: 'La recepción no fue aceptada y la transferencia fue revertida.',
+        className: 'border-red-200 bg-red-50 text-red-800'
+      }
+    }
+
+    return {
+      label: 'Cancelada',
+      description: 'La transferencia fue anulada antes de completar la recepción.',
+      className: 'border-slate-200 bg-slate-50 text-slate-700'
+    }
+  }
+
+  const inTransitTransfers = transfers.filter(t => t.estado === 'pendiente')
+  const receivedTransfers = transfers.filter(t => t.estado === 'confirmada')
+  const incidentTransfers = transfers.filter(t => t.estado === 'rechazada' || t.estado === 'cancelada')
 
   const renderTransferCard = (transfer: StockTransfer) => {
     const canConfirm = transfer.estado === 'pendiente'  // Siempre permitir confirmar si está pendiente
     const canCancel = transfer.estado === 'pendiente'  // Siempre permitir cancelar si está pendiente
+    const operationalStage = getOperationalStage(transfer)
 
     return (
       <div
@@ -181,12 +252,17 @@ export function TransferListDialog({
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <MapPin className="h-3 w-3" />
-              <span>{getLocationName(transfer.from_location_id)}</span>
+              <span>Origen: {getLocationName(transfer.from_location_id)}</span>
               <ArrowRight className="h-3 w-3" />
-              <span className="font-medium">{getLocationName(transfer.to_location_id)}</span>
+              <span className="font-medium">Recepción: {getLocationName(transfer.to_location_id)}</span>
             </div>
           </div>
           {getStatusBadge(transfer.estado)}
+        </div>
+
+        <div className={`rounded-md border px-3 py-2 text-sm ${operationalStage.className}`}>
+          <div className="font-medium">Estado operativo: {operationalStage.label}</div>
+          <div className="text-xs mt-1 opacity-90">{operationalStage.description}</div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -224,7 +300,7 @@ export function TransferListDialog({
           <div className="flex items-center gap-2 pt-2 border-t">
             <AlertCircle className="h-4 w-4 text-orange-500" />
             <span className="text-sm text-orange-600 dark:text-orange-400">
-              ⏳ Transferencia pendiente - Stock reservado en origen
+              ⏳ Transferencia pendiente - validada en origen y esperando recepción
             </span>
           </div>
         )}
@@ -245,7 +321,7 @@ export function TransferListDialog({
                 className="flex-1"
               >
                 <Check className="h-4 w-4 mr-1" />
-                Confirmar Recepción
+                Confirmar recepción
               </Button>
             )}
             {canCancel && (
@@ -278,64 +354,89 @@ export function TransferListDialog({
           </DialogHeader>
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="mt-4">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="pending" className="gap-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="in_transit" className="gap-2">
                 <Clock className="h-4 w-4" />
-                Pendientes
-                {pendingTransfers.length > 0 && (
+                En tránsito
+                {inTransitTransfers.length > 0 && (
                   <Badge variant="secondary" className="ml-1">
-                    {pendingTransfers.length}
+                    {inTransitTransfers.length}
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="completed">
-                Completadas ({completedTransfers.length})
+              <TabsTrigger value="received">
+                Recibidas ({receivedTransfers.length})
+              </TabsTrigger>
+              <TabsTrigger value="incidents">
+                Incidencias ({incidentTransfers.length})
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="pending" className="mt-4">
+            <TabsContent value="in_transit" className="mt-4">
               <ScrollArea className="h-[400px] pr-4">
                 {loading ? (
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ) : pendingTransfers.length === 0 ? (
+                ) : inTransitTransfers.length === 0 ? (
                   <div className="text-center py-12 space-y-3">
                     <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                     <div>
-                      <p className="font-medium text-foreground mb-1">No hay transferencias pendientes</p>
-                      <p className="text-sm text-muted-foreground">Las transferencias aparecerán aquí cuando se creen</p>
+                      <p className="font-medium text-foreground mb-1">No hay transferencias en tránsito</p>
+                      <p className="text-sm text-muted-foreground">Las transferencias pendientes de recepción aparecerán aquí</p>
                     </div>
                     <div className="pt-2 text-xs text-muted-foreground">
                       <p>Para crear una transferencia:</p>
-                      <p className="mt-1">Productos → Selecciona producto → Transferir</p>
+                      <p className="mt-1">Transferencias → Nueva transferencia rápida → Iniciar transferencia</p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {pendingTransfers.map(renderTransferCard)}
+                    {inTransitTransfers.map(renderTransferCard)}
                   </div>
                 )}
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="completed" className="mt-4">
+            <TabsContent value="received" className="mt-4">
               <ScrollArea className="h-[400px] pr-4">
                 {loading ? (
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ) : completedTransfers.length === 0 ? (
+                ) : receivedTransfers.length === 0 ? (
                   <div className="text-center py-12 space-y-3">
                     <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                     <div>
-                      <p className="font-medium text-foreground mb-1">No hay transferencias completadas</p>
-                      <p className="text-sm text-muted-foreground">El historial de transferencias confirmadas/rechazadas aparecerá aquí</p>
+                      <p className="font-medium text-foreground mb-1">No hay transferencias recibidas</p>
+                      <p className="text-sm text-muted-foreground">Las transferencias confirmadas por recepción aparecerán aquí</p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {completedTransfers.map(renderTransferCard)}
+                    {receivedTransfers.map(renderTransferCard)}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="incidents" className="mt-4">
+              <ScrollArea className="h-[400px] pr-4">
+                {loading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : incidentTransfers.length === 0 ? (
+                  <div className="text-center py-12 space-y-3">
+                    <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+                    <div>
+                      <p className="font-medium text-foreground mb-1">No hay incidencias</p>
+                      <p className="text-sm text-muted-foreground">Las transferencias rechazadas o canceladas aparecerán aquí</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {incidentTransfers.map(renderTransferCard)}
                   </div>
                 )}
               </ScrollArea>
@@ -356,7 +457,7 @@ export function TransferListDialog({
           <DialogHeader>
             <DialogTitle>Confirmar Recepción</DialogTitle>
             <DialogDescription>
-              Confirma que has recibido el stock transferido. Esto moverá el stock a tu ubicación.
+              Confirma la recepción en destino. Si el producto es serializado, debes volver a escanear cada unidad recibida.
             </DialogDescription>
           </DialogHeader>
 
@@ -365,8 +466,10 @@ export function TransferListDialog({
               <div className="p-3 border rounded-lg space-y-2">
                 <div className="font-medium">{selectedTransfer.product?.nombre}</div>
                 <div className="text-sm text-muted-foreground">
-                  De: {getLocationName(selectedTransfer.from_location_id)} → 
-                  A: {getLocationName(selectedTransfer.to_location_id)}
+                  Ubicación origen: {getLocationName(selectedTransfer.from_location_id)}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Ubicación recepción: {getLocationName(selectedTransfer.to_location_id)}
                 </div>
                 <div className="text-sm">
                   Cantidad: <span className="font-medium">{selectedTransfer.cantidad} unidades</span>
@@ -384,15 +487,84 @@ export function TransferListDialog({
                 />
               </div>
 
+              {(selectedTransfer.imeis?.length || 0) > 0 && (
+                <div className="space-y-3 rounded-lg border border-dashed p-3 bg-muted/20">
+                  <div>
+                    <Label htmlFor="receiveScanInput">
+                      Escanear IMEIs en ubicación de recepción ({scannedReceiveImeis.length}/{selectedTransfer.imeis?.length || 0})
+                    </Label>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        id="receiveScanInput"
+                        value={receiveScanInput}
+                        onChange={(e) => setReceiveScanInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            handleAddReceptionScan()
+                          }
+                        }}
+                        placeholder="Escanea o escribe IMEI recibido"
+                        disabled={actionLoading}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleAddReceptionScan}
+                        disabled={actionLoading || !receiveScanInput.trim()}
+                      >
+                        Registrar
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground">IMEIs recibidos y verificados:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {scannedReceiveImeis.map((imei) => (
+                        <Badge
+                          key={imei}
+                          variant="default"
+                          className="text-xs font-mono cursor-pointer"
+                          onClick={() => setScannedReceiveImeis(prev => prev.filter(item => item !== imei))}
+                        >
+                          {imei}
+                        </Badge>
+                      ))}
+                    </div>
+                    {scannedReceiveImeis.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Aún no se ha escaneado ningún IMEI en recepción.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground">Pendientes por escanear:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(selectedTransfer.imeis || [])
+                        .filter((imei) => !scannedReceiveImeis.includes(imei))
+                        .map((imei) => (
+                          <Badge key={imei} variant="outline" className="text-xs font-mono">
+                            {imei}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   className="flex-1"
                   onClick={() => handleConfirm(selectedTransfer)}
-                  disabled={actionLoading || !confirmedBy.trim()}
+                  disabled={
+                    actionLoading ||
+                    !confirmedBy.trim() ||
+                    ((selectedTransfer.imeis?.length || 0) > 0 && scannedReceiveImeis.length !== (selectedTransfer.imeis?.length || 0))
+                  }
                 >
                   {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   <Check className="h-4 w-4 mr-2" />
-                  Confirmar
+                  Confirmar recepción
                 </Button>
                 <Button
                   variant="outline"

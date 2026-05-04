@@ -122,20 +122,20 @@ def check_database():
     
     environment = (settings.environment or os.getenv("ENVIRONMENT", "development")).lower()
 
+    environment = (settings.environment or os.getenv("ENVIRONMENT", "development")).lower()
+
     # Verificar tipo de base de datos
-    if "sqlite" in db_url.lower():
-        if environment == "production":
-            print_error("SQLite detectado - NO recomendado para producción")
-            print_info("  → Migrar a PostgreSQL o MySQL")
-            issues.append("SQLite en producción")
-        else:
-            print_warning("SQLite detectado (ok para desarrollo, no recomendado en producción)")
-    elif "postgresql" in db_url.lower():
-        print_success("PostgreSQL detectado - Recomendado para producción")
+    if "postgresql" in db_url.lower():
+        print_success("PostgreSQL detectado - configuración válida")
+    elif "sqlite" in db_url.lower():
+        print_error("SQLite detectado - ya no está soportado")
+        issues.append("SQLite no soportado")
     elif "mysql" in db_url.lower():
-        print_success("MySQL detectado - Aceptable para producción")
+        print_error("MySQL detectado - ya no está soportado")
+        issues.append("MySQL no soportado")
     else:
-        print_warning(f"Base de datos no reconocida: {db_url.split(':')[0]}")
+        print_error(f"Base de datos no soportada: {db_url.split(':')[0]}")
+        issues.append("Motor de base de datos no soportado")
     
     # Intentar conexión
     try:
@@ -156,9 +156,12 @@ def check_database():
             missing_tables = [t for t in required_tables if t not in tables]
             
             if missing_tables:
-                print_error(f"Tablas faltantes: {', '.join(missing_tables)}")
+                if environment == "production":
+                    print_error(f"Tablas faltantes: {', '.join(missing_tables)}")
+                    issues.append("Tablas faltantes en base de datos")
+                else:
+                    print_warning(f"Tablas faltantes: {', '.join(missing_tables)}")
                 print_info("  → Ejecutar: python init_db.py --with-data")
-                issues.append("Tablas faltantes en base de datos")
             else:
                 print_success(f"Todas las tablas requeridas existen ({len(tables)} tablas totales)")
         
@@ -233,6 +236,8 @@ def check_features():
     print_header("VERIFICACIÓN DE FUNCIONALIDADES")
     
     issues = []
+    environment = (settings.environment or os.getenv("ENVIRONMENT", "development")).lower()
+    is_production = environment == "production"
     
     # Logging
     if prod_settings.ENABLE_FILE_LOGGING:
@@ -245,7 +250,8 @@ def check_features():
             print_info("  → Se creará automáticamente al iniciar")
     else:
         print_warning("Logging a archivos deshabilitado")
-        issues.append("Logging deshabilitado")
+        if is_production:
+            issues.append("Logging deshabilitado")
     
     # Backups
     if prod_settings.ENABLE_AUTO_BACKUP:
@@ -255,7 +261,8 @@ def check_features():
     else:
         print_warning("Backups automáticos deshabilitados")
         print_info("  → Altamente recomendado habilitar backups")
-        issues.append("Backups deshabilitados")
+        if is_production:
+            issues.append("Backups deshabilitados")
     
     # Email
     if prod_settings.SMTP_HOST and prod_settings.SMTP_USER:
@@ -271,8 +278,11 @@ def check_features():
             print_success("IA habilitada con OpenAI configurado")
             print_info(f"  → Modelo: {prod_settings.OPENAI_MODEL}")
         else:
-            print_error("IA habilitada pero OPENAI_API_KEY no configurada")
-            issues.append("OpenAI no configurado")
+            if is_production:
+                print_error("IA habilitada pero OPENAI_API_KEY no configurada")
+                issues.append("OpenAI no configurado")
+            else:
+                print_warning("IA habilitada pero OPENAI_API_KEY no configurada")
     else:
         print_info("Funcionalidades de IA deshabilitadas")
     

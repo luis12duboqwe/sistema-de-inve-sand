@@ -59,6 +59,29 @@ class ProductionSettings:
     # ===== WHATSAPP (N8N) =====
     N8N_WEBHOOK_URL: str = os.getenv("N8N_WEBHOOK_URL", "")
     N8N_AUTH_TOKEN: str = os.getenv("N8N_AUTH_TOKEN", "")
+
+    # ===== INTEGRACIONES DE CANALES (Meta) =====
+    META_VERIFY_TOKEN: str = os.getenv("META_VERIFY_TOKEN", "")
+    META_APP_SECRET: str = os.getenv("META_APP_SECRET", "")
+    META_PAGE_ACCESS_TOKEN: str = os.getenv("META_PAGE_ACCESS_TOKEN", "")
+
+    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+    WHATSAPP_ACCESS_TOKEN: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    ADMIN_WHATSAPP_PHONES: List[str] = [
+        phone.strip() for phone in os.getenv("ADMIN_WHATSAPP_PHONES", "").split(",")
+        if phone.strip()
+    ]  # Comma-separated list of admin phone numbers for notifications
+
+    MESSENGER_VERIFY_TOKEN: str = os.getenv("MESSENGER_VERIFY_TOKEN", "")
+    INSTAGRAM_VERIFY_TOKEN: str = os.getenv("INSTAGRAM_VERIFY_TOKEN", "")
+
+    CHANNEL_DEFAULT_SALES_PROFILE_SLUG: str = os.getenv("CHANNEL_DEFAULT_SALES_PROFILE_SLUG", "")
+    WHATSAPP_DEFAULT_SALES_PROFILE_SLUG: str = os.getenv("WHATSAPP_DEFAULT_SALES_PROFILE_SLUG", "")
+    MESSENGER_DEFAULT_SALES_PROFILE_SLUG: str = os.getenv("MESSENGER_DEFAULT_SALES_PROFILE_SLUG", "")
+    INSTAGRAM_DEFAULT_SALES_PROFILE_SLUG: str = os.getenv("INSTAGRAM_DEFAULT_SALES_PROFILE_SLUG", "")
+
+    CHANNEL_MESSAGE_TTL_SECONDS: int = int(os.getenv("CHANNEL_MESSAGE_TTL_SECONDS", "600"))
     
     # ===== OPENAI =====
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -125,10 +148,10 @@ class ProductionSettings:
                 )
             
             # Verificar base de datos
-            if "sqlite" in settings.database_url.lower():
+            if not settings.database_url.lower().startswith("postgresql"):
                 warnings.append(
-                    "PERFORMANCE: SQLite no es recomendado para producción. "
-                    "Considerar PostgreSQL o MySQL"
+                    "CRÍTICO: Solo PostgreSQL está soportado en este proyecto. "
+                    "Configura DATABASE_URL con postgresql+psycopg2://..."
                 )
             
             # Verificar logging
@@ -179,7 +202,7 @@ def check_production_readiness() -> dict:
         "ready": len(warnings) == 0,
         "warnings": warnings,
         "config": {
-            "database": "PostgreSQL/MySQL" if "postgresql" in settings.database_url.lower() or "mysql" in settings.database_url.lower() else "SQLite",
+            "database": "PostgreSQL" if "postgresql" in settings.database_url.lower() else "No soportada",
             "logging_enabled": prod_settings.ENABLE_FILE_LOGGING,
             "backups_enabled": prod_settings.ENABLE_AUTO_BACKUP,
             "email_configured": bool(prod_settings.SMTP_HOST),

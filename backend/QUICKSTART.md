@@ -10,7 +10,7 @@ backend/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # Aplicación principal FastAPI + CORS
-│   ├── database.py          # Configuración SQLAlchemy + SQLite
+│   ├── database.py          # Configuración SQLAlchemy + PostgreSQL
 │   ├── models.py            # Modelos de base de datos (SQLAlchemy)
 │   ├── schemas.py           # Schemas Pydantic (request/response)
 │   └── routers/

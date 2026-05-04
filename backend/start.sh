@@ -30,12 +30,29 @@ python -m pip install --upgrade pip -q 2>/dev/null || true
 echo "📥 Instalando dependencias..."
 pip install -q -r requirements.txt
 
-# Verificar base de datos
-if [ ! -f "inventory.db" ]; then
-    echo "🗄️  Inicializando base de datos vacía (V2.0)..."
-    python init_db.py
-    echo "✅ Base de datos inicializada"
+# Verificar configuración PostgreSQL
+if [ -z "$DATABASE_URL" ] && [ -f ".env" ]; then
+    export $(grep -v '^#' .env | xargs)
 fi
+
+if [ -z "$DATABASE_URL" ]; then
+    echo "❌ Error: DATABASE_URL no está configurado"
+    echo "   Este backend ahora funciona solo con PostgreSQL"
+    exit 1
+fi
+
+case "$DATABASE_URL" in
+  postgresql*) ;;
+  *)
+    echo "❌ Error: DATABASE_URL debe usar PostgreSQL"
+    echo "   Valor actual: $DATABASE_URL"
+    exit 1
+    ;;
+esac
+
+echo "🗄️  Inicializando tablas en PostgreSQL..."
+python init_db.py
+echo "✅ Base de datos inicializada"
 
 echo ""
 echo "✅ Instalación completa"

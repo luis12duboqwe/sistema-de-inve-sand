@@ -1,11 +1,14 @@
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportGeneralTypeIssues=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportUnknownLambdaType=false, reportUnnecessaryComparison=false, reportDeprecated=false
+
 from fastapi import APIRouter, Depends, HTTPException, Body, Request, Response, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Iterable
 from datetime import UTC, datetime, timedelta
 import json
 import locale
+import hmac
 from collections import defaultdict
 
 # Intentar configurar locale a español para fechas, fallback a default
@@ -15,16 +18,21 @@ except:
     pass
 
 from app.database import get_db
+from app.auth import check_permission, get_current_user_optional
 from app.models import (
     SalesProfile, Product, Stock, FAQEntry, Order, OrderItem,
     Customer, AIProfileConfig, InteractionLog, TrainingQueue, Location,
-    Bank, FinancingOption, TradeInPolicy
+    Bank, TradeInPolicy, User, ProcessedMessage
 )
 from app.schemas import (
+    AICreateOrderRequest,
+    AICreateOrderResponse,
     AICustomerResponse,
     AIConfigSchema,
     AIContextRequest,
     AIContextResponse,
+    AIHandleMessageRequest,
+    AIHandleMessageResponse,
     AIProfileMetric,
     AIReplyRequest,
     AIReplyResponse,
@@ -42,6 +50,7 @@ from app.schemas import (
     ForecastingAlertItem,
     InteractionLogCreate,
     LinkOrderRequest,
+    OrderCreate,
     PaginatedResponse,
     TradeInPolicyCreate,
     TradeInPolicyResponse,
@@ -50,7 +59,16 @@ from app.schemas import (
 )
 from app.services.forecasting_service import generate_sales_forecasts
 from app.services.openai_service import get_openai_service
+from app.services.order_service import OrderService
 from app.config_production import prod_settings
+from app.utils.photo_detection import (
+    BOT_PHOTO_DETECTION_INSTRUCTIONS,
+    detect_photo_request,
+    extract_photo_request_context,
+    get_response_for_photo_request,
+)
+from app.routers.photo_requests import create_photo_request_internal
+from app.schemas.photos import PhotoRequestCreate
 
 def _ensure_ai_features_enabled():
     if not prod_settings.ENABLE_AI_FEATURES:
@@ -64,9 +82,279 @@ router = APIRouter(
     dependencies=[Depends(_ensure_ai_features_enabled)],
 )
 
+_AI_RUNTIME_METRICS: Dict[str, Any] = {
+    "total_messages": 0,
+    "photo_handoffs": 0,
+    "openai_replies": 0,
+    "fallback_replies": 0,
+    "duplicate_messages": 0,
+    "orders_created": 0,
+    "latency_ms": [],
+}
+
+
+def _record_latency_ms(value: float) -> None:
+    latency = _AI_RUNTIME_METRICS.setdefault("latency_ms", [])
+    if isinstance(latency, list):
+        latency.append(max(0.0, value))
+        if len(latency) > 200:
+            del latency[: len(latency) - 200]
+
+
+def _increment_metric(name: str) -> None:
+    _AI_RUNTIME_METRICS[name] = int(_AI_RUNTIME_METRICS.get(name, 0)) + 1
+
 def _normalize_phone(phone: str) -> str:
     digits = "".join(filter(str.isdigit, phone or ""))
     return digits or phone
+
+
+def _extract_search_keywords(message: str) -> List[str]:
+    stop_words = {
+        'hola', 'quiero', 'tienes', 'precio', 'cuanto', 'cuesta', 'busco', 'necesito', 'para', 'celular', 'telefono',
+        'fotos', 'foto', 'imagen', 'imagenes', 'gris', 'negro', 'blanco', 'azul', 'rojo', 'verde', 'muestrame', 'mostrar',
+    }
+    return [w.lower() for w in message.split() if len(w) >= 2 and w.lower() not in stop_words]
+
+
+def _parse_customer_memory(customer: Customer) -> Dict[str, Any]:
+    raw = (customer.ai_memory_json or "").strip()
+    if not raw:
+        return {
+            "preferred_brands": [],
+            "mentioned_products": [],
+            "requested_colors": [],
+            "requested_variants": [],
+            "semantic_notes": [],
+            "last_intent": None,
+        }
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except (TypeError, json.JSONDecodeError):
+        pass
+    return {
+        "preferred_brands": [],
+        "mentioned_products": [],
+        "requested_colors": [],
+        "requested_variants": [],
+        "semantic_notes": [],
+        "last_intent": None,
+    }
+
+
+def _save_customer_memory(customer: Customer, memory: Dict[str, Any]) -> None:
+    customer.ai_memory_json = json.dumps(memory, ensure_ascii=False)
+    customer.memory_updated_at = datetime.now(UTC)
+
+
+def _infer_customer_intent(message: str) -> str:
+    text = message.lower()
+    if any(term in text for term in ["foto", "fotos", "imagen", "muéstrame", "muestrame", "show me"]):
+        return "photo_request"
+    if any(term in text for term in ["cuotas", "financiamiento", "tarjeta", "prima"]):
+        return "financing"
+    if any(term in text for term in ["precio", "cuesta", "valor"]):
+        return "pricing"
+    if any(term in text for term in ["tienes", "hay", "disponible", "stock"]):
+        return "availability"
+    return "general"
+
+
+def _find_candidate_products(
+    db: Session,
+    message: str,
+    customer: Optional[Customer] = None,
+    limit: int = 5,
+) -> List[Product]:
+    search_text = message
+    if customer and customer.last_referenced_product_name:
+        lowered = message.lower()
+        if any(token in lowered for token in ["gris", "negro", "blanco", "ese", "esa", "este", "fotos", "foto", "imagen"]):
+            search_text = f"{message} {customer.last_referenced_product_name}"
+
+    keywords = _extract_search_keywords(search_text)
+    if not keywords and customer and customer.last_referenced_product_name:
+        keywords = _extract_search_keywords(customer.last_referenced_product_name)
+
+    if not keywords:
+        return []
+
+    and_conditions = []
+    for keyword in keywords[:6]:
+        and_conditions.append(
+            or_(
+                Product.nombre.ilike(f"%{keyword}%"),
+                Product.marca.ilike(f"%{keyword}%"),
+                Product.modelo.ilike(f"%{keyword}%"),
+                Product.sku.ilike(f"%{keyword}%"),
+                Product.categoria.ilike(f"%{keyword}%"),
+            )
+        )
+
+    candidates = db.query(Product).options(
+        joinedload(Product.stock_items).joinedload(Stock.location)
+    ).filter(Product.activo == True, *and_conditions).limit(limit).all()
+
+    if candidates:
+        return candidates
+
+    or_conditions = []
+    for keyword in keywords[:6]:
+        or_conditions.extend([
+            Product.nombre.ilike(f"%{keyword}%"),
+            Product.marca.ilike(f"%{keyword}%"),
+            Product.modelo.ilike(f"%{keyword}%"),
+            Product.sku.ilike(f"%{keyword}%"),
+        ])
+
+    return db.query(Product).options(
+        joinedload(Product.stock_items).joinedload(Stock.location)
+    ).filter(Product.activo == True, or_(*or_conditions)).limit(limit).all()
+
+
+def _retrieve_semantic_memory_snippets(db: Session, customer_id: int, message: str, limit: int = 3) -> List[str]:
+    keywords = set(_extract_search_keywords(message))
+    if not keywords:
+        return []
+
+    logs = db.query(InteractionLog).filter(
+        InteractionLog.customer_id == customer_id
+    ).order_by(InteractionLog.created_at.desc()).limit(40).all()
+
+    scored: List[tuple[int, str]] = []
+    for log in logs:
+        content = (log.content or "").strip()
+        if not content:
+            continue
+        content_keywords = set(_extract_search_keywords(content))
+        overlap = len(keywords.intersection(content_keywords))
+        if overlap > 0:
+            scored.append((overlap, f"{log.role}: {content[:180]}"))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [snippet for _, snippet in scored[:limit]]
+
+
+def _build_customer_memory_summary(customer: Customer, memory: Dict[str, Any]) -> str:
+    mentioned = memory.get("mentioned_products") or []
+    preferred_brands = memory.get("preferred_brands") or []
+    requested_colors = memory.get("requested_colors") or []
+    semantic_notes = memory.get("semantic_notes") or []
+
+    parts: List[str] = []
+    if customer.conversation_summary:
+        parts.append(f"Resumen: {customer.conversation_summary}")
+    if preferred_brands:
+        parts.append(f"Marcas preferidas: {', '.join(preferred_brands[-3:])}")
+    if requested_colors:
+        parts.append(f"Colores vistos: {', '.join(requested_colors[-3:])}")
+    if mentioned:
+        latest_products = [str(item.get('name')) for item in mentioned[-3:] if item.get('name')]
+        if latest_products:
+            parts.append(f"Productos mencionados: {', '.join(latest_products)}")
+    if semantic_notes:
+        parts.append(f"Notas relevantes: {' | '.join(str(note) for note in semantic_notes[-3:])}")
+    return "\n".join(parts)
+
+
+def _update_customer_memory(
+    db: Session,
+    customer: Customer,
+    message: str,
+    matched_products: Optional[List[Product]] = None,
+    bot_reply: Optional[str] = None,
+    color_requested: Optional[str] = None,
+    size_requested: Optional[str] = None,
+) -> None:
+    memory = _parse_customer_memory(customer)
+    matched_products = matched_products or []
+
+    preferred_brands = list(memory.get("preferred_brands") or [])
+    mentioned_products = list(memory.get("mentioned_products") or [])
+    requested_colors = list(memory.get("requested_colors") or [])
+    requested_variants = list(memory.get("requested_variants") or [])
+    semantic_notes = list(memory.get("semantic_notes") or [])
+
+    for product in matched_products[:2]:
+        product_name = str(product.nombre)
+        product_brand = str(product.marca or "").strip()
+        product_payload = {
+            "id": int(product.id),
+            "name": product_name,
+            "brand": product_brand,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        mentioned_products = [item for item in mentioned_products if item.get("id") != product_payload["id"]]
+        mentioned_products.append(product_payload)
+        customer.last_referenced_product_id = int(product.id)
+        customer.last_referenced_product_name = product_name
+        if product_brand and product_brand not in preferred_brands:
+            preferred_brands.append(product_brand)
+
+    if color_requested:
+        customer.last_referenced_color = color_requested
+        if color_requested not in requested_colors:
+            requested_colors.append(color_requested)
+
+    if size_requested:
+        customer.last_referenced_variant = size_requested
+        if size_requested not in requested_variants:
+            requested_variants.append(size_requested)
+
+    inferred_intent = _infer_customer_intent(message)
+    memory["last_intent"] = inferred_intent
+    memory["preferred_brands"] = preferred_brands[-5:]
+    memory["mentioned_products"] = mentioned_products[-5:]
+    memory["requested_colors"] = requested_colors[-5:]
+    memory["requested_variants"] = requested_variants[-5:]
+
+    summary_parts = [
+        f"Última intención: {inferred_intent}",
+    ]
+    if customer.last_referenced_product_name:
+        summary_parts.append(f"Último producto: {customer.last_referenced_product_name}")
+    if customer.last_referenced_color:
+        summary_parts.append(f"Color de interés: {customer.last_referenced_color}")
+    if customer.last_referenced_variant:
+        summary_parts.append(f"Variante: {customer.last_referenced_variant}")
+
+    semantic_note = f"Cliente preguntó: {message[:120]}"
+    if bot_reply:
+        semantic_note += f" | Bot respondió: {bot_reply[:120]}"
+    semantic_notes.append(semantic_note)
+    memory["semantic_notes"] = semantic_notes[-6:]
+
+    customer.conversation_summary = " | ".join(summary_parts)
+    customer.last_interaction_at = datetime.now(UTC)
+    _save_customer_memory(customer, memory)
+    db.add(customer)
+
+
+def _infer_channel_from_sales_profile(profile: SalesProfile) -> str:
+    raw_channels = (profile.canales or "").strip()
+    if not raw_channels:
+        return "whatsapp"
+
+    try:
+        parsed = json.loads(raw_channels)
+        if isinstance(parsed, list) and parsed:
+            first = str(parsed[0]).strip().lower()
+            return "messenger" if first == "facebook" else first
+    except (TypeError, json.JSONDecodeError):
+        pass
+
+    first = raw_channels.split(",")[0].strip().lower()
+    return "messenger" if first == "facebook" else (first or "whatsapp")
+
+
+def _find_product_name_hint(db: Session, message: str) -> str:
+    candidates = _find_candidate_products(db, message, None, limit=1)
+    if candidates and candidates[0].nombre:
+        return str(candidates[0].nombre)
+
+    return "Producto solicitado"
 
 
 def _compose_ai_messages(
@@ -74,11 +362,20 @@ def _compose_ai_messages(
     user_message: str,
     override_history: Optional[List[Dict[str, str]]] = None,
 ) -> List[Dict[str, str]]:
+    def _truncate(text: str, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars] + "\n...[truncated]"
+
+    inventory = _truncate(context.relevant_inventory or "", 3500)
+    faqs = _truncate(context.relevant_faqs or "", 2000)
+    financing = _truncate(context.financing_info or "", 1800)
+
     knowledge_blocks = "\n\n".join(
         [
-            "INVENTARIO DISPONIBLE:\n" + context.relevant_inventory,
-            "FAQ RELEVANTES:\n" + context.relevant_faqs,
-            "FINANCIAMIENTO Y POLITICAS:\n" + context.financing_info,
+            "INVENTARIO DISPONIBLE:\n" + inventory,
+            "FAQ RELEVANTES:\n" + faqs,
+            "FINANCIAMIENTO Y POLITICAS:\n" + financing,
         ]
     )
 
@@ -89,7 +386,12 @@ def _compose_ai_messages(
 
     history = override_history if override_history is not None else context.previous_context
     if history:
-        messages.extend(history)
+        compact_history: List[Dict[str, str]] = []
+        for item in history[-6:]:
+            role = str(item.get("role") or "user")
+            content = str(item.get("content") or "")
+            compact_history.append({"role": role, "content": content[:280]})
+        messages.extend(compact_history)
 
     messages.append({"role": "user", "content": user_message})
     return messages
@@ -194,6 +496,50 @@ openai_service = get_openai_service()
 _BUSINESS_INSIGHTS_CACHE_MAX_ENTRIES = 64
 
 
+def _get_configured_ai_service_tokens() -> List[str]:
+    tokens: List[str] = []
+    if getattr(prod_settings, "N8N_AUTH_TOKEN", ""):
+        tokens.append(prod_settings.N8N_AUTH_TOKEN)
+    return [token for token in tokens if token]
+
+
+def _is_valid_ai_service_token(request: Request) -> bool:
+    configured_tokens = _get_configured_ai_service_tokens()
+    if not configured_tokens:
+        return False
+
+    presented_token = (
+        request.headers.get("X-AI-Service-Token")
+        or request.headers.get("X-N8N-Token")
+    )
+    if not presented_token:
+        authorization = request.headers.get("Authorization", "")
+        if authorization.lower().startswith("bearer "):
+            presented_token = authorization[7:].strip()
+
+    if not presented_token:
+        return False
+
+    return any(hmac.compare_digest(presented_token, valid_token) for valid_token in configured_tokens)
+
+
+def _require_ai_integration_auth(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    if current_user and current_user.is_active:
+        return current_user
+
+    if _is_valid_ai_service_token(request):
+        return None
+
+    raise HTTPException(
+        status_code=401,
+        detail="AI integration authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def _get_business_insights_cache(request: Request) -> Dict[str, Any]:
     cache = getattr(request.app.state, "business_insights_cache", None)
     if cache is None:
@@ -213,6 +559,57 @@ def _business_insights_cache_ttl() -> int:
 def _utcnow() -> datetime:
     """Return timezone-aware UTC timestamps for AI endpoints."""
     return datetime.now(UTC)
+
+
+def _build_local_fallback_reply(context: AIContextResponse, user_message: str) -> str:
+    message_lower = (user_message or "").lower()
+    if any(token in message_lower for token in ["precio", "cuanto", "valor"]):
+        return "Estoy teniendo una demora técnica momentánea. Mientras tanto, te comparto precios y stock disponibles en un momento; ¿me confirmas el modelo exacto y color que buscas?"
+    if any(token in message_lower for token in ["cuotas", "financiamiento", "tarjeta"]):
+        return "Ahora mismo tengo una intermitencia técnica, pero sí manejamos opciones con tarjeta y cuotas. Si me dices el producto, te calculo una cuota aproximada de inmediato."
+    if any(token in message_lower for token in ["foto", "fotos", "imagen"]):
+        return get_response_for_photo_request(language="es")
+    return "Estoy presentando una demora técnica breve. Ya retomamos en segundos; si quieres, te ayudo de una vez con disponibilidad, precio y cuotas del modelo que te interesa."
+
+
+def _cleanup_processed_messages(db: Session) -> None:
+    now = _utcnow()
+    db.query(ProcessedMessage).filter(ProcessedMessage.expires_at <= now).delete(synchronize_session=False)
+
+
+def _mark_message_processed(
+    db: Session,
+    message_id: str,
+    channel: str,
+    customer_phone: str,
+    sales_profile_id: Optional[int],
+    ttl_hours: int = 24,
+) -> bool:
+    if not message_id.strip():
+        return True
+
+    now = _utcnow()
+    existing = db.query(ProcessedMessage).filter(
+        ProcessedMessage.message_id == message_id,
+        ProcessedMessage.expires_at > now,
+    ).first()
+    if existing:
+        return False
+
+    entry = ProcessedMessage(
+        message_id=message_id,
+        channel=channel,
+        customer_phone=customer_phone,
+        sales_profile_id=sales_profile_id,
+        expires_at=now + timedelta(hours=max(1, ttl_hours)),
+    )
+    db.add(entry)
+    try:
+        db.commit()
+        return True
+    except IntegrityError:
+        db.rollback()
+        return False
 
 
 def _make_business_insights_cache_key(days: int, payload: BusinessInsightsRequest) -> str:
@@ -240,15 +637,16 @@ def _cleanup_business_insights_cache(cache: Dict[str, Any]) -> None:
 # --- Endpoints ---
 
 @router.get("/config/{sales_profile_id}", response_model=AIConfigSchema)
-def get_ai_config(sales_profile_id: int, db: Session = Depends(get_db)):
+def get_ai_config(
+    sales_profile_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:view"))
+):
     """Obtiene la configuración de IA para un perfil específico"""
     config = db.query(AIProfileConfig).filter(AIProfileConfig.sales_profile_id == sales_profile_id).first()
     if not config:
         raise HTTPException(status_code=404, detail="AI Config not found")
     return config
-
-from app.auth import get_current_active_user, check_permission
-from app.models import User
 
 @router.post("/config/{sales_profile_id}", response_model=AIConfigSchema)
 def update_ai_config(
@@ -302,7 +700,7 @@ def get_ai_status(
     last_7_days = now - timedelta(days=7)
     alerts_limit = max(1, min(alerts_limit, 20))
 
-    def _rows_to_int_map(rows):
+    def _rows_to_int_map(rows: Iterable[tuple[Optional[int], Any]]) -> Dict[int, int]:
         metrics = {}
         for profile_id, value in rows:
             if profile_id is None:
@@ -383,6 +781,7 @@ def get_ai_status(
     inactive_profiles = 0
 
     for profile in profiles:
+        profile_id = int(profile.id)
         is_ai_active = bool(profile.ai_config and profile.ai_config.is_active)
         if is_ai_active:
             active_profiles += 1
@@ -391,14 +790,14 @@ def get_ai_status(
 
         profile_metrics.append(
             AIProfileMetric(
-                sales_profile_id=profile.id,
+                sales_profile_id=profile_id,
                 sales_profile_name=profile.name,
                 slug=profile.slug,
                 is_ai_active=is_ai_active,
-                last_interaction_at=last_interaction_map.get(profile.id),
-                interactions_last_7_days=interaction_counts_7.get(profile.id, 0),
-                tokens_last_7_days=token_counts_7.get(profile.id, 0),
-                pending_training_items=training_pending_map.get(profile.id, 0),
+                last_interaction_at=last_interaction_map.get(profile_id),
+                interactions_last_7_days=interaction_counts_7.get(profile_id, 0),
+                tokens_last_7_days=token_counts_7.get(profile_id, 0),
+                pending_training_items=training_pending_map.get(profile_id, 0),
             )
         )
 
@@ -729,7 +1128,11 @@ def generate_business_insights(
     return result
 
 @router.post("/context", response_model=AIContextResponse)
-def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
+def get_ai_context(
+    request: AIContextRequest,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
     """
     El CEREBRO: Recibe un mensaje y devuelve todo lo necesario para que GPT responda.
     1. Identifica/Crea al cliente.
@@ -817,6 +1220,17 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     elif customer.reputation_score < 50:
         troll_instruction = "\n[ADVERTENCIA DE REPUTACIÓN]: Este cliente tiene baja reputación. Sé cauteloso, recuerda que NO damos crédito bajo ninguna circunstancia. Mantén la conversación estrictamente profesional."
 
+    memory = _parse_customer_memory(customer)
+    semantic_memories = _retrieve_semantic_memory_snippets(db, int(customer.id), request.message_content)
+    memory_hint = _build_customer_memory_summary(customer, memory)
+
+    search_message = request.message_content
+    if customer.last_referenced_product_name and any(
+        token in request.message_content.lower()
+        for token in ["foto", "fotos", "imagen", "ese", "esa", "este", "gris", "negro", "blanco", "color"]
+    ):
+        search_message = f"{request.message_content} {customer.last_referenced_product_name}"
+
     # 4. Obtener Inventario Relevante (Búsqueda Híbrida Mejorada)
     # Estrategia de Embudo: 
     # 1. Búsqueda Estricta (AND): Debe coincidir con TODAS las palabras clave (ej: "iPhone" AND "13")
@@ -826,7 +1240,7 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
     # Filtrar palabras cortas y comunes para evitar ruido
     stop_words = {'hola', 'quiero', 'tienes', 'precio', 'cuanto', 'cuesta', 'busco', 'necesito', 'para', 'celular', 'telefono'}
     # V2.2 FIX: Permitir palabras de 2 letras (ej: XR, 11, 12, S9)
-    keywords = [w.lower() for w in request.message_content.split() if len(w) >= 2 and w.lower() not in stop_words]
+    keywords = [w.lower() for w in search_message.split() if len(w) >= 2 and w.lower() not in stop_words]
     
     if keywords:
         # 1. INTENTO ESTRICTO (AND)
@@ -1121,6 +1535,14 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
 
     if dynamic_instructions:
         final_system_prompt += "\n\n[INSTRUCCIONES DINÁMICAS DEL SISTEMA]:\n" + "\n".join(dynamic_instructions)
+
+    if memory_hint:
+        final_system_prompt += f"\n\n[MEMORIA DEL CLIENTE]:\n{memory_hint}"
+
+    if semantic_memories:
+        final_system_prompt += "\n\n[RECUERDOS RELEVANTES RECUPERADOS]:\n" + "\n".join(f"- {snippet}" for snippet in semantic_memories)
+
+    final_system_prompt += "\n\n" + BOT_PHOTO_DETECTION_INSTRUCTIONS
     
     # Inyectar reglas de contexto personalizadas si existen
     if ai_config.context_rules:
@@ -1149,7 +1571,14 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
         customer_info={
             "name": customer.name,
             "is_troll": customer.is_troll,
-            "reputation": customer.reputation_score
+            "reputation": customer.reputation_score,
+            "conversation_summary": customer.conversation_summary,
+            "ai_memory": memory,
+            "last_referenced_product_id": customer.last_referenced_product_id,
+            "last_referenced_product_name": customer.last_referenced_product_name,
+            "last_referenced_color": customer.last_referenced_color,
+            "last_referenced_variant": customer.last_referenced_variant,
+            "semantic_memories": semantic_memories,
         },
         relevant_inventory=inventory_text,
         relevant_faqs=faq_text,
@@ -1159,7 +1588,11 @@ def get_ai_context(request: AIContextRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/reply", response_model=AIReplyResponse)
-def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
+def generate_ai_reply(
+    request: AIReplyRequest,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
     """Genera una respuesta completa usando el cliente oficial de OpenAI."""
     if not prod_settings.ENABLE_AI_FEATURES:
         raise HTTPException(status_code=503, detail="Las funcionalidades de IA estan deshabilitadas")
@@ -1175,10 +1608,45 @@ def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
             model=context.bot_config.get("model"),
             temperature=context.bot_config.get("temperature"),
         )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except RuntimeError:
+        _increment_metric("fallback_replies")
+        fallback_reply = _build_local_fallback_reply(context, request.message_content)
+
+        normalized_phone = _normalize_phone(request.customer_phone)
+        profile = db.query(SalesProfile).filter(SalesProfile.slug == request.sales_profile_slug).first()
+        if not profile:
+            raise HTTPException(status_code=404, detail="Sales Profile not found")
+
+        customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+        if not customer:
+            customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+        if customer:
+            user_log = InteractionLogCreate(
+                sales_profile_slug=request.sales_profile_slug,
+                customer_phone=customer.phone_number,
+                role="user",
+                content=request.message_content,
+                tokens_used=0,
+            )
+            bot_log = InteractionLogCreate(
+                sales_profile_slug=request.sales_profile_slug,
+                customer_phone=customer.phone_number,
+                role="assistant",
+                content=fallback_reply,
+                tokens_used=0,
+            )
+            log_interaction(user_log, db)
+            log_interaction(bot_log, db)
+
+        return AIReplyResponse(
+            reply=fallback_reply,
+            tokens_used=0,
+            model="fallback-local",
+            context=context,
+        )
 
     reply_text = (completion.get("reply") or "").strip()
+    _increment_metric("openai_replies")
     usage = completion.get("usage") or {}
     tokens_used = int(usage.get("total_tokens") or 0)
     model_name = completion.get("model") or context.bot_config.get("model") or prod_settings.OPENAI_MODEL
@@ -1195,6 +1663,7 @@ def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Customer not found")
 
     customer_phone_value = customer.phone_number
+    matched_products = _find_candidate_products(db, request.message_content, customer, limit=3)
 
     user_log = InteractionLogCreate(
         sales_profile_slug=request.sales_profile_slug,
@@ -1214,6 +1683,18 @@ def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
     log_interaction(user_log, db)
     log_interaction(bot_log, db)
 
+    color_requested, size_requested = extract_photo_request_context(request.message_content)
+    _update_customer_memory(
+        db,
+        customer,
+        request.message_content,
+        matched_products=matched_products,
+        bot_reply=reply_text,
+        color_requested=color_requested,
+        size_requested=size_requested,
+    )
+    db.commit()
+
     return AIReplyResponse(
         reply=reply_text,
         tokens_used=tokens_used,
@@ -1222,7 +1703,11 @@ def generate_ai_reply(request: AIReplyRequest, db: Session = Depends(get_db)):
     )
 
 @router.post("/log")
-def log_interaction(log_data: InteractionLogCreate, db: Session = Depends(get_db)):
+def log_interaction(
+    log_data: InteractionLogCreate,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
     """Guarda un mensaje en el historial"""
     profile = db.query(SalesProfile).filter(SalesProfile.slug == log_data.sales_profile_slug).first()
     if not profile:
@@ -1258,7 +1743,11 @@ def log_interaction(log_data: InteractionLogCreate, db: Session = Depends(get_db
     return {"status": "logged"}
 
 @router.post("/training/submit")
-def submit_training_example(submission: TrainingSubmission, db: Session = Depends(get_db)):
+def submit_training_example(
+    submission: TrainingSubmission,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
     """n8n envía una pregunta que no supo responder bien"""
     profile = db.query(SalesProfile).filter(SalesProfile.slug == submission.sales_profile_slug).first()
     
@@ -1273,7 +1762,12 @@ def submit_training_example(submission: TrainingSubmission, db: Session = Depend
     return {"status": "submitted_for_review"}
 
 @router.post("/flag-troll")
-def flag_troll(phone_number: str = Body(..., embed=True), reason: str = Body(..., embed=True), db: Session = Depends(get_db)):
+def flag_troll(
+    phone_number: str = Body(..., embed=True),
+    reason: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
     """Marca un cliente como troll manualmente o por IA"""
     customer = db.query(Customer).filter(Customer.phone_number == phone_number).first()
     if not customer:
@@ -1309,8 +1803,9 @@ def list_training_queue(
 
     total = query.count()
     offset = (page - 1) * per_page
+    sort_column = getattr(TrainingQueue, "created_at", TrainingQueue.id)
     items = (
-        query.order_by(TrainingQueue.created_at.desc())
+        query.order_by(sort_column.desc())
         .offset(offset)
         .limit(per_page)
         .all()
@@ -1324,7 +1819,7 @@ def list_training_queue(
             ai_proposed_answer=item.ai_proposed_answer,
             admin_correction=item.admin_correction,
             status=item.status,
-            created_at=item.created_at,
+            created_at=getattr(item, "created_at", None) or datetime.now(UTC),
             sales_profile_name=item.sales_profile.name if item.sales_profile else None,
         )
         for item in items
@@ -1340,7 +1835,13 @@ def list_training_queue(
     )
 
 @router.post("/training-queue/{item_id}/resolve")
-def resolve_training_item(item_id: int, action: str = Body(..., embed=True), correction: str = Body(None, embed=True), db: Session = Depends(get_db)):
+def resolve_training_item(
+    item_id: int,
+    action: str = Body(..., embed=True),
+    correction: str = Body(None, embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
+):
     """Resuelve un item de entrenamiento: aprobar, rechazar o convertir a FAQ"""
     item = db.query(TrainingQueue).filter(TrainingQueue.id == item_id).first()
     if not item:
@@ -1376,6 +1877,98 @@ def resolve_training_item(item_id: int, action: str = Body(..., embed=True), cor
         
     db.commit()
     return {"status": "resolved"}
+
+
+@router.patch("/training-queue/{item_id}", response_model=TrainingQueueItemResponse)
+def update_training_queue_item(
+    item_id: int,
+    updates: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view")),
+):
+    """Actualiza campos de un item de training queue en modo API."""
+    item = (
+        db.query(TrainingQueue)
+        .options(joinedload(TrainingQueue.sales_profile))
+        .filter(TrainingQueue.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    allowed_fields = {
+        "customer_question",
+        "ai_proposed_answer",
+        "admin_correction",
+        "status",
+        "sales_profile_id",
+    }
+    unknown_fields = [key for key in updates.keys() if key not in allowed_fields]
+    if unknown_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Campos no permitidos para update: {', '.join(unknown_fields)}",
+        )
+
+    if "sales_profile_id" in updates and updates["sales_profile_id"] is not None:
+        profile_exists = (
+            db.query(SalesProfile)
+            .filter(SalesProfile.id == updates["sales_profile_id"])
+            .first()
+        )
+        if not profile_exists:
+            raise HTTPException(status_code=404, detail="Sales profile not found")
+
+    if "status" in updates:
+        valid_statuses = {"pending", "approved", "rejected", "converted_to_faq"}
+        requested_status = str(updates["status"])
+        if requested_status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Status inválido: {requested_status}. Válidos: {', '.join(sorted(valid_statuses))}",
+            )
+
+        if requested_status == "converted_to_faq":
+            correction = updates.get("admin_correction") or item.admin_correction
+            if not correction:
+                raise HTTPException(
+                    status_code=400,
+                    detail="admin_correction es requerido cuando status=converted_to_faq",
+                )
+            existing_faq = (
+                db.query(FAQEntry)
+                .filter(FAQEntry.pregunta_clave == item.customer_question[:255])
+                .first()
+            )
+            if existing_faq:
+                existing_faq.respuesta = correction
+                existing_faq.veces_usada += 1
+            else:
+                db.add(
+                    FAQEntry(
+                        pregunta_clave=item.customer_question[:255],
+                        respuesta=correction,
+                        categoria="general",
+                        activa=True,
+                    )
+                )
+
+    for field, value in updates.items():
+        setattr(item, field, value)
+
+    db.commit()
+    db.refresh(item)
+
+    return TrainingQueueItemResponse(
+        id=item.id,
+        sales_profile_id=item.sales_profile_id,
+        customer_question=item.customer_question,
+        ai_proposed_answer=item.ai_proposed_answer,
+        admin_correction=item.admin_correction,
+        status=item.status,
+        created_at=getattr(item, "created_at", None) or datetime.now(UTC),
+        sales_profile_name=item.sales_profile.name if item.sales_profile else None,
+    )
 
 @router.get(
     "/customers",
@@ -1426,6 +2019,13 @@ def list_customers_ai(
             reputation_score=customer.reputation_score,
             daily_message_count=customer.daily_message_count,
             last_interaction_at=customer.last_interaction_at,
+            conversation_summary=customer.conversation_summary,
+            ai_memory_json=customer.ai_memory_json,
+            last_referenced_product_id=customer.last_referenced_product_id,
+            last_referenced_product_name=customer.last_referenced_product_name,
+            last_referenced_color=customer.last_referenced_color,
+            last_referenced_variant=customer.last_referenced_variant,
+            memory_updated_at=customer.memory_updated_at,
             created_at=customer.created_at,
         )
         for customer in customers
@@ -1441,7 +2041,12 @@ def list_customers_ai(
     )
 
 @router.patch("/customers/{customer_id}")
-def update_customer_ai(customer_id: int, updates: Dict[str, Any], db: Session = Depends(get_db)):
+def update_customer_ai(
+    customer_id: int,
+    updates: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view"))
+):
     """Actualiza estado de cliente (bloqueo, troll, notas)"""
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
@@ -1479,7 +2084,10 @@ def update_customer_ai(customer_id: int, updates: Dict[str, Any], db: Session = 
 # --- Trade-In Policies Endpoints ---
 
 @router.get("/trade-in-policies", response_model=List[TradeInPolicyResponse])
-def list_trade_in_policies(db: Session = Depends(get_db)):
+def list_trade_in_policies(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("settings:view"))
+):
     """Lista todas las políticas de retoma"""
     return db.query(TradeInPolicy).order_by(TradeInPolicy.created_at.desc()).all()
 
@@ -1512,7 +2120,11 @@ def delete_trade_in_policy(
     return {"status": "deleted"}
 
 @router.post("/link-order")
-def link_order_to_interaction(request: LinkOrderRequest, db: Session = Depends(get_db)):
+def link_order_to_interaction(
+    request: LinkOrderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:create"))
+):
     """Vincula la última interacción de un cliente con una orden creada (Atribución de Venta)"""
     customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
     if not customer:
@@ -1529,3 +2141,303 @@ def link_order_to_interaction(request: LinkOrderRequest, db: Session = Depends(g
         return {"status": "linked", "interaction_id": last_interaction.id}
         
     return {"status": "no_interaction_found"}
+
+
+def _resolve_product_for_ai_item(
+    db: Session,
+    *,
+    source_location_id: int,
+    product_id: Optional[int],
+    product_query: Optional[str],
+) -> Product:
+    if product_id is not None:
+        product = (
+            db.query(Product)
+            .filter(Product.id == product_id, Product.activo == True)
+            .first()
+        )
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Producto no encontrado: id={product_id}")
+        return product
+
+    normalized_query = (product_query or "").strip()
+    if not normalized_query:
+        raise HTTPException(status_code=400, detail="Cada item requiere product_id o product_query")
+
+    exact_match = (
+        db.query(Product)
+        .join(Stock, Stock.product_id == Product.id)
+        .filter(
+            Product.activo == True,
+            Stock.location_id == source_location_id,
+            (Stock.cantidad_disponible - Stock.cantidad_reservada) > 0,
+            Product.nombre.ilike(normalized_query),
+        )
+        .first()
+    )
+    if exact_match:
+        return exact_match
+
+    partial_match = (
+        db.query(Product)
+        .join(Stock, Stock.product_id == Product.id)
+        .filter(
+            Product.activo == True,
+            Stock.location_id == source_location_id,
+            (Stock.cantidad_disponible - Stock.cantidad_reservada) > 0,
+            or_(
+                Product.nombre.ilike(f"%{normalized_query}%"),
+                Product.marca.ilike(f"%{normalized_query}%"),
+                Product.modelo.ilike(f"%{normalized_query}%"),
+                Product.sku.ilike(f"%{normalized_query}%"),
+            ),
+        )
+        .order_by(Product.nombre.asc())
+        .first()
+    )
+    if not partial_match:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró producto para '{normalized_query}' con stock en la ubicación {source_location_id}",
+        )
+    return partial_match
+
+
+def _create_order_from_ai_payload(
+    request: AICreateOrderRequest,
+    db: Session,
+    auth_context: Optional[User],
+) -> AICreateOrderResponse:
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Debe incluir al menos un item")
+
+    if request.source_location_id <= 0:
+        raise HTTPException(status_code=400, detail="source_location_id debe ser mayor a 0")
+
+    resolved_items: List[Dict[str, Any]] = []
+    for index, item in enumerate(request.items):
+        if item.cantidad <= 0:
+            raise HTTPException(status_code=400, detail=f"Item {index + 1}: cantidad debe ser mayor a 0")
+
+        resolved_product = _resolve_product_for_ai_item(
+            db,
+            source_location_id=request.source_location_id,
+            product_id=item.product_id,
+            product_query=item.product_query,
+        )
+
+        item_payload: Dict[str, Any] = {
+            "product_id": int(resolved_product.id),
+            "cantidad": int(item.cantidad),
+            "es_regalo_promocion": False,
+        }
+        if item.precio_unitario is not None:
+            item_payload["precio_unitario"] = item.precio_unitario
+        if item.imeis:
+            item_payload["imeis"] = item.imeis
+
+        resolved_items.append(item_payload)
+
+    order_payload = {
+        "sales_profile_slug": request.sales_profile_slug,
+        "source_location_id": request.source_location_id,
+        "customer_name": (request.customer_name or "Cliente IA").strip() or "Cliente IA",
+        "customer_phone": request.customer_phone,
+        "canal": request.canal,
+        "metodo_pago": request.metodo_pago,
+        "items": resolved_items,
+        "notes": request.notes,
+    }
+
+    order_create = OrderCreate.model_validate(order_payload)
+    service = OrderService(db)
+    created_order = service.create_order(order_create, current_user=auth_context)
+
+    if not request.auto_link_interaction:
+        linked_rows = (
+            db.query(InteractionLog)
+            .filter(InteractionLog.converted_order_id == created_order.id)
+            .all()
+        )
+        for row in linked_rows:
+            row.converted_order_id = None
+        if linked_rows:
+            db.commit()
+
+    linked_interaction = bool(
+        db.query(InteractionLog)
+        .filter(InteractionLog.converted_order_id == created_order.id)
+        .first()
+    )
+
+    return AICreateOrderResponse(
+        status="created",
+        order_id=int(created_order.id),
+        linked_interaction=linked_interaction,
+    )
+
+
+@router.post("/create-order", response_model=AICreateOrderResponse)
+def create_order_from_ai(
+    request: AICreateOrderRequest,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
+    return _create_order_from_ai_payload(request, db, auth_context)
+
+
+@router.post("/handle-message", response_model=AIHandleMessageResponse)
+def handle_message_without_n8n(
+    request: AIHandleMessageRequest,
+    db: Session = Depends(get_db),
+    auth_context: Optional[User] = Depends(_require_ai_integration_auth),
+):
+    started_at = _utcnow()
+    _increment_metric("total_messages")
+
+    profile = db.query(SalesProfile).filter(SalesProfile.slug == request.sales_profile_slug).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Sales Profile not found")
+
+    if request.message_id:
+        _cleanup_processed_messages(db)
+        stored = _mark_message_processed(
+            db=db,
+            message_id=request.message_id,
+            channel=request.channel_hint or _infer_channel_from_sales_profile(profile),
+            customer_phone=_normalize_phone(request.customer_phone),
+            sales_profile_id=profile.id,
+        )
+        if not stored:
+            _increment_metric("duplicate_messages")
+            latest_assistant = db.query(InteractionLog).filter(
+                InteractionLog.sales_profile_id == profile.id,
+                InteractionLog.role == "assistant",
+            ).order_by(InteractionLog.created_at.desc()).first()
+            duplicate_reply = latest_assistant.content if latest_assistant and latest_assistant.content else "Mensaje ya procesado recientemente."
+            context = get_ai_context(request, db, auth_context)
+            return AIHandleMessageResponse(
+                reply=duplicate_reply,
+                tokens_used=0,
+                model="duplicate-guard",
+                context=context,
+                order=None,
+            )
+
+    if detect_photo_request(request.message_content):
+        context = get_ai_context(request, db, auth_context)
+        normalized_phone = _normalize_phone(request.customer_phone)
+        customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+        if not customer:
+            customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+        color_requested, size_requested = extract_photo_request_context(request.message_content)
+        candidate_products = _find_candidate_products(db, request.message_content, customer, limit=3)
+        selected_product = candidate_products[0] if candidate_products else None
+        product_name = str(selected_product.nombre) if selected_product and selected_product.nombre else _find_product_name_hint(db, request.message_content)
+        channel = _infer_channel_from_sales_profile(profile)
+
+        create_photo_request_internal(
+            db=db,
+            data=PhotoRequestCreate(
+                customer_id=normalized_phone,
+                product_id=int(selected_product.id) if selected_product and selected_product.id else None,
+                product_name=product_name,
+                color_requested=color_requested,
+                size_requested=size_requested,
+                additional_notes=f"Auto-created from AI conversation. channel:{channel}",
+                customer_name=request.customer_name,
+                origin_channel=channel,
+            ),
+            sales_profile_slug=request.sales_profile_slug,
+            channel=channel,
+            customer_name=request.customer_name,
+        )
+        _increment_metric("photo_handoffs")
+
+        if customer:
+            _update_customer_memory(
+                db,
+                customer,
+                request.message_content,
+                matched_products=candidate_products,
+                bot_reply=get_response_for_photo_request(language="es"),
+                color_requested=color_requested,
+                size_requested=size_requested,
+            )
+        db.commit()
+
+        bot_response = get_response_for_photo_request(language="es")
+
+        user_log = InteractionLogCreate(
+            sales_profile_slug=request.sales_profile_slug,
+            customer_phone=normalized_phone,
+            role="user",
+            content=request.message_content,
+            tokens_used=0,
+        )
+        bot_log = InteractionLogCreate(
+            sales_profile_slug=request.sales_profile_slug,
+            customer_phone=normalized_phone,
+            role="assistant",
+            content=bot_response,
+            tokens_used=0,
+        )
+        log_interaction(user_log, db)
+        log_interaction(bot_log, db)
+
+        ai_reply = AIReplyResponse(
+            reply=bot_response,
+            tokens_used=0,
+            model="photo-handoff",
+            context=context,
+        )
+    else:
+        ai_reply = generate_ai_reply(request, db, auth_context)
+
+    order_result: Optional[AICreateOrderResponse] = None
+    intent = request.order_intent
+    if intent and intent.auto_create:
+        order_request = AICreateOrderRequest(
+            sales_profile_slug=request.sales_profile_slug,
+            source_location_id=intent.source_location_id,
+            customer_phone=request.customer_phone,
+            customer_name=request.customer_name,
+            canal=intent.canal,
+            metodo_pago=intent.metodo_pago,
+            items=intent.items,
+            notes=intent.notes,
+            auto_link_interaction=intent.auto_link_interaction,
+        )
+        order_result = _create_order_from_ai_payload(order_request, db, auth_context)
+        _increment_metric("orders_created")
+
+    elapsed_ms = (_utcnow() - started_at).total_seconds() * 1000.0
+    _record_latency_ms(elapsed_ms)
+
+    return AIHandleMessageResponse(
+        reply=ai_reply.reply,
+        tokens_used=ai_reply.tokens_used,
+        model=ai_reply.model,
+        context=ai_reply.context,
+        order=order_result,
+    )
+
+
+@router.get("/runtime-metrics")
+def get_ai_runtime_metrics(
+    current_user: User = Depends(check_permission("reports:view")),
+):
+    latencies = _AI_RUNTIME_METRICS.get("latency_ms") or []
+    avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
+    p95_latency = round(sorted(latencies)[max(0, int(len(latencies) * 0.95) - 1)], 2) if latencies else 0.0
+    return {
+        "total_messages": int(_AI_RUNTIME_METRICS.get("total_messages", 0)),
+        "photo_handoffs": int(_AI_RUNTIME_METRICS.get("photo_handoffs", 0)),
+        "openai_replies": int(_AI_RUNTIME_METRICS.get("openai_replies", 0)),
+        "fallback_replies": int(_AI_RUNTIME_METRICS.get("fallback_replies", 0)),
+        "duplicate_messages": int(_AI_RUNTIME_METRICS.get("duplicate_messages", 0)),
+        "orders_created": int(_AI_RUNTIME_METRICS.get("orders_created", 0)),
+        "avg_latency_ms": avg_latency,
+        "p95_latency_ms": p95_latency,
+        "samples": len(latencies),
+    }

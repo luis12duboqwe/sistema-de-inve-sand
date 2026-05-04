@@ -10,6 +10,8 @@ const getBackendUrls = (): string[] => {
   const hostname = window.location.hostname
   const protocol = window.location.protocol
   const urls: string[] = []
+
+  urls.push(`${window.location.origin}/api`)
   
   // Si estamos en un Codespace de GitHub
   if (hostname.includes('.app.github.dev')) {

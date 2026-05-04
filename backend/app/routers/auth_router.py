@@ -27,6 +27,159 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
+SYSTEM_PERMISSIONS = [
+    {"slug": "inventory:view", "description": "Ver inventario y stock", "module": "inventory"},
+    {"slug": "inventory:create", "description": "Crear productos", "module": "inventory"},
+    {"slug": "inventory:edit", "description": "Editar productos", "module": "inventory"},
+    {"slug": "inventory:delete", "description": "Eliminar productos", "module": "inventory"},
+    {"slug": "inventory:adjust", "description": "Ajustar stock manualmente", "module": "inventory"},
+    {"slug": "orders:view", "description": "Ver órdenes", "module": "orders"},
+    {"slug": "orders:create", "description": "Crear órdenes", "module": "orders"},
+    {"slug": "orders:edit", "description": "Editar órdenes", "module": "orders"},
+    {"slug": "orders:delete", "description": "Eliminar/Cancelar órdenes", "module": "orders"},
+    {"slug": "locations:view", "description": "Ver ubicaciones", "module": "locations"},
+    {"slug": "locations:manage", "description": "Crear/Editar/Borrar ubicaciones", "module": "locations"},
+    {"slug": "settings:view", "description": "Ver configuraciones", "module": "settings"},
+    {"slug": "settings:edit", "description": "Editar configuraciones críticas (Bots, API)", "module": "settings"},
+    {"slug": "users:manage", "description": "Gestionar usuarios y roles", "module": "users"},
+    {"slug": "reports:view", "description": "Ver reportes financieros", "module": "reports"},
+]
+
+SYSTEM_ROLE_CONFIG = [
+    {
+        "name": "Super Admin",
+        "description": "Acceso total al sistema",
+        "is_system_role": True,
+        "permission_slugs": [permission["slug"] for permission in SYSTEM_PERMISSIONS],
+    },
+    {
+        "name": "Admin",
+        "description": "Administración operativa del sistema",
+        "is_system_role": True,
+        "permission_slugs": [
+            "inventory:view",
+            "inventory:create",
+            "inventory:edit",
+            "inventory:delete",
+            "inventory:adjust",
+            "orders:view",
+            "orders:create",
+            "orders:edit",
+            "orders:delete",
+            "locations:view",
+            "locations:manage",
+            "settings:view",
+            "settings:edit",
+            "reports:view",
+            "users:manage",
+        ],
+    },
+    {
+        "name": "Gerente",
+        "description": "Gestión de inventario y ventas",
+        "is_system_role": True,
+        "permission_slugs": [
+            "inventory:view",
+            "inventory:create",
+            "inventory:edit",
+            "inventory:delete",
+            "orders:view",
+            "orders:create",
+            "orders:edit",
+            "orders:delete",
+            "locations:view",
+            "settings:view",
+            "reports:view",
+        ],
+    },
+    {
+        "name": "Vendedor",
+        "description": "Solo ventas y consulta de stock",
+        "is_system_role": True,
+        "permission_slugs": [
+            "inventory:view",
+            "orders:view",
+            "orders:create",
+            "locations:view",
+        ],
+    },
+    {
+        "name": "Invitado",
+        "description": "Vista de catálogo solamente",
+        "is_system_role": True,
+        "permission_slugs": ["inventory:view"],
+    },
+]
+
+
+def ensure_default_rbac(db: Session) -> None:
+    permission_by_slug = {permission.slug: permission for permission in db.query(Permission).all()}
+
+    permissions_changed = False
+    for definition in SYSTEM_PERMISSIONS:
+        if definition["slug"] not in permission_by_slug:
+            permission = Permission(
+                slug=definition["slug"],
+                description=definition["description"],
+                module=definition["module"],
+            )
+            db.add(permission)
+            db.flush()
+            permission_by_slug[permission.slug] = permission
+            permissions_changed = True
+
+    roles_changed = False
+    for definition in SYSTEM_ROLE_CONFIG:
+        role = db.query(Role).filter(Role.name == definition["name"]).first()
+        role_permissions = [
+            permission_by_slug[slug]
+            for slug in definition["permission_slugs"]
+            if slug in permission_by_slug
+        ]
+
+        if not role:
+            role = Role(
+                name=definition["name"],
+                description=definition["description"],
+                is_system_role=definition["is_system_role"],
+            )
+            role.permissions = role_permissions
+            db.add(role)
+            roles_changed = True
+            continue
+
+        existing_slugs = {permission.slug for permission in (role.permissions or [])}
+        required_slugs = {permission.slug for permission in role_permissions}
+        if not required_slugs.issubset(existing_slugs):
+            role.permissions = role_permissions
+            roles_changed = True
+
+        if not role.is_system_role:
+            role.is_system_role = definition["is_system_role"]
+            roles_changed = True
+
+    if permissions_changed or roles_changed:
+        db.commit()
+
+
+def ensure_superuser_has_role(db: Session, user: User) -> User:
+    """Garantiza que un superusuario tenga rol 'Super Admin' asignado."""
+    if not user.is_superuser:
+        return user
+
+    ensure_default_rbac(db)
+    super_admin_role = db.query(Role).filter(Role.name == "Super Admin").first()
+    if not super_admin_role:
+        return user
+
+    if user.role_id == super_admin_role.id:
+        return user
+
+    user.role_id = super_admin_role.id
+    db.commit()
+    db.refresh(user)
+    return user
+
 @router.post("/setup", response_model=Token)
 def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
     """
@@ -39,6 +192,9 @@ def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
             detail="System already initialized. Use login."
         )
     
+    # Ensure default RBAC exists before assigning the initial admin role
+    ensure_default_rbac(db)
+
     # Create Super Admin
     hashed_password = get_password_hash(user.password)
     
@@ -135,6 +291,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
                 detail="Inactive user",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        user = ensure_superuser_has_role(db, user)
         
         access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
         access_token = create_access_token(
@@ -152,14 +310,17 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 
 @router.get("/me", response_model=UserResponse)
-def read_users_me(current_user: User = Depends(get_current_active_user)):
+def read_users_me(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
     """
     Get current authenticated user information.
     
     Returns:
         Current user information
     """
-    return current_user
+    return ensure_superuser_has_role(db, current_user)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -221,6 +382,7 @@ def list_roles(
     db: Session = Depends(get_db)
 ):
     """Lista roles disponibles con paginación."""
+    ensure_default_rbac(db)
     query = db.query(Role).order_by(Role.name.asc())
     total = query.count()
     offset = (page - 1) * per_page

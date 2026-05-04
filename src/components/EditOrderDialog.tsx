@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { Plus, Trash, Barcode } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import type { OrderWithItems, ProductWithStock } from '@/lib/types'
+import type { OrderWithItems, ProductWithStock, SalesProfile } from '@/lib/types'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
@@ -28,6 +28,7 @@ interface EditOrderDialogProps {
   open: boolean
   order: OrderWithItems
   products: ProductWithStock[]
+  salesProfiles?: SalesProfile[]
   onOpenChange: (open: boolean) => void
   onSubmit: (orderId: number, updates: {
     customer_name: string
@@ -54,9 +55,18 @@ export function EditOrderDialog({
   open,
   order,
   products,
+  salesProfiles = [],
   onOpenChange,
   onSubmit
 }: EditOrderDialogProps) {
+  const ALL_ORDER_CHANNELS: OrderWithItems['canal'][] = ['whatsapp', 'facebook', 'instagram', 'tienda']
+  const CHANNEL_LABELS: Record<NonNullable<OrderWithItems['canal']>, string> = {
+    whatsapp: 'WhatsApp',
+    facebook: 'Facebook',
+    instagram: 'Instagram',
+    tienda: 'Tienda Física'
+  }
+
   const [customerName, setCustomerName] = useState(order.customer_name)
   const [customerPhone, setCustomerPhone] = useState(order.customer_phone)
   const [canal, setCanal] = useState<OrderWithItems['canal']>(order.canal)
@@ -77,6 +87,10 @@ export function EditOrderDialog({
 
   const [scanInput, setScanInput] = useState('')
   const scanInputRef = useRef<HTMLInputElement>(null)
+  const selectedSalesProfile = salesProfiles.find(profile => profile.id === order.sales_profile_id)
+  const allowedChannels = selectedSalesProfile?.canales?.length
+    ? selectedSalesProfile.canales
+    : ALL_ORDER_CHANNELS
 
   const handleScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -166,6 +180,18 @@ export function EditOrderDialog({
       )
     }
   }, [open, order])
+
+  useEffect(() => {
+    if (!open) return
+    if (!selectedSalesProfile?.canales?.length) return
+    if (selectedSalesProfile.canales.includes(canal)) return
+
+    const nextChannel = selectedSalesProfile.canales.includes('tienda')
+      ? 'tienda'
+      : selectedSalesProfile.canales[0]
+
+    setCanal(nextChannel)
+  }, [open, selectedSalesProfile, canal])
 
   // Fetch IMEIs for initial items and when items change
   useEffect(() => {
@@ -353,11 +379,23 @@ export function EditOrderDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="facebook">Facebook</SelectItem>
-                  <SelectItem value="instagram">Instagram</SelectItem>
+                  {allowedChannels.map(channel => (
+                    <SelectItem key={channel} value={channel}>
+                      {CHANNEL_LABELS[channel as NonNullable<OrderWithItems['canal']>]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {selectedSalesProfile?.canales?.length ? (
+                <p className="text-xs text-muted-foreground">
+                  Perfil actual: <strong>{selectedSalesProfile.name}</strong>. Canales permitidos: <strong>{selectedSalesProfile.canales.map(channel => CHANNEL_LABELS[channel as NonNullable<OrderWithItems['canal']>] || channel).join(', ')}</strong>
+                </p>
+              ) : null}
+              {canal === 'tienda' && order.source_location_id && (
+                <p className="text-xs text-muted-foreground">
+                  Esta venta física seguirá reportándose en la ubicación origen ya registrada para la orden.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">

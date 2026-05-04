@@ -484,7 +484,8 @@ function getChannelLabel(channel: string): string {
   const labels: Record<string, string> = {
     whatsapp: 'WhatsApp',
     facebook: 'Facebook',
-    instagram: 'Instagram'
+    instagram: 'Instagram',
+    tienda: 'Tienda Física'
   }
   return labels[channel] || channel
 }

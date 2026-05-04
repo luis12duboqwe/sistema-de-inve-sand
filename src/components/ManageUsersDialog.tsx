@@ -13,7 +13,7 @@ import { RoleSelect } from '@/components/forms/RoleSelect'
 import { useKV } from '@/hooks/use-kv'
 import { useRbac, type CreateUserPayload } from '@/hooks/use-rbac'
 import type { Permission, User } from '@/lib/types'
-import { ArrowClockwise, Key, LockSimple, MagnifyingGlass, ShieldCheck, ShieldSlash, Trash, UserPlus } from '@phosphor-icons/react'
+import { ArrowClockwise, Key, LockSimple, MagnifyingGlass, ShieldCheck, ShieldSlash, Trash, UserPlus, Wrench } from '@phosphor-icons/react'
 
 interface ManageUsersDialogProps {
   open: boolean
@@ -74,7 +74,7 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
       toast.error('Selecciona un rol para el nuevo usuario')
       return
     }
-    if (pendingUser.password.length < 6) {
+    if ((pendingUser.password || "").length < 6) {
       toast.error('La contraseña debe tener al menos 6 caracteres')
       return
     }
@@ -128,6 +128,16 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
     } catch (err) {
       console.error('Error actualizando estado', err)
       toast.error(err instanceof Error ? err.message : 'No se pudo actualizar el estado')
+    }
+  }
+
+  const handleRepairRbac = async () => {
+    try {
+      await refresh()
+      toast.success('RBAC reparado y sincronizado correctamente')
+    } catch (err) {
+      console.error('Error reparando RBAC', err)
+      toast.error(err instanceof Error ? err.message : 'No se pudo reparar RBAC')
     }
   }
 
@@ -201,6 +211,15 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
                   <Button variant="outline" size="sm" onClick={() => refresh()} disabled={!featureEnabled || loading}>
                     <ArrowClockwise className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     Actualizar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRepairRbac}
+                    disabled={!featureEnabled || loading || isForbidden}
+                  >
+                    <Wrench className="mr-2 h-4 w-4" />
+                    Reparar RBAC
                   </Button>
                   <Button size="sm" onClick={() => setShowNewUserForm((prev) => !prev)} disabled={!featureEnabled || isForbidden}>
                     <UserPlus className="mr-2 h-4 w-4" />

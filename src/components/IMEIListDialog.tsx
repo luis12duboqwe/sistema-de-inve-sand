@@ -66,7 +66,7 @@ export function IMEIListDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[96vw] max-w-5xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>IMEIs Disponibles: {productName}</DialogTitle>
           </DialogHeader>

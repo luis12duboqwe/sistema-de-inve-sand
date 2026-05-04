@@ -22,6 +22,7 @@ from app.models import (
     StockHistory,
     TradeIn,
 )
+from app.models.product import _utcnow
 from app.utils.order_tradeins import compute_trade_in_total
 from app.utils.stock_manager import StockManager, StockValidationError
 
@@ -58,8 +59,10 @@ class PreparedReturnItem:
     quantity: int
     condition: Optional[str]
     action: Optional[str]
-    imei_value: Optional[str]
-    imeis_to_release: List[ProductIMEI]
+    imei_value: Optional[str]                           # IMEI del equipo defectuoso (entra)
+    imeis_to_release: List[ProductIMEI]                # ProductIMEI records a liberar (defectuosos)
+    replacement_imei_value: Optional[str] = None       # IMEI del equipo de reemplazo (sale)
+    replacement_imei_record: Optional["ProductIMEI"] = None  # ProductIMEI bloqueado del reemplazo
 
 
 @dataclass(slots=True)
@@ -214,11 +217,15 @@ class StockTransactionHelper:
         order_id_value = int(getattr(db_order, "id", 0) or 0)
 
         for item_data in prepared_items:
+            # ✅ Copiar costo actual del producto (para histórico de márgenes)
+            costo_unitario = getattr(item_data.product, 'costo', Decimal('0.00')) or Decimal('0.00')
+            
             db_order_item = OrderItem(
                 order_id=db_order.id,
                 product_id=item_data.product.id,
                 cantidad=item_data.cantidad,
                 precio_unitario=item_data.precio_unitario,
+                costo_unitario=costo_unitario,
                 es_regalo_promocion=item_data.es_regalo_promocion,
             )
             self.db.add(db_order_item)
@@ -377,6 +384,7 @@ class StockTransactionHelper:
             condition_raw = self._get_attr(raw_item, "condition")
             action_raw = self._get_attr(raw_item, "action")
             imei_value_raw = self._get_attr(raw_item, "imei")
+            replacement_imei_value_raw = self._get_attr(raw_item, "replacement_imei")
 
             if product_id_raw is None:
                 raise HTTPException(status_code=400, detail="Cada devolución requiere un product_id válido")
@@ -456,6 +464,44 @@ class StockTransactionHelper:
                     detail=f"El producto {product_sku} es serializado. Debe proporcionar el IMEI para la devolución.",
                 )
 
+            # --- Validar IMEI del equipo de reemplazo (solo para warranty_exchange) ---
+            replacement_imei_value: Optional[str] = None
+            replacement_imei_record: Optional[ProductIMEI] = None
+
+            if replacement_imei_value_raw:
+                if action != "warranty_exchange":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="El IMEI de reemplazo solo aplica a la acción 'warranty_exchange'",
+                    )
+                replacement_imei_value = str(replacement_imei_value_raw).strip()
+
+                repl_record = (
+                    self.db.query(ProductIMEI)
+                    .filter(ProductIMEI.imei == replacement_imei_value)
+                    .with_for_update()
+                    .first()
+                )
+                if not repl_record:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"IMEI de reemplazo {replacement_imei_value} no existe en inventario",
+                    )
+                if repl_record.vendido:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"El IMEI de reemplazo {replacement_imei_value} ya fue vendido",
+                    )
+                if repl_record.product_id != product_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"El IMEI de reemplazo {replacement_imei_value} no corresponde al "
+                            f"mismo producto ({product_sku})"
+                        ),
+                    )
+                replacement_imei_record = repl_record
+
             prepared_items.append(
                 PreparedReturnItem(
                     product=product,
@@ -465,6 +511,8 @@ class StockTransactionHelper:
                     action=action,
                     imei_value=imei_value,
                     imeis_to_release=imeis_to_release,
+                    replacement_imei_value=replacement_imei_value,
+                    replacement_imei_record=replacement_imei_record,
                 )
             )
 
@@ -576,12 +624,23 @@ class StockTransactionHelper:
             setattr(imei_record, "location_id", location_id)
             setattr(imei_record, "vendido", False)
             setattr(imei_record, "order_id", None)
+            setattr(imei_record, "sold_at", None)
+            setattr(imei_record, "supplier_id", None)
+            setattr(imei_record, "received_at", _utcnow())
+            setattr(imei_record, "acquisition_type", "retoma")
+            setattr(imei_record, "received_notes", f"Ingreso por retoma en orden #{order_id}")
+            setattr(imei_record, "received_by", user_label)
         else:
             imei_record = ProductIMEI(
                 product_id=product_id,
                 location_id=location_id,
                 imei=imei_value,
                 vendido=False,
+                supplier_id=None,
+                received_at=_utcnow(),
+                acquisition_type="retoma",
+                received_notes=f"Ingreso por retoma en orden #{order_id}",
+                received_by=user_label,
             )
             self.db.add(imei_record)
 

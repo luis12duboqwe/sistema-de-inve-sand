@@ -2,12 +2,12 @@ import threading
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import Location, Order, Product, ProductIMEI, Stock
 from app.services.stock_transaction_helper import StockTransactionHelper
+from postgres_test_utils import create_postgres_test_engine
 
 
 def _create_location(**overrides):
@@ -65,20 +65,13 @@ def test_prepare_sale_batch_counts_gifts(db_session):
 
 
 def _bootstrap_engine(tmp_path, name):
-    db_path = tmp_path / name
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-    )
+    engine, _, cleanup = create_postgres_test_engine(name)
     Base.metadata.create_all(bind=engine)
-    with engine.connect() as connection:
-        connection.execute(text("PRAGMA journal_mode=WAL"))
-        connection.execute(text("PRAGMA synchronous=NORMAL"))
-    return engine
+    return engine, cleanup
 
 
 def test_concurrent_sales_do_not_overdraw_stock(tmp_path):
-    engine = _bootstrap_engine(tmp_path, "helper_concurrency.db")
+    engine, cleanup = _bootstrap_engine(tmp_path, "helper_concurrency")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     session = SessionLocal()
@@ -170,9 +163,10 @@ def test_concurrent_sales_do_not_overdraw_stock(tmp_path):
     finally:
         check_session.close()
 
+        cleanup()
 
 def test_concurrent_serialized_sales_only_one_succeeds(tmp_path):
-    engine = _bootstrap_engine(tmp_path, "helper_serialized.db")
+    engine, cleanup = _bootstrap_engine(tmp_path, "helper_serialized")
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     session = SessionLocal()
@@ -270,3 +264,4 @@ def test_concurrent_serialized_sales_only_one_succeeds(tmp_path):
         assert final_imei.vendido is True
     finally:
         check_session.close()
+        cleanup()

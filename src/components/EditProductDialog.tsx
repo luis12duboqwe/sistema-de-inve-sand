@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -55,7 +56,7 @@ export function EditProductDialog({
   useEffect(() => {
     if (product) {
       setNombre(product.nombre)
-      setCategoria(product.categoria)
+      setCategoria(product.categoria as any)
       setMarca(product.marca)
       setModelo(product.modelo)
       setCapacidad(product.capacidad || '')
@@ -71,6 +72,13 @@ export function EditProductDialog({
 
   const handleSubmit = async () => {
     if (!product || !nombre || !marca || !modelo || !precio) {
+      toast.error('Por favor completa todos los campos requeridos')
+      return
+    }
+
+    // ✅ Validar costo (obligatorio para cálculo de márgenes)
+    if (!costo || parseFloat(costo) < 0) {
+      toast.error('🛑 El COSTO del producto es obligatorio y no puede ser negativo')
       return
     }
 
@@ -290,7 +298,7 @@ export function EditProductDialog({
                 <div>
                   <h4 className="font-semibold">Gestionar Stock por Ubicación</h4>
                   <p className="text-sm text-muted-foreground">
-                    Edita la cantidad disponible en cada ubicación física
+                    Consulta cómo está distribuido el stock actual por ubicación física
                   </p>
                 </div>
                 <Button 
@@ -308,7 +316,6 @@ export function EditProductDialog({
                   product={product}
                   open={true}
                   onOpenChange={() => {}}
-                  editable={true}
                   asInline={true}
                 />
               )}

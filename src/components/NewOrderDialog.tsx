@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,53 @@ interface NewOrderDialogProps {
 
 type OrderItemForm = OrderItemDraft
 
+const parseFlexibleNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === '') {
+    return undefined
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined
+  }
+
+  let normalized = String(value).trim().replace(/\s+/g, '')
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized.includes(',') && normalized.includes('.')) {
+    if (normalized.lastIndexOf(',') > normalized.lastIndexOf('.')) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.')
+    } else {
+      normalized = normalized.replace(/,/g, '')
+    }
+  } else if (normalized.includes(',')) {
+    normalized = normalized.replace(',', '.')
+  }
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const normalizeScannerValue = (value: string): string => {
+  const trimmed = value.trim()
+  const digits = trimmed.replace(/\D/g, '')
+
+  if (digits.length === 14) {
+    try {
+      return digits + calculateLuhnCheckDigit(digits)
+    } catch {
+      return digits
+    }
+  }
+
+  if (digits.length === 15) {
+    return digits
+  }
+
+  return trimmed.replace(/\s+/g, '').toUpperCase()
+}
+
 
 export function NewOrderDialog({
   open,
@@ -48,6 +95,14 @@ export function NewOrderDialog({
   products,
   onSubmit
 }: NewOrderDialogProps) {
+  const ALL_ORDER_CHANNELS: CreateOrderRequest['canal'][] = ['whatsapp', 'facebook', 'instagram', 'tienda']
+  const CHANNEL_LABELS: Record<CreateOrderRequest['canal'], string> = {
+    whatsapp: 'WhatsApp',
+    facebook: 'Facebook',
+    instagram: 'Instagram',
+    tienda: 'Tienda Física'
+  }
+
   // V2.0: Sistema único con múltiples canales de venta y ubicaciones
   const [salesProfileSlug, setSalesProfileSlug] = useState(() => localStorage.getItem('last_sales_profile_slug') || '')
   const [sourceLocationId, setSourceLocationId] = useState<number | null>(() => {
@@ -58,6 +113,8 @@ export function NewOrderDialog({
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
   const [metodoPago, setMetodoPago] = useState<CreateOrderRequest['metodo_pago']>('efectivo')
+  const [transferBankName, setTransferBankName] = useState('')
+  const [transferReference, setTransferReference] = useState('')
   const [items, setItems] = useState<OrderItemForm[]>([{ product_id: 0, cantidad: 1 }])
   const [tradeIns, setTradeIns] = useState<{
     marca: string
@@ -79,9 +136,11 @@ export function NewOrderDialog({
   const [selectedBankId, setSelectedBankId] = useState<number | null>(null)
   const [selectedMonths, setSelectedMonths] = useState<number | null>(null)
   const [cashDownPayment, setCashDownPayment] = useState('') // Prima / Pago Inicial
+  const [scanInput, setScanInput] = useState('')
 
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const scannerInputRef = useRef<HTMLInputElement | null>(null)
 
   const clearFieldError = (field: string) => {
     setFormErrors(prev => {
@@ -127,6 +186,8 @@ export function NewOrderDialog({
     setCustomerPhone('')
     setCanal('whatsapp')
     setMetodoPago('efectivo')
+    setTransferBankName('')
+    setTransferReference('')
     setItems([{ product_id: 0, cantidad: 1 }])
     setTradeIns([])
     setNotas('')
@@ -144,7 +205,13 @@ export function NewOrderDialog({
   useEffect(() => {
     if (!open) {
       resetForm()
+      setScanInput('')
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
   }, [open])
 
   // Establecer valores por defecto al abrir si no hay selección previa
@@ -161,6 +228,31 @@ export function NewOrderDialog({
       setSourceLocationId(defaultLocation?.id ?? null)
     }
   }, [open, salesProfiles, locations, salesProfileSlug, sourceLocationId])
+
+  const selectedSalesProfile = salesProfiles.find(profile => profile.slug === salesProfileSlug)
+  const allowedChannels = selectedSalesProfile?.canales?.length
+    ? selectedSalesProfile.canales
+    : ALL_ORDER_CHANNELS
+
+  useEffect(() => {
+    if (!salesProfileSlug) return
+
+    const profile = salesProfiles.find(item => item.slug === salesProfileSlug)
+    if (!profile?.canales?.length) return
+
+    const nextChannel = profile.canales.includes('tienda')
+      ? 'tienda'
+      : profile.canales.length === 1
+        ? profile.canales[0]
+        : profile.canales.includes(canal)
+          ? canal
+          : profile.canales[0]
+
+    if (nextChannel !== canal) {
+      setCanal(nextChannel)
+      clearFieldError('canal')
+    }
+  }, [salesProfileSlug, salesProfiles, canal])
 
   // Filtrar productos: solo mostrar los que tienen stock en la ubicación seleccionada
   const availableProducts = products.filter(product => {
@@ -188,6 +280,143 @@ export function NewOrderDialog({
     setItems([...items, { product_id: 0, cantidad: 1 }])
   }
 
+  const getAvailableStockForProduct = (product: ProductWithStock): number => {
+    if (product.stock_items && product.stock_items.length > 0) {
+      const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
+      return Math.max((stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0), 0)
+    }
+
+    return Math.max(product.stock_disponible || 0, 0)
+  }
+
+  const ensureAvailableImeisForProduct = async (productId: number): Promise<string[]> => {
+    if (!sourceLocationId) return []
+
+    const cached = availableIMEIs[productId]
+    if (cached) {
+      return cached
+    }
+
+    try {
+      const imeis = await inventoryServiceInstance.getAvailableIMEIs(productId, sourceLocationId)
+      setAvailableIMEIs(prev => ({ ...prev, [productId]: imeis }))
+      return imeis
+    } catch (error) {
+      console.error('Error obteniendo IMEIs para escaneo de orden', error)
+      return []
+    }
+  }
+
+  const addScannedProductToOrder = async (product: ProductWithStock, scannedImei?: string) => {
+    const availableStock = getAvailableStockForProduct(product)
+    if (availableStock <= 0) {
+      toast.error(`No hay stock disponible para "${product.nombre}" en esta ubicación`)
+      return
+    }
+
+    const isSerialized = product.is_serialized ?? (product.categoria === 'celular')
+    const availableImeisForProduct = isSerialized
+      ? await ensureAvailableImeisForProduct(product.id)
+      : []
+
+    if (scannedImei && isSerialized && !availableImeisForProduct.includes(scannedImei)) {
+      toast.error('El IMEI escaneado no está disponible en la ubicación seleccionada')
+      return
+    }
+
+    const currentPrice = parseFlexibleNumber(product.precio) ?? 0
+    const nextItems = items.length === 1 && items[0].product_id === 0 ? [] : [...items]
+    const existingIndex = nextItems.findIndex(item => item.product_id === product.id)
+
+    if (existingIndex >= 0) {
+      const currentItem = nextItems[existingIndex]
+      const currentImeis = currentItem.imeis ? [...currentItem.imeis] : []
+
+      if (scannedImei) {
+        if (currentImeis.includes(scannedImei)) {
+          toast.error('Ese IMEI ya fue agregado a la orden')
+          return
+        }
+
+        if (currentImeis.length >= availableStock) {
+          toast.error(`Ya agregaste todas las unidades disponibles de "${product.nombre}"`)
+          return
+        }
+
+        const updatedImeis = [...currentImeis, scannedImei]
+        nextItems[existingIndex] = {
+          ...currentItem,
+          cantidad: updatedImeis.length,
+          imeis: updatedImeis,
+          precio_unitario: parseFlexibleNumber(currentItem.precio_unitario) ?? currentPrice,
+        }
+      } else {
+        const nextQuantity = currentItem.cantidad + 1
+        if (nextQuantity > availableStock) {
+          toast.error(`Solo hay ${availableStock} unidades disponibles de "${product.nombre}"`)
+          return
+        }
+
+        nextItems[existingIndex] = {
+          ...currentItem,
+          cantidad: nextQuantity,
+          precio_unitario: parseFlexibleNumber(currentItem.precio_unitario) ?? currentPrice,
+        }
+      }
+    } else {
+      nextItems.push({
+        product_id: product.id,
+        cantidad: 1,
+        precio_unitario: currentPrice,
+        imeis: scannedImei ? [scannedImei] : [],
+      })
+    }
+
+    setItems(nextItems)
+    setScanInput('')
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+    toast.success(scannedImei
+      ? `IMEI agregado para "${product.nombre}"`
+      : `Producto agregado: ${product.nombre}`)
+  }
+
+  const handleScanProduct = async () => {
+    const scannedValue = normalizeScannerValue(scanInput)
+
+    if (!scannedValue) {
+      toast.error('Escanea o escribe un SKU o IMEI válido')
+      return
+    }
+
+    if (!sourceLocationId) {
+      toast.error('Selecciona primero una ubicación origen')
+      return
+    }
+
+    const skuMatch = availableProducts.find(product => product.sku.trim().toUpperCase() === scannedValue)
+    if (skuMatch) {
+      await addScannedProductToOrder(skuMatch)
+      return
+    }
+
+    if (/^\d{15}$/.test(scannedValue)) {
+      for (const product of availableProducts) {
+        const isSerialized = product.is_serialized ?? (product.categoria === 'celular')
+        if (!isSerialized) continue
+
+        const imeis = await ensureAvailableImeisForProduct(product.id)
+        if (imeis.includes(scannedValue)) {
+          await addScannedProductToOrder(product, scannedValue)
+          return
+        }
+      }
+    }
+
+    toast.error('No se encontró un producto disponible con ese SKU o IMEI')
+    setScanInput('')
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+  }
+
   const handleRemoveItem = (index: number) => {
     setItems(items.filter((_, i) => i !== index))
   }
@@ -211,7 +440,7 @@ export function NewOrderDialog({
         
         // V2.1: Establecer precio por defecto al seleccionar producto
         if (product) {
-          newItems[index].precio_unitario = product.precio
+          newItems[index].precio_unitario = parseFlexibleNumber(product.precio) ?? 0
         }
 
         const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
@@ -272,8 +501,12 @@ export function NewOrderDialog({
        if (value === '' || value === null) {
          newItems[index].precio_unitario = undefined
        } else {
-         const numericValue = Number(value)
-         if (Number.isNaN(numericValue) || numericValue < 0) {
+         const numericValue = parseFlexibleNumber(value)
+         if (numericValue === undefined) {
+           toast.error('El precio unitario debe ser numérico')
+           return
+         }
+         if (numericValue < 0) {
            toast.error('El precio unitario no puede ser negativo')
            return
          }
@@ -289,7 +522,7 @@ export function NewOrderDialog({
         const product = products.find(p => p.id === item.product_id)
         if (!product) return total
         // V2.1: Usar precio personalizado si existe
-        const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+        const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
         return total + price * item.cantidad
       }, 0)
 
@@ -331,6 +564,8 @@ export function NewOrderDialog({
         customerPhone,
         canal,
         metodoPago,
+        transferBankName,
+        transferReference,
         items,
         tradeIns,
         notas,
@@ -381,13 +616,13 @@ export function NewOrderDialog({
         cantidad: item.cantidad,
         imeis: item.imeis?.filter(Boolean),
         precio_unitario:
-          typeof item.precio_unitario === 'number' ? item.precio_unitario : undefined
+          parseFlexibleNumber(item.precio_unitario)
       }))
 
     const itemsTotal = validItems.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
       if (!product) return total
-      const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+      const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
       return total + price * item.cantidad
     }, 0)
     const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
@@ -412,6 +647,8 @@ export function NewOrderDialog({
         customer_name: trimmedName,
         customer_phone: phoneValidation.phone,
         metodo_pago: metodoPago,
+        transfer_bank_name: metodoPago === 'transferencia' ? transferBankName.trim() || undefined : undefined,
+        transfer_reference: metodoPago === 'transferencia' ? transferReference.trim() || undefined : undefined,
         items: validItems,
         trade_ins: sanitizedTradeIns,
         notes: notas.trim() || undefined,
@@ -448,7 +685,7 @@ export function NewOrderDialog({
           <div className="space-y-2">
             <Label htmlFor="sales-profile" className="flex items-center gap-2">
               <Robot className="w-4 h-4" />
-              Canal de Venta *
+              Perfil de Venta *
             </Label>
             <Select
               value={salesProfileSlug}
@@ -458,7 +695,7 @@ export function NewOrderDialog({
               }}
             >
               <SelectTrigger id="sales-profile">
-                <SelectValue placeholder="Seleccionar canal de venta" />
+                <SelectValue placeholder="Seleccionar perfil de venta" />
               </SelectTrigger>
               <SelectContent>
                 {salesProfiles.map(profile => (
@@ -471,6 +708,11 @@ export function NewOrderDialog({
             <p className="text-xs text-muted-foreground">
               Quién realiza la venta (bot, vendedor, sistema)
             </p>
+            {selectedSalesProfile?.canales?.length ? (
+              <p className="text-xs text-muted-foreground">
+                Canales habilitados para este perfil: <strong>{selectedSalesProfile.canales.map(channel => CHANNEL_LABELS[channel as CreateOrderRequest['canal']] || channel).join(', ')}</strong>
+              </p>
+            ) : null}
             {formErrors.salesProfileSlug && (
               <p className="text-xs text-red-600">{formErrors.salesProfileSlug}</p>
             )}
@@ -500,7 +742,9 @@ export function NewOrderDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              De qué tienda/bodega se tomará el stock
+              {canal === 'tienda'
+                ? 'Esta ubicación quedará reportada como la tienda física donde se registró la venta'
+                : 'De qué tienda/bodega se tomará el stock'}
             </p>
             {formErrors.sourceLocationId && (
               <p className="text-xs text-red-600">{formErrors.sourceLocationId}</p>
@@ -549,6 +793,32 @@ export function NewOrderDialog({
                 <Label>Productos</Label>
               </div>
 
+              <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
+                <Label htmlFor="order-product-scan">Agregar por escaneo</Label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    id="order-product-scan"
+                    ref={scannerInputRef}
+                    autoFocus
+                    value={scanInput}
+                    onChange={e => setScanInput(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        await handleScanProduct()
+                      }
+                    }}
+                    placeholder="Escanea SKU o IMEI"
+                  />
+                  <Button type="button" variant="outline" onClick={handleScanProduct}>
+                    Agregar escaneado
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Puedes escanear el SKU para sumar el producto o el IMEI para agregar automáticamente una unidad serializada.
+                </p>
+              </div>
+
               {/* Alerta de filtrado por ubicación */}
               {sourceLocationId && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-sm">
@@ -591,16 +861,11 @@ export function NewOrderDialog({
                             ) : (
                               availableProducts.map(product => {
                                 // Obtener stock en la ubicación seleccionada
-                                const stockInLocation = product.stock_items?.find(
-                                  s => s.location_id === sourceLocationId
-                                )
-                                const stockDisplay = stockInLocation 
-                                  ? (stockInLocation.cantidad_disponible - (stockInLocation.cantidad_reservada || 0))
-                                  : product.stock_disponible
+                                const stockDisplay = getAvailableStockForProduct(product)
                                 
                                 return (
                                   <SelectItem key={product.id} value={product.id.toString()}>
-                                    {product.nombre} - HNL {product.precio.toLocaleString()} 
+                                    {product.nombre} - HNL {(parseFlexibleNumber(product.precio) ?? 0).toLocaleString()} 
                                     <span className="ml-2 text-muted-foreground">
                                       (Stock: {stockDisplay})
                                     </span>
@@ -624,7 +889,7 @@ export function NewOrderDialog({
                             }
                             placeholder={(() => {
                               const product = products.find(p => p.id === item.product_id)
-                              return product ? product.precio.toString() : "Precio"
+                              return product ? String(parseFlexibleNumber(product.precio) ?? '') : 'Precio'
                             })()}
                             title="Precio unitario (dejar vacío para usar precio de lista)"
                           />
@@ -637,15 +902,8 @@ export function NewOrderDialog({
                             max={(() => {
                               const product = products.find(p => p.id === item.product_id)
                               if (!product) return 999
-                              
-                              // V2.0: Usar stock de ubicación específica si existe
-                              if (product.stock_items && product.stock_items.length > 0) {
-                                const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-                                return (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
-                              }
-                              
-                              // Legacy: Usar stock global
-                              return product.stock_disponible || 0
+
+                              return getAvailableStockForProduct(product)
                             })()}
                             value={item.cantidad}
                             onChange={e =>
@@ -935,18 +1193,39 @@ export function NewOrderDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                    <SelectItem value="instagram">Instagram</SelectItem>
+                    {allowedChannels.map(channel => (
+                      <SelectItem key={channel} value={channel}>
+                        {CHANNEL_LABELS[channel as CreateOrderRequest['canal']]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {canal === 'tienda' && sourceLocationId && (
+                  <p className="text-xs text-muted-foreground">
+                    La venta se reportará en <strong>{locations.find(l => l.id === sourceLocationId)?.nombre || 'la tienda seleccionada'}</strong>.
+                  </p>
+                )}
+                {selectedSalesProfile?.canales?.includes('tienda') && canal === 'tienda' && (
+                  <p className="text-xs text-emerald-700">
+                    Este perfil está configurado para venta física; el canal se ajustó automáticamente.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="metodo-pago">Método de Pago</Label>
                 <Select
                   value={metodoPago}
-                  onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
+                  onValueChange={(v) => {
+                    const next = v as typeof metodoPago
+                    setMetodoPago(next)
+                    if (next !== 'transferencia') {
+                      setTransferBankName('')
+                      setTransferReference('')
+                      clearFieldError('transferBankName')
+                      clearFieldError('transferReference')
+                    }
+                  }}
                 >
                   <SelectTrigger id="metodo-pago">
                     <SelectValue />
@@ -960,6 +1239,53 @@ export function NewOrderDialog({
                 </Select>
               </div>
             </div>
+
+            {metodoPago === 'transferencia' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border border-dashed border-blue-300 bg-blue-50/40 p-3">
+                <div className="space-y-2">
+                  <Label htmlFor="transfer-bank">Banco de la transferencia</Label>
+                  <Input
+                    id="transfer-bank"
+                    list="transfer-bank-options"
+                    value={transferBankName}
+                    onChange={(e) => {
+                      setTransferBankName(e.target.value)
+                      clearFieldError('transferBankName')
+                    }}
+                    placeholder="Ej: BAC, Ficohsa, Atlántida"
+                    maxLength={120}
+                  />
+                  <datalist id="transfer-bank-options">
+                    {banks.map(bank => (
+                      <option key={bank.id} value={bank.name} />
+                    ))}
+                  </datalist>
+                  {formErrors.transferBankName && (
+                    <p className="text-xs text-red-600">{formErrors.transferBankName}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="transfer-reference">Número de referencia</Label>
+                  <Input
+                    id="transfer-reference"
+                    value={transferReference}
+                    onChange={(e) => {
+                      setTransferReference(e.target.value)
+                      clearFieldError('transferReference')
+                    }}
+                    placeholder="Ej: 84291372"
+                    maxLength={120}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se valida contra referencias previas para evitar pagos duplicados/fraude.
+                  </p>
+                  {formErrors.transferReference && (
+                    <p className="text-xs text-red-600">{formErrors.transferReference}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* V2.1: Financing Options */}
             {(metodoPago === 'tarjeta' || metodoPago === 'financiamiento') && (

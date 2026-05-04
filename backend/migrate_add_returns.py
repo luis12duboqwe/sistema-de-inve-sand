@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from sqlalchemy import inspect
 from app.config import settings
 import sys
 
@@ -9,18 +10,19 @@ def migrate():
     print("🔄 Iniciando migración: Agregar tablas de devoluciones (Returns)...")
     
     with engine.connect() as connection:
-        # Verificar si la tabla ya existe
-        result = connection.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='returns'"))
-        if result.fetchone():
+        inspector = inspect(engine)
+        existing_tables = set(inspector.get_table_names())
+
+        if "returns" in existing_tables:
             print("✅ La tabla 'returns' ya existe.")
             return
 
         print("🛠️ Creando tabla 'returns'...")
         connection.execute(text("""
             CREATE TABLE returns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 order_id INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 reason VARCHAR,
                 status VARCHAR DEFAULT 'completed' NOT NULL,
                 created_by VARCHAR,
@@ -31,7 +33,7 @@ def migrate():
         print("🛠️ Creando tabla 'return_items'...")
         connection.execute(text("""
             CREATE TABLE return_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 return_id INTEGER NOT NULL,
                 product_id INTEGER NOT NULL,
                 quantity INTEGER NOT NULL,
@@ -47,6 +49,7 @@ def migrate():
         print("📊 Creando índices...")
         connection.execute(text("CREATE INDEX idx_returns_order ON returns (order_id)"))
         connection.execute(text("CREATE INDEX idx_return_items_return ON return_items (return_id)"))
+        connection.commit()
         
         print("✅ Migración completada exitosamente.")
 

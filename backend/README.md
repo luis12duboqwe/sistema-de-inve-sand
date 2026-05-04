@@ -1,6 +1,6 @@
 # Sistema de Inventario - Backend API
 
-Backend REST API construido con **FastAPI + SQLAlchemy + SQLite** para gestión de inventario de celulares y accesorios, diseñado para ser consumido por chatbots de ventas.
+Backend REST API construido con **FastAPI + SQLAlchemy + PostgreSQL** para gestión de inventario de celulares y accesorios, diseñado para ser consumido por chatbots de ventas.
 
 ## 🎯 Características Principales
 
@@ -65,6 +65,189 @@ El servidor estará disponible en:
 - **ReDoc**: http://localhost:8000/redoc
 
 ## 📚 Endpoints principales
+
+## 🔐 Autenticación para Integraciones IA (n8n / bots)
+
+Los endpoints de IA conversacional ahora requieren autenticación por una de estas vías:
+
+- JWT de usuario activo (flujo normal del frontend)
+- Token de servicio para integraciones (n8n/bots)
+
+Endpoints protegidos por integración:
+
+- `POST /api/ai/context`
+- `POST /api/ai/reply`
+- `POST /api/ai/log`
+- `POST /api/ai/training/submit`
+- `POST /api/ai/flag-troll`
+- `POST /api/ai/create-order`
+- `POST /api/ai/handle-message`
+
+Configura `N8N_AUTH_TOKEN` en `.env` y envíalo en alguno de estos headers:
+
+- `X-N8N-Token: <token>`
+- `X-AI-Service-Token: <token>`
+- `Authorization: Bearer <token>`
+
+Ejemplo:
+
+```bash
+curl -X POST "http://localhost:8000/api/ai/context" \
+  -H "Content-Type: application/json" \
+  -H "X-N8N-Token: tu-token-secreto" \
+  -d '{
+    "sales_profile_slug": "bot-principal",
+    "customer_phone": "50499990000",
+    "customer_name": "Cliente Demo",
+    "message_content": "Hola, que teléfonos tienen?"
+  }'
+```
+
+Crear orden en una sola llamada desde n8n/bot:
+
+```bash
+curl -X POST "http://localhost:8000/api/ai/create-order" \
+  -H "Content-Type: application/json" \
+  -H "X-N8N-Token: tu-token-secreto" \
+  -d '{
+    "sales_profile_slug": "bot-principal",
+    "source_location_id": 1,
+    "customer_phone": "50499990000",
+    "customer_name": "Cliente Demo",
+    "canal": "whatsapp",
+    "metodo_pago": "efectivo",
+    "items": [
+      {
+        "product_query": "iPhone 13",
+        "cantidad": 1
+      }
+    ],
+    "auto_link_interaction": true
+  }'
+```
+
+Nota: para productos serializados debes enviar `imeis` en cada item.
+
+Flujo completo sin n8n (responder + log + crear orden opcional):
+
+```bash
+curl -X POST "http://localhost:8000/api/ai/handle-message" \
+  -H "Content-Type: application/json" \
+  -H "X-N8N-Token: tu-token-secreto" \
+  -d '{
+    "sales_profile_slug": "bot-principal",
+    "customer_phone": "50499990000",
+    "customer_name": "Cliente Demo",
+    "message_content": "Listo, confirmo la compra",
+    "order_intent": {
+      "source_location_id": 1,
+      "canal": "whatsapp",
+      "metodo_pago": "efectivo",
+      "items": [
+        { "product_query": "iPhone 13", "cantidad": 1 }
+      ],
+      "auto_create": true,
+      "auto_link_interaction": true
+    }
+  }'
+```
+
+### Webhooks automáticos de canales (sin n8n)
+
+Si quieres copiar/pegar rápido, usa esta plantilla:
+
+- `backend/.env.example.channels`
+
+Valida tu configuración antes de conectar Meta:
+
+```bash
+cd backend
+python check_channels_config.py
+```
+
+También puedes consultar el estado desde la API:
+
+```bash
+GET /api/channels/health
+```
+
+Puedes conectar Meta directamente y el sistema responderá automáticamente cada mensaje entrante:
+
+- `GET /api/channels/whatsapp/webhook` (verificación)
+- `POST /api/channels/whatsapp/webhook` (mensajes entrantes)
+- `GET /api/channels/messenger/webhook` (verificación)
+- `POST /api/channels/messenger/webhook` (mensajes entrantes)
+- `GET /api/channels/instagram/webhook` (verificación)
+- `POST /api/channels/instagram/webhook` (mensajes entrantes)
+
+Variables mínimas recomendadas en `.env`:
+
+```env
+# Verificación webhook (puedes usar uno global o uno por canal)
+META_VERIFY_TOKEN=tu_verify_token_global
+WHATSAPP_VERIFY_TOKEN=
+MESSENGER_VERIFY_TOKEN=
+INSTAGRAM_VERIFY_TOKEN=
+
+# Seguridad opcional (si se configura, valida X-Hub-Signature-256)
+META_APP_SECRET=tu_meta_app_secret
+
+# Credenciales de envío
+WHATSAPP_ACCESS_TOKEN=EAAG...
+WHATSAPP_PHONE_NUMBER_ID=1234567890
+META_PAGE_ACCESS_TOKEN=EAAG...
+
+# Perfil IA por defecto para responder mensajes
+CHANNEL_DEFAULT_SALES_PROFILE_SLUG=bot-principal
+# Opcional por canal
+WHATSAPP_DEFAULT_SALES_PROFILE_SLUG=
+MESSENGER_DEFAULT_SALES_PROFILE_SLUG=
+INSTAGRAM_DEFAULT_SALES_PROFILE_SLUG=
+
+# Ventana de deduplicación de mensajes
+CHANNEL_MESSAGE_TTL_SECONDS=600
+```
+
+Notas:
+
+- Si hay `META_APP_SECRET`, el webhook exige firma válida.
+- WhatsApp usa `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` para responder.
+- Messenger/Instagram usan `META_PAGE_ACCESS_TOKEN` para responder.
+
+#### Modo multi-perfil (recomendado para múltiples marcas/tiendas)
+
+Para manejar varias marcas (ej: `softmobile`, `techstore`, etc.) en un solo backend, configura cada
+`SalesProfile.configuracion` con sus credenciales e identificadores de canal.
+
+Estructura esperada en `configuracion`:
+
+```json
+{
+  "channel_integrations": {
+    "whatsapp": {
+      "phone_number_id": "1234567890",
+      "access_token": "EAAG...",
+      "verify_token": "verify-softmobile-wa"
+    },
+    "messenger": {
+      "page_id": "987654321",
+      "page_access_token": "EAAG...",
+      "verify_token": "verify-softmobile-mg"
+    },
+    "instagram": {
+      "instagram_account_id": "1122334455",
+      "page_access_token": "EAAG...",
+      "verify_token": "verify-softmobile-ig"
+    }
+  }
+}
+```
+
+Comportamiento:
+
+- El webhook detecta `phone_number_id/page_id/instagram_account_id` entrante y enruta al `sales_profile_slug` correcto.
+- La respuesta saliente usa los tokens del perfil correspondiente.
+- Si no encuentra match por perfil, usa fallback global por variables de entorno.
 
 ### Perfiles
 
@@ -258,7 +441,7 @@ backend/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # Aplicación FastAPI principal + CORS
-│   ├── database.py          # Configuración SQLAlchemy + SQLite
+│   ├── database.py          # Configuración SQLAlchemy + PostgreSQL
 │   ├── models.py            # Modelos de base de datos (SQLAlchemy)
 │   ├── schemas.py           # Schemas de request/response (Pydantic)
 │   └── routers/
@@ -268,7 +451,7 @@ backend/
 │       └── orders.py        # Endpoints de órdenes (con transacciones)
 ├── init_db.py               # Script de inicialización
 ├── requirements.txt         # Dependencias Python
-├── inventory.db             # Base de datos SQLite (generada)
+├── docker-compose.yml       # PostgreSQL local para desarrollo
 └── README.md
 ```
 

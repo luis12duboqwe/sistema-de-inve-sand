@@ -93,6 +93,7 @@ export const SALES_CHANNELS = {
   WHATSAPP: 'whatsapp',
   FACEBOOK: 'facebook', 
   INSTAGRAM: 'instagram',
+  TIENDA: 'tienda',
 } as const
 
 /**

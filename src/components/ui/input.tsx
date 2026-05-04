@@ -1,10 +1,14 @@
-import { ComponentProps } from "react"
+import { ComponentProps, forwardRef } from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: ComponentProps<"input">) {
+const Input = forwardRef<HTMLInputElement, ComponentProps<"input">>(function Input(
+  { className, type, ...props },
+  ref
+) {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -16,6 +20,6 @@ function Input({ className, type, ...props }: ComponentProps<"input">) {
       {...props}
     />
   )
-}
+})
 
 export { Input }

@@ -31,7 +31,8 @@ export interface ReturnItem {
   quantity: number
   condition: 'nuevo' | 'defectuoso' | 'abierto'
   action: 'refund' | 'warranty_exchange' | 'store_credit'
-  imei?: string
+  imei?: string            // IMEI del equipo defectuoso que entra (devuelto por el cliente)
+  replacement_imei?: string // IMEI del equipo de reemplazo que sale (solo warranty_exchange)
 }
 
 export interface CreateReturnRequest {
@@ -57,7 +58,7 @@ export interface ProfileSettings {
   lowStockThreshold: number
   enableNotifications: boolean
   defaultPaymentMethod: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
-  defaultChannel: 'whatsapp' | 'facebook' | 'instagram'
+  defaultChannel: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   businessAddress?: string
   businessPhone?: string
   businessEmail?: string
@@ -92,7 +93,7 @@ export interface SalesProfile {
   name: string
   slug: string
   tipo: 'bot_ia' | 'vendedor_humano' | 'sistema_automatico'
-  canales: ('whatsapp' | 'facebook' | 'instagram')[]
+  canales: ('whatsapp' | 'facebook' | 'instagram' | 'tienda')[]
   configuracion?: Record<string, any>
   active: boolean
   created_at: string
@@ -402,8 +403,11 @@ export interface Order {
   source_location_id?: number  // V2.0: ID de la ubicación origen
   customer_name: string
   customer_phone: string
-  canal: 'whatsapp' | 'facebook' | 'instagram'
+  canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  transfer_bank_name?: string
+  transfer_reference?: string
+  transfer_reference_normalized?: string
   total: number
   financing_details?: string // JSON con datos de financiamiento (V2.1)
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
@@ -433,6 +437,14 @@ export interface ProductWithStock extends Product {
   stock_items?: StockByLocation[]  // V2.0: Explícitamente incluir stock por ubicación
 }
 
+export interface ProductRestockPayload {
+  location_id: number
+  cantidad: number
+  supplier_id?: number
+  notas?: string
+  imeis?: string[]
+}
+
 export interface TradeIn {
   id?: number
   order_id?: number
@@ -458,10 +470,12 @@ export interface CreateOrderRequest {
   profile_slug?: string  // LEGACY V1 (opcional)
   sales_profile_slug?: string  // V2.0: Slug del perfil de venta
   source_location_id: number  // V2.0: ID de ubicación origen (obligatorio)
-  canal: 'whatsapp' | 'facebook' | 'instagram'
+  canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   customer_name: string
   customer_phone: string
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  transfer_bank_name?: string
+  transfer_reference?: string
   items: {
     product_id: number
     cantidad: number
@@ -570,7 +584,7 @@ export interface StockHistory {
   id: number
   product_id: number
   location_id?: number // V2.0: Ubicación donde ocurrió el movimiento
-  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion' | 'retoma' | 'compra'
+  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion' | 'retoma' | 'compra' | 'garantia_salida' | 'garantia_entrada' | 'devolucion_defectuosa'
   cantidad: number  // Positivo para entrada, negativo para salida
   stock_anterior: number
   stock_nuevo: number
@@ -596,13 +610,20 @@ export interface ProductIMEI {
   id: number
   product_id: number
   location_id?: number
+  supplier_id?: number
   imei: string
   vendido: boolean
   order_id?: number
   transfer_id?: number // V2.0: ID de transferencia si está en tránsito
+  received_at?: string
+  sold_at?: string
+  acquisition_type?: string
+  received_notes?: string
+  received_by?: string
   created_at: string
   product_name?: string
   location_name?: string
+  supplier_name?: string
 }
 
 export interface IMEIHistory {
@@ -610,6 +631,7 @@ export interface IMEIHistory {
   imei: string
   product_id: number
   location_id?: number
+  supplier_id?: number
   event_type: string
   reference_id?: number
   reference_type?: string
@@ -618,6 +640,16 @@ export interface IMEIHistory {
   created_by?: string
   product_name?: string
   location_name?: string
+  supplier_name?: string
+}
+
+export interface IMEIDetail extends ProductIMEI {
+  product_sku?: string
+  customer_name?: string
+  customer_phone?: string
+  status_label?: string
+  warranty_months?: number
+  warranty_expires_at?: string
 }
 
 export type StockHistoryCreateRequest = Omit<StockHistory, 'id' | 'created_at'>
@@ -637,6 +669,13 @@ export interface Customer {
   reputation_score: number
   daily_message_count: number
   last_interaction_at?: string
+  conversation_summary?: string
+  ai_memory_json?: string
+  last_referenced_product_id?: number
+  last_referenced_product_name?: string
+  last_referenced_color?: string
+  last_referenced_variant?: string
+  memory_updated_at?: string
   created_at: string
   updated_at?: string
 }
@@ -669,6 +708,49 @@ export interface AIContextResponse {
   previous_context: Array<Record<string, string>>
 }
 
+export interface PhotoRequestMedia {
+  id: number
+  photo_request_id: number
+  media_url: string
+  media_type: string
+  uploaded_by_user_id?: number
+  uploaded_at: string
+  sent_to_customer_at?: string
+  customer_viewed: boolean
+}
+
+export interface PhotoRequest {
+  id: number
+  customer_id: string
+  product_id?: number
+  product_name: string
+  color_requested?: string
+  size_requested?: string
+  additional_notes?: string
+  customer_name?: string
+  origin_channel?: string
+  status: string
+  assigned_to_user_id?: number
+  completion_notes?: string
+  claimed_at?: string
+  last_notified_at?: string
+  notification_count: number
+  priority_score?: number
+  sla_breached?: boolean
+  created_at: string
+  resolved_at?: string
+  photo_urls?: string[]
+  media_items?: PhotoRequestMedia[]
+  assigned_to_user?: Record<string, unknown>
+}
+
+export interface PhotoRequestSummary {
+  pending_total: number
+  assigned_to_me: number
+  overdue_total: number
+  awaiting_upload_total: number
+}
+
 export interface AIReplyPayload extends AIContextPayload {
   conversation_override?: Array<Record<string, string>>
 }
@@ -688,6 +770,76 @@ export interface AIInteractionLogPayload {
   tokens_used?: number
 }
 
+export interface AICreateOrderItemPayload {
+  product_id?: number
+  product_query?: string
+  cantidad: number
+  precio_unitario?: number
+  imeis?: string[]
+}
+
+export interface AICreateOrderPayload {
+  sales_profile_slug: string
+  source_location_id: number
+  customer_phone: string
+  customer_name?: string
+  canal?: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
+  metodo_pago?: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  items: AICreateOrderItemPayload[]
+  notes?: string
+  auto_link_interaction?: boolean
+}
+
+export interface AICreateOrderResponse {
+  status: 'created'
+  order_id: number
+  linked_interaction: boolean
+}
+
+export interface AIHandleOrderIntent {
+  source_location_id: number
+  items: AICreateOrderItemPayload[]
+  canal?: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
+  metodo_pago?: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  notes?: string
+  auto_create?: boolean
+  auto_link_interaction?: boolean
+}
+
+export interface AIHandleMessagePayload extends AIReplyPayload {
+  message_id?: string
+  channel_hint?: 'whatsapp' | 'facebook' | 'instagram' | 'messenger'
+  order_intent?: AIHandleOrderIntent
+}
+
+export interface AIHandleMessageResponse extends AIReplyResponse {
+  order?: AICreateOrderResponse
+}
+
+export interface ChannelHealthGlobal {
+  has_verify_token: boolean
+  has_default_sales_profile: boolean
+  signature_validation_enabled: boolean
+  message_ttl_seconds: number
+  missing: string[]
+}
+
+export interface ChannelHealthChannel {
+  ready: boolean
+  missing: string[]
+}
+
+export interface ChannelHealthResponse {
+  status: 'ok'
+  ready: boolean
+  global: ChannelHealthGlobal
+  channels: {
+    whatsapp: ChannelHealthChannel
+    messenger: ChannelHealthChannel
+    instagram: ChannelHealthChannel
+  }
+}
+
 export interface TrainingSubmissionPayload {
   sales_profile_slug: string
   customer_question: string
@@ -697,17 +849,6 @@ export interface TrainingSubmissionPayload {
 export interface FlagTrollResponse {
   status: 'flagged'
   customer: string
-}
-
-export interface TrainingQueueItem {
-  id: number
-  sales_profile_id: number
-  customer_question: string
-  ai_proposed_answer?: string
-  admin_correction?: string
-  status: 'pending' | 'approved' | 'rejected' | 'converted_to_faq'
-  created_at: string
-  updated_at?: string
   sales_profile?: SalesProfile
 }
 
@@ -850,6 +991,8 @@ export type SyncActionType =
   | 'delete'
   | 'transfer'
   | 'assign'
+  | 'confirm'
+  | 'reject'
   | 'cancel'
   | 'resolve'
 

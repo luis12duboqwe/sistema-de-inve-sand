@@ -368,6 +368,59 @@
           "descripcion": "Ver inventario completo de la Bodega"
         }
       ]
+    },
+    "12_ia_crear_orden_en_un_paso": {
+      "descripcion": "Flujo recomendado para n8n/bot: crear orden desde intención IA y vincular conversación",
+      "requests": [
+        {
+          "metodo": "POST",
+          "url": "/api/ai/create-order",
+          "headers": {
+            "X-N8N-Token": "<token_servicio>",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "sales_profile_slug": "bot-whatsapp-1",
+            "source_location_id": 1,
+            "customer_phone": "50488887777",
+            "customer_name": "Cliente IA",
+            "canal": "whatsapp",
+            "metodo_pago": "efectivo",
+            "items": [
+              {
+                "product_query": "Samsung Galaxy S24",
+                "cantidad": 1
+              }
+            ],
+            "auto_link_interaction": true
+          },
+          "respuesta_esperada": {
+            "status": "created",
+            "order_id": 123,
+            "linked_interaction": true
+          }
+        },
+        {
+          "metodo": "POST",
+          "url": "/api/ai/create-order",
+          "descripcion": "Variante para producto serializado (IMEI obligatorio)",
+          "body": {
+            "sales_profile_slug": "bot-whatsapp-1",
+            "source_location_id": 1,
+            "customer_phone": "50488887777",
+            "customer_name": "Cliente IA",
+            "items": [
+              {
+                "product_id": 1,
+                "cantidad": 1,
+                "imeis": [
+                  "356938035643809"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   },
   "flujo_completo": {

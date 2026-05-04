@@ -7,14 +7,14 @@ export const handlers = [
     return HttpResponse.json({ items: [{ id: 1, customer_name: 'Test', total: 100, estado: 'pendiente', canal: 'whatsapp', metodo_pago: 'efectivo', created_at: new Date().toISOString(), customer_phone: '+50499999999', items: [] }] })
   }),
   http.post(`${API_BASE}/orders`, async ({ request }) => {
-    const body = await request.json()
+    const body = await request.json() as any
     if (!body?.customer_name) {
       return HttpResponse.json({ detail: 'missing customer' }, { status: 400 })
     }
     return HttpResponse.json({ id: 2, ...body, estado: 'pendiente', created_at: new Date().toISOString() })
   }),
   http.post(`${API_BASE}/stock-transfers`, async ({ request }) => {
-    const body = await request.json()
+    const body = await request.json() as any
     if (!body?.cantidad) {
       return HttpResponse.json({ detail: 'cantidad requerida' }, { status: 400 })
     }

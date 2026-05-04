@@ -1,6 +1,8 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import { Printer } from '@phosphor-icons/react'
+import { useKV } from '@/hooks/use-kv'
+import { buildLabelsPrintHtml, DEFAULT_LABEL_PRINT_SETTINGS, LabelPrintSettings } from '@/lib/labelPrint'
 
 interface ProductLabelProps {
   productName: string
@@ -30,52 +32,27 @@ export const PrintButton: React.FC<{
   product: { nombre: string; sku: string; color?: string; capacidad?: string }; 
   imei: string 
 }> = ({ product, imei }) => {
+  const [labelPrintSettings] = useKV<LabelPrintSettings>('settings_label_print', DEFAULT_LABEL_PRINT_SETTINGS)
+
   const handlePrint = () => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
-    const html = `
-      <html>
-        <head>
-          <title>Print Label</title>
-          <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128&display=swap" rel="stylesheet">
-          <style>
-            body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-            .label-container { 
-              width: 50mm; 
-              height: 25mm; 
-              border: 1px solid #ccc; 
-              display: flex; 
-              flex-direction: column; 
-              align-items: center; 
-              justify-content: center; 
-              font-family: sans-serif;
-            }
-            .product-name { font-size: 10px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center; }
-            .details { font-size: 8px; }
-            .barcode { font-family: 'Libre Barcode 128', cursive; font-size: 32px; line-height: 1; margin: 2px 0; }
-            .imei-text { font-size: 9px; font-family: monospace; }
-            .sku { font-size: 7px; color: #666; }
-            @media print {
-              body { margin: 0; }
-              .label-container { border: none; page-break-inside: avoid; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="label-container">
-            <div class="product-name">${product.nombre}</div>
-            <div class="details">${product.color || ''} ${product.capacidad || ''}</div>
-            <div class="barcode">${imei}</div>
-            <div class="imei-text">${imei}</div>
-            <div class="sku">${product.sku}</div>
-          </div>
-          <script>
-            window.onload = () => { window.print(); window.close(); }
-          </script>
-        </body>
-      </html>
-    `
+    const html = buildLabelsPrintHtml(
+      `Etiqueta - ${product.nombre}`,
+      [{
+        productName: product.nombre,
+        sku: product.sku,
+        imei,
+        color: product.color,
+        capacity: product.capacidad,
+      }],
+      {
+        ...labelPrintSettings,
+        labelsPerPage: 1,
+      },
+    )
+
     printWindow.document.write(html)
     printWindow.document.close()
   }

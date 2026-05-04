@@ -5,7 +5,7 @@ from typing import Optional, List
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from app.database import get_db
-from app.models import Order, Product, Stock, OrderItem, Location, User
+from app.models import Order, Product, Stock, OrderItem, Location, User, Return, ReturnItem  # type: ignore[attr-defined]
 from app.schemas import (
     DashboardStats, SalesReport, TopProduct, InventoryAlert
 )
@@ -14,6 +14,46 @@ from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_validators import validate_location_exists
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+def _get_refunds_in_range(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    sales_profile_id: Optional[int] = None,
+) -> Decimal:
+    """
+    Calcula el total de reembolsos (action='refund') de devoluciones creadas
+    en el rango de fechas indicado.
+
+    Solo considera items con action='refund' (no store_credit ni warranty_exchange).
+    Si se indica sales_profile_id, filtra por el perfil de venta de la orden original.
+    """
+    query = (
+        db.query(
+            func.coalesce(
+                func.sum(OrderItem.precio_unitario * ReturnItem.quantity),
+                0,
+            )
+        )
+        .join(ReturnItem, ReturnItem.return_id == Return.id)  # type: ignore[attr-defined]
+        .join(Order, Order.id == Return.order_id)
+        .join(
+            OrderItem,
+            (OrderItem.order_id == Order.id)
+            & (OrderItem.product_id == ReturnItem.product_id),
+        )
+        .filter(
+            Return.created_at >= start_dt,
+            Return.created_at <= end_dt,
+            ReturnItem.action == "refund",  # solo reembolsos de dinero
+        )
+    )
+    if sales_profile_id:
+        query = query.filter(Order.sales_profile_id == sales_profile_id)
+
+    result = query.scalar()
+    return Decimal(result or 0)
 
 
 @router.get("/dashboard", response_model=DashboardStats, dependencies=[Depends(check_permission("reports:view"))])
@@ -94,7 +134,14 @@ def get_dashboard_stats(
     
     total_orders_today = int(orders_today_stats[0] or 0)
     total_revenue_today = Decimal(orders_today_stats[1] or 0)
-    
+
+    # Restar reembolsos del día
+    refunds_today = _get_refunds_in_range(
+        db, today_start, today_end,
+        sales_profile_id=sales_profile.id if sales_profile else None,
+    )
+    total_revenue_today = max(Decimal("0.00"), total_revenue_today - refunds_today)
+
     # Month stats
     month_start = today.replace(day=1)
     month_start_dt = datetime.combine(month_start, datetime.min.time())
@@ -108,7 +155,15 @@ def get_dashboard_stats(
     ).first()
     
     total_revenue_month = Decimal(orders_this_month_stats[1] or 0)
-    
+
+    # Restar reembolsos del mes actual
+    month_end_dt = datetime.combine(today, datetime.max.time())
+    refunds_month = _get_refunds_in_range(
+        db, month_start_dt, month_end_dt,
+        sales_profile_id=sales_profile.id if sales_profile else None,
+    )
+    total_revenue_month = max(Decimal("0.00"), total_revenue_month - refunds_month)
+
     # V2.1: Calcular Margen Bruto y Ticket Promedio del mes
     gross_margin_month = Decimal(0)
     average_ticket_month = Decimal(0)
@@ -165,7 +220,14 @@ def get_dashboard_stats(
     ).first()
     
     total_revenue_last_month = Decimal(orders_last_month_stats[1] or 0)
-    
+
+    # Restar reembolsos del mes pasado
+    refunds_last_month = _get_refunds_in_range(
+        db, last_month_start, last_month_end,
+        sales_profile_id=sales_profile.id if sales_profile else None,
+    )
+    total_revenue_last_month = max(Decimal("0.00"), total_revenue_last_month - refunds_last_month)
+
     return DashboardStats(
         active_products=active_products,
         total_products=total_products,

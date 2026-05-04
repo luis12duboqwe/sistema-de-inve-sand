@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useForecasting } from '../use-forecasting'
 
+const mockInventoryService = vi.hoisted(() => ({
+  getForecasting: vi.fn(async () => ([{ productId: 1, urgency: 'high' }]))
+}))
+
 vi.mock('@/hooks/use-kv', async () => {
   const React = await import('react')
   return {
@@ -9,18 +13,19 @@ vi.mock('@/hooks/use-kv', async () => {
   }
 })
 
+vi.mock('@/lib/inventoryServiceFactory', () => ({
+  inventoryServiceInstance: mockInventoryService
+}))
+
 vi.mock('@/lib/aiForecasting', () => ({
-  generateAIForecasts: vi.fn(async () => ({
-    forecasts: [{ productId: 1, demand: 10, confidence: 0.9 }],
-    summary: { totalDemand: 10 }
-  })),
+  generateForecastingSummary: vi.fn(() => ({ totalDemand: 10 })),
   generateRestockAlerts: vi.fn(async () => ([{ id: '1', productId: 1, urgency: 'high' }]))
 }))
 
 describe('useForecasting hook', () => {
   it('generates forecasts and alerts', async () => {
     const products = [{ id: 1, nombre: 'P', categoria: 'accesorio', marca: 'M', modelo: 'X', condicion: 'nuevo', precio: 100, moneda: 'HNL', garantia_meses: 12, activo: true, sku: 'SKU', stock_disponible: 5 }]
-    const orders: any[] = []
+    const orders: any[] = [{ id: 1, created_at: new Date().toISOString(), estado: 'completada', items: [] }]
     const profile = { id: 1, name: 'Demo', slug: 'demo', active: true }
 
     const { result } = renderHook(() => useForecasting(products as any, orders as any, profile as any, false))

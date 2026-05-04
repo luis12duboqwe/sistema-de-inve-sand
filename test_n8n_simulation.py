@@ -1,8 +1,17 @@
 import requests
 import json
 import sys
+import os
 
 BASE_URL = "http://localhost:8000/api"
+SERVICE_TOKEN = os.getenv("N8N_AUTH_TOKEN", "")
+
+
+def _headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if SERVICE_TOKEN:
+        headers["X-N8N-Token"] = SERVICE_TOKEN
+    return headers
 
 def print_step(step, message):
     print(f"\n{'='*50}")
@@ -41,7 +50,7 @@ def test_n8n_flow():
     }
     
     try:
-        resp = requests.post(f"{BASE_URL}/ai/context", json=payload_context)
+        resp = requests.post(f"{BASE_URL}/ai/context", json=payload_context, headers=_headers())
         if resp.status_code == 200:
             data = resp.json()
             print("✅ Contexto Recibido:")
@@ -58,7 +67,7 @@ def test_n8n_flow():
         return
 
     # 3. Generar respuesta real usando el backend
-    print_step(3, "n8n: Solicitando respuesta completa (/api/ai/reply)")
+    print_step(3, "Backend nativo: /api/ai/handle-message (sin orquestación n8n)")
     payload_reply = {
         "sales_profile_slug": slug,
         "customer_phone": customer_phone,
@@ -67,11 +76,11 @@ def test_n8n_flow():
     }
 
     try:
-        resp = requests.post(f"{BASE_URL}/ai/reply", json=payload_reply)
+        resp = requests.post(f"{BASE_URL}/ai/handle-message", json=payload_reply, headers=_headers())
         if resp.status_code == 200:
             ai_data = resp.json()
             ai_response_text = ai_data["reply"]
-            print("✅ Backend generó la respuesta con OpenAI:")
+            print("✅ Backend generó la respuesta con OpenAI (flujo unificado):")
             print(f"   > {ai_response_text}")
         else:
             print(f"⚠️ No se pudo generar respuesta (status {resp.status_code}). Se usará texto simulado.")
@@ -89,7 +98,7 @@ def test_n8n_flow():
             "customer_phone": customer_phone,
             "role": "user",
             "content": user_message
-        })
+        }, headers=_headers())
         print("✅ Mensaje del usuario registrado.")
         
         # Log AI Response
@@ -98,7 +107,7 @@ def test_n8n_flow():
             "customer_phone": customer_phone,
             "role": "assistant",
             "content": ai_response_text
-        })
+        }, headers=_headers())
         print("✅ Respuesta de la IA registrada.")
     except Exception as e:
         print(f"❌ Error guardando logs: {e}")
@@ -113,13 +122,81 @@ def test_n8n_flow():
             "sales_profile_slug": slug,
             "customer_question": difficult_question,
             "ai_proposed_answer": ai_uncertain_answer
-        })
+        }, headers=_headers())
         if resp.status_code == 200:
             print("✅ Pregunta enviada a revisión humana exitosamente.")
         else:
             print(f"❌ Error enviando a entrenamiento: {resp.text}")
     except Exception as e:
         print(f"❌ Error: {e}")
+
+    # 6. Crear orden automática desde intención IA
+    print_step(6, "Backend nativo: crear orden dentro de /api/ai/handle-message")
+    try:
+        products_resp = requests.get(f"{BASE_URL}/products", headers=_headers())
+        if products_resp.status_code != 200:
+            print(f"❌ No se pudieron listar productos: {products_resp.text}")
+            return
+
+        products_data = products_resp.json()
+        products = products_data.get("items", []) if isinstance(products_data, dict) else products_data
+        if not products:
+            print("❌ No hay productos para probar creación de orden")
+            return
+
+        selected_product = products[0]
+        product_id = selected_product.get("id")
+        location_id = selected_product.get("stock_items", [{}])[0].get("location_id", 1)
+        imeis_payload: list[str] = []
+
+        if selected_product.get("is_serialized"):
+            imeis_resp = requests.get(
+                f"{BASE_URL}/products/{product_id}/imeis?location_id={location_id}",
+                headers=_headers(),
+            )
+            if imeis_resp.status_code == 200:
+                available_imeis = imeis_resp.json()
+                if available_imeis:
+                    imeis_payload = [str(available_imeis[0])]
+
+        item_payload = {
+            "product_id": product_id,
+            "cantidad": 1,
+        }
+        if imeis_payload:
+            item_payload["imeis"] = imeis_payload
+
+        handle_message_payload = {
+            "sales_profile_slug": slug,
+            "customer_phone": customer_phone,
+            "customer_name": customer_name,
+            "message_content": "Listo, confírmame la compra",
+            "order_intent": {
+                "source_location_id": location_id,
+                "canal": "whatsapp",
+                "metodo_pago": "efectivo",
+                "items": [item_payload],
+                "notes": "Orden creada automáticamente por flujo IA nativo",
+                "auto_create": True,
+                "auto_link_interaction": True,
+            },
+        }
+
+        order_res = requests.post(
+            f"{BASE_URL}/ai/handle-message",
+            json=handle_message_payload,
+            headers=_headers(),
+        )
+
+        if order_res.status_code == 200:
+            order_data = order_res.json().get("order") or {}
+            print("✅ Orden creada por IA exitosamente")
+            print(f"   - order_id: {order_data.get('order_id')}")
+            print(f"   - linked_interaction: {order_data.get('linked_interaction')}")
+        else:
+            print(f"❌ Error creando orden IA: {order_res.text}")
+    except Exception as e:
+        print(f"❌ Error en creación de orden IA: {e}")
 
 if __name__ == "__main__":
     test_n8n_flow()

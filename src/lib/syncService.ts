@@ -271,7 +271,7 @@ async function handleLocationEvent(event: SyncEvent, context: SyncContext): Prom
         throw new Error('El evento de ubicación no contiene datos a crear.')
       }
 
-      const { id, created_at: _created, updated_at: _updated, ...rest } = location
+      const { id, ...rest } = location
       const created = await apiClient.createLocation({
         nombre: rest.nombre,
         tipo: rest.tipo,
@@ -292,7 +292,7 @@ async function handleLocationEvent(event: SyncEvent, context: SyncContext): Prom
       }
 
       const remoteId = resolveNumericRemoteId(context, 'location', event.entityId ?? payload.after?.id)
-      const { id: _ignored, created_at: _created, updated_at: _updated, ...partial } = updates
+      const { id: _ignored, ...partial } = updates
       await apiClient.updateLocation(remoteId, partial)
       return { metadata: { remote_id: remoteId } }
     }
@@ -316,7 +316,7 @@ async function handleSalesProfileEvent(event: SyncEvent, context: SyncContext): 
         throw new Error('El evento de sales_profile no contiene datos de perfil.')
       }
 
-      const { id, created_at: _created, updated_at: _updated, ...rest } = profile
+      const { id, ...rest } = profile
       const created = await apiClient.createSalesProfile({
         name: rest.name,
         slug: rest.slug,
@@ -337,7 +337,7 @@ async function handleSalesProfileEvent(event: SyncEvent, context: SyncContext): 
         return { metadata: { note: 'Sales profile sin cambios pendientes.' } }
       }
       const remoteId = resolveNumericRemoteId(context, 'sales_profile', event.entityId ?? payload.after?.id)
-      const { id: _ignored, created_at: _created, updated_at: _updated, ...partial } = updates
+      const { id: _ignored, ...partial } = updates
       await apiClient.updateSalesProfile(remoteId, partial)
       return { metadata: { remote_id: remoteId } }
     }
@@ -410,7 +410,7 @@ async function handleProductEvent(event: SyncEvent, context: SyncContext): Promi
 
       const initialStock = typeof payload.initialStock === 'number' ? payload.initialStock : 0
       const locationId = payload.location_id ?? null
-      const { id, activo: _activo, created_at: _created, updated_at: _updated, ...rest } = product
+      const { id, activo: _activo, ...rest } = product
 
       const created = await apiClient.createProduct(
         rest as Omit<Product, 'id' | 'activo'>,
@@ -468,7 +468,7 @@ async function handleOrderEvent(event: SyncEvent, context: SyncContext): Promise
   switch (event.action) {
     case 'create': {
       const order = payload.order as Order | undefined
-      const items = (payload.items as OrderItem[] | undefined) ?? order?.items
+      const items = (payload.items as OrderItem[] | undefined) ?? (order as any)?.items
       if (!order || !items) {
         throw new Error('El evento de orden no tiene información suficiente para recrearse en el backend.')
       }
@@ -701,7 +701,7 @@ function buildOrderCreateRequest(
     items: mappedItems,
     trade_ins: tradeIns,
     notas: order.notas ?? payload.notes ?? payload.notas,
-    financing_data: payload.financing_data ?? order.financing_data
+    financing_data: payload.financing_data ?? (order as any).financing_data
   }
 
   return request
@@ -852,7 +852,10 @@ async function refreshLocalSnapshot(kv: ReturnType<typeof getKV>): Promise<Snaps
     safeFetch(() => collectStockHistorySnapshot(locations), [] as StockHistory[], 'stock history')
   ])
 
-  const orderRecords: Order[] = orders.map(({ items, ...order }) => ({ ...order } as Order))
+  const orderRecords: Order[] = orders.map((order) => {
+    const { items: _items, ...baseOrder } = order
+    return { ...baseOrder } as Order
+  })
   const stockRecords = buildStockRecords(products)
   const orderItems = flattenOrderItems(orders)
   const tradeIns = flattenTradeIns(orders)
@@ -927,7 +930,8 @@ function buildStockRecords(products: ProductWithStock[]): Stock[] {
 function flattenOrderItems(orders: OrderWithItems[]): OrderItem[] {
   const items: OrderItem[] = []
   for (const order of orders) {
-    for (const item of order.items) {
+    const orderItems = (order as any)?.items ?? []
+    for (const item of orderItems) {
       items.push({ ...item, order_id: order.id })
     }
   }

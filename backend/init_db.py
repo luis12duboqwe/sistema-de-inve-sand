@@ -13,7 +13,9 @@ import sys
 import argparse
 import json
 from app.database import engine, SessionLocal
-from app.models import Base, Location, SalesProfile, Product, Stock, Profile
+from app.database import Base
+from app import models as _models  # noqa: F401 - fuerza registro de todos los modelos en metadata
+from app.models import Location, SalesProfile, Product, Stock, Profile
 
 
 def init_database():

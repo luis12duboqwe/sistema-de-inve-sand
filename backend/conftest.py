@@ -1,28 +1,33 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+
+from postgres_test_utils import create_postgres_test_engine
+
+
+TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("pytest")
+
+import app.database as _db
+
+_db.engine = TEST_ENGINE
+_db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
 from app.main import app
 import app.main as main
 from app.database import Base, get_db
-from app.auth import check_permission, get_current_active_user, get_current_superuser, get_current_user
+from app.auth import (
+    check_permission,
+    get_current_active_user,
+    get_current_superuser,
+    get_current_user,
+    get_current_user_optional,
+)
 
 # Asegura que los modelos estén registrados en Base.metadata
 from app import models as _models  # noqa: F401
 
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
-
-# Importante: StaticPool mantiene una única conexión viva; sin esto,
-# cada conexión ve una DB vacía y aparecen errores "no such table".
-engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
 
 def override_get_db():
@@ -34,7 +39,7 @@ def override_get_db():
 
 
 def _enable_test_overrides():
-    # DB en memoria
+    # DB de pruebas aislada en PostgreSQL
     app.dependency_overrides[get_db] = override_get_db
 
     # Health check estable
@@ -42,6 +47,7 @@ def _enable_test_overrides():
 
     # Autenticación: devolver siempre un usuario superusuario
     app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_current_user_optional] = _fake_user
     app.dependency_overrides[get_current_active_user] = _fake_user
     app.dependency_overrides[get_current_superuser] = _fake_user
 
@@ -62,6 +68,7 @@ class _FakeUser:
     def __init__(self):
         self.id = 1
         self.username = "test"
+        self.email = "test@example.com"
         self.is_active = True
         self.is_superuser = True
         self.role = None
@@ -86,12 +93,12 @@ def setup_database(request):
     previous_check_db_connection = getattr(main, "check_db_connection", None)
 
     _enable_test_overrides()
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.drop_all(bind=TEST_ENGINE)
+    Base.metadata.create_all(bind=TEST_ENGINE)
     try:
         yield
     finally:
-        Base.metadata.drop_all(bind=engine)
+        Base.metadata.drop_all(bind=TEST_ENGINE)
         # Restaurar overrides previos (ej: los que define tests/test_api_usage.py)
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
@@ -112,3 +119,7 @@ def db_session():
 @pytest.fixture()
 def client():
     return TestClient(app)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    cleanup_test_schema()

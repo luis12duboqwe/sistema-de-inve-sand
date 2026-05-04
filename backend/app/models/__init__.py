@@ -14,6 +14,9 @@ from .order import (
 )
 from .ai import AIProfileConfig, Customer, InteractionLog, TrainingQueue
 from .finance import Bank, FinancingOption
+from .photos import PhotoRequest, PhotoRequestMediaItem
+from .ai import ProcessedMessage
+from .system import SystemConfig
 
 __all__ = [
     "Permission",
@@ -41,8 +44,12 @@ __all__ = [
     "Customer",
     "InteractionLog",
     "TrainingQueue",
+    "ProcessedMessage",
     "Bank",
     "FinancingOption",
+    "PhotoRequest",
+    "PhotoRequestMediaItem",
+    "SystemConfig",
 ]
 
 

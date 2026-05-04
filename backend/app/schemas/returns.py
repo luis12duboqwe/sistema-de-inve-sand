@@ -19,22 +19,33 @@ class ReturnActionEnum(str, Enum):
     STORE_CREDIT = "store_credit"
 
 
+def _validate_imei_str(value: Optional[str], field_name: str = "IMEI") -> Optional[str]:
+    """Valida que el IMEI sea numérico y de 14-17 dígitos."""
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned.isdigit() or not (14 <= len(cleaned) <= 17):
+        raise ValueError(f"{field_name} debe ser numérico y de 14-17 dígitos")
+    return cleaned
+
+
 class ReturnItemCreate(BaseModel):
     product_id: int
     quantity: int = Field(..., gt=0)
     condition: ReturnConditionEnum
     action: ReturnActionEnum
-    imei: Optional[str] = None
+    imei: Optional[str] = None             # IMEI del equipo defectuoso que entra (devolución)
+    replacement_imei: Optional[str] = None  # IMEI del equipo de reemplazo que sale (solo warranty_exchange)
 
     @field_validator("imei")
     @classmethod
     def validate_imei(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        cleaned = value.strip()
-        if not cleaned.isdigit() or not (14 <= len(cleaned) <= 17):
-            raise ValueError("IMEI debe ser numérico y de 14-17 dígitos")
-        return cleaned
+        return _validate_imei_str(value, "IMEI del equipo defectuoso")
+
+    @field_validator("replacement_imei")
+    @classmethod
+    def validate_replacement_imei(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_imei_str(value, "IMEI del equipo de reemplazo")
 
 
 class ReturnCreate(BaseModel):
@@ -58,6 +69,7 @@ class ReturnItemResponse(BaseModel):
     condition: str
     action: str
     imei: Optional[str]
+    replacement_imei: Optional[str] = None  # IMEI del equipo de reemplazo entregado
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,6 +91,7 @@ class IMEIHistoryResponse(BaseModel):
     imei: str
     product_id: int
     location_id: Optional[int]
+    supplier_id: Optional[int]
     event_type: str
     reference_id: Optional[int]
     reference_type: Optional[str]
@@ -87,6 +100,7 @@ class IMEIHistoryResponse(BaseModel):
     created_by: Optional[str]
     product_name: Optional[str] = None
     location_name: Optional[str] = None
+    supplier_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

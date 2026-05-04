@@ -1,4 +1,4 @@
-import type {
+import type { Bank, FinancingOption,
   Profile,
   ProductWithStock,
   OrderWithItems,
@@ -13,6 +13,7 @@ import type {
   StockByLocation,
   CreateReturnRequest,
   Return,
+  IMEIDetail,
   IMEIHistory,
   ProductIMEI,
   AIProfileConfig,
@@ -35,18 +36,72 @@ import type {
   AIReplyPayload,
   AIReplyResponse,
   AIInteractionLogPayload,
+  AICreateOrderPayload,
+  AICreateOrderResponse,
+  AIHandleMessagePayload,
+  AIHandleMessageResponse,
+  ChannelHealthResponse,
   TrainingSubmissionPayload,
   FlagTrollResponse,
   PublicProduct,
   PublicCatalogFilters,
   PaginatedResponse,
   SetupInitialAdminRequest,
-  AuthResponse
+  AuthResponse,
+  ProductRestockPayload
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
+
+function getEnvironmentDefaultApiUrl(): string {
+  if (typeof window === 'undefined') {
+    return DEFAULT_API_URL
+  }
+
+  const hostname = window.location.hostname
+  const port = window.location.port
+
+  if (hostname.includes('.app.github.dev')) {
+    const backendHostname = hostname.replace(/-\d+\.app\.github\.dev$/, '-8000.app.github.dev')
+    return `https://${backendHostname}/api`
+  }
+
+  if (port === '5000' || port === '5173') {
+    return `${window.location.origin}/api`
+  }
+
+  return 'http://localhost:8000/api'
+}
+
+function normalizeApiUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) {
+    return null
+  }
+
+  const trimmed = rawUrl.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+
+    if (parsed.port === '5000' || parsed.port === '5173') {
+      return null
+    }
+
+    const path = parsed.pathname.replace(/\/$/, '')
+    if (!path.endsWith('/api')) {
+      parsed.pathname = `${path}/api`
+    }
+
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return null
+  }
+}
 
 // Caché en memoria para evitar múltiples llamadas a KV
 let cachedApiUrl: string | null = null
@@ -55,6 +110,8 @@ const CACHE_DURATION = 60000 // 60 segundos
 
 async function getApiUrl(): Promise<string> {
   const now = Date.now()
+  const environmentDefaultUrl = getEnvironmentDefaultApiUrl()
+  const useSameOriginApi = typeof window !== 'undefined' && (window.location.port === '5000' || window.location.port === '5173')
   
   // Si tenemos un valor en caché válido, usarlo
   if (cachedApiUrl && (now - cacheTimestamp) < CACHE_DURATION) {
@@ -67,9 +124,17 @@ async function getApiUrl(): Promise<string> {
     const localValue = localStorage.getItem(localStorageKey)
     if (localValue) {
       try {
-        cachedApiUrl = JSON.parse(localValue) as string
-        cacheTimestamp = now
-        return cachedApiUrl
+        const parsedLocalUrl = normalizeApiUrl(JSON.parse(localValue) as string)
+        if (parsedLocalUrl) {
+          if (useSameOriginApi && /:\/\/localhost:8000\/api$|:\/\/127\.0\.0\.1:8000\/api$/i.test(parsedLocalUrl)) {
+            cachedApiUrl = environmentDefaultUrl
+            cacheTimestamp = now
+            return cachedApiUrl
+          }
+          cachedApiUrl = parsedLocalUrl
+          cacheTimestamp = now
+          return cachedApiUrl
+        }
       } catch {
         // Si falla el parse, continuar con el método normal
       }
@@ -78,23 +143,29 @@ async function getApiUrl(): Promise<string> {
     // Si no está en localStorage, usar KV (con fallback automático)
     const kv = getKV()
     const url = await kv.get<string>('settings_api_url')
-    cachedApiUrl = url || DEFAULT_API_URL
+    const normalizedUrl = normalizeApiUrl(url)
+    if (useSameOriginApi && normalizedUrl && /:\/\/localhost:8000\/api$|:\/\/127\.0\.0\.1:8000\/api$/i.test(normalizedUrl)) {
+      cachedApiUrl = environmentDefaultUrl
+      cacheTimestamp = now
+      return cachedApiUrl
+    }
+    cachedApiUrl = normalizedUrl || environmentDefaultUrl
     cacheTimestamp = now
     return cachedApiUrl
   } catch (error) {
     console.warn('Error getting API URL, using cached or default:', error)
-    return cachedApiUrl || DEFAULT_API_URL
+    return cachedApiUrl || environmentDefaultUrl
   }
 }
 
 // Función para actualizar la URL del API y limpiar el caché
 export function updateApiUrl(newUrl: string): void {
-  cachedApiUrl = newUrl
+  cachedApiUrl = normalizeApiUrl(newUrl) || getEnvironmentDefaultApiUrl()
   cacheTimestamp = Date.now()
-  localStorage.setItem('spark-kv-settings_api_url', JSON.stringify(newUrl))
+  localStorage.setItem('spark-kv-settings_api_url', JSON.stringify(cachedApiUrl))
 }
 
-interface ApiProductResponse {
+interface ApiProductWithStock {
   id: number
   profile_id: number
   sku: string
@@ -121,8 +192,10 @@ interface ApiOrderResponse {
   source_location_id?: number
   customer_name: string
   customer_phone: string
-  canal: 'whatsapp' | 'facebook' | 'instagram'
+  canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  transfer_bank_name?: string
+  transfer_reference?: string
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
   created_at: string
@@ -133,7 +206,7 @@ interface ApiOrderResponse {
     precio_unitario: number
     es_regalo_promocion: boolean
     imeis?: string[]
-    product?: ApiProductResponse
+    product?: ApiProductWithStock
   }[]
   trade_ins?: {
     id: number
@@ -322,9 +395,9 @@ class ApiClient {
     return response
   }
 
-  async getProductByIMEI(imei: string): Promise<ProductResponse> {
+  async getProductByIMEI(imei: string): Promise<ProductWithStock> {
     try {
-      return await this.request<ProductResponse>(`/products/imei/${imei}`)
+      return await this.request<ProductWithStock>(`/products/imei/${imei}`)
     } catch (error) {
       console.error('Error fetching product by IMEI:', error)
       throw error
@@ -801,6 +874,18 @@ class ApiClient {
     }
   }
 
+  async restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock> {
+    try {
+      return await this.request<ProductWithStock>(`/products/${productId}/restock`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch (error) {
+      console.error('Error restocking product via API:', error)
+      throw new Error(`Failed to restock product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async deleteOrder(orderId: number): Promise<void> {
     try {
       const apiBaseUrl = await getApiUrl()
@@ -968,6 +1053,8 @@ class ApiClient {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -982,6 +1069,8 @@ class ApiClient {
       const sanitizedUpdates = {
         ...updates,
         customer_phone: updates.customer_phone ? String(updates.customer_phone).trim() : undefined,
+        transfer_bank_name: updates.transfer_bank_name?.trim() || updates.transfer_bank_name,
+        transfer_reference: updates.transfer_reference?.trim() || updates.transfer_reference,
         notas: updates.notas?.trim() || updates.notas
       }
 
@@ -1217,6 +1306,15 @@ class ApiClient {
     }
   }
 
+  async getIMEIDetail(imei: string): Promise<IMEIDetail | null> {
+    try {
+      return this.request<IMEIDetail>(`/imeis/detail/${imei}`)
+    } catch (error) {
+      console.error('Error getting IMEI detail:', error)
+      throw new Error(`Failed to get IMEI detail: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
     try {
       return this.request<WarrantyStatus>(`/imeis/${imei}/warranty-status`)
@@ -1283,10 +1381,17 @@ class ApiClient {
   }
 
   async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
-    return this.request<AIReplyResponse>('/ai/reply', {
+    const handled = await this.request<AIHandleMessageResponse>('/ai/handle-message', {
       method: 'POST',
       body: JSON.stringify(payload)
     })
+
+    return {
+      reply: handled.reply,
+      tokens_used: handled.tokens_used,
+      model: handled.model,
+      context: handled.context
+    }
   }
 
   async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
@@ -1320,6 +1425,130 @@ class ApiClient {
       // Non-critical error, just log it
       console.warn('Failed to link order to interaction:', error)
     }
+  }
+
+  async createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse> {
+    return this.request<AICreateOrderResponse>('/ai/create-order', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse> {
+    return this.request<AIHandleMessageResponse>('/ai/handle-message', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async getChannelsHealth(): Promise<ChannelHealthResponse> {
+    return this.request<ChannelHealthResponse>('/channels/health')
+  }
+
+  async testChannelConnection(salesProfileSlug: string, channel: string): Promise<{
+    status: 'success' | 'error'
+    channel: string
+    sales_profile_slug: string
+    details: string
+    timestamp: string
+  }> {
+    return this.request('/channels/test-connection/' + salesProfileSlug + '/' + channel, {
+      method: 'POST'
+    })
+  }
+
+  async getPhotoRequests(params?: {
+    assigned_to_me?: boolean
+    status?: string
+  }): Promise<any[]> {
+    const query = new URLSearchParams()
+    if (params?.assigned_to_me !== undefined) query.append('assigned_to_me', String(params.assigned_to_me))
+    if (params?.status) query.append('status', params.status)
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return this.request<any[]>(`/photo-requests/pending${suffix}`)
+  }
+
+  async getPhotoRequest(photoRequestId: number): Promise<any> {
+    return this.request<any>(`/photo-requests/${photoRequestId}`)
+  }
+
+  async getPhotoRequestSummary(): Promise<import('./types').PhotoRequestSummary> {
+    return this.request<import('./types').PhotoRequestSummary>('/photo-requests/summary')
+  }
+
+  async uploadPhotoMedia(photoRequestId: number, payload: {
+    media_url: string
+    media_type?: 'photo' | 'video' | '360_view'
+    metadata?: Record<string, unknown>
+  }): Promise<any> {
+    return this.request<any>(`/photo-requests/${photoRequestId}/media`, {
+      method: 'POST',
+      body: JSON.stringify({
+        media_url: payload.media_url,
+        media_type: payload.media_type || 'photo',
+        metadata: payload.metadata || {}
+      })
+    })
+  }
+
+  async uploadPhotoFile(photoRequestId: number, file: File): Promise<any> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const apiBaseUrl = await getApiUrl()
+    const headers: HeadersInit = {}
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${apiBaseUrl}/photo-requests/${photoRequestId}/upload-file`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`
+      try {
+        const error = await response.json()
+        message = error.detail || message
+      } catch {
+        // ignore parsing error
+      }
+      throw new Error(message)
+    }
+
+    return response.json()
+  }
+
+  async claimPhotoRequest(photoRequestId: number): Promise<any> {
+    return this.request<any>(`/photo-requests/${photoRequestId}/claim`, {
+      method: 'POST'
+    })
+  }
+
+  async sendPhotosToCustomer(photoRequestId: number): Promise<{
+    status: string
+    message: string
+    photo_request_id: number
+  }> {
+    return this.request<{
+      status: string
+      message: string
+      photo_request_id: number
+    }>(`/photo-requests/${photoRequestId}/send-to-customer`, {
+      method: 'POST'
+    })
+  }
+
+  async updatePhotoRequest(photoRequestId: number, payload: {
+    status?: string
+    completion_notes?: string
+  }): Promise<any> {
+    return this.request<any>(`/photo-requests/${photoRequestId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    })
   }
 
   async listTrainingQueue(status = 'pending'): Promise<import('./types').TrainingQueueItem[]> {
@@ -1392,8 +1621,17 @@ class ApiClient {
       const item = queue.find(i => i.id === id)
       if (item) return item
     }
-    
-    throw new Error("Generic updates to training queue items are not supported in API mode yet. Only status resolution is supported.")
+
+    try {
+      return await this.request<import('./types').TrainingQueueItem>(`/ai/training-queue/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    } catch (error) {
+      console.error('Error updating training queue item:', error)
+      throw new Error(`Failed to update training queue item: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   async listCustomers(search?: string, options?: { isTroll?: boolean }): Promise<import('./types').Customer[]> {
@@ -1780,6 +2018,43 @@ class ApiClient {
       console.error('Error fetching AI status:', error)
       throw new Error(`Failed to fetch AI status: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  // ─────────────────────── CIERRE DE DÍA ───────────────────────────────────
+
+  async getDailyClosePending(): Promise<any[]> {
+    return this.request<any[]>('/daily-close/pending')
+  }
+
+  async getDailyCloseConfig(): Promise<{ configured: boolean; mensaje: string }> {
+    return this.request<{ configured: boolean; mensaje: string }>('/daily-close/config')
+  }
+
+  async setDailyCloseConfig(data: {
+    new_code: string
+    confirm_code: string
+    current_code?: string
+  }): Promise<{ configured: boolean; mensaje: string }> {
+    return this.request<{ configured: boolean; mensaje: string }>('/daily-close/config', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async validateDailyClose(data: {
+    validation_code: string
+    order_ids: number[]
+    notas?: string
+  }): Promise<{
+    validated_count: number
+    validated_orders: number[]
+    total_ventas: number
+    mensaje: string
+  }> {
+    return this.request('/daily-close/validate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
   }
 }
 

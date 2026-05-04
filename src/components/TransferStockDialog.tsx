@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
-  DialogTitle,
-  DialogFooter
+  DialogTitle
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,11 +20,13 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import type { ProductWithStock, Location, CreateStockTransferRequest } from '@/lib/types'
-import { ArrowsLeftRight, WarningCircle as AlertCircle, MapPin, Package } from '@phosphor-icons/react'
-import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import { useForm, Controller } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { ArrowsLeftRight, MapPin, Package, WarningCircle as AlertCircle } from '@phosphor-icons/react'
+import { calculateLuhnCheckDigit } from '@/lib/utils'
+
+import type { CreateStockTransferRequest, Location, ProductWithStock } from '@/lib/types'
+import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { createTransferStockSchema, type TransferStockFormValues } from '@/lib/validation/transferStockSchema'
 
 interface TransferStockDialogProps {
@@ -32,27 +34,34 @@ interface TransferStockDialogProps {
   onOpenChange: (open: boolean) => void
   product: ProductWithStock | null
   onTransferComplete: () => void
+  initialFromLocationId?: number
+  initialToLocationId?: number
 }
 
 export function TransferStockDialog({
   open,
   onOpenChange,
   product,
-  onTransferComplete
+  onTransferComplete,
+  initialFromLocationId,
+  initialToLocationId
 }: TransferStockDialogProps) {
   const [locations, setLocations] = useState<Location[]>([])
-  const [selectedImeis, setSelectedImeis] = useState<string[]>([])
   const [availableImeis, setAvailableImeis] = useState<string[]>([])
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedImeis, setSelectedImeis] = useState<string[]>([])
+  const [originScanInput, setOriginScanInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const scannerInputRef = useRef<HTMLInputElement | null>(null)
 
+  const isSerializedProduct = Boolean(product?.is_serialized || product?.categoria === 'celular')
   const schema = useMemo(() => createTransferStockSchema(product), [product])
 
   const {
     control,
     handleSubmit: handleFormSubmit,
-    reset,
     watch,
+    reset,
     setValue,
     clearErrors,
     formState: { errors }
@@ -64,70 +73,154 @@ export function TransferStockDialog({
   const toLocationId = watch('toLocationId')
   const cantidad = watch('cantidad') ?? 0
 
-  const handleFromLocationChange = (value: string, onChange: (val: number | undefined) => void) => {
-    const parsed = value ? Number(value) : undefined
-    onChange(parsed)
-    setValue(
-      'toLocationId',
-      undefined as unknown as TransferStockFormValues['toLocationId'],
-      { shouldValidate: false, shouldDirty: false }
-    )
-    setValue(
-      'cantidad',
-      0 as TransferStockFormValues['cantidad'],
-      { shouldValidate: false, shouldDirty: false }
-    )
-    setSelectedImeis([])
-    setAvailableImeis([])
-    clearErrors(['toLocationId', 'cantidad'])
-  }
-
-  // Cargar ubicaciones cuando se abre el dialog
   useEffect(() => {
-    if (open) {
-      loadLocations()
-      reset()
-      setSelectedImeis([])
-      setAvailableImeis([])
+    if (!open) return
+
+    const loadLocations = async () => {
+      setLoading(true)
+      try {
+        const data = await inventoryServiceInstance.getLocations()
+        setLocations(data.filter(location => location.activo))
+      } catch (error) {
+        console.error('Error al cargar ubicaciones:', error)
+        toast.error('Error al cargar ubicaciones')
+      } finally {
+        setLoading(false)
+      }
     }
+
+    loadLocations()
+    reset()
+    setAvailableImeis([])
+    setSelectedImeis([])
+    setOriginScanInput('')
   }, [open, reset])
 
-  // Cargar IMEIs cuando cambia la ubicación de origen
+  // Pre-rellenar origen/destino cuando llegan como prop
   useEffect(() => {
-    if (fromLocationId && product?.categoria === 'celular') {
-      inventoryServiceInstance.getAvailableIMEIs(product.id, fromLocationId)
-        .then(setAvailableImeis)
-        .catch(console.error)
-    } else {
+    if (!open) return
+    if (initialFromLocationId) setValue('fromLocationId', initialFromLocationId)
+    if (initialToLocationId) setValue('toLocationId', initialToLocationId)
+  }, [open, initialFromLocationId, initialToLocationId, setValue])
+
+  useEffect(() => {
+    if (!product || !fromLocationId || !isSerializedProduct) {
       setAvailableImeis([])
+      setSelectedImeis([])
+      setOriginScanInput('')
+      return
     }
+
+    inventoryServiceInstance
+      .getAvailableIMEIs(product.id, fromLocationId)
+      .then(setAvailableImeis)
+      .catch(error => {
+        console.error('Error cargando IMEIs disponibles:', error)
+        setAvailableImeis([])
+      })
+
     setSelectedImeis([])
-  }, [fromLocationId, product])
+    setOriginScanInput('')
+  }, [fromLocationId, isSerializedProduct, product])
 
-  const loadLocations = async () => {
-    setLoading(true)
-    try {
-      const data = await inventoryServiceInstance.getLocations()
-      setLocations(data.filter(l => l.activo))
-    } catch (error) {
-      console.error('Error al cargar ubicaciones:', error)
-      toast.error('Error al cargar ubicaciones')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (!open || !isSerializedProduct || !fromLocationId || cantidad <= 0) {
+      return
     }
-  }
 
-  // Obtener stock disponible en ubicación origen
-  const getAvailableStock = () => {
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+  }, [open, isSerializedProduct, fromLocationId, cantidad])
+
+  const availableStock = useMemo(() => {
     if (!product || !fromLocationId) return 0
-    const stockItem = product.stock_items?.find(s => s.location_id === fromLocationId)
+    const stockItem = product.stock_items?.find(item => item.location_id === fromLocationId)
     const disponible = stockItem?.cantidad_disponible || 0
     const reservado = stockItem?.cantidad_reservada || 0
     return Math.max(disponible - reservado, 0)
+  }, [fromLocationId, product])
+
+  const fromLocation = locations.find(location => location.id === fromLocationId)
+  const toLocation = locations.find(location => location.id === toLocationId)
+  const availableDestinations = locations.filter(location => location.id !== fromLocationId)
+
+  const handleFromLocationChange = (value: string, onChange: (val: number | undefined) => void) => {
+    const parsed = value ? Number(value) : undefined
+    onChange(parsed)
+
+    setValue('toLocationId', undefined as unknown as TransferStockFormValues['toLocationId'], {
+      shouldValidate: false,
+      shouldDirty: false
+    })
+    setValue('cantidad', 0 as TransferStockFormValues['cantidad'], {
+      shouldValidate: false,
+      shouldDirty: false
+    })
+
+    setSelectedImeis([])
+    setAvailableImeis([])
+    setOriginScanInput('')
+    clearErrors(['toLocationId', 'cantidad'])
   }
 
-  // Ubicaciones de destino disponibles (excluir la de origen)
-  const availableDestinations = locations.filter(l => l.id !== fromLocationId)
+  const normalizeImeiForScanner = (value: string): string => {
+    const cleaned = value.replace(/\D/g, '')
+    if (cleaned.length === 14) {
+      try {
+        return cleaned + calculateLuhnCheckDigit(cleaned)
+      } catch {
+        return cleaned
+      }
+    }
+    return cleaned
+  }
+
+  const handleScanOriginImei = () => {
+    const scanned = normalizeImeiForScanner(originScanInput.trim())
+    if (!scanned) {
+      toast.error('Escanea o escribe un IMEI válido')
+      return
+    }
+
+    if (scanned.length !== 15) {
+      toast.error('El IMEI escaneado debe tener 15 dígitos')
+      return
+    }
+
+    if (!cantidad || cantidad <= 0) {
+      toast.error('Primero indica la cantidad a transferir')
+      return
+    }
+
+    if (!fromLocationId) {
+      toast.error('Selecciona la ubicación origen antes de escanear')
+      return
+    }
+
+    if (!availableImeis.includes(scanned)) {
+      toast.error('Este IMEI no está disponible en la ubicación origen seleccionada')
+      setOriginScanInput('')
+      requestAnimationFrame(() => scannerInputRef.current?.focus())
+      return
+    }
+
+    if (selectedImeis.includes(scanned)) {
+      toast.error('Este IMEI ya fue escaneado en origen')
+      setOriginScanInput('')
+      requestAnimationFrame(() => scannerInputRef.current?.focus())
+      return
+    }
+
+    if (selectedImeis.length >= cantidad) {
+      toast.error(`Ya se escanearon las ${cantidad} unidades requeridas`)
+      setOriginScanInput('')
+      requestAnimationFrame(() => scannerInputRef.current?.focus())
+      return
+    }
+
+    setSelectedImeis(previous => [...previous, scanned])
+    setOriginScanInput('')
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+  }
 
   const onSubmitForm = async (values: TransferStockFormValues) => {
     if (!product) {
@@ -135,37 +228,31 @@ export function TransferStockDialog({
       return
     }
 
-    const cantidadNum = values.cantidad
-    const fromId = values.fromLocationId
-    const toId = values.toLocationId
-
-    if (product.categoria === 'celular' && selectedImeis.length !== cantidadNum) {
-      toast.error(`Debes seleccionar ${cantidadNum} IMEIs para transferir`)
+    if (isSerializedProduct && selectedImeis.length !== values.cantidad) {
+      toast.error(`Debes escanear ${values.cantidad} IMEIs en la ubicación origen para transferir`)
       return
     }
 
+    const payload: CreateStockTransferRequest = {
+      product_id: product.id,
+      from_location_id: values.fromLocationId,
+      to_location_id: values.toLocationId,
+      cantidad: values.cantidad,
+      notas: values.notas,
+      imeis: selectedImeis.length > 0 ? selectedImeis : undefined,
+      created_by: 'Sistema'
+    }
+
     setIsSubmitting(true)
-
     try {
-      const transferData: CreateStockTransferRequest = {
-        product_id: product.id,
-        from_location_id: fromId,
-        to_location_id: toId,
-        cantidad: cantidadNum,
-        imeis: selectedImeis.length > 0 ? selectedImeis : undefined,
-        notas: values.notas,
-        created_by: 'Sistema'
-      }
+      await inventoryServiceInstance.createStockTransfer(payload)
 
-      await inventoryServiceInstance.createStockTransfer(transferData)
+      const fromName = locations.find(location => location.id === values.fromLocationId)?.nombre
+      const toName = locations.find(location => location.id === values.toLocationId)?.nombre
 
-      const fromLoc = locations.find(l => l.id === fromId)
-      const toLoc = locations.find(l => l.id === toId)
-
-      toast.success(
-        `✅ Transferencia creada: ${cantidadNum} unidades de "${fromLoc?.nombre}" → "${toLoc?.nombre}"`,
-        { duration: 5000 }
-      )
+      toast.success(`✅ Transferencia creada: ${values.cantidad} unidades de "${fromName}" → "${toName}"`, {
+        duration: 5000
+      })
 
       onTransferComplete()
       onOpenChange(false)
@@ -178,10 +265,6 @@ export function TransferStockDialog({
   }
 
   if (!product) return null
-
-  const availableStock = getAvailableStock()
-  const fromLocation = locations.find(l => l.id === fromLocationId)
-  const toLocation = locations.find(l => l.id === toLocationId)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -198,7 +281,6 @@ export function TransferStockDialog({
 
         <form onSubmit={handleFormSubmit(onSubmitForm)}>
           <div className="space-y-4 py-4">
-            {/* Información del producto */}
             <div className="rounded-lg border-2 border-primary/20 p-4 bg-primary/5">
               <div className="flex items-center gap-3">
                 <Package className="w-8 h-8 text-primary" weight="duotone" />
@@ -215,38 +297,38 @@ export function TransferStockDialog({
               <div className="text-center py-4 text-muted-foreground">Cargando ubicaciones...</div>
             ) : (
               <>
-                {/* Ubicación de origen */}
                 <div className="grid gap-2">
-                  <Label htmlFor="from_location">Desde (Ubicación Origen) *</Label>
+                  <Label htmlFor="from_location">Ubicación origen *</Label>
                   <Controller
                     control={control}
                     name="fromLocationId"
                     render={({ field }) => (
                       <Select
-                        value={field.value ? field.value.toString() : ''}
+                        value={field.value ? String(field.value) : ''}
                         onValueChange={value => handleFromLocationChange(value, field.onChange)}
                       >
                         <SelectTrigger id="from_location">
-                          <SelectValue placeholder="Selecciona ubicación de origen" />
+                          <SelectValue placeholder="Selecciona ubicación origen" />
                         </SelectTrigger>
                         <SelectContent>
                           {locations.length === 0 ? (
                             <div className="p-2 text-sm text-muted-foreground">No hay ubicaciones disponibles</div>
                           ) : (
                             locations.map(location => {
-                              const stockItem = product.stock_items?.find(s => s.location_id === location.id)
+                              const stockItem = product.stock_items?.find(item => item.location_id === location.id)
                               const disponible = stockItem?.cantidad_disponible || 0
                               const reservado = stockItem?.cantidad_reservada || 0
-                              const stock = Math.max(disponible - reservado, 0)
+                              const stockLibre = Math.max(disponible - reservado, 0)
+
                               return (
-                                <SelectItem key={location.id} value={location.id.toString()} disabled={stock === 0}>
+                                <SelectItem key={location.id} value={String(location.id)} disabled={stockLibre === 0}>
                                   <div className="flex items-center justify-between gap-3 w-full">
                                     <div className="flex items-center gap-2">
                                       <MapPin className="w-4 h-4" weight="fill" />
                                       <span>{location.nombre}</span>
                                     </div>
-                                    <Badge variant={stock > 0 ? 'default' : 'secondary'} className="ml-2">
-                                      {stock} unid.
+                                    <Badge variant={stockLibre > 0 ? 'default' : 'secondary'} className="ml-2">
+                                      {stockLibre} unid.
                                     </Badge>
                                   </div>
                                 </SelectItem>
@@ -257,10 +339,8 @@ export function TransferStockDialog({
                       </Select>
                     )}
                   />
-                  {errors.fromLocationId && (
-                    <p className="text-xs text-red-600">{errors.fromLocationId.message}</p>
-                  )}
-                  {fromLocationId && fromLocation && (
+                  {errors.fromLocationId && <p className="text-xs text-red-600">{errors.fromLocationId.message}</p>}
+                  {fromLocation && (
                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                       <MapPin className="w-3 h-3" />
                       {fromLocation.tipo} • Stock disponible: <strong>{availableStock} unidades</strong>
@@ -268,9 +348,8 @@ export function TransferStockDialog({
                   )}
                 </div>
 
-                {/* Ubicación de destino */}
                 <div className="grid gap-2">
-                  <Label htmlFor="to_location">Hacia (Ubicación Destino) *</Label>
+                  <Label htmlFor="to_location">Ubicación recepción *</Label>
                   {!fromLocationId ? (
                     <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/50 text-muted-foreground">
                       <AlertCircle className="w-4 h-4" />
@@ -279,9 +358,7 @@ export function TransferStockDialog({
                   ) : availableDestinations.length === 0 ? (
                     <div className="flex items-center gap-2 p-3 rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800">
                       <AlertCircle className="w-4 h-4" />
-                      <span className="text-sm">
-                        No hay otras ubicaciones disponibles para transferencia
-                      </span>
+                      <span className="text-sm">No hay otras ubicaciones disponibles para transferencia</span>
                     </div>
                   ) : (
                     <>
@@ -290,16 +367,16 @@ export function TransferStockDialog({
                         name="toLocationId"
                         render={({ field }) => (
                           <Select
-                            value={field.value ? field.value.toString() : ''}
+                            value={field.value ? String(field.value) : ''}
                             onValueChange={value => field.onChange(value ? Number(value) : undefined)}
                             disabled={!fromLocationId}
                           >
                             <SelectTrigger id="to_location">
-                              <SelectValue placeholder="Selecciona ubicación de destino" />
+                              <SelectValue placeholder="Selecciona ubicación recepción" />
                             </SelectTrigger>
                             <SelectContent>
                               {availableDestinations.map(location => (
-                                <SelectItem key={location.id} value={location.id.toString()}>
+                                <SelectItem key={location.id} value={String(location.id)}>
                                   <div className="flex items-center gap-2">
                                     <MapPin className="w-4 h-4" weight="fill" />
                                     <span>{location.nombre}</span>
@@ -313,10 +390,8 @@ export function TransferStockDialog({
                           </Select>
                         )}
                       />
-                      {errors.toLocationId && (
-                        <p className="text-xs text-red-600">{errors.toLocationId.message}</p>
-                      )}
-                      {toLocationId && toLocation && (
+                      {errors.toLocationId && <p className="text-xs text-red-600">{errors.toLocationId.message}</p>}
+                      {toLocation && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
                           {toLocation.direccion || `${toLocation.tipo} sin dirección`}
@@ -326,9 +401,8 @@ export function TransferStockDialog({
                   )}
                 </div>
 
-                {/* Cantidad */}
                 <div className="grid gap-2">
-                  <Label htmlFor="cantidad">Cantidad a Transferir *</Label>
+                  <Label htmlFor="cantidad">Cantidad a transferir *</Label>
                   <Controller
                     control={control}
                     name="cantidad"
@@ -339,8 +413,8 @@ export function TransferStockDialog({
                         min="1"
                         max={availableStock}
                         value={field.value ?? ''}
-                        onChange={e => {
-                          const value = e.target.value
+                        onChange={event => {
+                          const value = event.target.value
                           field.onChange(value === '' ? undefined : Number(value))
                           clearErrors('cantidad')
                         }}
@@ -350,9 +424,7 @@ export function TransferStockDialog({
                       />
                     )}
                   />
-                  {errors.cantidad && (
-                    <p className="text-xs text-red-600">{errors.cantidad.message}</p>
-                  )}
+                  {errors.cantidad && <p className="text-xs text-red-600">{errors.cantidad.message}</p>}
                   {fromLocationId && (
                     <p className="text-xs text-muted-foreground">
                       Máximo disponible: <strong>{availableStock} unidades</strong>
@@ -360,63 +432,76 @@ export function TransferStockDialog({
                   )}
                 </div>
 
-                {/* IMEI Selector */}
-                {product.categoria === 'celular' && fromLocationId && (
+                {isSerializedProduct && fromLocationId && (
                   <div className="grid gap-2">
-                    <Label>Seleccionar IMEIs ({selectedImeis.length}/{cantidad || 0})</Label>
-                    <div className="bg-muted/30 p-3 rounded-lg border border-dashed">
+                    <Label>Escanear IMEIs en origen ({selectedImeis.length}/{cantidad || 0})</Label>
+                    <div className="bg-muted/30 p-3 rounded-lg border border-dashed space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          ref={scannerInputRef}
+                          autoFocus
+                          value={originScanInput}
+                          onChange={event => setOriginScanInput(event.target.value)}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              handleScanOriginImei()
+                            }
+                          }}
+                          placeholder="Escanea o escribe IMEI en ubicación origen"
+                          disabled={!fromLocationId || !cantidad || availableImeis.length === 0}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleScanOriginImei}
+                          disabled={!originScanInput.trim() || !fromLocationId || !cantidad || availableImeis.length === 0}
+                        >
+                          Registrar
+                        </Button>
+                      </div>
+
                       {availableImeis.length === 0 ? (
-                        <div className="text-sm text-muted-foreground italic">
-                          No hay IMEIs disponibles en esta ubicación.
-                        </div>
+                        <div className="text-sm text-muted-foreground italic">No hay IMEIs disponibles en esta ubicación.</div>
                       ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {availableImeis.map(imei => {
-                            const isSelected = selectedImeis.includes(imei)
-                            return (
-                              <div 
+                        <>
+                          <div className="text-xs text-muted-foreground">IMEIs disponibles en origen: {availableImeis.length}</div>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedImeis.map(imei => (
+                              <div
                                 key={imei}
-                                onClick={() => {
-                                  const qty = cantidad || 0
-                                  if (isSelected) {
-                                    setSelectedImeis(prev => prev.filter(i => i !== imei))
-                                  } else {
-                                    if (selectedImeis.length >= qty) {
-                                      if (qty === 0) {
-                                        toast.error('Primero ingresa la cantidad a transferir')
-                                      } else {
-                                        toast.error(`Solo puedes seleccionar ${qty} IMEIs`)
-                                      }
-                                      return
-                                    }
-                                    setSelectedImeis(prev => [...prev, imei])
-                                  }
-                                }}
-                                className={`cursor-pointer px-2 py-1 text-xs rounded border transition-colors ${
-                                  isSelected
-                                    ? 'bg-primary text-primary-foreground border-primary font-medium' 
-                                    : 'bg-background hover:bg-muted border-input'
-                                }`}
+                                className="px-2 py-1 text-xs rounded border bg-primary text-primary-foreground border-primary font-medium cursor-pointer"
+                                onClick={() => setSelectedImeis(previous => previous.filter(item => item !== imei))}
+                                title="Quitar IMEI escaneado"
                               >
                                 {imei}
                               </div>
-                            )
-                          })}
+                            ))}
+                          </div>
+                          {selectedImeis.length === 0 && (
+                            <div className="text-sm text-muted-foreground italic">Aún no se ha escaneado ningún IMEI en origen.</div>
+                          )}
+                        </>
+                      )}
+
+                      {cantidad > selectedImeis.length && cantidad > 0 && (
+                        <div className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Faltan escanear {cantidad - selectedImeis.length} IMEIs en origen
                         </div>
                       )}
-                      {cantidad > selectedImeis.length && cantidad > 0 && (
-                        <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" />
-                          Faltan seleccionar {cantidad - selectedImeis.length} IMEIs
+
+                      {selectedImeis.length > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          Haz clic sobre un IMEI escaneado para quitarlo si hubo error de lectura.
                         </div>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* Notas */}
                 <div className="grid gap-2">
-                  <Label htmlFor="notas">Notas (Opcional)</Label>
+                  <Label htmlFor="notas">Notas (opcional)</Label>
                   <Controller
                     control={control}
                     name="notas"
@@ -435,13 +520,10 @@ export function TransferStockDialog({
                   {errors.notas && <p className="text-xs text-red-600">{errors.notas.message}</p>}
                 </div>
 
-                {/* Resumen de transferencia */}
                 {fromLocationId && toLocationId && cantidad > 0 && (
                   <div className="flex items-center gap-2 p-4 rounded-lg border-2 border-primary/20 bg-primary/5">
                     <div className="flex-1">
-                      <div className="text-sm font-medium text-primary mb-1">
-                        📦 Resumen de Transferencia:
-                      </div>
+                      <div className="text-sm font-medium text-primary mb-1">📦 Resumen de transferencia:</div>
                       <div className="text-sm">
                         <strong>{cantidad} unidades</strong> de <strong>"{fromLocation?.nombre}"</strong>
                         <ArrowsLeftRight className="inline mx-1 w-4 h-4" weight="bold" />
@@ -451,12 +533,13 @@ export function TransferStockDialog({
                   </div>
                 )}
 
-                {/* Advertencia */}
                 <div className="flex items-start gap-2 p-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-800">
                   <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div className="text-xs">
-                    <strong>Importante:</strong> La transferencia se ejecutará inmediatamente. 
-                    El stock se descontará de la ubicación origen y se sumará a la ubicación destino.
+                    <strong>Importante:</strong> La transferencia quedará pendiente de recepción.{' '}
+                    {isSerializedProduct
+                      ? 'Debes escanear cada unidad en origen ahora y volver a escanearla en la ubicación de recepción para completarla.'
+                      : 'La ubicación de recepción deberá confirmar la llegada para completar el movimiento.'}
                   </div>
                 </div>
               </>
@@ -464,26 +547,21 @@ export function TransferStockDialog({
           </div>
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
-            >
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button
               type="submit"
               disabled={
-                isSubmitting || 
-                !fromLocationId || 
-                !toLocationId || 
+                isSubmitting ||
+                !fromLocationId ||
+                !toLocationId ||
                 availableStock === 0 ||
                 cantidad <= 0 ||
-                (product.categoria === 'celular' && cantidad > 0 && selectedImeis.length !== cantidad)
+                (isSerializedProduct && cantidad > 0 && selectedImeis.length !== cantidad)
               }
             >
-              {isSubmitting ? 'Transfiriendo...' : 'Transferir Stock'}
+              {isSubmitting ? 'Registrando...' : 'Registrar Transferencia'}
             </Button>
           </DialogFooter>
         </form>

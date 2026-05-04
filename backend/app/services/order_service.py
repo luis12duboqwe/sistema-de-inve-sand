@@ -33,6 +33,49 @@ from app.utils.stock_manager import StockManager
 logger = logging.getLogger(__name__)
 
 
+def normalize_transfer_reference(reference: Optional[str]) -> Optional[str]:
+    """Normaliza referencia para comparación anti-duplicados.
+
+    Reglas:
+    - Trim
+    - Uppercase
+    - Solo alfanumérico (remueve espacios, guiones y símbolos)
+    """
+    if reference is None:
+        return None
+    raw = str(reference).strip().upper()
+    if not raw:
+        return None
+    normalized = "".join(ch for ch in raw if ch.isalnum())
+    return normalized or None
+
+
+def ensure_unique_transfer_reference(
+    db: Session,
+    normalized_reference: Optional[str],
+    *,
+    exclude_order_id: Optional[int] = None,
+) -> None:
+    """Valida que la referencia de transferencia no exista en otra orden."""
+    if not normalized_reference:
+        return
+
+    query = db.query(Order).filter(Order.transfer_reference_normalized == normalized_reference)
+    if exclude_order_id is not None:
+        query = query.filter(Order.id != exclude_order_id)
+
+    duplicated_order = query.order_by(Order.created_at.desc()).first()
+    if duplicated_order:
+        created_label = duplicated_order.created_at.strftime("%d/%m/%Y %H:%M") if duplicated_order.created_at else "N/A"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"La referencia de transferencia ya fue usada en la orden #{duplicated_order.id} "
+                f"({created_label}, cliente: {duplicated_order.customer_name})."
+            ),
+        )
+
+
 def resolve_user_label(
     current_user: Optional[User],
     sales_profile: Optional[SalesProfile] = None,
@@ -93,6 +136,12 @@ class OrderService:
 
             user_identifier = resolve_user_label(current_user, sales_profile, legacy_profile)
 
+            transfer_bank_name, transfer_reference, transfer_reference_normalized = self._resolve_transfer_payment_data(order)
+            ensure_unique_transfer_reference(
+                self.db,
+                transfer_reference_normalized,
+            )
+
             sale_batch = self._prepare_sale_batch(
                 items_payload=order.items,
                 location_id=location_id_value,
@@ -127,6 +176,9 @@ class OrderService:
                 customer_phone=customer_phone_str,
                 total=total_final,
                 financing_details_json=financing_details_json,
+                transfer_bank_name=transfer_bank_name,
+                transfer_reference=transfer_reference,
+                transfer_reference_normalized=transfer_reference_normalized,
             )
 
             if order.trade_ins:
@@ -201,6 +253,9 @@ class OrderService:
         customer_phone: Optional[str],
         total: Decimal,
         financing_details_json: Optional[str],
+        transfer_bank_name: Optional[str],
+        transfer_reference: Optional[str],
+        transfer_reference_normalized: Optional[str],
     ) -> Order:
         db_order = Order(
             profile_id=profile_id_for_order,
@@ -210,6 +265,9 @@ class OrderService:
             customer_phone=customer_phone,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
+            transfer_bank_name=transfer_bank_name,
+            transfer_reference=transfer_reference,
+            transfer_reference_normalized=transfer_reference_normalized,
             total=total,
             financing_details=financing_details_json,
             estado="pendiente",
@@ -219,6 +277,37 @@ class OrderService:
         self.db.add(db_order)
         self.db.flush()
         return db_order
+
+    def _resolve_transfer_payment_data(
+        self,
+        order: OrderCreate,
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        if order.metodo_pago != "transferencia":
+            return None, None, None
+
+        bank_name = (order.transfer_bank_name or "").strip()
+        transfer_reference = (order.transfer_reference or "").strip()
+
+        if not bank_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe indicar el banco cuando el método de pago es transferencia",
+            )
+
+        if not transfer_reference:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe indicar el número de referencia cuando el método de pago es transferencia",
+            )
+
+        normalized = normalize_transfer_reference(transfer_reference)
+        if not normalized:
+            raise HTTPException(
+                status_code=400,
+                detail="El número de referencia de transferencia no es válido",
+            )
+
+        return bank_name, transfer_reference, normalized
 
     def _persist_order_items(
         self,

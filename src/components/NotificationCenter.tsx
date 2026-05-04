@@ -3,76 +3,53 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { Bell, Warning, Package, X, CheckCircle, TrendDown, Lightbulb } from '@phosphor-icons/react'
-import type { ProductWithStock, Profile, OrderWithItems, Location } from '@/lib/types'
+import { Bell, Warning, Package, X, CheckCircle } from '@phosphor-icons/react'
+import type { ProductWithStock, Profile, Location } from '@/lib/types'
 import { useKV } from '@/hooks/use-kv'
+import { getKV } from '@/lib/kvStorage'
 
 interface Notification {
   id: string
-  type: 'low_stock' | 'out_of_stock' | 'restock_needed' | 'optimization_score'
+  type: 'low_stock' | 'out_of_stock' | 'restock_needed'
   productName?: string
   profileName: string
   currentStock?: number
   threshold: number
   timestamp: number
-  score?: number
-  previousScore?: number
-  trend?: 'declining' | 'stable' | 'improving'
 }
 
 interface NotificationCenterProps {
   products: ProductWithStock[]
   profiles: Profile[]
   locations?: Location[]
-  orders?: OrderWithItems[]
-  onOpenOptimization?: () => void
 }
 
-function calculateSimpleOptimizationScore(products: ProductWithStock[], orders: OrderWithItems[]): number {
-  const activeProducts = products.filter(p => p.activo)
-  if (activeProducts.length === 0) return 100
-
-  let score = 0
-  
-  const lowStockCount = activeProducts.filter(p => p.stock_disponible < 5).length
-  const stockHealthScore = Math.max(0, 100 - (lowStockCount / activeProducts.length) * 100)
-  score += stockHealthScore * 0.4
-  
-  const thirtyDaysAgo = new Date()
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const recentOrders = orders.filter(o => new Date(o.created_at) >= thirtyDaysAgo)
-  const salesVelocityScore = Math.min(100, (recentOrders.length / activeProducts.length) * 20)
-  score += salesVelocityScore * 0.3
-
-  score += 70 * 0.15
-  score += 75 * 0.10
-  score += 80 * 0.05
-
-  return Math.round(score)
-}
-
-export function NotificationCenter({ products, profiles, locations = [], orders = [], onOpenOptimization }: NotificationCenterProps) {
+export function NotificationCenter({ products, profiles, locations = [] }: NotificationCenterProps) {
   const [notifications, setNotifications] = useKV<Notification[]>('notifications', [])
   const [dismissedIds, setDismissedIds] = useKV<string[]>('dismissed-notifications', [])
   const [open, setOpen] = useState(false)
-  const [optimizationAlertEnabled] = useKV<boolean>(
-    'optimization-alerts-enabled',
-    true
-  )
-  const [optimizationThreshold] = useKV<number>(
-    'optimization-threshold',
-    70
-  )
-  const [lastOptimizationCheck, setLastOptimizationCheck] = useKV<number>(
-    'last-optimization-check',
-    0
-  )
-  const [lastOptimizationScore, setLastOptimizationScore] = useKV<number>(
-    'last-optimization-score',
-    0
-  )
   const [notificationSettings] = useKV<any>('notification-settings', {})
   const lowStockThresholdSetting = notificationSettings?.lowStockThreshold
+
+  useEffect(() => {
+    const cleanupLegacyOptimizationKeys = async () => {
+      try {
+        const kv = getKV()
+        const legacyKeys = [
+          'optimization-alerts-enabled',
+          'optimization-threshold',
+          'last-optimization-check',
+          'last-optimization-score',
+        ]
+
+        await Promise.all(legacyKeys.map((key) => kv.delete(key)))
+      } catch (error) {
+        console.error('Error cleaning legacy optimization keys:', error)
+      }
+    }
+
+    cleanupLegacyOptimizationKeys()
+  }, [])
 
   useEffect(() => {
     const newNotifications: Notification[] = []
@@ -147,67 +124,13 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
       }
     })
 
-    const now = Date.now()
-    const hoursSinceLastCheck = (now - (lastOptimizationCheck ?? 0)) / (1000 * 60 * 60)
-    
-    if (optimizationAlertEnabled && hoursSinceLastCheck >= 1) {
-      profiles.filter(p => p.active).forEach(profile => {
-        // V2.0: Products are global, no profile filter needed
-        const profileProducts = products.filter(p => p.activo)
-        // V2.0: Orders filter by sales_profile_id (sales channel)
-        const profileOrders = orders.filter(o => o.sales_profile_id === profile.id)
-        
-        if (profileProducts.length > 0) {
-          const currentScore = calculateSimpleOptimizationScore(profileProducts, profileOrders)
-          const threshold = optimizationThreshold ?? 70
-          
-          if (currentScore < threshold) {
-            const notifId = `opt-${profile.id}-${Math.floor(now / (1000 * 60 * 60 * 24))}`
-            
-            if (!(dismissedIds ?? []).includes(notifId)) {
-              let trend: 'declining' | 'stable' | 'improving' = 'stable'
-              const previousScore = lastOptimizationScore ?? currentScore
-              
-              if (currentScore < previousScore - 5) {
-                trend = 'declining'
-              } else if (currentScore > previousScore + 5) {
-                trend = 'improving'
-              }
-              
-              newNotifications.push({
-                id: notifId,
-                type: 'optimization_score',
-                profileName: profile.name,
-                threshold,
-                timestamp: now,
-                score: currentScore,
-                previousScore,
-                trend
-              })
-            }
-          }
-          
-          setLastOptimizationScore(currentScore)
-        }
-      })
-      
-      setLastOptimizationCheck(now)
-    }
-
     setNotifications(newNotifications)
   }, [
     products,
     profiles,
-    orders,
     locations,
     dismissedIds,
-    optimizationAlertEnabled,
-    optimizationThreshold,
     setNotifications,
-    lastOptimizationCheck,
-    lastOptimizationScore,
-    setLastOptimizationCheck,
-    setLastOptimizationScore,
     lowStockThresholdSetting
   ])
 
@@ -227,8 +150,6 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
         return <X size={18} weight="bold" className="text-destructive" />
       case 'low_stock':
         return <Warning size={18} weight="bold" className="text-warning" />
-      case 'optimization_score':
-        return <TrendDown size={18} weight="bold" className="text-accent" />
       default:
         return <Package size={18} weight="bold" className="text-accent" />
     }
@@ -240,10 +161,6 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
         return 'Sin stock disponible'
       case 'low_stock':
         return `Stock bajo: ${notif.currentStock} unidades`
-      case 'optimization_score': {
-        const trendText = notif.trend === 'declining' ? '📉 Bajando' : notif.trend === 'improving' ? '📈 Mejorando' : '→ Estable'
-        return `Score de optimización: ${notif.score}/100 ${trendText}`
-      }
       default:
         return 'Actualización de stock'
     }
@@ -296,15 +213,7 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
               {activeNotifications.map(notif => (
                 <div
                   key={notif.id}
-                  className={`p-4 hover:bg-muted/50 transition-colors group ${
-                    notif.type === 'optimization_score' ? 'cursor-pointer' : ''
-                  }`}
-                  onClick={() => {
-                    if (notif.type === 'optimization_score' && onOpenOptimization) {
-                      onOpenOptimization()
-                      setOpen(false)
-                    }
-                  }}
+                  className="p-4 hover:bg-muted/50 transition-colors group"
                 >
                   <div className="flex gap-3">
                     <div className="flex-shrink-0 mt-1">
@@ -316,12 +225,6 @@ export function NotificationCenter({ products, profiles, locations = [], orders 
                       )}
                       <p className="text-xs text-muted-foreground">{notif.profileName}</p>
                       <p className="text-xs mt-1">{getNotificationMessage(notif)}</p>
-                      {notif.type === 'optimization_score' && notif.score !== undefined && notif.score < (notif.threshold ?? 70) && (
-                        <div className="flex items-center gap-1 mt-2 text-xs text-accent">
-                          <Lightbulb size={12} weight="fill" />
-                          <span>Toca para ver detalles</span>
-                        </div>
-                      )}
                     </div>
                     <Button
                       variant="ghost"

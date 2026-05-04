@@ -12,7 +12,7 @@ interface UseAIStatusResult {
   isApiMode: boolean
 }
 
-export function useAIStatus(autoRefreshMs: number = 0): UseAIStatusResult {
+export function useAIStatus(autoRefreshMs: number = 0, enabled: boolean = true): UseAIStatusResult {
   const [status, setStatus] = useState<AIStatusResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -20,6 +20,13 @@ export function useAIStatus(autoRefreshMs: number = 0): UseAIStatusResult {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
 
   const refresh = useCallback(async () => {
+    if (!enabled || !useAPI) {
+      setStatus(null)
+      setError(null)
+      setIsLoading(false)
+      return
+    }
+
     setIsLoading(true)
     try {
       const data = await inventoryServiceInstance.getAIStatus()
@@ -31,14 +38,20 @@ export function useAIStatus(autoRefreshMs: number = 0): UseAIStatusResult {
     } finally {
       setIsLoading(false)
     }
-  }, [useAPI])
+  }, [enabled, useAPI])
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus(null)
+      setError(null)
+      setIsLoading(false)
+      return
+    }
     refresh()
-  }, [useAPI, refresh])
+  }, [useAPI, enabled, refresh])
 
   useEffect(() => {
-    if (!autoRefreshMs || autoRefreshMs <= 0) {
+    if (!enabled || !autoRefreshMs || autoRefreshMs <= 0) {
       return
     }
 
@@ -47,7 +60,7 @@ export function useAIStatus(autoRefreshMs: number = 0): UseAIStatusResult {
     }, autoRefreshMs)
 
     return () => clearInterval(id)
-  }, [autoRefreshMs, refresh, useAPI])
+  }, [autoRefreshMs, refresh, useAPI, enabled])
 
   return {
     status,

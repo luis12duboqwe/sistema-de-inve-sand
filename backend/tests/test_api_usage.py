@@ -11,20 +11,15 @@ import unittest
 import sys
 
 import uvicorn
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from postgres_test_utils import create_postgres_test_engine
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 
-# Forzar base de datos de pruebas a un archivo temporal accesible
-TEST_DB_PATH = Path("/tmp/test_api_usage.db")
-os.environ["DATABASE_URL"] = f"sqlite:////{TEST_DB_PATH}"
-
-# Garantiza un estado limpio de base de datos y que las rutas relativas de SQLite
-# apunten al directorio backend para las pruebas.
-for db_path in (PROJECT_ROOT / "inventory.db", BACKEND_DIR / "inventory.db", BACKEND_DIR / "test_api_usage.db", TEST_DB_PATH):
-    if db_path.exists():
-        db_path.unlink()
+TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("api_usage")
 
 # Asegura que el paquete ``app`` sea importable sin depender del cwd
 # que usa unittest al descubrir los tests desde la raíz del proyecto.
@@ -32,27 +27,22 @@ os.chdir(BACKEND_DIR)
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Reconstruir engine/SessionLocal con el DATABASE_URL de pruebas aunque app.main
+# Reconstruir engine/SessionLocal con un esquema aislado de pruebas aunque app.main
 # se haya cargado antes en otros tests.
-import importlib
 import app.database as _db  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-_db.engine = create_engine(
-    os.environ["DATABASE_URL"], connect_args={"check_same_thread": False}
-)
-_db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_db.engine)
+_db.engine = TEST_ENGINE
+_db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
 from app.main import app  # noqa: E402  importado después de fijar el cwd y reconfigurar DB
 
 # En algunos entornos, el lifespan de Uvicorn puede no ejecutar init_db
 # antes de que este test llame a /api/init-data. Creamos tablas explícitamente
-# para evitar 500 por "no such table" en SQLite.
+# para evitar errores por tablas faltantes.
 from app import models as _models  # noqa: E402,F401
 from app.database import init_db  # noqa: E402
 
-# Este archivo levanta Uvicorn real y usa la DB en archivo.
+# Este archivo levanta Uvicorn real y usa un esquema aislado en PostgreSQL.
 # Aun así, varias rutas (ej: POST /api/products) requieren permisos.
 # Para evitar manejar tokens aquí, forzamos un usuario superusuario.
 from app.auth import get_current_active_user, get_current_superuser, get_current_user  # noqa: E402
@@ -135,6 +125,7 @@ class ApiUsageTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.should_exit = True
         cls.thread.join(timeout=5)
+        cleanup_test_schema()
 
     def _create_product(self, *, price: Decimal = Decimal("99.99"), stock: int = 5, categoria: str = "accesorio"):
         sku = f"TEST-{uuid.uuid4().hex[:8]}"

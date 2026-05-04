@@ -143,9 +143,9 @@ class _SafeSparkKV implements SparkKV {
  */
 export function getKVStorage(): SparkKV {
   // Verificar si spark.kv está disponible
-  if (typeof window !== 'undefined' && window.spark?.kv) {
+  if (typeof window !== 'undefined' && (window as any).spark?.kv) {
     // Validar que spark.kv tenga los métodos necesarios
-    const kv = window.spark.kv
+    const kv = (window as any).spark.kv
     if (typeof kv.get === 'function' && 
         typeof kv.set === 'function' && 
         typeof kv.delete === 'function' && 

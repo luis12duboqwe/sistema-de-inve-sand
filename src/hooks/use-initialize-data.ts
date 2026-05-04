@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-// import { initialProfiles, initialProducts, initialStock, initialOrders, initialOrderItems } from '@/lib/initialData'
 
 export function useInitializeData() {
   const [isInitialized, setIsInitialized] = useState(false)

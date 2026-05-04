@@ -26,6 +26,7 @@ class CanalEnum(str, Enum):
     WHATSAPP = "whatsapp"
     FACEBOOK = "facebook"
     INSTAGRAM = "instagram"
+    TIENDA = "tienda"
 
 
 class MetodoPagoEnum(str, Enum):
@@ -44,6 +45,7 @@ class EstadoOrdenEnum(str, Enum):
     POR_ENTREGAR = "por_entregar"
     COMPLETADA = "completada"
     CANCELADA = "cancelada"
+    VALIDADA = "validada"  # Validada por admin en cierre de día
 
 
 class EstadoTransferenciaEnum(str, Enum):
@@ -59,6 +61,7 @@ class OrderItemCreate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000)
     precio_unitario: Optional[Decimal] = Field(None, ge=0)
+    costo_unitario: Optional[Decimal] = Field(None, ge=0)
     es_regalo_promocion: bool = False
     imeis: Optional[List[str]] = None
 
@@ -79,6 +82,7 @@ class OrderItemResponse(BaseModel):
     product_id: int
     cantidad: int
     precio_unitario: Decimal
+    costo_unitario: Optional[Decimal] = None
     es_regalo_promocion: bool
     product: ProductResponse
     imeis: Optional[List[str]] = None
@@ -90,6 +94,7 @@ class OrderItemUpdate(BaseModel):
     product_id: int = Field(..., gt=0)
     cantidad: int = Field(..., gt=0, le=1000)
     precio_unitario: Optional[Decimal] = Field(None, ge=0)
+    costo_unitario: Optional[Decimal] = Field(None, ge=0)
     es_regalo_promocion: bool = False
     imeis: Optional[List[str]] = None
 
@@ -228,6 +233,8 @@ class OrderCreate(BaseModel):
     customer_name: str = Field(...)
     customer_phone: str = Field(...)
     metodo_pago: MetodoPagoEnum
+    transfer_bank_name: Optional[str] = Field(None, max_length=120)
+    transfer_reference: Optional[str] = Field(None, max_length=120)
     items: List[OrderItemCreate] = Field(..., min_length=1)
     trade_ins: Optional[List[TradeInCreate]] = None
     notes: Optional[str] = Field(None)
@@ -276,6 +283,26 @@ class OrderCreate(BaseModel):
         except ValidationError as exc:
             raise ValueError(str(exc)) from exc
 
+    @field_validator("transfer_bank_name")
+    @classmethod
+    def validate_transfer_bank_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("transfer_reference")
+    @classmethod
+    def validate_transfer_reference(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if len(cleaned) > 120:
+            raise ValueError("La referencia de transferencia no puede exceder 120 caracteres")
+        return cleaned
+
     @field_validator("source_location_id")
     @classmethod
     def validate_location(cls, value: int) -> int:
@@ -287,6 +314,12 @@ class OrderCreate(BaseModel):
     def validate_profile_slug(self):
         if not self.sales_profile_slug and not self.profile_slug:
             raise ValueError("Debe proporcionar sales_profile_slug (V2.0) o profile_slug (legacy)")
+
+        if self.metodo_pago == MetodoPagoEnum.TRANSFERENCIA:
+            if not self.transfer_bank_name:
+                raise ValueError("Debe indicar el banco cuando el método de pago es transferencia")
+            if not self.transfer_reference:
+                raise ValueError("Debe indicar el número de referencia cuando el método de pago es transferencia")
         return self
 
 
@@ -299,6 +332,8 @@ class OrderResponse(BaseModel):
     customer_phone: str
     canal: str
     metodo_pago: str
+    transfer_bank_name: Optional[str] = None
+    transfer_reference: Optional[str] = None
     total: Decimal
     financing_details: Optional[str] = None
     estado: str
@@ -320,6 +355,8 @@ class OrderListResponse(BaseModel):
     customer_phone: str
     canal: str
     metodo_pago: str
+    transfer_bank_name: Optional[str] = None
+    transfer_reference: Optional[str] = None
     total: Decimal
     estado: str
     notes: Optional[str] = None
@@ -338,6 +375,8 @@ class OrderUpdate(BaseModel):
     customer_phone: Optional[str] = None
     canal: Optional[CanalEnum] = None
     metodo_pago: Optional[MetodoPagoEnum] = None
+    transfer_bank_name: Optional[str] = Field(None, max_length=120)
+    transfer_reference: Optional[str] = Field(None, max_length=120)
     items: Optional[List[OrderItemUpdate]] = Field(None, min_length=1)
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
@@ -349,6 +388,22 @@ class OrderUpdate(BaseModel):
         if value is not None and len(value) == 0:
             raise ValueError("Si proporciona items, la lista debe contener al menos un producto")
         return value
+
+    @field_validator("transfer_bank_name")
+    @classmethod
+    def validate_update_transfer_bank_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("transfer_reference")
+    @classmethod
+    def validate_update_transfer_reference(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
     @field_validator("source_location_id")
     @classmethod

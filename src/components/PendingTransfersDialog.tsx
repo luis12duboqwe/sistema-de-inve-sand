@@ -151,7 +151,7 @@ export function PendingTransfersDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
-            Transferencias Pendientes - {profile.name}
+            Transferencias Pendientes
           </DialogTitle>
           <DialogDescription>
             Revisa y confirma las transferencias entrantes a este perfil

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -63,6 +63,13 @@ class AICustomerResponse(BaseModel):
     reputation_score: int
     daily_message_count: int
     last_interaction_at: Optional[datetime] = None
+    conversation_summary: Optional[str] = None
+    ai_memory_json: Optional[str] = None
+    last_referenced_product_id: Optional[int] = None
+    last_referenced_product_name: Optional[str] = None
+    last_referenced_color: Optional[str] = None
+    last_referenced_variant: Optional[str] = None
+    memory_updated_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -101,3 +108,53 @@ class AIReplyResponse(BaseModel):
 class LinkOrderRequest(BaseModel):
     customer_phone: str
     order_id: int
+
+
+class AICreateOrderItemRequest(BaseModel):
+    product_id: Optional[int] = None
+    product_query: Optional[str] = None
+    cantidad: int = 1
+    precio_unitario: Optional[float] = None
+    imeis: Optional[List[str]] = None
+
+
+class AICreateOrderRequest(BaseModel):
+    sales_profile_slug: str
+    source_location_id: int
+    customer_phone: str
+    customer_name: Optional[str] = None
+    canal: Literal["whatsapp", "facebook", "instagram", "tienda"] = "whatsapp"
+    metodo_pago: Literal["efectivo", "transferencia", "tarjeta", "financiamiento"] = "efectivo"
+    items: List[AICreateOrderItemRequest]
+    notes: Optional[str] = None
+    auto_link_interaction: bool = True
+
+
+class AICreateOrderResponse(BaseModel):
+    status: Literal["created"]
+    order_id: int
+    linked_interaction: bool
+
+
+class AIHandleOrderIntent(BaseModel):
+    source_location_id: int
+    items: List[AICreateOrderItemRequest]
+    canal: Literal["whatsapp", "facebook", "instagram", "tienda"] = "whatsapp"
+    metodo_pago: Literal["efectivo", "transferencia", "tarjeta", "financiamiento"] = "efectivo"
+    notes: Optional[str] = None
+    auto_create: bool = True
+    auto_link_interaction: bool = True
+
+
+class AIHandleMessageRequest(AIReplyRequest):
+    message_id: Optional[str] = None
+    channel_hint: Optional[str] = None
+    order_intent: Optional[AIHandleOrderIntent] = None
+
+
+class AIHandleMessageResponse(BaseModel):
+    reply: str
+    tokens_used: int
+    model: str
+    context: AIContextResponse
+    order: Optional[AICreateOrderResponse] = None

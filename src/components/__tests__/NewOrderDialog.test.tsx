@@ -1,18 +1,18 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
+import { toast } from 'sonner'
 import { NewOrderDialog } from '../NewOrderDialog'
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
-const mockInventoryService = {
+const mockInventoryService = vi.hoisted(() => ({
   getBanks: vi.fn().mockResolvedValue([])
-}
+}))
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 vi.mock('@/lib/inventoryServiceFactory', () => ({
   inventoryServiceInstance: mockInventoryService
 }))
-
-const toast = (await import('sonner')).toast
 
 describe('NewOrderDialog validations', () => {
   beforeEach(() => {

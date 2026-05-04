@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -24,6 +24,40 @@ import type { Profile, Product, Supplier, Location, ProductWithStock } from '@/l
 import { toast } from 'sonner'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
 import { PrintLabelsDialog } from './PrintLabelsDialog'
+
+// Por marca → lista de modelos custom guardados
+const CUSTOM_MODELS_KEY = 'custom_product_models_v1'
+const CUSTOM_COLORS_KEY = 'custom_product_colors_v1'
+
+function loadCustomModels(): Record<string, string[]> {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_MODELS_KEY) || '{}')
+  } catch { return {} }
+}
+
+function saveCustomModel(marca: string, modelo: string) {
+  const data = loadCustomModels()
+  const key = marca.toLowerCase().trim()
+  if (!data[key]) data[key] = []
+  if (!data[key].includes(modelo)) {
+    data[key] = [modelo, ...data[key]].slice(0, 20)
+    localStorage.setItem(CUSTOM_MODELS_KEY, JSON.stringify(data))
+  }
+}
+
+function loadCustomColors(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_COLORS_KEY) || '[]')
+  } catch { return [] }
+}
+
+function saveCustomColor(color: string) {
+  const existing = loadCustomColors()
+  if (!existing.includes(color)) {
+    const updated = [color, ...existing].slice(0, 30)
+    localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(updated))
+  }
+}
 
 // Datos predeterminados para celulares
 const MARCAS_CELULAR = [
@@ -132,6 +166,7 @@ export function NewProductDialog({
   const [stockInicial, setStockInicial] = useState('1')
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined)
   const [imeis, setImeis] = useState<string[]>([''])
+  const [scanInput, setScanInput] = useState('')
   const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -142,6 +177,9 @@ export function NewProductDialog({
   
   // V2.1: Colores dinámicos
   const [availableColors, setAvailableColors] = useState<string[]>(COLORES_GENERICOS)
+  // Custom modelos/colores persistidos
+  const [customModelsForMarca, setCustomModelsForMarca] = useState<string[]>([])
+  const [customColors, setCustomColors] = useState<string[]>(loadCustomColors())
 
   // Moneda configurable
   const [moneda, setMoneda] = useState('HNL')
@@ -149,6 +187,18 @@ export function NewProductDialog({
   // V2.5: Print Labels
   const [createdProduct, setCreatedProduct] = useState<ProductWithStock | null>(null)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
+  const scannerInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Cargar modelos custom cuando cambia la marca
+  useEffect(() => {
+    const marcaKey = (marca === 'Otra' ? marcaOtra : marca).toLowerCase().trim()
+    if (marcaKey) {
+      const data = loadCustomModels()
+      setCustomModelsForMarca(data[marcaKey] ?? [])
+    } else {
+      setCustomModelsForMarca([])
+    }
+  }, [marca, marcaOtra])
 
   // Auto-set serialized flag based on category
   useEffect(() => {
@@ -279,6 +329,7 @@ export function NewProductDialog({
     setStockInicial('1')
     setSupplierId(undefined)
     setImeis([''])
+    setScanInput('')
     setGarantiaCondiciones('')
     // Resetear ubicación a la primera disponible
     if (locations.length > 0) {
@@ -329,6 +380,60 @@ export function NewProductDialog({
     })
   }
 
+  const normalizeImeiForScanner = (value: string): string => {
+    const cleanValue = value.replace(/\D/g, '')
+    if (cleanValue.length === 14) {
+      try {
+        return cleanValue + calculateLuhnCheckDigit(cleanValue)
+      } catch {
+        return cleanValue
+      }
+    }
+    return cleanValue
+  }
+
+  useEffect(() => {
+    if (!open || !isSerialized) {
+      return
+    }
+
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+  }, [open, isSerialized])
+
+  const handleScanImei = () => {
+    const scanned = normalizeImeiForScanner(scanInput.trim())
+    if (!scanned) {
+      toast.error('Escanea o escribe un IMEI válido')
+      return
+    }
+
+    if (scanned.length !== 15) {
+      toast.error('El IMEI escaneado debe tener 15 dígitos')
+      return
+    }
+
+    if (imeis.includes(scanned)) {
+      toast.error('Ese IMEI ya fue registrado en este ingreso')
+      setScanInput('')
+      return
+    }
+
+    const nextIndex = imeis.findIndex(current => !current.trim())
+    if (nextIndex === -1) {
+      toast.error('Ya se completaron todos los IMEIs según el stock inicial')
+      setScanInput('')
+      return
+    }
+
+    setImeis(prev => {
+      const next = [...prev]
+      next[nextIndex] = scanned
+      return next
+    })
+    setScanInput('')
+    requestAnimationFrame(() => scannerInputRef.current?.focus())
+  }
+
   const handleSubmit = async () => {
     if (!sku.trim()) {
       toast.error('Por favor ingresa el SKU del producto')
@@ -358,9 +463,25 @@ export function NewProductDialog({
       toast.error('Por favor ingresa el color del producto')
       return
     }
-    
+
+    // Persistir modelo y color personalizados
+    if (modelo === 'otro' && modeloOtro.trim()) {
+      saveCustomModel(marcaFinal, modeloOtro.trim())
+      setCustomModelsForMarca(loadCustomModels()[(marca === 'Otra' ? marcaOtra : marca).toLowerCase().trim()] ?? [])
+    }
+    if (color === 'Otro' && colorOtro.trim()) {
+      saveCustomColor(colorOtro.trim())
+      setCustomColors(loadCustomColors())
+    }
+
     if (!precio || parseFloat(precio) <= 0) {
       toast.error('Por favor ingresa un precio válido')
+      return
+    }
+
+    // ✅ Validar costo (obligatorio para cálculo de márgenes)
+    if (!costo || parseFloat(costo) < 0) {
+      toast.error('🛑 El COSTO del producto es obligatorio para cálculos de margen. No puede ser negativo.')
       return
     }
     
@@ -374,7 +495,7 @@ export function NewProductDialog({
     try {
       const result = await onSubmit(
         {
-          profile_id: null, // V2.0: Productos globales
+          profile_id: undefined, // V2.0: Productos globales
           supplier_id: supplierId,
           sku,
           nombre,
@@ -487,6 +608,14 @@ export function NewProductDialog({
                         {MODELOS_POR_MARCA[marca].map(m => (
                           <SelectItem key={m} value={m}>{m}</SelectItem>
                         ))}
+                        {customModelsForMarca.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-t mt-1 pt-2">Modelos guardados</div>
+                            {customModelsForMarca.map(m => (
+                              <SelectItem key={`custom-${m}`} value={m}>★ {m}</SelectItem>
+                            ))}
+                          </>
+                        )}
                         <SelectItem value="otro">Otro modelo...</SelectItem>
                       </SelectContent>
                     </Select>
@@ -534,6 +663,14 @@ export function NewProductDialog({
                       {availableColors.map(c => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
+                      {customColors.filter(c => !availableColors.includes(c)).length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-t mt-1 pt-2">Colores guardados</div>
+                          {customColors.filter(c => !availableColors.includes(c)).map(c => (
+                            <SelectItem key={`custom-${c}`} value={c}>★ {c}</SelectItem>
+                          ))}
+                        </>
+                      )}
                       <SelectItem value="Otro">Otro color...</SelectItem>
                     </SelectContent>
                   </Select>
@@ -739,6 +876,30 @@ export function NewProductDialog({
             {isSerialized && (
               <div className="space-y-2">
                 <Label>IMEI (Opcional)</Label>
+                <div className="space-y-2 rounded-md border border-dashed p-3 bg-muted/30">
+                  <Label className="text-sm">Escáner 3nStar SC100-1</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      ref={scannerInputRef}
+                      autoFocus
+                      value={scanInput}
+                      onChange={e => setScanInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleScanImei()
+                        }
+                      }}
+                      placeholder="Escanea IMEI aquí (modo teclado + Enter)"
+                    />
+                    <Button type="button" variant="outline" onClick={handleScanImei} disabled={!scanInput.trim()}>
+                      Registrar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Recomendado: SC100-1 en modo USB HID Keyboard con Enter (CR) al final.
+                  </p>
+                </div>
                 <div className="space-y-2">
                   {imeis.map((imei, index) => (
                     <div key={index} className="flex items-center gap-2">

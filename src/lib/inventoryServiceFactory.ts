@@ -18,7 +18,9 @@ import type {
   StockByLocation,
   CreateReturnRequest,
   Return,
+  IMEIDetail,
   IMEIHistory,
+  ProductIMEI,
   StockHistory,
   TrainingQueueItem,
   Customer,
@@ -41,7 +43,11 @@ import type {
   AIContextResponse,
   AIReplyPayload,
   AIReplyResponse,
+  AIHandleMessagePayload,
+  AIHandleMessageResponse,
   AIInteractionLogPayload,
+  AICreateOrderPayload,
+  AICreateOrderResponse,
   TrainingSubmissionPayload,
   FlagTrollResponse,
   StockHistoryCreateRequest,
@@ -49,6 +55,7 @@ import type {
   BusinessInsightsResponse,
   TradeInPolicy,
   AIStatusResponse,
+  ProductRestockPayload,
   Role,
   Permission,
   User,
@@ -121,6 +128,8 @@ export interface IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -139,9 +148,12 @@ export interface IInventoryService {
   ): Promise<Product | ProductWithStock>
   
   createProduct(product: Omit<ProductWithStock, 'id'>, locationId?: number): Promise<ProductWithStock>
+  getProductByIMEI(imei: string): Promise<ProductWithStock>
+  bulkCreateProducts(products: Partial<ProductWithStock>[], locationId?: number): Promise<ProductWithStock[]>
   
   updateStock(productId: number, cantidad: number, locationId: number): Promise<void>
   updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void>
+  restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock>
   
   updateProduct(
     productId: number,
@@ -193,6 +205,7 @@ export interface IInventoryService {
   getAIStatus(alertsLimit?: number): Promise<AIStatusResponse>
   
   getAvailableIMEIs(productId: number, locationId: number): Promise<string[]>
+  getProductIMEIs(productId: number): Promise<ProductIMEI[]>
   
   getProductByIMEI(imei: string): Promise<ProductWithStock>
 
@@ -218,6 +231,7 @@ export interface IInventoryService {
   listPermissions(): Promise<Permission[]>
 
   getIMEIHistory(imei: string): Promise<IMEIHistory[]>
+  getIMEIDetail(imei: string): Promise<IMEIDetail | null>
   checkWarrantyStatus(imei: string): Promise<WarrantyStatus>
 
   // AI & Customer Methods
@@ -233,6 +247,8 @@ export interface IInventoryService {
   getStockHistory(productId: number, params?: any): Promise<StockHistory[]>
   getAIContext(payload: AIContextPayload): Promise<AIContextResponse>
   generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse>
+  handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse>
+  createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse>
   logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }>
   submitAITrainingExample(payload: TrainingSubmissionPayload): Promise<{ status: string }>
   flagCustomerAsTroll(phoneNumber: string, reason: string): Promise<FlagTrollResponse>
@@ -366,6 +382,8 @@ class LocalServiceWrapper implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -397,6 +415,10 @@ class LocalServiceWrapper implements IInventoryService {
 
   async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
     return this.service.updateStockByLocation(productId, locationId, cantidad)
+  }
+
+  async restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock> {
+    return this.service.restockProduct(productId, payload)
   }
 
   async updateProduct(
@@ -509,9 +531,16 @@ class LocalServiceWrapper implements IInventoryService {
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     return this.service.getAvailableIMEIs(productId, locationId)
   }
+  async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
+    return this.service.getProductIMEIs(productId)
+  }
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     return this.service.createReturn(returnData)
+  }
+
+  async getProductByIMEI(imei: string): Promise<ProductWithStock> {
+    return this.service.getProductByIMEI(imei)
   }
 
   async getReturns(): Promise<Return[]> {
@@ -581,6 +610,9 @@ class LocalServiceWrapper implements IInventoryService {
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
     return this.service.getIMEIHistory(imei)
   }
+  async getIMEIDetail(imei: string): Promise<IMEIDetail | null> {
+    return this.service.getIMEIDetail(imei)
+  }
 
   async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
     return this.service.checkWarrantyStatus(imei)
@@ -632,6 +664,14 @@ class LocalServiceWrapper implements IInventoryService {
 
   async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
     return this.service.generateAIReply(payload)
+  }
+
+  async handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse> {
+    return this.service.handleAIMessage(payload)
+  }
+
+  async createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse> {
+    return this.service.createOrderFromAIIntent(payload)
   }
 
   async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {
@@ -945,6 +985,8 @@ class UnifiedInventoryService implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -1006,6 +1048,16 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error updating stock by location (unified):', error)
       throw error instanceof Error ? error : new Error(`Failed to update stock by location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock> {
+    try {
+      const service = await this.getService()
+      return service.restockProduct(productId, payload)
+    } catch (error) {
+      console.error('Error restocking product (unified):', error)
+      throw error instanceof Error ? error : new Error(`Failed to restock product: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -1296,6 +1348,15 @@ class UnifiedInventoryService implements IInventoryService {
       throw new Error(`Failed to get available IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+  async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
+    try {
+      const service = await this.getService()
+      return service.getProductIMEIs(productId)
+    } catch (error) {
+      console.error('Error getting product IMEIs (unified):', error)
+      throw new Error(`Failed to get product IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     try {
@@ -1305,6 +1366,11 @@ class UnifiedInventoryService implements IInventoryService {
       console.error('Error creating return (unified):', error)
       throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  async getProductByIMEI(imei: string): Promise<ProductWithStock> {
+    const service = await this.getService()
+    return service.getProductByIMEI(imei)
   }
 
   async getReturns(): Promise<Return[]> {
@@ -1476,6 +1542,15 @@ class UnifiedInventoryService implements IInventoryService {
       throw new Error(`Failed to get IMEI history: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+  async getIMEIDetail(imei: string): Promise<IMEIDetail | null> {
+    try {
+      const service = await this.getService()
+      return service.getIMEIDetail(imei)
+    } catch (error) {
+      console.error('Error getting IMEI detail (unified):', error)
+      throw new Error(`Failed to get IMEI detail: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
 
   async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
     try {
@@ -1604,6 +1679,26 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error generating AI reply (unified):', error)
       throw error instanceof Error ? error : new Error('Failed to generate AI reply')
+    }
+  }
+
+  async handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse> {
+    try {
+      const service = await this.getService()
+      return service.handleAIMessage(payload)
+    } catch (error) {
+      console.error('Error handling AI message (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to handle AI message')
+    }
+  }
+
+  async createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse> {
+    try {
+      const service = await this.getService()
+      return service.createOrderFromAIIntent(payload)
+    } catch (error) {
+      console.error('Error creating order from AI intent (unified):', error)
+      throw error instanceof Error ? error : new Error('Failed to create order from AI intent')
     }
   }
 
@@ -1758,6 +1853,10 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.createOrder(request)
   }
 
+  async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
+    return apiClient.cancelOrder(orderId, reason)
+  }
+
   async fetchOrders(salesProfileSlug?: string): Promise<OrderWithItems[]> {
     return apiClient.fetchOrders(salesProfileSlug)
   }
@@ -1844,6 +1943,8 @@ class ApiInventoryService implements IInventoryService {
       customer_phone?: string
       canal?: Order['canal']
       metodo_pago?: Order['metodo_pago']
+      transfer_bank_name?: string
+      transfer_reference?: string
       notas?: string
       items?: Array<{
         id?: number
@@ -1876,6 +1977,10 @@ class ApiInventoryService implements IInventoryService {
 
   async updateStockByLocation(productId: number, locationId: number, cantidad: number): Promise<void> {
     return apiClient.updateStockByLocation(productId, locationId, cantidad)
+  }
+
+  async restockProduct(productId: number, payload: ProductRestockPayload): Promise<ProductWithStock> {
+    return apiClient.restockProduct(productId, payload)
   }
 
   async updateProduct(
@@ -1992,8 +2097,16 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.getAvailableIMEIs(productId, locationId)
   }
 
+  async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
+    return apiClient.fetchProductIMEIs({ product_id: productId })
+  }
+
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     return apiClient.createReturn(returnData)
+  }
+
+  async getProductByIMEI(imei: string): Promise<ProductWithStock> {
+    return apiClient.getProductByIMEI(imei)
   }
 
   async getReturns(): Promise<Return[]> {
@@ -2064,6 +2177,10 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.getIMEIHistory(imei)
   }
 
+  async getIMEIDetail(imei: string): Promise<IMEIDetail | null> {
+    return apiClient.getIMEIDetail(imei)
+  }
+
   async checkWarrantyStatus(imei: string): Promise<WarrantyStatus> {
     return apiClient.checkWarrantyStatus(imei)
   }
@@ -2114,6 +2231,14 @@ class ApiInventoryService implements IInventoryService {
 
   async generateAIReply(payload: AIReplyPayload): Promise<AIReplyResponse> {
     return apiClient.generateAIReply(payload)
+  }
+
+  async handleAIMessage(payload: AIHandleMessagePayload): Promise<AIHandleMessageResponse> {
+    return apiClient.handleAIMessage(payload)
+  }
+
+  async createOrderFromAIIntent(payload: AICreateOrderPayload): Promise<AICreateOrderResponse> {
+    return apiClient.createOrderFromAIIntent(payload)
   }
 
   async logAIInteraction(payload: AIInteractionLogPayload): Promise<{ status: string }> {

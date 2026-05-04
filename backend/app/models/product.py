@@ -93,14 +93,21 @@ class ProductIMEI(Base):
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     location_id = Column(Integer, ForeignKey("locations.id", ondelete="SET NULL"), nullable=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True)
     imei = Column(String, unique=True, nullable=False, index=True)
     vendido = Column(Boolean, default=False, nullable=False, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
     transfer_id = Column(Integer, ForeignKey("stock_transfers.id", ondelete="SET NULL"), nullable=True, index=True)
+    received_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False, index=True)
+    sold_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    acquisition_type = Column(String(50), nullable=True, index=True)
+    received_notes = Column(Text, nullable=True)
+    received_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     product = relationship("Product", back_populates="imeis")
     location = relationship("Location")
+    supplier = relationship("Supplier")
     order = relationship("Order", backref="imeis_vendidos")
     transfer = relationship("StockTransfer", backref="imeis_en_transito")
 
@@ -108,6 +115,7 @@ class ProductIMEI(Base):
         Index("idx_product_imei_vendido", "product_id", "vendido"),
         Index("idx_product_imei_location", "location_id"),
         Index("idx_product_imei_transfer", "transfer_id"),
+        Index("idx_product_imei_supplier", "supplier_id"),
     )
 
 
@@ -167,6 +175,7 @@ class IMEIHistory(Base):
     imei = Column(String, index=True, nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
     event_type = Column(String, nullable=False)
     reference_id = Column(Integer, nullable=True)
     reference_type = Column(String, nullable=True)
@@ -176,6 +185,7 @@ class IMEIHistory(Base):
 
     product = relationship("Product")
     location = relationship("Location")
+    supplier = relationship("Supplier")
 
     __table_args__ = (
         Index("idx_imei_history_imei", "imei"),

@@ -15,8 +15,10 @@ export interface OrderFormDraft {
   sourceLocationId: number | null
   customerName: string
   customerPhone: string
-  canal: 'whatsapp' | 'facebook' | 'instagram'
+  canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   metodoPago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  transferBankName?: string
+  transferReference?: string
   items: OrderItemDraft[]
   tradeIns: (TradeIn & { valor_estimado: number })[]
   notas?: string
@@ -37,6 +39,39 @@ export const ORDER_FIELD_LIMITS = {
   MAX_ORDER_NOTES_LENGTH: 1000,
   MAX_TRADE_IN_NOTES_LENGTH: 500
 }
+
+const numericFieldSchema = (
+  requiredMessage: string,
+  invalidMessage: string,
+  minValue?: number,
+  minMessage?: string
+) =>
+  z.preprocess(
+    value => {
+      if (value === undefined || value === null || value === '') return undefined
+      if (typeof value === 'number') return value
+
+      let normalized = String(value).trim().replace(/\s+/g, '')
+      if (!normalized) return undefined
+
+      if (normalized.includes(',') && normalized.includes('.')) {
+        if (normalized.lastIndexOf(',') > normalized.lastIndexOf('.')) {
+          normalized = normalized.replace(/\./g, '').replace(',', '.')
+        } else {
+          normalized = normalized.replace(/,/g, '')
+        }
+      } else if (normalized.includes(',')) {
+        normalized = normalized.replace(',', '.')
+      }
+
+      const parsed = Number(normalized)
+      return Number.isNaN(parsed) ? value : parsed
+    },
+    z.number({ required_error: requiredMessage, invalid_type_error: invalidMessage }).refine(
+      value => (minValue === undefined ? true : value >= minValue),
+      { message: minMessage ?? `El valor debe ser mayor o igual a ${minValue ?? 0}` }
+    )
+  )
 
 const locationSchema = z.preprocess(
   value => {
@@ -72,10 +107,12 @@ const orderItemSchema = z.object({
     .int({ message: 'La cantidad debe ser un entero' })
     .min(1, { message: 'La cantidad debe ser mayor a 0' }),
   imeis: z.array(z.string().trim().min(3, 'IMEI inválido')).optional(),
-  precio_unitario: z
-    .number({ invalid_type_error: 'El precio debe ser numérico' })
-    .min(0, { message: 'El precio unitario no puede ser negativo' })
-    .optional()
+  precio_unitario: numericFieldSchema(
+    'Ingresa el precio unitario',
+    'El precio debe ser numérico',
+    0,
+    'El precio unitario no puede ser negativo'
+  ).optional()
 })
 
 const tradeInSchema = z.object({
@@ -122,8 +159,10 @@ const orderSchema = z.object({
     .refine(value => validatePhoneNumber(value).valid, {
       message: 'El teléfono del cliente es inválido'
     }),
-  canal: z.enum(['whatsapp', 'facebook', 'instagram']),
+  canal: z.enum(['whatsapp', 'facebook', 'instagram', 'tienda']),
   metodoPago: z.enum(['efectivo', 'transferencia', 'tarjeta', 'financiamiento']),
+  transferBankName: z.string().trim().max(120, { message: 'El banco no puede exceder 120 caracteres' }).optional(),
+  transferReference: z.string().trim().max(120, { message: 'La referencia no puede exceder 120 caracteres' }).optional(),
   items: z.array(orderItemSchema).min(1, { message: 'Agrega al menos un producto' }),
   tradeIns: z.array(tradeInSchema).optional().default([]),
   notas: z
@@ -160,7 +199,26 @@ export const validateOrderForm = (
   }
 
   const resultIssues: ValidationIssue[] = []
-  const { sourceLocationId, metodoPago, selectedBankId, selectedMonths, items, tradeIns } = parsed.data
+  const {
+    sourceLocationId,
+    metodoPago,
+    transferBankName,
+    transferReference,
+    selectedBankId,
+    selectedMonths,
+    items,
+    tradeIns,
+  } = parsed.data
+
+  if (metodoPago === 'transferencia') {
+    if (!transferBankName?.trim()) {
+      resultIssues.push(makeIssue('transferBankName', 'Selecciona o ingresa el banco de la transferencia'))
+    }
+
+    if (!transferReference?.trim()) {
+      resultIssues.push(makeIssue('transferReference', 'Ingresa el número de referencia de la transferencia'))
+    }
+  }
 
   // Productos duplicados
   const seenProducts = new Set<number>()

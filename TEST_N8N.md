@@ -18,6 +18,78 @@ python3 test_n8n_simulation.py
 3. **Pide Contexto (`/api/ai/context`)**: Envía el mensaje "Hola, tienen iPhone 13 disponible?" y muestra lo que el "Cerebro" responde (Inventario, Prompt, etc.).
 4. **Guarda Logs (`/api/ai/log`)**: Registra la conversación en la base de datos.
 5. **Prueba Entrenamiento (`/api/ai/training/submit`)**: Envía una pregunta difícil ("¿Aceptan criptomonedas?") a la cola de revisión.
+6. **Flujo Unificado (`/api/ai/handle-message`)**: Responde, registra conversación y opcionalmente crea orden en una sola llamada.
+
+## Autenticación para n8n
+
+Si tu backend tiene integración protegida, exporta el token antes de correr la simulación:
+
+```bash
+export N8N_AUTH_TOKEN="tu-token-seguro"
+python3 test_n8n_simulation.py
+```
+
+El script enviará `X-N8N-Token` automáticamente cuando exista esa variable.
+
+## Endpoint recomendado para operar sin n8n
+
+Usa una sola llamada para conversación y cierre de venta:
+
+`POST /api/ai/handle-message`
+
+Payload mínimo:
+
+```json
+{
+	"sales_profile_slug": "bot-whatsapp",
+	"customer_phone": "50499998888",
+	"customer_name": "Cliente Demo",
+	"message_content": "Confirmo la compra",
+	"order_intent": {
+		"source_location_id": 1,
+		"canal": "whatsapp",
+		"metodo_pago": "efectivo",
+		"items": [
+			{
+				"product_query": "iPhone 13",
+				"cantidad": 1
+			}
+		],
+		"auto_create": true,
+		"auto_link_interaction": true
+	}
+}
+```
+
+Para productos serializados incluye `imeis` por item.
+
+## Uso directo en frontend (sin n8n)
+
+Puedes usar el orquestador en `src/lib/chatOrchestrator.ts`:
+
+```ts
+import { sendChatMessage, sendChatMessageAndCreateOrder } from '@/lib/chatOrchestrator'
+
+const chatResult = await sendChatMessage({
+	salesProfileSlug: 'bot-whatsapp',
+	customerPhone: '50499998888',
+	customerName: 'Cliente Demo',
+	messageContent: 'Hola, qué modelos tienen?'
+})
+
+const saleResult = await sendChatMessageAndCreateOrder(
+	{
+		salesProfileSlug: 'bot-whatsapp',
+		customerPhone: '50499998888',
+		customerName: 'Cliente Demo',
+		messageContent: 'Confirmo la compra'
+	},
+	{
+		sourceLocationId: 1,
+		items: [{ product_query: 'iPhone 13', cantidad: 1 }]
+	}
+)
+```
 
 ## Resultados Esperados
 

@@ -8,9 +8,45 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_active_user, check_permission
 from app.database import get_db
 from app.models import IMEIHistory, Location, Order, Product, ProductIMEI, User
-from app.schemas import IMEIHistoryResponse, PaginatedResponse, ProductIMEIResponse
+from app.schemas import IMEIDetailResponse, IMEIHistoryResponse, PaginatedResponse, ProductIMEIResponse
 
 router = APIRouter(prefix="/api/imeis", tags=["imeis"])
+
+
+def _serialize_product_imei(record: ProductIMEI) -> ProductIMEIResponse:
+    return ProductIMEIResponse(
+        id=record.id,
+        product_id=record.product_id,
+        location_id=record.location_id,
+        supplier_id=record.supplier_id,
+        imei=record.imei,
+        vendido=record.vendido,
+        order_id=record.order_id,
+        transfer_id=record.transfer_id,
+        received_at=record.received_at,
+        sold_at=record.sold_at,
+        acquisition_type=record.acquisition_type,
+        received_notes=record.received_notes,
+        received_by=record.received_by,
+        created_at=record.created_at,
+        product_name=record.product.nombre if record.product else None,
+        location_name=record.location.nombre if record.location else None,
+        supplier_name=record.supplier.nombre if record.supplier else None,
+    )
+
+
+def _build_imei_status(record: ProductIMEI) -> str:
+    if record.transfer_id:
+        return "en_transito"
+    if record.vendido:
+        return "vendido"
+    return "en_stock"
+
+
+def _build_warranty_expiration(record: ProductIMEI) -> Optional[datetime]:
+    if not record.sold_at or not record.product or not record.product.garantia_meses:
+        return None
+    return record.sold_at + timedelta(days=record.product.garantia_meses * 30)
 
 
 @router.get("", response_model=PaginatedResponse[ProductIMEIResponse])
@@ -29,6 +65,8 @@ def list_product_imeis(
     query = db.query(ProductIMEI).options(
         joinedload(ProductIMEI.product),
         joinedload(ProductIMEI.location),
+        joinedload(ProductIMEI.supplier),
+        joinedload(ProductIMEI.order),
     )
 
     if vendido is not None:
@@ -50,21 +88,7 @@ def list_product_imeis(
         .all()
     )
 
-    items = [
-        ProductIMEIResponse(
-            id=record.id,
-            product_id=record.product_id,
-            location_id=record.location_id,
-            imei=record.imei,
-            vendido=record.vendido,
-            order_id=record.order_id,
-            transfer_id=record.transfer_id,
-            created_at=record.created_at,
-            product_name=record.product.nombre if record.product else None,
-            location_name=record.location.nombre if record.location else None,
-        )
-        for record in imeis
-    ]
+    items = [_serialize_product_imei(record) for record in imeis]
 
     pages = math.ceil(total / per_page) if total else 0
     return PaginatedResponse(
@@ -92,6 +116,7 @@ def list_imei_history(
     query = db.query(IMEIHistory).options(
         joinedload(IMEIHistory.product),
         joinedload(IMEIHistory.location),
+        joinedload(IMEIHistory.supplier),
     )
 
     if imei:
@@ -120,6 +145,8 @@ def list_imei_history(
             payload.product_name = entry.product.nombre
         if entry.location:
             payload.location_name = entry.location.nombre
+        if entry.supplier:
+            payload.supplier_name = entry.supplier.nombre
         results.append(payload)
 
     pages = math.ceil(total / per_page) if total else 0
@@ -197,6 +224,39 @@ def check_warranty_status(
         "customer": order.customer_name
     }
 
+
+@router.get("/detail/{imei}", response_model=IMEIDetailResponse)
+def get_imei_detail(
+    imei: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:view"))
+):
+    record = (
+        db.query(ProductIMEI)
+        .options(
+            joinedload(ProductIMEI.product),
+            joinedload(ProductIMEI.location),
+            joinedload(ProductIMEI.supplier),
+            joinedload(ProductIMEI.order),
+        )
+        .filter(ProductIMEI.imei == imei)
+        .first()
+    )
+
+    if not record:
+        raise HTTPException(status_code=404, detail="IMEI no encontrado en el sistema")
+
+    serialized = _serialize_product_imei(record)
+    return IMEIDetailResponse(
+        **serialized.model_dump(),
+        product_sku=record.product.sku if record.product else None,
+        customer_name=record.order.customer_name if record.order else None,
+        customer_phone=record.order.customer_phone if record.order else None,
+        status_label=_build_imei_status(record),
+        warranty_months=record.product.garantia_meses if record.product else None,
+        warranty_expires_at=_build_warranty_expiration(record),
+    )
+
 @router.get("/history/{imei}", response_model=List[IMEIHistoryResponse])
 def get_imei_history(
     imei: str, 
@@ -213,6 +273,8 @@ def get_imei_history(
             resp.product_name = h.product.nombre
         if h.location:
             resp.location_name = h.location.nombre
+        if h.supplier:
+            resp.supplier_name = h.supplier.nombre
         result.append(resp)
         
     return result

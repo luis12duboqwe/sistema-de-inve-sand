@@ -1,8 +1,14 @@
 from .ai import (
+    AICreateOrderItemRequest,
+    AICreateOrderRequest,
+    AICreateOrderResponse,
     AICustomerResponse,
     AIConfigSchema,
     AIContextRequest,
     AIContextResponse,
+    AIHandleMessageRequest,
+    AIHandleMessageResponse,
+    AIHandleOrderIntent,
     AIReplyRequest,
     AIReplyResponse,
     InteractionLogCreate,
@@ -96,6 +102,7 @@ from .product import (
     IMEIWithLocation,
     ProductBase,
     ProductCreate,
+    ProductRestockRequest,
     ProductResponse,
     ProductUpdate,
     StockByLocationBase,
@@ -104,7 +111,7 @@ from .product import (
     StockByLocationUpdate,
     StockUpdate,
 )
-from .imei import ProductIMEIResponse
+from .imei import IMEIDetailResponse, ProductIMEIResponse
 from .public import PublicProductResponse
 from .rbac import (
     PermissionBase,

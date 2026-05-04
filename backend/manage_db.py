@@ -19,19 +19,12 @@ MIGRATION_ORDER = [
     "migrate_add_ai_intelligence.py",
     "migrate_add_financing.py",
     "migrate_add_returns.py",
-    "migrate_add_trade_in.py",
     "migrate_add_tradein_details.py",
-    "migrate_add_details_to_trade_in.py",
     "migrate_add_trade_in_policies.py",
     "migrate_add_imei_history.py",
-    "migrate_add_transfer_id_to_imei.py",
-    "migrate_add_reserved_stock.py",
-    "migrate_add_is_serialized.py",
-    "migrate_add_color.py",
     "migrate_add_normal_card_rate.py",
-    "migrate_add_settings_to_profile.py",
-    "migrate_add_admin_phone.py",
-    "migrate_v2_fixes.py"
+    "migrate_add_costo_unitario.py",
+    "migrate_add_deduplication_table.py"
 ]
 
 def run_migrations():

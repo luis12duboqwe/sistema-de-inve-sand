@@ -1,5 +1,6 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 class Settings(BaseSettings):
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
     These settings can be overridden by creating a .env file in the backend directory.
     """
     # Database
-    database_url: str = "sqlite:///./inventory.db"
+    database_url: str = ""
     
     # API Server
     api_host: str = "0.0.0.0"
@@ -56,6 +57,13 @@ class Settings(BaseSettings):
             return value
         return [v.strip() for v in value.split(",") if v.strip()]
 
+    @field_validator("cors_origins", "allowed_hosts", mode="before")
+    @classmethod
+    def _parse_csv_list(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return cls._split_csv(value)
+        return value
+
     @staticmethod
     def _normalize_rate(value: float) -> float:
         try:
@@ -64,19 +72,25 @@ class Settings(BaseSettings):
             return 0.0
         return max(0.0, min(1.0, numeric))
 
-    # Permitir CORS_ORIGINS como CSV para despliegues
-    @classmethod
-    def model_validate(cls, value):  # type: ignore[override]
-        if isinstance(value, dict):
-            value = value.copy()
-            if "cors_origins" in value and isinstance(value["cors_origins"], str):
-                value["cors_origins"] = cls._split_csv(value["cors_origins"])
-            if "allowed_hosts" in value and isinstance(value["allowed_hosts"], str):
-                value["allowed_hosts"] = cls._split_csv(value["allowed_hosts"])
-        return super().model_validate(value)
-    
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
+        self.database_url = (self.database_url or "").strip()
+
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL es obligatorio y debe apuntar a PostgreSQL. Ejemplo: postgresql+psycopg2://user:pass@host:5432/inventory_db"
+            )
+
+        if self.database_url.lower().startswith("sqlite"):
+            raise ValueError(
+                "SQLite ya no está soportado. Configura DATABASE_URL con PostgreSQL."
+            )
+
+        if not self.database_url.lower().startswith("postgresql"):
+            raise ValueError(
+                "Solo PostgreSQL está soportado. Usa un DATABASE_URL con prefijo 'postgresql'."
+            )
+
         # Normalize environment for consistent checks
         env_value = (self.environment or "development").strip().lower()
         self.environment = env_value
@@ -94,11 +108,6 @@ class Settings(BaseSettings):
 
         if not self.sentry_environment:
             self.sentry_environment = "production"
-
-        if self.database_url == "sqlite:///./inventory.db":
-            raise ValueError(
-                "DATABASE_URL must be set for production (e.g., postgresql+psycopg2://user:pass@host:5432/inventory)."
-            )
 
         if not self.cors_origins or self.cors_origins == ["*"]:
             raise ValueError(

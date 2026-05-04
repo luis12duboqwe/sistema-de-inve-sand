@@ -1,13 +1,17 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.staticfiles import StaticFiles
 import logging
 
 from app.database import init_db, get_db, check_db_connection
 from app.auth import check_permission
 from app.routers import (
+    channel_integrations,
+    channel_monitoring,
     profiles,
     products,
     orders,
@@ -27,28 +31,25 @@ from app.routers import (
     public,
     forecasting,
     analytics,
-    notifications,
-    webhooks,
-    message_templates,
-    ai_analytics,
-    cash,
-    audit,
-    inventory_count,
-    stock,
-    system_settings,
+    photo_requests,
+    websocket,
+    daily_close,
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
+from app.utils.sentry_config import init_sentry
 from app.config_production import prod_settings
 from app.middleware.request_context import RequestContextMiddleware
+from app.utils.auto_migrations import run_auto_migrations
 from sqlalchemy.orm import Session
 from app.jobs.forecasting_job import start_forecasting_job
 
 # Configurar logging al inicio
 setup_logging()
 initialize_observability()
+init_sentry()  # ✅ Inicializar Sentry para monitoreo
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +59,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up application...")
     init_db()
     app.state.forecast_cache = None
+    
+    # Run auto-migrations
+    run_auto_migrations()
 
     scheduler = None
     if prod_settings.ENABLE_FORECAST_SCHEDULER:
@@ -77,6 +81,10 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 app.add_middleware(RequestContextMiddleware)
 
@@ -132,17 +140,13 @@ app.include_router(suppliers.router)
 app.include_router(financing.router)
 app.include_router(stock_history.router)
 app.include_router(ai_intelligence.router)
+app.include_router(channel_integrations.router)
+app.include_router(channel_monitoring.router)
+app.include_router(photo_requests.router)
+app.include_router(websocket.router)
 app.include_router(forecasting.router)
 app.include_router(analytics.router)
-app.include_router(notifications.router)
-app.include_router(webhooks.router)
-app.include_router(message_templates.router)
-app.include_router(ai_analytics.router)
-app.include_router(cash.router)
-app.include_router(audit.router)
-app.include_router(inventory_count.router)
-app.include_router(stock.router)
-app.include_router(system_settings.router)
+app.include_router(daily_close.router)
 
 @app.get("/")
 def read_root():
