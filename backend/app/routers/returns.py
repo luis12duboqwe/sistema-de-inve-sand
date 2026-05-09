@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from app.auth import check_permission
 from app.services.stock_transaction_helper import PreparedReturnItem, StockTransactionHelper
+from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_validators import validate_location_exists
 from app.utils.stock_manager import StockManager
 
@@ -20,12 +21,16 @@ router = APIRouter(prefix="/api/returns", tags=["returns"])
 @router.get("", response_model=PaginatedResponse[ReturnResponse])
 def list_returns(
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("orders:edit"))
+    current_user: User = Depends(check_permission("orders:view"))
 ):
     """
     Lista todas las devoluciones.
     """
-    returns = db.query(Return).order_by(Return.created_at.desc()).all()
+    query = db.query(Return).join(Order, Order.id == Return.order_id)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+    returns = query.order_by(Return.created_at.desc()).all()
     return PaginatedResponse(
         items=returns,
         total=len(returns),
@@ -54,6 +59,7 @@ def create_return(
 
     # 2. Validar ubicación de origen de la orden (activa)
     source_location = validate_location_exists(db, order.source_location_id)
+    require_location_access(db, current_user, source_location.id, "can_edit")
 
     user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
 

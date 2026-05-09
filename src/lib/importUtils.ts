@@ -69,6 +69,11 @@ function validateProductRow(
   if (isNaN(precio) || precio < 0) {
     errors.push('El precio debe ser un número válido mayor o igual a 0')
   }
+
+  const costo = parseFloat(row.Costo || row.costo || row.Cost || '0')
+  if (isNaN(costo) || costo < 0) {
+    errors.push('El costo debe ser un número válido mayor o igual a 0')
+  }
   
   const stock = parseInt(row.Stock || row.stock || '0')
   if (isNaN(stock) || stock < 0) {
@@ -93,6 +98,7 @@ function validateProductRow(
       capacidad: row.Capacidad?.trim() || row.capacidad?.trim() || row.Capacity?.trim() || '',
       condicion: condicion as 'nuevo' | 'usado' | 'reacondicionado',
       precio: precio,
+      costo: costo,
       moneda: row.Moneda?.trim() || row.moneda?.trim() || row.Currency?.trim() || 'HNL',
       garantia_meses: garantia,
       stock_disponible: stock,
@@ -166,8 +172,8 @@ export function parseProductsCSV(csvContent: string, profileId: number | null) {
 
 export function downloadCSVTemplate() {
   const csvContent = [
-    'SKU,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Moneda,Garantía (meses),Stock',
-    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,HNL,12,5'
+    'SKU,Nombre,Categoría,Marca,Modelo,Capacidad,Condición,Precio,Costo,Moneda,Garantía (meses),Stock',
+    'ABC123,iPhone 13,celular,Apple,13,128GB,nuevo,15000,11000,HNL,12,5'
   ].join('\n')
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })

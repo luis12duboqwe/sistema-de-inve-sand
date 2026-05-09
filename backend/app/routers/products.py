@@ -6,17 +6,54 @@ from sqlalchemy import or_, func
 from typing import List, Optional
 import math
 from app.database import get_db
-from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, StockHistory, IMEIHistory, User
+from app.models import Product, Profile, Stock, Location, Supplier, ProductIMEI, StockHistory, IMEIHistory, StockTransfer, User
 from app.schemas import (
     ProductCreate, ProductResponse, ProductUpdate, ProductRestockRequest, StockUpdate,
     CategoriaEnum, PaginatedResponse, StockByLocationResponse, LocationResponse
 )
 from app.auth import check_permission, get_current_active_user
+from app.utils.location_access import get_accessible_location_ids, require_location_access
+from app.utils.audit import log_audit_event
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 
-def _serialize_product(product: Product) -> ProductResponse:
+def _require_active_location_for_stock(db: Session, current_user: User, location_id: int) -> Location:
+    location = db.query(Location).filter(Location.id == location_id).first()
+    if not location:
+        raise HTTPException(
+            status_code=404,
+            detail=f"La ubicación con ID {location_id} no fue encontrada",
+        )
+    if not location.activo:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La ubicación '{location.nombre}' está inactiva. No se puede modificar stock aquí.",
+        )
+    require_location_access(db, current_user, location_id, "can_edit")
+    return location
+
+
+def _get_default_editable_location(db: Session, current_user: User) -> Optional[Location]:
+    query = db.query(Location).filter(
+        Location.tipo == "tienda",
+        Location.activo == True,
+    )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_edit")
+    if accessible_location_ids is not None:
+        if not accessible_location_ids:
+            return None
+        query = query.filter(Location.id.in_(accessible_location_ids))
+    return query.first()
+
+
+def _extract_imei_location(imei_data) -> tuple[str, int]:
+    imei_val = imei_data.get("imei") if isinstance(imei_data, dict) else imei_data.imei
+    loc_id = imei_data.get("location_id") if isinstance(imei_data, dict) else imei_data.location_id
+    return imei_val.strip(), int(loc_id)
+
+
+def _serialize_product(product: Product, accessible_location_ids: Optional[List[int]] = None) -> ProductResponse:
     """
     Helper function to serialize a Product model to ProductResponse schema.
     
@@ -39,6 +76,8 @@ def _serialize_product(product: Product) -> ProductResponse:
         total_stock = 0
         # Serializar stock_items para V2.0, incluyendo stock libre (descontando reservas)
         for stock_item in product.stock_items:
+            if accessible_location_ids is not None and stock_item.location_id not in accessible_location_ids:
+                continue
             cantidad_reservada = stock_item.cantidad_reservada or 0
             stock_libre = max((stock_item.cantidad_disponible or 0) - cantidad_reservada, 0)
             total_stock += stock_libre
@@ -49,6 +88,8 @@ def _serialize_product(product: Product) -> ProductResponse:
                 location_id=stock_item.location_id,
                 cantidad_disponible=stock_item.cantidad_disponible,
                 cantidad_reservada=cantidad_reservada,
+                cantidad_defectuosa=stock_item.cantidad_defectuosa or 0,
+                stock_libre=stock_libre,
                 location=LocationResponse(
                     id=stock_item.location.id,
                     nombre=stock_item.location.nombre,
@@ -92,7 +133,8 @@ def _serialize_product(product: Product) -> ProductResponse:
 def get_product_imeis(
     product_id: int,
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Obtiene los IMEIs disponibles para un producto, opcionalmente filtrados por ubicación.
@@ -100,18 +142,28 @@ def get_product_imeis(
     query = db.query(ProductIMEI.imei).filter(
         ProductIMEI.product_id == product_id,
         ProductIMEI.vendido == False,
-        ProductIMEI.transfer_id == None  # No incluir los que están en tránsito
+        ProductIMEI.transfer_id == None,  # No incluir los que están en tránsito
+        ProductIMEI.order_id == None,     # No incluir los reservados en órdenes pendientes
     )
     
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+
     if location_id:
+        require_location_access(db, current_user, location_id, "can_view")
         query = query.filter(ProductIMEI.location_id == location_id)
+    elif accessible_location_ids is not None:
+        query = query.filter(ProductIMEI.location_id.in_(accessible_location_ids))
         
     imeis = query.all()
     return [i.imei for i in imeis]
 
 
 @router.get("/imei/{imei}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:view"))])
-def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
+def get_product_by_imei(
+    imei: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Busca un producto por su IMEI.
     Útil para escaneo de códigos de barras en fulfillment.
@@ -119,12 +171,15 @@ def get_product_by_imei(imei: str, db: Session = Depends(get_db)):
     product_imei = db.query(ProductIMEI).filter(ProductIMEI.imei == imei).first()
     if not product_imei:
         raise HTTPException(status_code=404, detail=f"IMEI {imei} no encontrado")
+    if product_imei.location_id:
+        require_location_access(db, current_user, product_imei.location_id, "can_view")
     
     product = db.query(Product).filter(Product.id == product_imei.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto asociado al IMEI no encontrado")
         
-    return _serialize_product(product)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    return _serialize_product(product, accessible_location_ids)
 
 
 @router.get("", response_model=PaginatedResponse[ProductResponse], dependencies=[Depends(check_permission("inventory:view"))])
@@ -134,7 +189,8 @@ def list_products(
     include_inactive: bool = Query(False, description="Incluir productos inactivos y sin stock"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Lista productos con paginación y filtros V2.0.
@@ -164,13 +220,21 @@ def list_products(
     query = db.query(Product).options(
         joinedload(Product.stock_items).joinedload(Stock.location)
     )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
 
     # Filtro por ubicación específica (V2.0) - SEPARADO del joinedload
     if location_id:
+        if accessible_location_ids is not None and location_id not in accessible_location_ids:
+            raise HTTPException(status_code=403, detail="No tiene acceso a esta ubicación")
         # Usar distinct() para evitar cartesian product con joinedload
         query = query.join(Stock, Product.id == Stock.product_id).filter(
             Stock.location_id == location_id,
             Stock.cantidad_disponible > 0
+        ).distinct()
+    elif accessible_location_ids is not None:
+        query = query.join(Stock, Product.id == Stock.product_id).filter(
+            Stock.location_id.in_(accessible_location_ids),
+            Stock.cantidad_disponible > 0,
         ).distinct()
     
     if not include_inactive:
@@ -199,7 +263,7 @@ def list_products(
     products = query.offset(offset).limit(per_page).all()
     
     return PaginatedResponse(
-        items=[_serialize_product(product) for product in products],
+        items=[_serialize_product(product, accessible_location_ids) for product in products],
         total=total,
         page=page,
         per_page=per_page,
@@ -248,7 +312,6 @@ def create_product(
     
     try:
         product_data = product.model_dump(by_alias=True)
-        product_data['moneda'] = 'Lps' # REMOVED: Allow multiple currencies
         cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
         
         # V2.0: Extraer initial_location_id y imeis_con_ubicacion
@@ -269,19 +332,8 @@ def create_product(
                     detail="Para productos serializados con stock inicial, debe proporcionar los IMEIs."
                 )
         
-        # ✅ Validar que location esté activa si se proporciona (Bug #32 fix)
         if initial_location_id:
-            location = db.query(Location).filter(Location.id == initial_location_id).first()
-            if not location:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"La ubicación con ID {initial_location_id} no fue encontrada"
-                )
-            if not location.activo:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"La ubicación '{location.nombre}' está inactiva. No se puede crear stock aquí."
-                )
+            _require_active_location_for_stock(db, current_user, initial_location_id)
         
         # Extraer IMEIs legacy si existen
         imeis = product_data.pop("imeis", None)
@@ -297,10 +349,7 @@ def create_product(
         if cantidad_inicial > 0:
             if not initial_location_id:
                 # Si no se especifica ubicación, buscar la primera tienda activa
-                default_location = db.query(Location).filter(
-                    Location.tipo == "tienda",
-                    Location.activo == True
-                ).first()
+                default_location = _get_default_editable_location(db, current_user)
                 
                 if not default_location:
                     db.rollback()
@@ -310,17 +359,7 @@ def create_product(
                     )
                 initial_location_id = default_location.id
             else:
-                # Validar que la ubicación exista y esté activa
-                location = db.query(Location).filter(
-                    Location.id == initial_location_id,
-                    Location.activo == True
-                ).first()
-                if not location:
-                    db.rollback()
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Ubicación con ID {initial_location_id} no encontrada o inactiva"
-                    )
+                _require_active_location_for_stock(db, current_user, initial_location_id)
             
             db_stock = Stock(
                 product_id=db_product.id,
@@ -362,8 +401,7 @@ def create_product(
                 # El error 'dict object has no attribute location_id' sugiere que imei_data es un dict
                 # pero estamos intentando acceder como objeto.
                 
-                imei_val = imei_data.get('imei') if isinstance(imei_data, dict) else imei_data.imei
-                loc_id = imei_data.get('location_id') if isinstance(imei_data, dict) else imei_data.location_id
+                imei_val, loc_id = _extract_imei_location(imei_data)
 
                 # VALIDACIÓN: IMEIs deben estar en la misma ubicación que el stock inicial
                 if initial_location_id and loc_id != initial_location_id:
@@ -373,17 +411,7 @@ def create_product(
                         detail=f"Todos los IMEIs deben estar en la ubicación inicial (location_id={initial_location_id}). IMEI '{imei_val}' está en ubicación {loc_id}"
                     )
                 
-                # Validar que la ubicación existe y está activa
-                location = db.query(Location).filter(
-                    Location.id == loc_id,
-                    Location.activo == True
-                ).first()
-                if not location:
-                    db.rollback()
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Ubicación con ID {loc_id} no encontrada o inactiva para IMEI {imei_val}"
-                    )
+                _require_active_location_for_stock(db, current_user, loc_id)
                 
                 # Verificar que el IMEI no exista
                 existing_imei = db.query(ProductIMEI).filter(
@@ -473,7 +501,11 @@ def create_product(
         raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
 
 @router.get("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:view"))])
-def get_product(product_id: int, db: Session = Depends(get_db)):
+def get_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Obtiene un producto por su ID.
     
@@ -494,8 +526,14 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
             status_code=404, 
             detail=f"El producto con ID {product_id} no fue encontrado"
         )
+
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        has_visible_stock = any(stock.location_id in accessible_location_ids for stock in product.stock_items)
+        if not has_visible_stock:
+            raise HTTPException(status_code=404, detail=f"El producto con ID {product_id} no fue encontrado")
     
-    return _serialize_product(product)
+    return _serialize_product(product, accessible_location_ids)
 
 
 @router.put("/{product_id}", response_model=ProductResponse, dependencies=[Depends(check_permission("inventory:edit"))])
@@ -540,6 +578,14 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
                 detail="El precio debe ser mayor a 0"
             )
         product.precio = nuevo_precio
+    if updates.costo is not None:
+        nuevo_costo = Decimal(updates.costo)
+        if nuevo_costo < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El costo no puede ser negativo"
+            )
+        product.costo = nuevo_costo
     if updates.moneda is not None:
         product.moneda = updates.moneda
     if updates.garantia_meses is not None:
@@ -601,6 +647,8 @@ def update_product_stock(
     Raises:
         - 404: Si no se encuentra stock para ese producto en esa ubicación
     """
+    require_location_access(db, current_user, location_id, "can_edit")
+
     stock = db.query(Stock).filter(
         Stock.product_id == product_id,
         Stock.location_id == location_id
@@ -644,6 +692,16 @@ def update_product_stock(
         usuario=current_user.username
     )
     db.add(history)
+    log_audit_event(
+        db,
+        action="stock.manual_adjust",
+        entity_type="stock",
+        entity_id=stock.id,
+        location_id=location_id,
+        user=current_user,
+        before_data={"cantidad_disponible": stock_anterior},
+        after_data={"cantidad_disponible": update.cantidad_disponible},
+    )
 
     try:
         db.commit()
@@ -661,6 +719,7 @@ def restock_product(
     current_user: User = Depends(get_current_active_user),
 ):
     """Reabastece inventario de un producto existente con trazabilidad de IMEIs."""
+    require_location_access(db, current_user, payload.location_id, "can_receive_purchase")
 
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -776,6 +835,16 @@ def restock_product(
             )
         )
 
+    log_audit_event(
+        db,
+        action="stock.restock",
+        entity_type="product",
+        entity_id=product.id,
+        location_id=payload.location_id,
+        user=current_user,
+        after_data=payload.model_dump(),
+    )
+
     try:
         db.commit()
         product_refreshed = (
@@ -815,13 +884,11 @@ def bulk_create_products(
         raise HTTPException(status_code=400, detail="Se requiere una lista de productos")
 
     created_products = []
+    seen_imeis: set[str] = set()
 
     try:
         # Ubicación por defecto si no se envía initial_location_id
-        default_location = db.query(Location).filter(
-            Location.tipo == "tienda",
-            Location.activo == True
-        ).first()
+        default_location = _get_default_editable_location(db, current_user)
 
         for product_input in products_data:
             product = ProductCreate.model_validate(product_input)
@@ -842,27 +909,26 @@ def bulk_create_products(
                     detail=f"Ya existe un producto con el SKU '{product.sku}'"
                 )
 
+            if product.categoria == CategoriaEnum.CELULAR and product.garantia_meses == 0:
+                product.garantia_meses = 2
+            if product.categoria == CategoriaEnum.CELULAR and not product.is_serialized:
+                product.is_serialized = True
+
             product_data = product.model_dump(by_alias=True)
             cantidad_inicial = product_data.pop("stock_inicial", product_data.pop("cantidad_inicial", 0))
             initial_location_id = product_data.pop("initial_location_id", None)
-            product_data.pop("imeis_con_ubicacion", None)  # No soportado en bulk
+            imeis_con_ubicacion = product_data.pop("imeis_con_ubicacion", None)
 
             # Campos legacy (compatibilidad) que NO existen en el modelo Product
-            product_data.pop("imei", None)
-            product_data.pop("imeis", None)
+            single_imei = product_data.pop("imei", None)
+            legacy_imeis = product_data.pop("imeis", None) or []
+            if single_imei:
+                legacy_imeis.append(single_imei)
 
             # Determinar ubicación destino
             location = None
             if initial_location_id:
-                location = db.query(Location).filter(
-                    Location.id == initial_location_id,
-                    Location.activo == True
-                ).first()
-                if not location:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Ubicación con ID {initial_location_id} no encontrada o inactiva"
-                    )
+                location = _require_active_location_for_stock(db, current_user, initial_location_id)
             else:
                 location = default_location
 
@@ -880,12 +946,87 @@ def bulk_create_products(
             if cantidad_inicial < 0:
                 raise HTTPException(status_code=400, detail="stock_inicial no puede ser negativo")
 
+            if product.is_serialized and cantidad_inicial > 0:
+                imei_count = len(imeis_con_ubicacion or []) + len(legacy_imeis)
+                if imei_count != cantidad_inicial:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Para productos serializados, la cantidad de IMEIs ({imei_count}) "
+                            f"debe coincidir con el stock inicial ({cantidad_inicial})"
+                        ),
+                    )
+
             db_stock = Stock(
                 product_id=db_product.id,
                 location_id=location.id,
                 cantidad_disponible=cantidad_inicial
             )
             db.add(db_stock)
+
+            for imei_data in imeis_con_ubicacion or []:
+                imei_val, loc_id = _extract_imei_location(imei_data)
+                if loc_id != location.id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"El IMEI '{imei_val}' debe estar en la ubicación inicial {location.id}",
+                    )
+                _require_active_location_for_stock(db, current_user, loc_id)
+                if imei_val in seen_imeis or db.query(ProductIMEI).filter(ProductIMEI.imei == imei_val).first():
+                    raise HTTPException(status_code=400, detail=f"El IMEI '{imei_val}' ya está registrado")
+                seen_imeis.add(imei_val)
+                db.add(ProductIMEI(
+                    product_id=db_product.id,
+                    location_id=loc_id,
+                    supplier_id=db_product.supplier_id,
+                    imei=imei_val,
+                    vendido=False,
+                    received_at=datetime.now(UTC),
+                    acquisition_type='initial_stock',
+                    received_notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                    received_by=current_user.username,
+                ))
+                db.add(IMEIHistory(
+                    imei=imei_val,
+                    product_id=db_product.id,
+                    location_id=loc_id,
+                    supplier_id=db_product.supplier_id,
+                    event_type='purchase',
+                    reference_id=db_product.id,
+                    reference_type='product_creation_bulk',
+                    notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                    created_by=current_user.username,
+                ))
+
+            for imei_raw in legacy_imeis:
+                imei_val = str(imei_raw).strip()
+                if not imei_val:
+                    continue
+                if imei_val in seen_imeis or db.query(ProductIMEI).filter(ProductIMEI.imei == imei_val).first():
+                    raise HTTPException(status_code=400, detail=f"El IMEI '{imei_val}' ya está registrado")
+                seen_imeis.add(imei_val)
+                db.add(ProductIMEI(
+                    product_id=db_product.id,
+                    location_id=location.id,
+                    supplier_id=db_product.supplier_id,
+                    imei=imei_val,
+                    vendido=False,
+                    received_at=datetime.now(UTC),
+                    acquisition_type='initial_stock',
+                    received_notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                    received_by=current_user.username,
+                ))
+                db.add(IMEIHistory(
+                    imei=imei_val,
+                    product_id=db_product.id,
+                    location_id=location.id,
+                    supplier_id=db_product.supplier_id,
+                    event_type='purchase',
+                    reference_id=db_product.id,
+                    reference_type='product_creation_bulk',
+                    notes=f"Stock inicial del producto '{product.nombre}' (SKU: {product.sku})",
+                    created_by=current_user.username,
+                ))
 
             created_products.append((db_product, db_stock))
 
@@ -945,10 +1086,10 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
             detail=f"No se puede eliminar el producto porque está en {active_order_items} orden(es) activa(s): {', '.join(order_info)}. Desactívelo usando 'activo=false'."
         )
     
-    # Verificar si está en órdenes históricas (completadas/canceladas)
+    # Verificar si está en órdenes históricas (completadas/validadas/canceladas)
     historical_order_items = db.query(OrderItem).join(Order).filter(
         OrderItem.product_id == product_id,
-        Order.estado.in_(['completada', 'cancelada'])
+        Order.estado.in_(['completada', 'validada', 'cancelada'])
     ).count()
     
     if historical_order_items > 0:
@@ -1019,10 +1160,7 @@ def set_product_stock_at_location(
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     
-    # Verificar que la ubicación existe
-    location = db.query(Location).filter(Location.id == location_id).first()
-    if not location or not location.activo:
-        raise HTTPException(status_code=404, detail="Ubicación no encontrada o inactiva")
+    location = _require_active_location_for_stock(db, current_user, location_id)
     
     # Buscar o crear el registro de stock
     stock = db.query(Stock).filter(
@@ -1092,7 +1230,8 @@ def set_product_stock_at_location(
 @router.get("/{product_id}/stock/total", dependencies=[Depends(check_permission("inventory:view"))])
 def get_product_total_stock(
     product_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Obtener el stock total de un producto sumando todas las ubicaciones.
@@ -1101,15 +1240,19 @@ def get_product_total_stock(
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     
-    total = db.query(func.sum(Stock.cantidad_disponible)).filter(
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    total_query = db.query(func.sum(Stock.cantidad_disponible - func.coalesce(Stock.cantidad_reservada, 0))).filter(
         Stock.product_id == product_id
-    ).scalar() or 0
+    )
+    if accessible_location_ids is not None:
+        total_query = total_query.filter(Stock.location_id.in_(accessible_location_ids))
+    total = max(int(total_query.scalar() or 0), 0)
     
     return {
         "product_id": product_id,
         "product_name": product.nombre,
         "sku": product.sku,
-        "total_stock": int(total)
+        "total_stock": total
     }
 
 
@@ -1117,7 +1260,8 @@ def get_product_total_stock(
 def get_product_stock_by_location(
     product_id: int,
     include_inactive_locations: bool = Query(False, description="Incluir ubicaciones inactivas"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Devuelve el stock del producto desglosado por ubicación (V2.0).
@@ -1130,6 +1274,9 @@ def get_product_stock_by_location(
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     query = db.query(Stock).join(Location).filter(Stock.product_id == product_id)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Stock.location_id.in_(accessible_location_ids))
     if not include_inactive_locations:
         query = query.filter(Location.activo == True)
 
@@ -1142,6 +1289,17 @@ def get_product_stock_by_location(
         if stock_libre < 0:
             stock_libre = 0
 
+        en_transito_salida = db.query(func.coalesce(func.sum(StockTransfer.cantidad), 0)).filter(
+            StockTransfer.product_id == product_id,
+            StockTransfer.from_location_id == stock.location_id,
+            StockTransfer.estado == "pendiente",
+        ).scalar() or 0
+        en_transito_entrada = db.query(func.coalesce(func.sum(StockTransfer.cantidad), 0)).filter(
+            StockTransfer.product_id == product_id,
+            StockTransfer.to_location_id == stock.location_id,
+            StockTransfer.estado == "pendiente",
+        ).scalar() or 0
+
         location = stock.location
         result.append(StockByLocationResponse(
             id=stock.id,
@@ -1149,6 +1307,10 @@ def get_product_stock_by_location(
             location_id=stock.location_id,
             cantidad_disponible=stock.cantidad_disponible,
             cantidad_reservada=stock.cantidad_reservada,
+            cantidad_defectuosa=stock.cantidad_defectuosa or 0,
+            stock_libre=stock_libre,
+            en_transito_salida=int(en_transito_salida),
+            en_transito_entrada=int(en_transito_entrada),
             location=LocationResponse(
                 id=location.id,
                 nombre=location.nombre,

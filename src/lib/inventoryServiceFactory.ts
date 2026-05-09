@@ -59,7 +59,17 @@ import type {
   Role,
   Permission,
   User,
-  CreateUserRequest
+  CreateUserRequest,
+  UserLocationAccess,
+  UserLocationAccessInput,
+  AuditLogEntry,
+  PurchaseReceipt,
+  PurchaseReceiptInput,
+  InventoryCount,
+  InventoryCountInput,
+  LocationDailyClose,
+  LocationDailyCloseInput,
+  BankTransferReconciliationReport
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 
@@ -116,7 +126,8 @@ export interface IInventoryService {
   
   updateOrderStatus(
     orderId: number,
-    estado: Order['estado']
+    estado: Order['estado'],
+    validationCode?: string
   ): Promise<OrderWithItems>
 
   cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems>
@@ -171,7 +182,7 @@ export interface IInventoryService {
     location_id?: number
     estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
   }): Promise<StockTransfer[]>
-  confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer>
+  confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[], validationCode?: string, receivedQuantity?: number, incidentNotes?: string): Promise<StockTransfer>
   rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer>
   cancelStockTransfer(id: number): Promise<void>
 
@@ -188,7 +199,7 @@ export interface IInventoryService {
   getProductStockStats(productId: number, days?: number): Promise<StockHistoryStats>
   getPublicCatalog(filters?: PublicCatalogFilters): Promise<PaginatedResponse<PublicProduct>>
   getDashboardStats(params?: { sales_profile_slug?: string; location_id?: number }): Promise<DashboardStats>
-  getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport>
+  getSalesReport(params?: { sales_profile_slug?: string; location_id?: number; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport>
   getInventoryAlerts(params?: { location_id?: number }): Promise<InventoryAlert[]>
   getStockSummaryByLocation(activeOnly?: boolean): Promise<StockSummaryByLocation[]>
   getSalesSummaryByLocation(params?: { start_date?: string; end_date?: string }): Promise<SalesSummaryByLocation[]>
@@ -205,6 +216,12 @@ export interface IInventoryService {
   getAIStatus(alertsLimit?: number): Promise<AIStatusResponse>
   
   getAvailableIMEIs(productId: number, locationId: number): Promise<string[]>
+  listProductIMEIs(filters?: {
+    vendido?: boolean
+    location_id?: number
+    product_id?: number
+    search?: string
+  }): Promise<ProductIMEI[]>
   getProductIMEIs(productId: number): Promise<ProductIMEI[]>
   
   getProductByIMEI(imei: string): Promise<ProductWithStock>
@@ -229,6 +246,19 @@ export interface IInventoryService {
   updateUser(userId: number, updates: Partial<User> & { password?: string; role_id?: number }): Promise<User>
   listRoles(): Promise<Role[]>
   listPermissions(): Promise<Permission[]>
+
+  getMyLocationAccess(): Promise<UserLocationAccess[]>
+  listUserLocationAccess(userId: number): Promise<UserLocationAccess[]>
+  replaceUserLocationAccess(userId: number, access: UserLocationAccessInput[]): Promise<UserLocationAccess[]>
+  createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt>
+  listPurchaseReceipts(filters?: { location_id?: number; supplier_id?: number; limit?: number }): Promise<PurchaseReceipt[]>
+  createInventoryCount(data: InventoryCountInput): Promise<InventoryCount>
+  listInventoryCounts(filters?: { location_id?: number; status?: string; limit?: number }): Promise<InventoryCount[]>
+  approveInventoryCount(countId: number, notes?: string): Promise<InventoryCount>
+  createLocationDailyClose(data: LocationDailyCloseInput): Promise<LocationDailyClose>
+  listLocationDailyCloses(filters?: { location_id?: number; limit?: number }): Promise<LocationDailyClose[]>
+  listAuditLogs(filters?: { location_id?: number; entity_type?: string; action?: string; limit?: number }): Promise<AuditLogEntry[]>
+  getBankTransferReconciliation(params?: { start_date?: string; end_date?: string; location_id?: number; bank_name?: string }): Promise<BankTransferReconciliationReport>
 
   getIMEIHistory(imei: string): Promise<IMEIHistory[]>
   getIMEIDetail(imei: string): Promise<IMEIDetail | null>
@@ -366,9 +396,10 @@ class LocalServiceWrapper implements IInventoryService {
 
   async updateOrderStatus(
     orderId: number,
-    estado: Order['estado']
+    estado: Order['estado'],
+    validationCode?: string
   ): Promise<OrderWithItems> {
-    return this.service.updateOrderStatus(orderId, estado)
+    return this.service.updateOrderStatus(orderId, estado, validationCode)
   }
 
   async cancelOrder(orderId: number, reason?: string): Promise<OrderWithItems> {
@@ -446,8 +477,8 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.listStockTransfers(filters)
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
-    return this.service.confirmStockTransfer(id, confirmedBy, scannedImeis)
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[], validationCode?: string, receivedQuantity?: number, incidentNotes?: string): Promise<StockTransfer> {
+    return this.service.confirmStockTransfer(id, confirmedBy, scannedImeis, validationCode, receivedQuantity, incidentNotes)
   }
 
   async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
@@ -486,7 +517,7 @@ class LocalServiceWrapper implements IInventoryService {
     return this.service.getDashboardStats(params)
   }
 
-  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+  async getSalesReport(params?: { sales_profile_slug?: string; location_id?: number; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
     return this.service.getSalesReport(params)
   }
 
@@ -530,6 +561,14 @@ class LocalServiceWrapper implements IInventoryService {
   }
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     return this.service.getAvailableIMEIs(productId, locationId)
+  }
+  async listProductIMEIs(filters?: {
+    vendido?: boolean
+    location_id?: number
+    product_id?: number
+    search?: string
+  }): Promise<ProductIMEI[]> {
+    return this.service.listProductIMEIs(filters)
   }
   async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
     return this.service.getProductIMEIs(productId)
@@ -605,6 +644,54 @@ class LocalServiceWrapper implements IInventoryService {
 
   async listPermissions(): Promise<Permission[]> {
     return this.service.listPermissions()
+  }
+
+  async getMyLocationAccess(): Promise<UserLocationAccess[]> {
+    return this.service.getMyLocationAccess()
+  }
+
+  async listUserLocationAccess(userId: number): Promise<UserLocationAccess[]> {
+    return this.service.listUserLocationAccess(userId)
+  }
+
+  async replaceUserLocationAccess(userId: number, access: UserLocationAccessInput[]): Promise<UserLocationAccess[]> {
+    return this.service.replaceUserLocationAccess(userId, access)
+  }
+
+  async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    return this.service.createPurchaseReceipt(data)
+  }
+
+  async listPurchaseReceipts(filters?: { location_id?: number; supplier_id?: number; limit?: number }): Promise<PurchaseReceipt[]> {
+    return this.service.listPurchaseReceipts(filters)
+  }
+
+  async createInventoryCount(data: InventoryCountInput): Promise<InventoryCount> {
+    return this.service.createInventoryCount(data)
+  }
+
+  async listInventoryCounts(filters?: { location_id?: number; status?: string; limit?: number }): Promise<InventoryCount[]> {
+    return this.service.listInventoryCounts(filters)
+  }
+
+  async approveInventoryCount(countId: number, notes?: string): Promise<InventoryCount> {
+    return this.service.approveInventoryCount(countId, notes)
+  }
+
+  async createLocationDailyClose(data: LocationDailyCloseInput): Promise<LocationDailyClose> {
+    return this.service.createLocationDailyClose(data)
+  }
+
+  async listLocationDailyCloses(filters?: { location_id?: number; limit?: number }): Promise<LocationDailyClose[]> {
+    return this.service.listLocationDailyCloses(filters)
+  }
+
+  async listAuditLogs(filters?: { location_id?: number; entity_type?: string; action?: string; limit?: number }): Promise<AuditLogEntry[]> {
+    return this.service.listAuditLogs(filters)
+  }
+
+  async getBankTransferReconciliation(params?: { start_date?: string; end_date?: string; location_id?: number; bank_name?: string }): Promise<BankTransferReconciliationReport> {
+    return this.service.getBankTransferReconciliation(params)
   }
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
@@ -967,11 +1054,12 @@ class UnifiedInventoryService implements IInventoryService {
 
   async updateOrderStatus(
     orderId: number,
-    estado: Order['estado']
+    estado: Order['estado'],
+    validationCode?: string
   ): Promise<OrderWithItems> {
     try {
       const service = await this.getService()
-      return service.updateOrderStatus(orderId, estado)
+      return service.updateOrderStatus(orderId, estado, validationCode)
     } catch (error) {
       console.error('Error updating order status (unified):', error)
       throw error instanceof Error ? error : new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1142,10 +1230,10 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[], validationCode?: string, receivedQuantity?: number, incidentNotes?: string): Promise<StockTransfer> {
     try {
       const service = await this.getService()
-      return service.confirmStockTransfer(id, confirmedBy, scannedImeis)
+      return service.confirmStockTransfer(id, confirmedBy, scannedImeis, validationCode, receivedQuantity, incidentNotes)
     } catch (error) {
       console.error('Error confirming stock transfer (unified):', error)
       throw new Error(`Failed to confirm stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1242,7 +1330,7 @@ class UnifiedInventoryService implements IInventoryService {
     }
   }
 
-  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+  async getSalesReport(params?: { sales_profile_slug?: string; location_id?: number; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
     try {
       const service = await this.getService()
       return service.getSalesReport(params)
@@ -1346,6 +1434,20 @@ class UnifiedInventoryService implements IInventoryService {
     } catch (error) {
       console.error('Error getting available IMEIs (unified):', error)
       throw new Error(`Failed to get available IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+  async listProductIMEIs(filters?: {
+    vendido?: boolean
+    location_id?: number
+    product_id?: number
+    search?: string
+  }): Promise<ProductIMEI[]> {
+    try {
+      const service = await this.getService()
+      return service.listProductIMEIs(filters)
+    } catch (error) {
+      console.error('Error listing product IMEIs (unified):', error)
+      throw new Error(`Failed to list product IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
   async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
@@ -1531,6 +1633,66 @@ class UnifiedInventoryService implements IInventoryService {
       console.error('Error listing permissions (unified):', error)
       throw error instanceof Error ? error : new Error('Failed to list permissions')
     }
+  }
+
+  async getMyLocationAccess(): Promise<UserLocationAccess[]> {
+    const service = await this.getService()
+    return service.getMyLocationAccess()
+  }
+
+  async listUserLocationAccess(userId: number): Promise<UserLocationAccess[]> {
+    const service = await this.getService()
+    return service.listUserLocationAccess(userId)
+  }
+
+  async replaceUserLocationAccess(userId: number, access: UserLocationAccessInput[]): Promise<UserLocationAccess[]> {
+    const service = await this.getService()
+    return service.replaceUserLocationAccess(userId, access)
+  }
+
+  async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    const service = await this.getService()
+    return service.createPurchaseReceipt(data)
+  }
+
+  async listPurchaseReceipts(filters?: { location_id?: number; supplier_id?: number; limit?: number }): Promise<PurchaseReceipt[]> {
+    const service = await this.getService()
+    return service.listPurchaseReceipts(filters)
+  }
+
+  async createInventoryCount(data: InventoryCountInput): Promise<InventoryCount> {
+    const service = await this.getService()
+    return service.createInventoryCount(data)
+  }
+
+  async listInventoryCounts(filters?: { location_id?: number; status?: string; limit?: number }): Promise<InventoryCount[]> {
+    const service = await this.getService()
+    return service.listInventoryCounts(filters)
+  }
+
+  async approveInventoryCount(countId: number, notes?: string): Promise<InventoryCount> {
+    const service = await this.getService()
+    return service.approveInventoryCount(countId, notes)
+  }
+
+  async createLocationDailyClose(data: LocationDailyCloseInput): Promise<LocationDailyClose> {
+    const service = await this.getService()
+    return service.createLocationDailyClose(data)
+  }
+
+  async listLocationDailyCloses(filters?: { location_id?: number; limit?: number }): Promise<LocationDailyClose[]> {
+    const service = await this.getService()
+    return service.listLocationDailyCloses(filters)
+  }
+
+  async listAuditLogs(filters?: { location_id?: number; entity_type?: string; action?: string; limit?: number }): Promise<AuditLogEntry[]> {
+    const service = await this.getService()
+    return service.listAuditLogs(filters)
+  }
+
+  async getBankTransferReconciliation(params?: { start_date?: string; end_date?: string; location_id?: number; bank_name?: string }): Promise<BankTransferReconciliationReport> {
+    const service = await this.getService()
+    return service.getBankTransferReconciliation(params)
   }
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {
@@ -1931,9 +2093,10 @@ class ApiInventoryService implements IInventoryService {
 
   async updateOrderStatus(
     orderId: number,
-    estado: Order['estado']
+    estado: Order['estado'],
+    validationCode?: string
   ): Promise<OrderWithItems> {
-    return apiClient.updateOrderStatus(orderId, estado)
+    return apiClient.updateOrderStatus(orderId, estado, validationCode)
   }
 
   async updateOrder(
@@ -2010,8 +2173,8 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.listStockTransfers(filters)
   }
 
-  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[]): Promise<StockTransfer> {
-    return apiClient.confirmStockTransfer(id, confirmedBy, scannedImeis)
+  async confirmStockTransfer(id: number, confirmedBy: string, scannedImeis?: string[], validationCode?: string, receivedQuantity?: number, incidentNotes?: string): Promise<StockTransfer> {
+    return apiClient.confirmStockTransfer(id, confirmedBy, scannedImeis, validationCode, receivedQuantity, incidentNotes)
   }
 
   async rejectStockTransfer(id: number, rejectedBy: string, rejectionReason?: string): Promise<StockTransfer> {
@@ -2050,7 +2213,7 @@ class ApiInventoryService implements IInventoryService {
     return apiClient.getDashboardStats(params)
   }
 
-  async getSalesReport(params?: { sales_profile_slug?: string; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
+  async getSalesReport(params?: { sales_profile_slug?: string; location_id?: number; date_from?: string; date_to?: string; top_limit?: number }): Promise<SalesReport> {
     return apiClient.getSalesReport(params)
   }
 
@@ -2095,6 +2258,15 @@ class ApiInventoryService implements IInventoryService {
 
   async getAvailableIMEIs(productId: number, locationId: number): Promise<string[]> {
     return apiClient.getAvailableIMEIs(productId, locationId)
+  }
+
+  async listProductIMEIs(filters?: {
+    vendido?: boolean
+    location_id?: number
+    product_id?: number
+    search?: string
+  }): Promise<ProductIMEI[]> {
+    return apiClient.fetchProductIMEIs(filters)
   }
 
   async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
@@ -2171,6 +2343,54 @@ class ApiInventoryService implements IInventoryService {
 
   async listPermissions(): Promise<Permission[]> {
     return apiClient.listPermissions()
+  }
+
+  async getMyLocationAccess(): Promise<UserLocationAccess[]> {
+    return apiClient.getMyLocationAccess()
+  }
+
+  async listUserLocationAccess(userId: number): Promise<UserLocationAccess[]> {
+    return apiClient.listUserLocationAccess(userId)
+  }
+
+  async replaceUserLocationAccess(userId: number, access: UserLocationAccessInput[]): Promise<UserLocationAccess[]> {
+    return apiClient.replaceUserLocationAccess(userId, access)
+  }
+
+  async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    return apiClient.createPurchaseReceipt(data)
+  }
+
+  async listPurchaseReceipts(filters?: { location_id?: number; supplier_id?: number; limit?: number }): Promise<PurchaseReceipt[]> {
+    return apiClient.listPurchaseReceipts(filters)
+  }
+
+  async createInventoryCount(data: InventoryCountInput): Promise<InventoryCount> {
+    return apiClient.createInventoryCount(data)
+  }
+
+  async listInventoryCounts(filters?: { location_id?: number; status?: string; limit?: number }): Promise<InventoryCount[]> {
+    return apiClient.listInventoryCounts(filters)
+  }
+
+  async approveInventoryCount(countId: number, notes?: string): Promise<InventoryCount> {
+    return apiClient.approveInventoryCount(countId, notes)
+  }
+
+  async createLocationDailyClose(data: LocationDailyCloseInput): Promise<LocationDailyClose> {
+    return apiClient.createLocationDailyClose(data)
+  }
+
+  async listLocationDailyCloses(filters?: { location_id?: number; limit?: number }): Promise<LocationDailyClose[]> {
+    return apiClient.listLocationDailyCloses(filters)
+  }
+
+  async listAuditLogs(filters?: { location_id?: number; entity_type?: string; action?: string; limit?: number }): Promise<AuditLogEntry[]> {
+    return apiClient.listAuditLogs(filters)
+  }
+
+  async getBankTransferReconciliation(params?: { start_date?: string; end_date?: string; location_id?: number; bank_name?: string }): Promise<BankTransferReconciliationReport> {
+    return apiClient.getBankTransferReconciliation(params)
   }
 
   async getIMEIHistory(imei: string): Promise<IMEIHistory[]> {

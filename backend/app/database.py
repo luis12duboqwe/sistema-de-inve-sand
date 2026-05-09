@@ -3,8 +3,16 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
+from app.config_production import prod_settings
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    pool_size=prod_settings.DB_POOL_SIZE,
+    max_overflow=prod_settings.DB_MAX_OVERFLOW,
+    pool_timeout=prod_settings.DB_POOL_TIMEOUT,
+    pool_recycle=prod_settings.DB_POOL_RECYCLE,
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

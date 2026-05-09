@@ -58,6 +58,7 @@ echo "✅ Servidor de desarrollo iniciado exitosamente"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "🌐 Aplicación:      http://localhost:5173"
+echo "🌐 Red interna:     http://0.0.0.0:5173"
 echo "⚡ HMR:             Habilitado (recarga automática)"
 echo ""
 echo "💡 Para detener el servidor: Ctrl+C"
@@ -68,4 +69,4 @@ echo "   • API Mode:    Conecta con backend en http://localhost:8000"
 echo "   (Configurable en Ajustes dentro de la app)"
 echo ""
 
-npm run dev
+npm run dev -- --host 0.0.0.0

@@ -24,7 +24,11 @@ MIGRATION_ORDER = [
     "migrate_add_imei_history.py",
     "migrate_add_normal_card_rate.py",
     "migrate_add_costo_unitario.py",
-    "migrate_add_deduplication_table.py"
+    "migrate_add_deduplication_table.py",
+    "migrate_add_transfer_payment_fields.py",
+    "migrate_add_transfer_receiving_fields.py",
+    "migrate_add_unique_transfer_reference.py",
+    "migrate_add_multistore_control.py",
 ]
 
 def run_migrations():

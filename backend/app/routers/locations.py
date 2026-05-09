@@ -8,23 +8,28 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 
-from app.auth import get_current_active_user, check_permission
+from app.auth import get_current_active_user, check_permission, check_any_permission
 from app.models import User
+from app.utils.location_access import get_accessible_location_ids, require_location_access
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("", response_model=List[schemas.LocationResponse], dependencies=[Depends(check_permission("settings:view"))])
+@router.get("", response_model=List[schemas.LocationResponse], dependencies=[Depends(check_any_permission("settings:view", "locations:view", "orders:view", "orders:create", "inventory:view", "inventory:count", "inventory:adjust", "purchases:manage", "cash_closes:manage", "audit:view", "locations:access_manage"))])
 def get_locations(
     skip: int = 0,
     limit: int = 100,
     activo: Optional[bool] = None,
     tipo: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Obtener todas las ubicaciones (tiendas, bodegas, etc.)"""
     query = db.query(models.Location)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(models.Location.id.in_(accessible_location_ids))
     
     if activo is not None:
         query = query.filter(models.Location.activo == activo)
@@ -36,16 +41,21 @@ def get_locations(
     return locations
 
 
-@router.get("/{location_id}", response_model=schemas.LocationResponse, dependencies=[Depends(check_permission("settings:view"))])
-def get_location(location_id: int, db: Session = Depends(get_db)):
+@router.get("/{location_id}", response_model=schemas.LocationResponse, dependencies=[Depends(check_any_permission("settings:view", "locations:view", "orders:view", "orders:create", "inventory:view", "inventory:count", "inventory:adjust", "purchases:manage", "cash_closes:manage", "audit:view", "locations:access_manage"))])
+def get_location(
+    location_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Obtener una ubicación específica"""
+    require_location_access(db, current_user, location_id, "can_view")
     location = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not location:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada")
     return location
 
 
-@router.post("", response_model=schemas.LocationResponse, status_code=201, dependencies=[Depends(check_permission("settings:edit"))])
+@router.post("", response_model=schemas.LocationResponse, status_code=201)
 def create_location(
     location: schemas.LocationCreate,
     db: Session = Depends(get_db),
@@ -86,7 +96,7 @@ def create_location(
         )
 
 
-@router.put("/{location_id}", response_model=schemas.LocationResponse, dependencies=[Depends(check_permission("settings:edit"))])
+@router.put("/{location_id}", response_model=schemas.LocationResponse)
 def update_location(
     location_id: int,
     location: schemas.LocationUpdate,
@@ -136,7 +146,7 @@ def update_location(
         )
 
 
-@router.delete("/{location_id}", status_code=204, dependencies=[Depends(check_permission("settings:edit"))])
+@router.delete("/{location_id}", status_code=204)
 def delete_location(
     location_id: int, 
     db: Session = Depends(get_db),
@@ -211,9 +221,11 @@ def delete_location(
 @router.get("/{location_id}/stock", response_model=List[schemas.StockByLocationResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def get_location_stock(
     location_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Obtener todo el stock de una ubicación específica"""
+    require_location_access(db, current_user, location_id, "can_view")
     location = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not location:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada")
@@ -223,4 +235,29 @@ def get_location_stock(
         models.Stock.cantidad_disponible > 0
     ).all()
     
-    return stock_items
+    result = []
+    for stock in stock_items:
+        stock_libre = max((stock.cantidad_disponible or 0) - (stock.cantidad_reservada or 0), 0)
+        en_transito_salida = db.query(func.coalesce(func.sum(models.StockTransfer.cantidad), 0)).filter(
+            models.StockTransfer.product_id == stock.product_id,
+            models.StockTransfer.from_location_id == location_id,
+            models.StockTransfer.estado == "pendiente",
+        ).scalar() or 0
+        en_transito_entrada = db.query(func.coalesce(func.sum(models.StockTransfer.cantidad), 0)).filter(
+            models.StockTransfer.product_id == stock.product_id,
+            models.StockTransfer.to_location_id == location_id,
+            models.StockTransfer.estado == "pendiente",
+        ).scalar() or 0
+        result.append(schemas.StockByLocationResponse(
+            id=stock.id,
+            product_id=stock.product_id,
+            location_id=stock.location_id,
+            cantidad_disponible=stock.cantidad_disponible,
+            cantidad_reservada=stock.cantidad_reservada or 0,
+            cantidad_defectuosa=stock.cantidad_defectuosa or 0,
+            stock_libre=stock_libre,
+            en_transito_salida=int(en_transito_salida),
+            en_transito_entrada=int(en_transito_entrada),
+        ))
+
+    return result

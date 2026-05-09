@@ -41,6 +41,7 @@ from app.auth import check_permission
 from app.config_production import prod_settings
 from app.utils.s3_storage import get_storage_manager
 from app.utils.websocket_manager import get_connection_manager
+from app.utils.sales_profile_config import extract_channel_integration
 from app.dependencies.rate_limiting import check_photo_request_rate_limit
 
 logger = logging.getLogger(__name__)
@@ -192,12 +193,7 @@ def _parse_json_object(raw: Optional[str]) -> Dict[str, Any]:
 
 
 def _extract_channel_integration(profile: SalesProfile, channel: str) -> Dict[str, Any]:
-    config = _parse_json_object(profile.configuracion)
-    integrations = config.get("channel_integrations") if isinstance(config.get("channel_integrations"), dict) else {}
-    channel_data = integrations.get(channel) if isinstance(integrations, dict) else None
-    if isinstance(channel_data, dict):
-        return channel_data
-    return {}
+    return extract_channel_integration(profile.configuracion, channel)
 
 
 def _parse_profile_channels(profile: SalesProfile) -> List[str]:

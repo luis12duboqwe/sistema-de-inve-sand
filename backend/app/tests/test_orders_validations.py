@@ -288,3 +288,25 @@ def test_create_order_trade_in_invalid_imei(
 
     assert response.status_code == 422
     assert any("IMEI" in error.get("msg", "") for error in detail)
+
+
+def test_update_order_rejects_location_change_without_items(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    location, sales_profile, product = _create_order_dependencies(db_session)
+    destination = Location(nombre="Tienda Norte", tipo="tienda", activo=True)
+    db_session.add(destination)
+    db_session.flush()
+    db_session.add(Stock(product_id=product.id, location_id=destination.id, cantidad_disponible=5))
+    db_session.commit()
+
+    create_response = client.post("/api/orders", json=_base_payload(location, sales_profile, product))
+    assert create_response.status_code == 201, create_response.text
+    order_id = create_response.json()["id"]
+
+    response = client.put(f"/api/orders/{order_id}", json={"source_location_id": destination.id})
+    detail_text = _extract_detail_text(response)
+
+    assert response.status_code == 400
+    assert "reenviar los productos" in detail_text

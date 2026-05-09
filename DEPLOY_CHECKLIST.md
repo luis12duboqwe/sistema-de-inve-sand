@@ -119,10 +119,10 @@ ls -lh /var/backups/inventario/
 ## En caso de emergencia (rollback)
 
 ```bash
-# Si algo falló, revertir a SQLite:
-1. Recuperar backup de DB
-2. En .env: DATABASE_URL=sqlite:///inventory.db
-3. Reiniciar servidor
+# Si algo falló, volver al release anterior con PostgreSQL:
+1. Restaurar el último backup válido de PostgreSQL
+2. Revertir al tag/imagen anterior de backend y frontend
+3. Reiniciar servicios y validar /health
 
 # Si PostgreSQL se cayó:
 sudo systemctl restart postgresql

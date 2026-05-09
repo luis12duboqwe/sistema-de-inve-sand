@@ -125,7 +125,13 @@ const getIntegrationStatus = (configuracion: Record<string, any> | undefined, ch
   }
 }
 
-export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
+interface SalesProfilesListProps {
+  onUpdate?: () => void
+  canManageAI?: boolean
+  canManageTechnicalChannels?: boolean
+}
+
+export function SalesProfilesList({ onUpdate, canManageAI = false, canManageTechnicalChannels = false }: SalesProfilesListProps) {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [profiles, setProfiles] = useState<SalesProfile[]>([])
@@ -133,6 +139,7 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingProfile, setEditingProfile] = useState<SalesProfile | null>(null)
   const [aiConfigProfile, setAiConfigProfile] = useState<SalesProfile | null>(null)
+  const [technicalConfigProfile, setTechnicalConfigProfile] = useState<SalesProfile | null>(null)
   const [filterTipo, setFilterTipo] = useState<string>('all')
 
   // Formulario
@@ -197,8 +204,7 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
             whatsapp: whatsappNumber,
             facebook: facebookPage,
             instagram: instagramHandle
-          },
-          channel_integrations: buildChannelIntegrationsConfig(channelIntegrations)
+          }
         }
       } as any)
 
@@ -243,8 +249,7 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
             whatsapp: whatsappNumber,
             facebook: facebookPage,
             instagram: instagramHandle
-          },
-          channel_integrations: buildChannelIntegrationsConfig(channelIntegrations)
+          }
         }
       })
 
@@ -374,6 +379,51 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
     })
   }
 
+  const openTechnicalConfig = (profile: SalesProfile) => {
+    setTechnicalConfigProfile(profile)
+
+    const integrations = profile.configuracion?.channel_integrations || {}
+    setChannelIntegrations({
+      whatsapp: {
+        phone_number_id: integrations?.whatsapp?.phone_number_id || '',
+        access_token: integrations?.whatsapp?.access_token || '',
+        verify_token: integrations?.whatsapp?.verify_token || ''
+      },
+      messenger: {
+        page_id: integrations?.messenger?.page_id || '',
+        page_access_token: integrations?.messenger?.page_access_token || '',
+        verify_token: integrations?.messenger?.verify_token || ''
+      },
+      instagram: {
+        instagram_account_id: integrations?.instagram?.instagram_account_id || '',
+        page_access_token: integrations?.instagram?.page_access_token || '',
+        verify_token: integrations?.instagram?.verify_token || ''
+      }
+    })
+  }
+
+  const handleSaveTechnicalConfig = async () => {
+    if (!technicalConfigProfile) return
+
+    try {
+      await inventoryServiceInstance.updateSalesProfile(technicalConfigProfile.id, {
+        configuracion: {
+          ...technicalConfigProfile.configuracion,
+          channel_integrations: buildChannelIntegrationsConfig(channelIntegrations)
+        }
+      })
+
+      toast.success('Conexiones técnicas actualizadas')
+      setTechnicalConfigProfile(null)
+      setChannelIntegrations(emptyChannelIntegrationState())
+      if (onUpdate) onUpdate()
+      loadProfiles()
+    } catch (error) {
+      toast.error('Error al guardar conexiones técnicas')
+      console.error(error)
+    }
+  }
+
   const updateIntegrationField = (
     channel: keyof ChannelIntegrationFormState,
     field: string,
@@ -393,10 +443,10 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
       <div>
         <Label className="text-base flex items-center gap-2">
           <Plug className="w-4 h-4 text-sky-600" />
-          Integraciones automáticas por canal
+          Conexiones técnicas por canal
         </Label>
         <p className="text-xs text-gray-500 mt-1">
-          Aquí conectas las cuentas reales de esta marca/perfil para que el webhook enrute y responda con sus propios tokens.
+          Aquí conectas las cuentas reales y webhooks de este perfil. Esta área debe quedar restringida al Super Admin.
         </p>
       </div>
 
@@ -782,60 +832,75 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
               <div className="flex gap-2">{getCanalesIcons(profile.canales)}</div>
             </div>
 
-            <div>
-              <p className="text-sm text-gray-600 mb-2">Estado de integraciones:</p>
-              <div className="space-y-2">
-                {profile.canales.map((canal) => {
-                  const status = getIntegrationStatus(profile.configuracion, canal)
-                  const testKey = `${profile.slug}__${canal}`
-                  const testResult = testResults[testKey]
-                  const isTesting = testingChannel === testKey
-                  
-                  return (
-                    <div key={`${profile.id}-${canal}`} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                      <span className="font-medium text-gray-700">{status.label}</span>
-                      <div className="flex items-center gap-2">
-                        {testResult && (
-                          <span className={`text-xs px-2 py-1 rounded ${testResult.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {testResult.status === 'success' ? '✓ OK' : '✗ Error'}
-                          </span>
-                        )}
-                        {!status.ready && status.missing.length > 0 && (
-                          <span className="text-xs text-gray-400 hidden xl:inline">
-                            {status.missing.join(', ')}
-                          </span>
-                        )}
-                        {canal !== 'tienda' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => testChannelConnection(profile.slug, canal)}
-                            disabled={isTesting || !status.ready}
-                            className="h-6 px-2"
-                          >
-                            {isTesting ? '⟳' : <Plug size={14} />}
-                          </Button>
-                        )}
-                        <Badge variant={status.ready ? 'secondary' : 'destructive'}>
-                          {status.ready ? 'Listo' : 'Incompleto'}
-                        </Badge>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+            {canManageTechnicalChannels && (
+              <>
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">Estado de conexiones técnicas:</p>
+                  <div className="space-y-2">
+                    {profile.canales.map((canal) => {
+                      const status = getIntegrationStatus(profile.configuracion, canal)
+                      const testKey = `${profile.slug}__${canal}`
+                      const testResult = testResults[testKey]
+                      const isTesting = testingChannel === testKey
+                      
+                      return (
+                        <div key={`${profile.id}-${canal}`} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                          <span className="font-medium text-gray-700">{status.label}</span>
+                          <div className="flex items-center gap-2">
+                            {testResult && (
+                              <span className={`text-xs px-2 py-1 rounded ${testResult.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {testResult.status === 'success' ? '✓ OK' : '✗ Error'}
+                              </span>
+                            )}
+                            {!status.ready && status.missing.length > 0 && (
+                              <span className="text-xs text-gray-400 hidden xl:inline">
+                                {status.missing.join(', ')}
+                              </span>
+                            )}
+                            {canal !== 'tienda' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => testChannelConnection(profile.slug, canal)}
+                                disabled={isTesting || !status.ready}
+                                className="h-6 px-2"
+                              >
+                                {isTesting ? '⟳' : <Plug size={14} />}
+                              </Button>
+                            )}
+                            <Badge variant={status.ready ? 'secondary' : 'destructive'}>
+                              {status.ready ? 'Listo' : 'Incompleto'}
+                            </Badge>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
 
-            <div className="text-sm text-gray-500">
-              Integraciones configuradas: <span className="font-medium text-gray-700">{countConfiguredIntegrations(profile.configuracion)}</span>
-            </div>
+                <div className="text-sm text-gray-500">
+                  Conexiones configuradas: <span className="font-medium text-gray-700">{countConfiguredIntegrations(profile.configuracion)}</span>
+                </div>
+              </>
+            )}
 
             <div className="text-sm text-gray-500">
               Slug: <code className="bg-gray-100 px-2 py-1 rounded">{profile.slug}</code>
             </div>
 
             <div className="flex gap-2 pt-4 border-t">
-              {profile.tipo === 'bot_ia' && (
+              {canManageTechnicalChannels && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openTechnicalConfig(profile)}
+                  className="text-sky-600 hover:text-sky-700 border-sky-200 hover:bg-sky-50"
+                >
+                  <Plug className="w-4 h-4 mr-1" />
+                  Conexiones
+                </Button>
+              )}
+              {profile.tipo === 'bot_ia' && canManageAI && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -892,8 +957,6 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="edit-nombre">Nombre *</Label>
-
-            {renderIntegrationsSection('create')}
 
               <Input
                 id="edit-nombre"
@@ -1021,9 +1084,6 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
                 </div>
               </div>
             </div>
-
-            {renderIntegrationsSection('edit')}
-
             <Button onClick={handleUpdate} className="w-full">
               Actualizar Perfil
             </Button>
@@ -1032,7 +1092,7 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
       </Dialog>
 
       {/* Diálogo de Configuración IA */}
-      {aiConfigProfile && (
+      {canManageAI && aiConfigProfile && (
         <AIProfileConfigDialog
           open={!!aiConfigProfile}
           onOpenChange={(open) => !open && setAiConfigProfile(null)}
@@ -1040,6 +1100,30 @@ export function SalesProfilesList({ onUpdate }: { onUpdate?: () => void }) {
           salesProfileName={aiConfigProfile.name}
         />
       )}
+
+      <Dialog open={!!technicalConfigProfile} onOpenChange={(open) => !open && setTechnicalConfigProfile(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Conexiones Técnicas del Canal</DialogTitle>
+            <DialogDescription>
+              Configuración técnica separada del perfil comercial. Solo Super Admin debe modificar tokens, IDs y webhooks.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {technicalConfigProfile && (
+              <>
+                <div className="rounded-md border bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                  Perfil: <span className="font-medium">{technicalConfigProfile.name}</span>
+                </div>
+                {renderIntegrationsSection('technical')}
+                <Button onClick={handleSaveTechnicalConfig} className="w-full">
+                  Guardar Conexiones Técnicas
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

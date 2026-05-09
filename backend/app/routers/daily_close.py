@@ -8,13 +8,12 @@ Flujo:
   5. Se registra en StockHistory la confirmación de la salida del producto.
 """
 
-import hashlib
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, List, cast
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import check_permission, get_current_active_user
@@ -27,22 +26,20 @@ from app.schemas.daily_close import (
     DailyCloseValidateRequest,
     DailyCloseValidateResponse,
 )
+from app.utils.daily_close_code import (
+    DAILY_CLOSE_CODE_KEY,
+    get_daily_close_code_hash,
+    hash_daily_close_code,
+    verify_daily_close_code,
+)
+from app.utils.location_access import get_accessible_location_ids, require_location_access
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/daily-close", tags=["Cierre de Día"])
 
-# Clave usada en system_config para guardar el código (hasheado)
-_CODE_KEY = "daily_close_validation_code"
-
-
-def _hash_code(code: str) -> str:
-    """Hashea el código de validación con SHA-256."""
-    return hashlib.sha256(code.strip().encode()).hexdigest()
-
-
 def _get_stored_code(db: Session) -> SystemConfig | None:
-    result = db.query(SystemConfig).filter(SystemConfig.key == _CODE_KEY).first()
+    result = db.query(SystemConfig).filter(SystemConfig.key == DAILY_CLOSE_CODE_KEY).first()
     return result
 
 
@@ -54,6 +51,9 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
     metodo_pago = cast(str, getattr(order, "metodo_pago"))
     total_raw = cast(Decimal, getattr(order, "total"))
     estado = cast(str, getattr(order, "estado"))
+    source_location_id = cast(int | None, getattr(order, "source_location_id", None))
+    source_location = getattr(order, "source_location", None)
+    source_location_name = cast(str | None, getattr(source_location, "nombre", None))
     created_at = cast(datetime, getattr(order, "created_at"))
     items = cast(list[Any], getattr(order, "items", []))
 
@@ -74,6 +74,8 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
         metodo_pago=metodo_pago,
         total=float(total_raw),
         estado=estado,
+        source_location_id=source_location_id,
+        source_location_name=source_location_name,
         created_at=created_at,
         items_count=len(items),
         items_summary=", ".join(items_parts) if items_parts else "Sin items",
@@ -86,9 +88,11 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
     "/config",
     response_model=DailyCloseConfigResponse,
     summary="Obtener estado de configuración del código de validación",
-    dependencies=[Depends(check_permission("settings:view"))],
 )
-def get_config(db: Session = Depends(get_db)):
+def get_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Indica si el código de validación ya está configurado."""
     stored = _get_stored_code(db)
     stored_value = cast(str | None, getattr(stored, "value", None))
@@ -130,10 +134,10 @@ def set_config(
                 status_code=400,
                 detail="Debe ingresar el código actual para poder cambiarlo.",
             )
-        if stored_value != _hash_code(payload.current_code):
+        if not verify_daily_close_code(stored_value, payload.current_code):
             raise HTTPException(status_code=403, detail="El código actual es incorrecto.")
 
-    new_hash = _hash_code(payload.new_code)
+    new_hash = hash_daily_close_code(payload.new_code)
     username = cast(str, getattr(current_user, "username", "desconocido"))
 
     if stored is not None:
@@ -141,7 +145,7 @@ def set_config(
         setattr(stored, "updated_by", username)
     else:
         stored = SystemConfig(
-            key=_CODE_KEY,
+            key=DAILY_CLOSE_CODE_KEY,
             value=new_hash,
             description="Código de validación para cierre de día",
             updated_by=username,
@@ -159,18 +163,27 @@ def set_config(
     "/pending",
     response_model=List[DailyCloseOrderSummary],
     summary="Órdenes completadas pendientes de validación",
-    dependencies=[Depends(check_permission("orders:read"))],
 )
-def get_pending_orders(db: Session = Depends(get_db)):
+def get_pending_orders(
+    location_id: int | None = Query(None, gt=0, description="Filtrar por ubicación"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:view")),
+):
     """Retorna todas las órdenes en estado 'completada' que todavía
     no han sido validadas (validada_at IS NULL).
     """
-    orders = (
-        db.query(Order)
-        .filter(Order.estado == "completada", Order.validada_at == None)  # noqa: E711
-        .order_by(Order.created_at.asc())
-        .all()
+    query = db.query(Order).filter(
+        Order.estado == "completada",
+        Order.validada_at == None,  # noqa: E711
     )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if location_id:
+        require_location_access(db, current_user, location_id, "can_view")
+        query = query.filter(Order.source_location_id == location_id)
+    elif accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+
+    orders = query.order_by(Order.created_at.asc()).all()
     return [_build_order_summary(o) for o in orders]
 
 
@@ -185,7 +198,7 @@ def get_pending_orders(db: Session = Depends(get_db)):
 def validate_daily_close(
     payload: DailyCloseValidateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(check_permission("orders:edit")),
 ):
     """El admin ingresa el código de validación y aprueba las órdenes seleccionadas.
 
@@ -196,7 +209,7 @@ def validate_daily_close(
     """
     # 1. Verificar que el código esté configurado
     stored = _get_stored_code(db)
-    stored_value = cast(str | None, getattr(stored, "value", None))
+    stored_value = get_daily_close_code_hash(db)
     if stored is None or not stored_value:
         raise HTTPException(
             status_code=400,
@@ -204,7 +217,7 @@ def validate_daily_close(
         )
 
     # 2. Verificar el código ingresado
-    if stored_value != _hash_code(payload.validation_code):
+    if not verify_daily_close_code(stored_value, payload.validation_code):
         logger.warning(
             "Intento fallido de validación de cierre de día por usuario %s",
             cast(str, getattr(current_user, "username", "desconocido")),
@@ -216,6 +229,9 @@ def validate_daily_close(
     now = datetime.now(timezone.utc)
     username = cast(str, getattr(current_user, "username", "sistema"))
 
+    if payload.location_id:
+        require_location_access(db, current_user, payload.location_id, "can_edit")
+
     try:
         for order_id in payload.order_ids:
             order = db.query(Order).filter(Order.id == order_id).first()
@@ -224,6 +240,15 @@ def validate_daily_close(
                 continue
 
             order_obj = cast(Any, order)
+            order_source_location_id = cast(int | None, getattr(order_obj, "source_location_id", None))
+            if payload.location_id and order_source_location_id != payload.location_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La orden #{order_id} no pertenece a la ubicación seleccionada",
+                )
+            if order_source_location_id:
+                require_location_access(db, current_user, order_source_location_id, "can_edit")
+
             order_estado = cast(str, getattr(order_obj, "estado"))
 
             if order_estado != "completada":
@@ -258,7 +283,6 @@ def validate_daily_close(
                     continue
 
                 item_cantidad = cast(int, getattr(item, "cantidad"))
-                order_source_location_id = cast(int | None, getattr(order_obj, "source_location_id", None))
                 order_ref_id = cast(int, getattr(order_obj, "id"))
 
                 history_entry = StockHistory(
@@ -294,6 +318,9 @@ def validate_daily_close(
             ),
         )
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.exception("Error al validar cierre de día: %s", e)

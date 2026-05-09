@@ -9,6 +9,7 @@ from urllib import error, request
 import unittest
 
 import sys
+import pytest
 
 import uvicorn
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -19,7 +20,10 @@ from postgres_test_utils import create_postgres_test_engine
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 
-TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("api_usage")
+try:
+    TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("api_usage")
+except Exception as exc:
+    pytest.skip(f"PostgreSQL de pruebas no disponible para test_api_usage: {exc}", allow_module_level=True)
 
 # Asegura que el paquete ``app`` sea importable sin depender del cwd
 # que usa unittest al descubrir los tests desde la raíz del proyecto.

@@ -235,8 +235,8 @@ Podría usarse GPT-4 Vision (gpt-4-vision-preview) para:
 | Funcionalidad | Backend | Frontend | Integración | Estado General |
 |--------------|---------|----------|-------------|----------------|
 | Bots de Ventas | ✅ Completo | ⚠️ Parcial | ❌ N8N pendiente | **75% - Requiere N8N** |
-| Forecasting | ❌ No implementado | ✅ Básico | N/A | **30% - Frontend simple** |
-| Business Insights | ❌ No integrado GPT | ✅ Cálculos locales | ❌ OpenAI pendiente | **40% - Sin IA real** |
+| Forecasting | ✅ MVP backend/cache | ✅ Básico BETA | ⚠️ Scheduler opcional | **60% - MVP funcional** |
+| Business Insights | ✅ Heurísticas + caché | ✅ Integrado | ⚠️ OpenAI opcional | **60% - IA avanzada pendiente** |
 | Trade-In IA | ❌ No implementado | ✅ Manual | ❌ GPT-Vision pendiente | **20% - Concepto** |
 
 ### Recomendaciones para v1.0 Final

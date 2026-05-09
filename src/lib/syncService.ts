@@ -525,7 +525,14 @@ async function handleStockTransferEvent(event: SyncEvent, context: SyncContext):
       const remoteId = resolveNumericRemoteId(context, 'stock_transfer', event.entityId ?? transfer?.id)
       const confirmedBy = payload.confirmed_by ?? transfer?.confirmed_by ?? 'sistema'
       const scannedImeis = getStringArray(payload.scanned_imeis)
-      await apiClient.confirmStockTransfer(remoteId, confirmedBy, scannedImeis?.length ? scannedImeis : undefined)
+      await apiClient.confirmStockTransfer(
+        remoteId,
+        confirmedBy,
+        scannedImeis?.length ? scannedImeis : undefined,
+        payload.validation_code,
+        payload.received_quantity,
+        payload.incident_notes
+      )
       return { metadata: { remote_id: remoteId } }
     }
     case 'reject': {

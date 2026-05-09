@@ -23,6 +23,14 @@ NC='\033[0m'
 BACKEND_DIR="backend"
 TOTAL_STEPS=8
 COMPLETED=0
+MISSING_STEPS=()
+
+if [ -f "$BACKEND_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$BACKEND_DIR/.env"
+    set +a
+fi
 
 # Función para marcar un paso
 check_step() {
@@ -75,7 +83,7 @@ echo -e "${YELLOW}VERIFICACIONES DE CONFIGURACIÓN${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-TOTAL_STEPS=$((TOTAL_STEPS + 7))
+TOTAL_STEPS=$((TOTAL_STEPS + 8))
 
 # 9. Verificar .env con DATABASE_URL
 if grep -q "^DATABASE_URL=" "$BACKEND_DIR/.env" 2>/dev/null; then
@@ -83,6 +91,7 @@ if grep -q "^DATABASE_URL=" "$BACKEND_DIR/.env" 2>/dev/null; then
     ((COMPLETED++))
 else
     echo -e "${YELLOW}[⚠]${NC} DATABASE_URL NO está en .env (ejecuta ./setup-postgres.sh)"
+    MISSING_STEPS+=("./setup-postgres.sh")
 fi
 
 # 10. Verificar SENTRY_DSN
@@ -93,9 +102,11 @@ if grep -q "^SENTRY_DSN=" "$BACKEND_DIR/.env" 2>/dev/null; then
         ((COMPLETED++))
     else
         echo -e "${YELLOW}[⚠]${NC} SENTRY_DSN vacio/placeholder (ejecuta ./setup-sentry.sh)"
+        MISSING_STEPS+=("./setup-sentry.sh")
     fi
 else
     echo -e "${YELLOW}[⚠]${NC} SENTRY_DSN NO está en .env"
+    MISSING_STEPS+=("./setup-sentry.sh")
 fi
 
 # 11. Verificar SECRET_KEY
@@ -106,20 +117,38 @@ if grep -q "^SECRET_KEY=" "$BACKEND_DIR/.env" 2>/dev/null; then
         ((COMPLETED++))
     else
         echo -e "${YELLOW}[⚠]${NC} SECRET_KEY vacio (ejecuta: openssl rand -hex 32)"
+        MISSING_STEPS+=("openssl rand -hex 32 y actualizar backend/.env")
     fi
 else
     echo -e "${YELLOW}[⚠]${NC} SECRET_KEY NO está en .env"
+    MISSING_STEPS+=("openssl rand -hex 32 y actualizar backend/.env")
 fi
 
 # 12. Verificar crontab para backup
+if grep -q "^CHANNEL_ENCRYPTION_KEY=" "$BACKEND_DIR/.env" 2>/dev/null; then
+    CHANNEL_ENCRYPTION_KEY=$(grep "^CHANNEL_ENCRYPTION_KEY=" "$BACKEND_DIR/.env" | cut -d'=' -f2)
+    if [[ ! -z "$CHANNEL_ENCRYPTION_KEY" ]] && [[ "$CHANNEL_ENCRYPTION_KEY" != "GENERATE_WITH_FERNET"* ]] && [[ "$CHANNEL_ENCRYPTION_KEY" != "CAMBIAR_ESTA_CLAVE"* ]]; then
+        echo -e "${GREEN}[✓]${NC} CHANNEL_ENCRYPTION_KEY configurado"
+        ((COMPLETED++))
+    else
+        echo -e "${YELLOW}[⚠]${NC} CHANNEL_ENCRYPTION_KEY vacio/placeholder"
+        MISSING_STEPS+=("generar CHANNEL_ENCRYPTION_KEY con Fernet y actualizar backend/.env")
+    fi
+else
+    echo -e "${YELLOW}[⚠]${NC} CHANNEL_ENCRYPTION_KEY NO está en .env"
+    MISSING_STEPS+=("generar CHANNEL_ENCRYPTION_KEY con Fernet y actualizar backend/.env")
+fi
+
+# 13. Verificar crontab para backup
 if crontab -l 2>/dev/null | grep -q "backup_database.sh"; then
     echo -e "${GREEN}[✓]${NC} Backup configurado en crontab"
     ((COMPLETED++))
 else
     echo -e "${YELLOW}[⚠]${NC} Backup NO configurado en crontab (ejecuta: crontab -e)"
+    MISSING_STEPS+=("crontab -e (agregar backup_database.sh)")
 fi
 
-# 13. Verificar PostgreSQL conectividad
+# 14. Verificar PostgreSQL conectividad
 if grep -q "^DATABASE_URL=postgresql" "$BACKEND_DIR/.env" 2>/dev/null; then
     DB_URL=$(grep "^DATABASE_URL=" "$BACKEND_DIR/.env" | cut -d'=' -f2-)
     PG_USER=$(python3 - <<PY
@@ -159,29 +188,34 @@ PY
             ((COMPLETED++))
         else
             echo -e "${YELLOW}[⚠]${NC} PostgreSQL configurado pero NO conecta"
+            MISSING_STEPS+=("revisar DATABASE_URL o ejecutar ./setup-postgres.sh")
         fi
     else
         echo -e "${YELLOW}[⚠]${NC} PostgreSQL client (psql) no instalado"
+        MISSING_STEPS+=("instalar cliente PostgreSQL psql")
     fi
 else
     echo -e "${YELLOW}[✓]${NC} PostgreSQL aún no configurado (es el siguiente paso)"
+    MISSING_STEPS+=("./setup-postgres.sh")
 fi
 
-# 14. Verificar que backend compilada (imports)
-if python3 -c "import sys; sys.path.insert(0, '$BACKEND_DIR'); from app.main import app" 2>/dev/null; then
+# 15. Verificar que backend compilada (imports)
+if DATABASE_URL="$DATABASE_URL" python3 -c "import sys; sys.path.insert(0, '$BACKEND_DIR'); from app.main import app" 2>/dev/null; then
     echo -e "${GREEN}[✓]${NC} Backend compila sin errores"
     ((COMPLETED++))
 else
     echo -e "${RED}[✗]${NC} Backend tiene errores de compilación"
+    MISSING_STEPS+=("revisar errores de import del backend")
 fi
 
-# 15. Verificar que frontend compila
+# 16. Verificar que frontend compila
 if [ -f "package.json" ]; then
     if npm run build &> /dev/null; then
         echo -e "${GREEN}[✓]${NC} Frontend compila correctamente"
         ((COMPLETED++))
     else
         echo -e "${YELLOW}[⚠]${NC} Frontend tiene errores de build (npm run build)"
+        MISSING_STEPS+=("npm run build")
     fi
 fi
 
@@ -205,11 +239,16 @@ if [ $COMPLETED -eq $TOTAL_STEPS ]; then
 elif [ $COMPLETED -ge $((TOTAL_STEPS * 75 / 100)) ]; then
     echo -e "${YELLOW}⚠️  Casi listo - Faltan pasos finales${NC}"
     echo ""
-    echo "Próximos pasos:"
-    echo "  1. ./setup-postgres.sh"
-    echo "  2. ./setup-sentry.sh"
-    echo "  3. crontab -e (agregar backup)"
-    echo "  4. openssl rand -hex 32 (generar SECRET_KEY)"
+    if [ ${#MISSING_STEPS[@]} -gt 0 ]; then
+        echo "Próximos pasos pendientes:"
+        step=1
+        for missing_step in "${MISSING_STEPS[@]}"; do
+            echo "  $step. $missing_step"
+            ((step++))
+        done
+    else
+        echo "No quedan pasos automatizables; revisa advertencias externas si aplica."
+    fi
     echo ""
 else
     echo -e "${RED}❌ Aún quedan pasos importantes${NC}"

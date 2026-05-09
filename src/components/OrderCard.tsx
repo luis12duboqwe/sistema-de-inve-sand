@@ -13,6 +13,7 @@ import { format } from 'date-fns'
 import { PencilSimple, User, FilePdf, Trash, Robot, MapPin, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { useState, useEffect } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { canEditOrderStatus, isFinalSaleStatus } from '@/lib/orderStatus'
 import { ReturnDialog } from './ReturnDialog'
 
 interface OrderCardProps {
@@ -61,6 +62,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
       pendiente: 'bg-yellow-500 text-white',
       por_entregar: 'bg-blue-500 text-white',
       completada: 'bg-green-600 text-white',
+      validada: 'bg-emerald-700 text-white',
       cancelada: 'bg-muted text-muted-foreground'
     }
     return colors[estado]
@@ -71,6 +73,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
       pendiente: 'Pendiente',
       por_entregar: 'Por Entregar',
       completada: 'Completada',
+      validada: 'Validada',
       cancelada: 'Cancelada'
     }
     return text[estado]
@@ -107,7 +110,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {onEdit && order.estado !== 'completada' && order.estado !== 'cancelada' && (
+            {onEdit && canEditOrderStatus(order.estado) && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -244,17 +247,17 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                   onDelete(order)
                 }}
                 className="hover:text-destructive"
-                disabled={order.estado !== 'completada' && order.estado !== 'cancelada'}
+                disabled={!isFinalSaleStatus(order.estado) && order.estado !== 'cancelada'}
                 title={
-                  order.estado === 'completada' || order.estado === 'cancelada'
+                  isFinalSaleStatus(order.estado) || order.estado === 'cancelada'
                     ? 'Eliminar orden'
-                    : 'Solo se pueden eliminar órdenes completadas o canceladas'
+                    : 'Solo se pueden eliminar órdenes completadas, validadas o canceladas'
                 }
               >
                 <Trash size={16} />
               </Button>
             )}
-            {order.estado === 'completada' && (
+            {isFinalSaleStatus(order.estado) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -275,7 +278,7 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                 PDF
               </Button>
             )}
-            {onStatusChange && order.estado !== 'completada' && order.estado !== 'cancelada' && (
+            {onStatusChange && canEditOrderStatus(order.estado) && (
               <Select
                 value={order.estado}
                 onValueChange={(value) => onStatusChange(order.id, value as Order['estado'])}

@@ -277,6 +277,16 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
         <span class="info-label">Método de Pago</span>
         <span class="info-value">${getPaymentLabel(order.metodo_pago)}</span>
       </div>
+      ${order.metodo_pago === 'transferencia' ? `
+      <div class="info-row">
+        <span class="info-label">Banco</span>
+        <span class="info-value">${order.transfer_bank_name || 'N/A'}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Referencia</span>
+        <span class="info-value">${order.transfer_reference || 'N/A'}</span>
+      </div>
+      ` : ''}
     </div>
   </div>
   

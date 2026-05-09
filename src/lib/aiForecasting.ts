@@ -1,4 +1,5 @@
 import { ProductWithStock, OrderWithItems, Profile } from './types'
+import { isFinalSaleStatus } from './orderStatus'
 
 export interface SalesForecast {
   productId: number
@@ -44,13 +45,13 @@ export async function generateAIForecasts(
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
 
   const recentOrders = orders.filter(
-    (o) => new Date(o.created_at) >= thirtyDaysAgo && o.estado !== 'cancelada'
+    (o) => new Date(o.created_at) >= thirtyDaysAgo && isFinalSaleStatus(o.estado)
   )
   const olderOrders = orders.filter(
     (o) =>
       new Date(o.created_at) >= sixtyDaysAgo &&
       new Date(o.created_at) < thirtyDaysAgo &&
-      o.estado !== 'cancelada'
+      isFinalSaleStatus(o.estado)
   )
 
   const forecasts: SalesForecast[] = []

@@ -5,12 +5,23 @@ from sqlalchemy.orm import sessionmaker
 from postgres_test_utils import create_postgres_test_engine
 
 
-TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("pytest")
+TEST_ENGINE = None
+TEST_SCHEMA = None
+cleanup_test_schema = lambda: None
+TEST_DB_AVAILABLE = True
+TEST_DB_ERROR = None
+
+try:
+    TEST_ENGINE, TEST_SCHEMA, cleanup_test_schema = create_postgres_test_engine("pytest")
+except Exception as exc:
+    TEST_DB_AVAILABLE = False
+    TEST_DB_ERROR = str(exc)
 
 import app.database as _db
 
-_db.engine = TEST_ENGINE
-_db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
+if TEST_DB_AVAILABLE and TEST_ENGINE is not None:
+    _db.engine = TEST_ENGINE
+    _db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
 from app.main import app
 import app.main as main
@@ -27,10 +38,17 @@ from app.auth import (
 from app import models as _models  # noqa: F401
 
 
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
+TestingSessionLocal = (
+    sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
+    if TEST_DB_AVAILABLE and TEST_ENGINE is not None
+    else None
+)
 
 
 def override_get_db():
+    if TestingSessionLocal is None:
+        raise RuntimeError("PostgreSQL de pruebas no disponible")
+
     db = TestingSessionLocal()
     try:
         yield db
@@ -82,9 +100,12 @@ def _fake_user():
 def setup_database(request):
     """Config global de pruebas.
 
-    - Tests unitarios/integración con TestClient: DB en memoria + auth fake + reset por test.
+    - Tests unitarios/integración con TestClient: DB PostgreSQL aislada + auth fake + reset por test.
     - tests/test_api_usage.py: corre Uvicorn real y usa DB en archivo; NO aplicar overrides ni resets.
     """
+    if not TEST_DB_AVAILABLE:
+        pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
+
     if "tests/test_api_usage.py" in request.node.nodeid:
         yield
         return
@@ -109,6 +130,9 @@ def setup_database(request):
 
 @pytest.fixture()
 def db_session():
+    if not TEST_DB_AVAILABLE or TestingSessionLocal is None:
+        pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
+
     db = TestingSessionLocal()
     try:
         yield db
@@ -118,8 +142,12 @@ def db_session():
 
 @pytest.fixture()
 def client():
+    if not TEST_DB_AVAILABLE:
+        pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
+
     return TestClient(app)
 
 
 def pytest_sessionfinish(session, exitstatus):
-    cleanup_test_schema()
+    if TEST_DB_AVAILABLE:
+        cleanup_test_schema()

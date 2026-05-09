@@ -41,6 +41,13 @@ class Order(Base):
         Index("idx_order_sales_profile_estado", "sales_profile_id", "estado"),
         Index("idx_order_source_location", "source_location_id"),
         Index("idx_order_delivery_date", "delivery_date"),
+        Index(
+            "uq_orders_transfer_reference_normalized_not_null",
+            "transfer_reference_normalized",
+            unique=True,
+            postgresql_where=transfer_reference_normalized.isnot(None),
+            sqlite_where=transfer_reference_normalized.isnot(None),
+        ),
     )
 
 
@@ -73,8 +80,11 @@ class StockTransfer(Base):
     cantidad = Column(Integer, nullable=False)
     notas = Column(Text, nullable=True)
     estado = Column(String(20), default="pendiente", nullable=False, index=True)
+    received_quantity = Column(Integer, nullable=True)
+    missing_quantity = Column(Integer, nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_by = Column(String(100), nullable=True)
+    incident_notes = Column(Text, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     created_by = Column(String(100), nullable=True)

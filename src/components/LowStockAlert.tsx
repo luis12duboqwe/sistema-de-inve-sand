@@ -29,7 +29,7 @@ export function LowStockAlert({ products, locations, onProductClick }: LowStockA
       .filter(p => p.activo)
       .map(p => {
         const stockItem = p.stock_items?.find(s => s.location_id === location.id)
-        const quantity = stockItem?.cantidad_disponible || 0
+        const quantity = stockItem?.stock_libre ?? Math.max((stockItem?.cantidad_disponible || 0) - (stockItem?.cantidad_reservada || 0), 0)
         return { product: p, location, quantity }
       })
       .filter(item => item.quantity <= threshold)

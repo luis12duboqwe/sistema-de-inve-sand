@@ -44,6 +44,14 @@ class UserCreate(UserBase):
     password: str
     role_id: Optional[int] = None
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
@@ -68,6 +76,14 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     is_active: Optional[bool] = None
     role_id: Optional[int] = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class UserResponse(UserBase):

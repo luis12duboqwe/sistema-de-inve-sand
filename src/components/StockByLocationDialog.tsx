@@ -56,7 +56,7 @@ export function StockByLocationDialog({
   }, [open, asInline, productId])
 
   const getTotalStock = () => {
-    return stockItems.reduce((sum, item) => sum + item.cantidad_disponible, 0)
+    return stockItems.reduce((sum, item) => sum + (item.stock_libre ?? Math.max(item.cantidad_disponible - item.cantidad_reservada, 0)), 0)
   }
 
   const getLocationIcon = (tipo?: string) => {
@@ -100,7 +100,9 @@ export function StockByLocationDialog({
               </div>
             ) : (
               <div className="border rounded-lg divide-y">
-                {stockItems.map((stock) => (
+                {stockItems.map((stock) => {
+                  const stockLibre = stock.stock_libre ?? Math.max(stock.cantidad_disponible - stock.cantidad_reservada, 0)
+                  return (
                   <div key={stock.location_id} className="p-4 hover:bg-muted/50 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       {/* Ubicación info */}
@@ -120,16 +122,34 @@ export function StockByLocationDialog({
 
                       <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 sm:gap-1 mt-2 sm:mt-0 justify-between sm:justify-end w-full sm:w-auto">
                         <Badge 
-                          variant={stock.cantidad_disponible > 0 ? "default" : "secondary"}
+                          variant={stockLibre > 0 ? "default" : "secondary"}
                           className="text-base px-3 py-1"
                         >
-                          {stock.cantidad_disponible} unidades
+                          {stockLibre} libres
                         </Badge>
                         
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1 text-xs">
+                          <span className="text-muted-foreground">
+                            Total: {stock.cantidad_disponible}
+                          </span>
                           {stock.cantidad_reservada > 0 && (
-                            <span className="text-xs text-amber-600 mr-2 sm:mr-0">
-                              ({stock.cantidad_reservada} reservadas)
+                            <span className="text-amber-600 mr-2 sm:mr-0">
+                              Reservadas: {stock.cantidad_reservada}
+                            </span>
+                          )}
+                          {(stock.en_transito_salida || 0) > 0 && (
+                            <span className="text-blue-600 mr-2 sm:mr-0">
+                              Salida pendiente: {stock.en_transito_salida}
+                            </span>
+                          )}
+                          {(stock.en_transito_entrada || 0) > 0 && (
+                            <span className="text-emerald-600 mr-2 sm:mr-0">
+                              Entrada pendiente: {stock.en_transito_entrada}
+                            </span>
+                          )}
+                          {(stock.cantidad_defectuosa || 0) > 0 && (
+                            <span className="text-red-600 mr-2 sm:mr-0">
+                              Defectuosas: {stock.cantidad_defectuosa}
                             </span>
                           )}
                           {product?.categoria === 'celular' && (
@@ -150,7 +170,7 @@ export function StockByLocationDialog({
                       </div>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>

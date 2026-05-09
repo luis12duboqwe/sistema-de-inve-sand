@@ -54,15 +54,10 @@ fi
 echo "✅ Dependencias listas"
 echo ""
 
-# Verificar base de datos
-echo "📊 Verificando base de datos..."
-if [ ! -f "inventory.db" ]; then
-    echo "   Creando BD vacía (V2.0)..."
-    python3 init_db.py
-    echo "   ✅ BD creada"
-else
-    echo "   ✅ BD existe"
-fi
+# Verificar esquema de base de datos PostgreSQL
+echo "📊 Verificando esquema PostgreSQL..."
+python3 init_db.py
+echo "   ✅ Esquema PostgreSQL listo"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"

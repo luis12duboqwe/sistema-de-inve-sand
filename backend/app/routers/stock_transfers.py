@@ -18,6 +18,9 @@ from app.schemas import (
 from app.auth import check_permission, get_current_active_user
 from app.utils.stock_manager import StockManager, StockValidationError
 from app.utils.order_validators import validate_product_exists, validate_location_exists
+from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_close_code
+from app.utils.location_access import get_accessible_location_ids, require_location_access
+from app.utils.audit import log_audit_event
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock_transfers"])
 logger = logging.getLogger(__name__)
@@ -34,8 +37,11 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
         cantidad=transfer.cantidad,
         notas=transfer.notas,
         estado=transfer.estado,
+        received_quantity=transfer.received_quantity,
+        missing_quantity=transfer.missing_quantity,
         confirmed_at=transfer.confirmed_at,
         confirmed_by=transfer.confirmed_by,
+        incident_notes=transfer.incident_notes,
         rejection_reason=transfer.rejection_reason,
         created_at=transfer.created_at,
         created_by=transfer.created_by,
@@ -86,6 +92,8 @@ def create_transfer(
     # Validar ubicaciones
     from_location = validate_location_exists(db, transfer.from_location_id)
     to_location = validate_location_exists(db, transfer.to_location_id)
+    require_location_access(db, current_user, from_location.id, "can_edit")
+    require_location_access(db, current_user, to_location.id, "can_edit")
     
     if from_location.id == to_location.id:
         raise HTTPException(
@@ -140,6 +148,16 @@ def create_transfer(
         # Reservar IMEIs
         if imeis_to_reserve:
             stock_manager.reserve_imeis(imeis_to_reserve, db_transfer.id)
+
+        log_audit_event(
+            db,
+            action="stock_transfer.create",
+            entity_type="stock_transfer",
+            entity_id=db_transfer.id,
+            location_id=from_location.id,
+            user=current_user,
+            after_data=transfer.model_dump(),
+        )
             
         db.commit()
         db.refresh(db_transfer)
@@ -159,10 +177,14 @@ def create_transfer(
 @router.get("", response_model=PaginatedResponse[StockTransferResponse], dependencies=[Depends(check_permission("inventory:view"))])
 def list_transfers(
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación (origen o destino)"),
+    from_location_id: Optional[int] = Query(None, description="Filtrar por ubicación origen"),
+    to_location_id: Optional[int] = Query(None, description="Filtrar por ubicación destino"),
     product_id: Optional[int] = Query(None, description="Filtrar por ID de producto"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado de transferencia"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Lista las transferencias de stock con filtros opcionales.
@@ -176,19 +198,60 @@ def list_transfers(
     - per_page: Cantidad de resultados por página
     """
     query = db.query(StockTransfer)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
     
     # Filtro por ubicación (V2.0)
     if location_id:
+        if accessible_location_ids is not None and location_id not in accessible_location_ids:
+            raise HTTPException(status_code=403, detail="No tiene acceso a esta ubicación")
         query = query.filter(
             or_(
                 StockTransfer.from_location_id == location_id,
                 StockTransfer.to_location_id == location_id
             )
         )
+    else:
+        if from_location_id:
+            if accessible_location_ids is not None and from_location_id not in accessible_location_ids:
+                raise HTTPException(status_code=403, detail="No tiene acceso a la ubicación origen")
+            query = query.filter(StockTransfer.from_location_id == from_location_id)
+
+        if to_location_id:
+            if accessible_location_ids is not None and to_location_id not in accessible_location_ids:
+                raise HTTPException(status_code=403, detail="No tiene acceso a la ubicación destino")
+            query = query.filter(StockTransfer.to_location_id == to_location_id)
+
+    if not location_id and accessible_location_ids is not None:
+        scoped_conditions = []
+        if from_location_id:
+            scoped_conditions.append(StockTransfer.from_location_id == from_location_id)
+        if to_location_id:
+            scoped_conditions.append(StockTransfer.to_location_id == to_location_id)
+
+        if not scoped_conditions:
+            query = query.filter(
+                or_(
+                    StockTransfer.from_location_id.in_(accessible_location_ids),
+                    StockTransfer.to_location_id.in_(accessible_location_ids),
+                )
+            )
+    elif accessible_location_ids is not None:
+        query = query.filter(
+            or_(
+                StockTransfer.from_location_id.in_(accessible_location_ids),
+                StockTransfer.to_location_id.in_(accessible_location_ids),
+            )
+        )
     
     # Filtro por producto
     if product_id:
         query = query.filter(StockTransfer.product_id == product_id)
+
+    if estado:
+        allowed_states = {"pendiente", "confirmada", "rechazada", "cancelada"}
+        if estado not in allowed_states:
+            raise HTTPException(status_code=400, detail="Estado de transferencia inválido")
+        query = query.filter(StockTransfer.estado == estado)
     
     # Ordenar por más recientes primero
     query = query.order_by(desc(StockTransfer.created_at))
@@ -211,7 +274,8 @@ def list_transfers(
 @router.get("/{transfer_id}", response_model=StockTransferResponse, dependencies=[Depends(check_permission("inventory:view"))])
 def get_transfer(
     transfer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Obtiene los detalles de una transferencia específica.
@@ -225,6 +289,13 @@ def get_transfer(
             status_code=404,
             detail=f"Transferencia con ID {transfer_id} no encontrada"
         )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if (
+        accessible_location_ids is not None
+        and transfer.from_location_id not in accessible_location_ids
+        and transfer.to_location_id not in accessible_location_ids
+    ):
+        raise HTTPException(status_code=403, detail="No tiene acceso a esta transferencia")
     
     return _serialize_transfer(transfer)
 
@@ -265,10 +336,28 @@ def confirm_transfer(
             status_code=400,
             detail=f"La transferencia ya está en estado '{transfer.estado}'. Solo se pueden confirmar transferencias pendientes."
         )
+
+    require_location_access(db, current_user, transfer.to_location_id, "can_edit")
+
+    configured_code_hash = get_daily_close_code_hash(db)
+    if configured_code_hash:
+        if not confirm_data.validation_code:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe ingresar el código de validación para confirmar la transferencia.",
+            )
+        if not verify_daily_close_code(configured_code_hash, confirm_data.validation_code):
+            logger.warning(
+                "Intento fallido de confirmar transferencia %s por usuario %s: código inválido",
+                transfer_id,
+                current_user.username,
+            )
+            raise HTTPException(status_code=403, detail="Código de validación incorrecto.")
     
     # Validar entidades base
     product = validate_product_exists(db, transfer.product_id)
     from_location = validate_location_exists(db, transfer.from_location_id)
+    require_location_access(db, current_user, from_location.id, "can_edit")
     to_location = validate_location_exists(db, transfer.to_location_id)
     
     # Validar stock en ubicación de origen
@@ -285,6 +374,22 @@ def confirm_transfer(
     
     # Inicializar StockManager
     stock_manager = StockManager(db)
+
+    received_quantity = confirm_data.received_quantity
+    if received_quantity is None:
+        received_quantity = transfer.cantidad
+    if received_quantity < 0 or received_quantity > transfer.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail="La cantidad recibida debe estar entre 0 y la cantidad transferida"
+        )
+
+    missing_quantity = transfer.cantidad - received_quantity
+    if missing_quantity > 0 and not confirm_data.incident_notes:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe indicar notas de incidencia cuando la recepción es parcial"
+        )
     
     # VALIDACIÓN CRÍTICA: Verificar que el stock esté reservado
     if source_stock.cantidad_reservada < transfer.cantidad:
@@ -299,26 +404,26 @@ def confirm_transfer(
     # V2.0: Validación de recepción física (IMEIs escaneados)
     from app.models import ProductIMEI
     imeis_in_transfer = db.query(ProductIMEI).filter(ProductIMEI.transfer_id == transfer.id).all()
+    scanned_imeis_set = set(confirm_data.scanned_imeis or [])
     
     if imeis_in_transfer:
-        if not confirm_data.scanned_imeis:
+        if received_quantity == 0:
+            scanned_imeis_set = set()
+        elif not confirm_data.scanned_imeis:
              # Si es serializado, EXIGIR escaneo
              raise HTTPException(
                  status_code=400, 
                  detail="Este producto es serializado. Debe escanear los IMEIs recibidos para confirmar la transferencia."
              )
-        
+
         transfer_imeis_set = {i.imei for i in imeis_in_transfer}
-        scanned_imeis_set = set(confirm_data.scanned_imeis)
-        
-        # Verificar que todos los IMEIs de la transferencia fueron escaneados
-        missing = transfer_imeis_set - scanned_imeis_set
-        if missing:
+
+        if len(scanned_imeis_set) != received_quantity:
             raise HTTPException(
                 status_code=400,
-                detail=f"Faltan IMEIs por escanear: {', '.join(missing)}. Verifique la recepción física."
+                detail=f"La cantidad de IMEIs escaneados ({len(scanned_imeis_set)}) debe coincidir con la cantidad recibida ({received_quantity})"
             )
-            
+        
         # Verificar que no se escanearon IMEIs extraños
         extra = scanned_imeis_set - transfer_imeis_set
         if extra:
@@ -328,7 +433,8 @@ def confirm_transfer(
             )
 
     try:
-        # 1. Liberar la reserva en origen (sin aumentar stock libre)
+        # 1. Liberar toda la reserva en origen. Si hay faltante, queda libre en origen
+        # hasta que se haga un ajuste explícito por merma/daño.
         stock_manager.release_reservation(
             stock=source_stock,
             quantity=transfer.cantidad,
@@ -336,25 +442,41 @@ def confirm_transfer(
             is_rejection=False # Confirmación: solo reduce reserva
         )
         
-        # 2. Reducir stock disponible en origen
-        stock_manager.decrease_stock(
-            stock=source_stock,
-            quantity=transfer.cantidad,
-            operation_type="transferencia_salida",
-            notes=f"Transferencia a {to_location.nombre}: {transfer.notas or ''}",
-            user_id=current_user.username
-        )
-        
-        # 3. Aumentar stock disponible en destino
-        stock_manager.increase_stock(
-            product_id=product.id,
-            location_id=to_location.id,
-            quantity=transfer.cantidad,
-            operation_type="transferencia_entrada",
-            notes=f"Transferencia desde {from_location.nombre}: {transfer.notas or ''}",
-            user_id=current_user.username,
-            create_if_missing=True
-        )
+        if received_quantity > 0:
+            # 2. Reducir stock disponible en origen solo por lo recibido
+            stock_manager.decrease_stock(
+                stock=source_stock,
+                quantity=received_quantity,
+                operation_type="transferencia_salida",
+                notes=f"Transferencia a {to_location.nombre}: {transfer.notas or ''}",
+                user_id=current_user.username
+            )
+
+            # 3. Aumentar stock disponible en destino por lo recibido
+            stock_manager.increase_stock(
+                product_id=product.id,
+                location_id=to_location.id,
+                quantity=received_quantity,
+                operation_type="transferencia_entrada",
+                notes=f"Transferencia desde {from_location.nombre}: {transfer.notas or ''}",
+                user_id=current_user.username,
+                create_if_missing=True
+            )
+
+        if missing_quantity > 0:
+            stock_libre = source_stock.cantidad_disponible - source_stock.cantidad_reservada
+            db.add(StockHistory(
+                product_id=transfer.product_id,
+                location_id=transfer.from_location_id,
+                tipo_cambio="transferencia_recepcion_parcial",
+                cantidad=missing_quantity,
+                stock_anterior=stock_libre,
+                stock_nuevo=stock_libre,
+                referencia_id=transfer.id,
+                referencia_tipo="transfer_partial",
+                notas=confirm_data.incident_notes or f"Recepción parcial en {to_location.nombre}",
+                usuario=current_user.username,
+            ))
         
         # 4. Mover IMEIs
         # Buscar IMEIs asociados a esta transferencia (V2.0 con transfer_id)
@@ -371,9 +493,11 @@ def confirm_transfer(
                     ProductIMEI.location_id == transfer.from_location_id,
                     ProductIMEI.vendido == False,
                     ProductIMEI.transfer_id == None
-                ).limit(transfer.cantidad).all()
+                ).limit(received_quantity).all()
         
         if imeis_to_move:
+            if scanned_imeis_set:
+                imeis_to_move = [imei for imei in imeis_to_move if imei.imei in scanned_imeis_set]
             stock_manager.transfer_imeis(
                 imeis=imeis_to_move,
                 to_location_id=transfer.to_location_id,
@@ -386,10 +510,27 @@ def confirm_transfer(
             # Debemos limpiar transfer_id explícitamente
             stock_manager.release_reserved_imeis(imeis_to_move)
 
+        if missing_quantity > 0:
+            missing_imeis = [imei for imei in imeis_in_transfer if imei.imei not in scanned_imeis_set]
+            if missing_imeis:
+                stock_manager.release_reserved_imeis(missing_imeis)
+
         # Actualizar estado de la transferencia
         transfer.estado = "confirmada"
+        transfer.received_quantity = received_quantity
+        transfer.missing_quantity = missing_quantity
+        transfer.incident_notes = confirm_data.incident_notes
         transfer.confirmed_at = datetime.now(UTC)
         transfer.confirmed_by = current_user.username
+        log_audit_event(
+            db,
+            action="stock_transfer.confirm",
+            entity_type="stock_transfer",
+            entity_id=transfer.id,
+            location_id=transfer.to_location_id,
+            user=current_user,
+            after_data={"estado": "confirmada", "scanned_imeis": confirm_data.scanned_imeis},
+        )
         
         db.commit()
         db.refresh(transfer)
@@ -438,6 +579,7 @@ def reject_transfer(
     # Validar entidades base
     product = validate_product_exists(db, transfer.product_id)
     from_location = validate_location_exists(db, transfer.from_location_id)
+    require_location_access(db, current_user, from_location.id, "can_edit")
 
     # V2.0: LIBERAR la reserva de stock al rechazar
     source_stock = db.query(Stock).filter(

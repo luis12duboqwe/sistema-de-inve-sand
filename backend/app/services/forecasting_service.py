@@ -21,8 +21,14 @@ def generate_sales_forecasts(
     days_history: int = 60,
     product_ids: Optional[List[int]] = None,
     location_id: Optional[int] = None,
+    location_ids: Optional[List[int]] = None,
 ) -> List[SalesForecast]:
     """Compute per-product sales forecasts with optional filters."""
+
+    final_sale_statuses = ["completada", "validada"]
+    scoped_location_ids = location_ids
+    if location_id:
+        scoped_location_ids = [location_id]
 
     window_days = _normalize_window(days_history)
     recent_window_days = min(30, window_days)
@@ -35,6 +41,10 @@ def generate_sales_forecasts(
     product_query = db.query(Product).filter(Product.activo == True)
     if product_ids:
         product_query = product_query.filter(Product.id.in_(product_ids))
+    if scoped_location_ids is not None:
+        product_query = product_query.join(Stock, Stock.product_id == Product.id).filter(
+            Stock.location_id.in_(scoped_location_ids)
+        ).distinct()
 
     products_raw: List[Product] = product_query.all()
     if not products_raw:
@@ -58,8 +68,8 @@ def generate_sales_forecasts(
         func.sum(Stock.cantidad_reservada).label("total_reserved"),
     ).filter(Stock.product_id.in_(target_ids))
 
-    if location_id:
-        stock_query = stock_query.filter(Stock.location_id == location_id)
+    if scoped_location_ids is not None:
+        stock_query = stock_query.filter(Stock.location_id.in_(scoped_location_ids))
 
     raw_stock_rows = stock_query.group_by(Stock.product_id).all()
     stock_rows: List[Tuple[int, Optional[int], Optional[int]]] = [
@@ -77,12 +87,12 @@ def generate_sales_forecasts(
         OrderItem.product_id,
         func.sum(OrderItem.cantidad).label("qty_sum"),
     ).join(Order).filter(
-        Order.estado != "cancelada",
+        Order.estado.in_(final_sale_statuses),
         OrderItem.product_id.in_(target_ids),
     )
 
-    if location_id:
-        base_sales_query = base_sales_query.filter(Order.source_location_id == location_id)
+    if scoped_location_ids is not None:
+        base_sales_query = base_sales_query.filter(Order.source_location_id.in_(scoped_location_ids))
 
     recent_sales_rows_raw = (
         base_sales_query.filter(Order.created_at >= recent_start)

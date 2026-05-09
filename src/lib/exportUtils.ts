@@ -72,6 +72,8 @@ export function exportOrdersToCSV(orders: OrderWithItems[], profileName?: string
       Teléfono: order.customer_phone,
       Canal: order.canal,
       'Método de Pago': order.metodo_pago,
+      'Banco Transferencia': order.transfer_bank_name || '',
+      'Referencia Transferencia': order.transfer_reference || '',
       Total: order.total,
       Estado: order.estado,
       Fecha: new Date(order.created_at).toLocaleDateString('es-HN'),
@@ -91,6 +93,9 @@ export function exportOrderDetailsToCSV(order: OrderWithItems) {
     const exportData = order.items.map(item => ({
       'ID Orden': order.id,
       Cliente: order.customer_name,
+      'Método de Pago': order.metodo_pago,
+      'Banco Transferencia': order.transfer_bank_name || '',
+      'Referencia Transferencia': order.transfer_reference || '',
       Producto: item.product?.nombre || 'Producto desconocido',
       SKU: item.product?.sku || 'N/A',
       Cantidad: item.cantidad,

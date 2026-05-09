@@ -24,6 +24,7 @@ import { format, subDays, isSameDay } from 'date-fns'
 import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { isFinalSaleStatus } from '@/lib/orderStatus'
 
 const ALERT_STYLES: Record<InventoryAlert['alert_level'], { label: string; className: string }> = {
   out_of_stock: {
@@ -88,6 +89,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const [filterProfileId, setFilterProfileId] = useState<string>('all')
   const [filterDateFrom, setFilterDateFrom] = useState<string>('')
   const [filterDateTo, setFilterDateTo] = useState<string>('')
+  const [analyticsTab, setAnalyticsTab] = useState<'general' | 'ubicaciones' | 'perfiles'>('general')
 
   const canViewSettings = useMemo(() => {
     if (!currentUser) return true
@@ -312,7 +314,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   }, [returnsData, refundAmountByReturnId])
 
   const pendingOrders = orders.filter(o => o.estado === 'pendiente').length
-  const completedOrders = orders.filter(o => o.estado === 'completada').length
+  const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado)).length
   const totalOrders = orders.length
 
   const fallbackDashboardStats = useMemo<DashboardStatsType>(() => {
@@ -331,13 +333,13 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0)
     endOfLastMonth.setHours(23, 59, 59, 999)
 
-    const nonCancelledOrders = orders.filter(o => o.estado !== 'cancelada')
-    const ordersToday = nonCancelledOrders.filter(o => {
+    const finalSaleOrders = orders.filter(o => isFinalSaleStatus(o.estado))
+    const ordersToday = finalSaleOrders.filter(o => {
       const createdAt = new Date(o.created_at)
       return createdAt >= startOfToday && createdAt <= endOfToday
     })
-    const ordersThisMonth = nonCancelledOrders.filter(o => new Date(o.created_at) >= startOfMonth)
-    const ordersLastMonth = nonCancelledOrders.filter(o => {
+    const ordersThisMonth = finalSaleOrders.filter(o => new Date(o.created_at) >= startOfMonth)
+    const ordersLastMonth = finalSaleOrders.filter(o => {
       const createdAt = new Date(o.created_at)
       return createdAt >= startOfLastMonth && createdAt <= endOfLastMonth
     })
@@ -418,7 +420,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     end.setHours(23, 59, 59, 999)
 
     const grossSales = dayOrders
-      .filter(o => o.estado === 'completada')
+      .filter(o => isFinalSaleStatus(o.estado))
       .reduce((sum, o) => sum + Number(o.total), 0)
     const refunds = getRefundAmountInRange(start, end)
 
@@ -433,6 +435,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     { name: 'Pendiente', value: chartOrders.filter(o => o.estado === 'pendiente').length, color: '#f59e0b' },
     { name: 'Por Entregar', value: chartOrders.filter(o => o.estado === 'por_entregar').length, color: '#3b82f6' },
     { name: 'Completada', value: chartOrders.filter(o => o.estado === 'completada').length, color: '#10b981' },
+    { name: 'Validada', value: chartOrders.filter(o => o.estado === 'validada').length, color: '#059669' },
     { name: 'Cancelada', value: chartOrders.filter(o => o.estado === 'cancelada').length, color: '#ef4444' },
   ].filter(s => s.value > 0), [chartOrders])
 
@@ -447,7 +450,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
   const fallbackTopProducts = useMemo(() => {
     const productSales = chartOrders
-      .filter(o => o.estado === 'completada')
+      .filter(o => isFinalSaleStatus(o.estado))
       .flatMap(o => o.items)
       .filter(item => item.product?.nombre)
       .reduce((acc, item) => {
@@ -496,7 +499,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const fallbackStatsByLocation = useMemo(() => {
     return locations.map(location => {
       const locationOrders = chartOrders.filter(o => o.source_location_id === location.id)
-      const completedLocationOrders = locationOrders.filter(o => o.estado === 'completada')
+      const completedLocationOrders = locationOrders.filter(o => isFinalSaleStatus(o.estado))
       const revenue = completedLocationOrders.reduce((sum, o) => sum + Number(o.total), 0)
       const unidades = completedLocationOrders.reduce((sum, order) => {
         const itemsTotal = order.items?.reduce((acc, item) => acc + item.cantidad, 0) ?? 0
@@ -524,7 +527,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const statsByProfile = useMemo(() => {
     return salesProfiles.map(profile => {
       const profileOrders = chartOrders.filter(o => o.sales_profile_id === profile.id)
-      const completedProfileOrders = profileOrders.filter(o => o.estado === 'completada')
+      const completedProfileOrders = profileOrders.filter(o => isFinalSaleStatus(o.estado))
       const revenue = completedProfileOrders.reduce((sum, o) => sum + Number(o.total), 0)
       
       return {
@@ -557,10 +560,33 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
   const formatCurrency = useCallback((value: number) => currencyFormatter.format(value ?? 0), [currencyFormatter])
 
+  const getNumericChartValue = useCallback((value: unknown): number => {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (!normalized) return 0
+
+      const direct = Number(normalized)
+      if (Number.isFinite(direct)) return direct
+
+      const cleaned = normalized.replace(/[^\d,.-]/g, '')
+      const usStyle = Number(cleaned.replace(/,/g, ''))
+      if (Number.isFinite(usStyle)) return usStyle
+
+      const euStyle = Number(cleaned.replace(/\./g, '').replace(',', '.'))
+      if (Number.isFinite(euStyle)) return euStyle
+    }
+
+    return 0
+  }, [])
+
   const lastUpdatedLabel = useMemo(() => (lastUpdated ? format(new Date(lastUpdated), 'dd/MM HH:mm') : null), [lastUpdated])
 
   const revenuePeriods = useMemo(() => {
-    const validOrders = chartOrders.filter(order => order.estado !== 'cancelada')
+    const validOrders = chartOrders.filter(order => isFinalSaleStatus(order.estado))
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const weekStart = new Date(todayStart)
@@ -905,7 +931,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </Card>
       )}
 
-      {!insightsOnly && <Tabs defaultValue="general" className="w-full">
+      {!insightsOnly && <Tabs value={analyticsTab} onValueChange={(value) => setAnalyticsTab(value as 'general' | 'ubicaciones' | 'perfiles')} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="general">
             <ChartLineUp className="mr-2 h-4 w-4" />
@@ -922,6 +948,8 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         </TabsList>
 
         <TabsContent value="general" className="space-y-6 mt-6">
+          {analyticsTab === 'general' && (
+            <>
           {chartsOnly && canViewFinancials && (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               {revenuePeriods.map((period, index) => (
@@ -946,8 +974,8 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                         <period.icon size={18} className={period.color} />
                       </div>
                     </div>
-                    <div className="h-[72px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[72px] w-full min-w-0">
+                      <ResponsiveContainer width="100%" height={72} minWidth={0}>
                         <AreaChart data={period.chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                           <defs>
                             <linearGradient id={`grad-${period.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -1219,9 +1247,10 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                     border: '1px solid oklch(0.90 0.005 250)',
                     borderRadius: '0.5rem'
                   }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'ingresos') return [formatCurrency(value), 'Ingresos']
-                    return [value, 'Órdenes']
+                  formatter={(value: unknown, name: string) => {
+                    const numericValue = getNumericChartValue(value)
+                    if (name === 'ingresos') return [formatCurrency(numericValue), 'Ingresos']
+                    return [numericValue, 'Órdenes']
                   }}
                 />
                 <Bar dataKey="ingresos" fill="oklch(0.45 0.12 250)" radius={[8, 8, 0, 0]} />
@@ -1250,9 +1279,10 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                     border: '1px solid oklch(0.90 0.005 250)',
                     borderRadius: '0.5rem'
                   }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'ventas') return [`L ${value.toFixed(2)}`, 'Ventas']
-                    return [value, 'Órdenes']
+                  formatter={(value: unknown, name: string) => {
+                    const numericValue = getNumericChartValue(value)
+                    if (name === 'ventas') return [formatCurrency(numericValue), 'Ventas']
+                    return [numericValue, 'Órdenes']
                   }}
                 />
                 <Line 
@@ -1330,9 +1360,10 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                     border: '1px solid oklch(0.90 0.005 250)',
                     borderRadius: '0.5rem'
                   }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'ingresos') return [`L ${value.toFixed(2)}`, 'Ingresos']
-                    return [value, 'Cantidad']
+                  formatter={(value: unknown, name: string) => {
+                    const numericValue = getNumericChartValue(value)
+                    if (name === 'ingresos') return [formatCurrency(numericValue), 'Ingresos']
+                    return [numericValue, 'Cantidad']
                   }}
                 />
                 <Bar dataKey={canViewFinancials ? "ingresos" : "cantidad"} fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
@@ -1341,10 +1372,12 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
           </Card>
         </motion.div>
       )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="ubicaciones" className="space-y-6 mt-6">
-          {statsByLocation.length > 0 ? (
+          {analyticsTab === 'ubicaciones' && (statsByLocation.length > 0 ? (
             <>
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">{canViewFinancials ? 'Ventas por Ubicación' : 'Órdenes por Ubicación'}</h3>
@@ -1366,10 +1399,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                         border: '1px solid oklch(0.90 0.005 250)',
                         borderRadius: '0.5rem'
                       }}
-                      formatter={(value: number, name: string) => {
-                        if (name === 'ingresos') return [`L ${value.toFixed(2)}`, 'Ingresos']
-                        if (name === 'completadas') return [value, 'Completadas']
-                        return [value, 'Órdenes']
+                      formatter={(value: unknown, name: string) => {
+                        const numericValue = getNumericChartValue(value)
+                        if (name === 'ingresos') return [formatCurrency(numericValue), 'Ingresos']
+                        if (name === 'completadas') return [numericValue, 'Completadas']
+                        return [numericValue, 'Órdenes']
                       }}
                     />
                     <Bar dataKey={canViewFinancials ? "ingresos" : "completadas"} fill="oklch(0.60 0.15 195)" radius={[8, 8, 0, 0]} />
@@ -1447,11 +1481,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                 No hay órdenes con información de ubicación aún
               </p>
             </Card>
-          )}
+          ))}
         </TabsContent>
 
         <TabsContent value="perfiles" className="space-y-6 mt-6">
-          {statsByProfile.length > 0 ? (
+          {analyticsTab === 'perfiles' && (statsByProfile.length > 0 ? (
             <>
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">Ventas por Perfil de Venta</h3>
@@ -1473,10 +1507,11 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                         border: '1px solid oklch(0.90 0.005 250)',
                         borderRadius: '0.5rem'
                       }}
-                      formatter={(value: number, name: string) => {
-                        if (name === 'ingresos') return [`L ${value.toFixed(2)}`, 'Ingresos']
-                        if (name === 'completadas') return [value, 'Completadas']
-                        return [value, 'Órdenes']
+                      formatter={(value: unknown, name: string) => {
+                        const numericValue = getNumericChartValue(value)
+                        if (name === 'ingresos') return [formatCurrency(numericValue), 'Ingresos']
+                        if (name === 'completadas') return [numericValue, 'Completadas']
+                        return [numericValue, 'Órdenes']
                       }}
                     />
                     <Bar dataKey="ingresos" fill="oklch(0.55 0.15 160)" radius={[8, 8, 0, 0]} />
@@ -1530,7 +1565,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
                 No hay órdenes con información de perfil de venta aún
               </p>
             </Card>
-          )}
+          ))}
         </TabsContent>
       </Tabs>}
 

@@ -12,11 +12,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
+from app.auth import check_permission
 from app.config_production import prod_settings
 from app.database import get_db
-from app.models import SalesProfile, ProcessedMessage
+from app.models import SalesProfile, ProcessedMessage, User
 from app.routers.ai_intelligence import handle_message_without_n8n
 from app.schemas import AIHandleMessageRequest
+from app.utils.sales_profile_config import extract_channel_integration, parse_sales_profile_config
 
 
 logger = logging.getLogger(__name__)
@@ -137,12 +139,7 @@ def _parse_json_object(raw: Optional[str]) -> Dict[str, Any]:
 
 
 def _extract_channel_integration(profile: SalesProfile, channel: str) -> Dict[str, Any]:
-    config = _parse_json_object(profile.configuracion)
-    integrations = config.get("channel_integrations") if isinstance(config.get("channel_integrations"), dict) else {}
-    channel_data = integrations.get(channel) if isinstance(integrations, dict) else None
-    if isinstance(channel_data, dict):
-        return channel_data
-    return {}
+    return extract_channel_integration(profile.configuracion, channel)
 
 
 def _channel_candidates(profile: SalesProfile, channel: str, account_id: Optional[str]) -> bool:
@@ -579,7 +576,7 @@ def _channel_health_snapshot_with_profiles(db: Session) -> Dict[str, Any]:
     profile_checks: List[Dict[str, Any]] = []
     active_profiles = db.query(SalesProfile).filter(SalesProfile.active == True).all()
     for profile in active_profiles:
-        profile_config = _parse_json_object(profile.configuracion)
+        profile_config = parse_sales_profile_config(profile.configuracion, decrypt_secrets=True)
         integrations = profile_config.get("channel_integrations") if isinstance(profile_config.get("channel_integrations"), dict) else {}
         if not isinstance(integrations, dict) or not integrations:
             continue
@@ -657,6 +654,7 @@ async def test_channel_connection(
     sales_profile_slug: str,
     channel: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("ai:manage")),
 ) -> Dict[str, Any]:
     """
     Prueba la conexión a un canal específico para un perfil.
@@ -692,7 +690,7 @@ async def test_channel_connection(
         channel_lower = "messenger"
     
     # Extract config
-    config = json.loads(profile.configuracion) if profile.configuracion else {}
+    config = parse_sales_profile_config(profile.configuracion, decrypt_secrets=True)
     integrations = config.get("channel_integrations", {})
     channel_config = integrations.get(channel_lower, {})
     

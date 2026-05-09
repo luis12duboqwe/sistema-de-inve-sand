@@ -24,6 +24,7 @@ from app.auth import (
     check_permission,
 )
 from app.config import settings
+from app.dependencies.rate_limiting import check_auth_rate_limit
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
@@ -33,16 +34,27 @@ SYSTEM_PERMISSIONS = [
     {"slug": "inventory:edit", "description": "Editar productos", "module": "inventory"},
     {"slug": "inventory:delete", "description": "Eliminar productos", "module": "inventory"},
     {"slug": "inventory:adjust", "description": "Ajustar stock manualmente", "module": "inventory"},
+    {"slug": "inventory:count", "description": "Realizar conteos físicos", "module": "inventory"},
+    {"slug": "purchases:manage", "description": "Registrar recepciones de compras", "module": "purchases"},
+    {"slug": "cash_closes:manage", "description": "Cerrar caja por tienda", "module": "cash_closes"},
+    {"slug": "audit:view", "description": "Ver bitácora de auditoría", "module": "audit"},
     {"slug": "orders:view", "description": "Ver órdenes", "module": "orders"},
     {"slug": "orders:create", "description": "Crear órdenes", "module": "orders"},
     {"slug": "orders:edit", "description": "Editar órdenes", "module": "orders"},
     {"slug": "orders:delete", "description": "Eliminar/Cancelar órdenes", "module": "orders"},
     {"slug": "locations:view", "description": "Ver ubicaciones", "module": "locations"},
     {"slug": "locations:manage", "description": "Crear/Editar/Borrar ubicaciones", "module": "locations"},
+    {"slug": "locations:access_manage", "description": "Gestionar accesos por ubicación", "module": "locations"},
     {"slug": "settings:view", "description": "Ver configuraciones", "module": "settings"},
-    {"slug": "settings:edit", "description": "Editar configuraciones críticas (Bots, API)", "module": "settings"},
+    {"slug": "settings:edit", "description": "Editar configuraciones críticas del sistema", "module": "settings"},
+    {"slug": "ai:manage", "description": "Gestionar operaciones de IA (estado, entrenamiento y configuración)", "module": "ai"},
     {"slug": "users:manage", "description": "Gestionar usuarios y roles", "module": "users"},
     {"slug": "reports:view", "description": "Ver reportes financieros", "module": "reports"},
+    {"slug": "photo_requests:list", "description": "Listar solicitudes de fotos", "module": "photo_requests"},
+    {"slug": "photo_requests:read", "description": "Ver solicitudes de fotos", "module": "photo_requests"},
+    {"slug": "photo_requests:update", "description": "Actualizar solicitudes de fotos", "module": "photo_requests"},
+    {"slug": "photo_requests:upload", "description": "Cargar fotos solicitadas", "module": "photo_requests"},
+    {"slug": "photo_requests:send", "description": "Enviar fotos al cliente", "module": "photo_requests"},
 ]
 
 SYSTEM_ROLE_CONFIG = [
@@ -62,16 +74,26 @@ SYSTEM_ROLE_CONFIG = [
             "inventory:edit",
             "inventory:delete",
             "inventory:adjust",
+            "inventory:count",
+            "purchases:manage",
+            "cash_closes:manage",
+            "audit:view",
             "orders:view",
             "orders:create",
             "orders:edit",
             "orders:delete",
             "locations:view",
             "locations:manage",
+            "locations:access_manage",
             "settings:view",
             "settings:edit",
             "reports:view",
             "users:manage",
+            "photo_requests:list",
+            "photo_requests:read",
+            "photo_requests:update",
+            "photo_requests:upload",
+            "photo_requests:send",
         ],
     },
     {
@@ -83,13 +105,24 @@ SYSTEM_ROLE_CONFIG = [
             "inventory:create",
             "inventory:edit",
             "inventory:delete",
+            "inventory:adjust",
+            "inventory:count",
+            "purchases:manage",
+            "cash_closes:manage",
+            "audit:view",
             "orders:view",
             "orders:create",
             "orders:edit",
             "orders:delete",
             "locations:view",
+            "locations:manage",
             "settings:view",
             "reports:view",
+            "photo_requests:list",
+            "photo_requests:read",
+            "photo_requests:update",
+            "photo_requests:upload",
+            "photo_requests:send",
         ],
     },
     {
@@ -98,9 +131,15 @@ SYSTEM_ROLE_CONFIG = [
         "is_system_role": True,
         "permission_slugs": [
             "inventory:view",
+            "inventory:count",
             "orders:view",
             "orders:create",
             "locations:view",
+            "photo_requests:list",
+            "photo_requests:read",
+            "photo_requests:update",
+            "photo_requests:upload",
+            "photo_requests:send",
         ],
     },
     {
@@ -240,8 +279,9 @@ def register_user(
         )
     
     # Check if email exists
-    if user.email:
-        db_user = db.query(User).filter(User.email == user.email).first()
+    normalized_email = user.email.strip() if user.email else None
+    if normalized_email:
+        db_user = db.query(User).filter(User.email == normalized_email).first()
         if db_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -252,7 +292,7 @@ def register_user(
     hashed_password = get_password_hash(user.password)
     db_user = User(
         username=user.username,
-        email=user.email,
+        email=normalized_email,
         full_name=user.full_name,
         hashed_password=hashed_password,
         role_id=user.role_id
@@ -272,41 +312,38 @@ def register_user(
 
 
 @router.post("/token", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+    _rate_limit: dict = Depends(check_auth_rate_limit),
+):
     """
     Login and get an access token.
     """
-    try:
-        user = authenticate_user(db, form_data.username, form_data.password)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Inactive user",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        user = ensure_superuser_has_role(db, user)
-        
-        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-        access_token = create_access_token(
-            data={"sub": user.username}, expires_delta=access_token_expires
+    ensure_default_rbac(db)
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        
-        return {"access_token": access_token, "token_type": "bearer"}
-    except Exception as e:
-        import traceback
-        with open("login_error.log", "w") as f:
-            f.write(str(e))
-            f.write("\n")
-            f.write(traceback.format_exc())
-        raise e
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Inactive user",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = ensure_superuser_has_role(db, user)
+    
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.get("/me", response_model=UserResponse)

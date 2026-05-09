@@ -30,6 +30,7 @@ BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 
 # Logs
 LOG_FILE="${BACKUP_DIR}/backup.log"
+CREATED_BACKUP_FILE=""
 
 # ====================================
 # FUNCIONES
@@ -71,6 +72,7 @@ create_backup() {
     # Generar checksum
     sha256sum "$backup_file" > "${backup_file}.sha256"
     log "✓ Checksum generado: ${backup_file}.sha256"
+    CREATED_BACKUP_FILE="$backup_file"
 }
 
 cleanup_old_backups() {
@@ -136,7 +138,7 @@ main() {
         cleanup_old_backups
         
         # Verificar último backup
-        verify_backup "$BACKUP_DIR"/${DB_NAME}_${backup_type}_*.sql.gz
+        verify_backup "$CREATED_BACKUP_FILE"
         
         # Logs de resumen
         log "✅ BACKUP COMPLETADO EXITOSAMENTE"

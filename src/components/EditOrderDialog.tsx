@@ -20,9 +20,10 @@ import {
 } from '@/components/ui/select'
 import { Plus, Trash, Barcode } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import type { OrderWithItems, ProductWithStock, SalesProfile } from '@/lib/types'
+import type { Bank, OrderWithItems, ProductWithStock, SalesProfile } from '@/lib/types'
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { apiClient } from '@/lib/apiClient'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -35,6 +36,8 @@ interface EditOrderDialogProps {
     customer_phone: string
     canal: OrderWithItems['canal']
     metodo_pago: OrderWithItems['metodo_pago']
+    transfer_bank_name?: string
+    transfer_reference?: string
     items: {
       product_id: number
       cantidad: number
@@ -71,6 +74,8 @@ export function EditOrderDialog({
   const [customerPhone, setCustomerPhone] = useState(order.customer_phone)
   const [canal, setCanal] = useState<OrderWithItems['canal']>(order.canal)
   const [metodoPago, setMetodoPago] = useState<OrderWithItems['metodo_pago']>(order.metodo_pago)
+  const [transferBankName, setTransferBankName] = useState(order.transfer_bank_name || '')
+  const [transferReference, setTransferReference] = useState(order.transfer_reference || '')
   const [notas, setNotas] = useState(order.notas || '')
   const [deliveryDate, setDeliveryDate] = useState(
     order.delivery_date ? new Date(order.delivery_date).toISOString().slice(0, 16) : ''
@@ -84,6 +89,7 @@ export function EditOrderDialog({
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
+  const [banks, setBanks] = useState<Bank[]>([])
 
   const [scanInput, setScanInput] = useState('')
   const scanInputRef = useRef<HTMLInputElement>(null)
@@ -167,6 +173,8 @@ export function EditOrderDialog({
       setCustomerPhone(order.customer_phone)
       setCanal(order.canal)
       setMetodoPago(order.metodo_pago)
+      setTransferBankName(order.transfer_bank_name || '')
+      setTransferReference(order.transfer_reference || '')
       setNotas(order.notas || '')
       setDeliveryDate(
         order.delivery_date ? new Date(order.delivery_date).toISOString().slice(0, 16) : ''
@@ -180,6 +188,17 @@ export function EditOrderDialog({
       )
     }
   }, [open, order])
+
+  useEffect(() => {
+    if (!open) return
+
+    apiClient.getBanks(true)
+      .then(setBanks)
+      .catch(error => {
+        console.warn('No se pudieron cargar bancos para transferencias:', error)
+        setBanks([])
+      })
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -265,9 +284,23 @@ export function EditOrderDialog({
     return products.filter(p => {
       if (p.id === currentProductId) return true
       const originalItem = order.items.find(oi => oi.product_id === p.id)
-      const availableStock = p.stock_disponible + (originalItem?.cantidad || 0)
+      const stockInOrderLocation = p.stock_items?.find(stock => stock.location_id === order.source_location_id)
+      const stockLibre = Math.max(
+        (stockInOrderLocation?.cantidad_disponible || 0) - (stockInOrderLocation?.cantidad_reservada || 0),
+        0
+      )
+      const availableStock = stockLibre + (originalItem?.cantidad || 0)
       return availableStock > 0
     })
+  }
+
+  const getAvailableStockInOrderLocation = (product: ProductWithStock, originalQuantity = 0) => {
+    const stockInOrderLocation = product.stock_items?.find(stock => stock.location_id === order.source_location_id)
+    const stockLibre = Math.max(
+      (stockInOrderLocation?.cantidad_disponible || 0) - (stockInOrderLocation?.cantidad_reservada || 0),
+      0
+    )
+    return stockLibre + originalQuantity
   }
 
   const calculateTotal = () => {
@@ -296,16 +329,27 @@ export function EditOrderDialog({
       return
     }
 
+    if (metodoPago === 'transferencia') {
+      if (!transferBankName.trim()) {
+        toast.error('Ingresa el banco de la transferencia')
+        return
+      }
+      if (!transferReference.trim()) {
+        toast.error('Ingresa el número de referencia de la transferencia')
+        return
+      }
+    }
+
     for (const item of validItems) {
       const product = products.find(p => p.id === item.product_id)
       if (!product) continue
       
       const originalItem = order.items.find(oi => oi.product_id === item.product_id)
       const originalQuantity = originalItem?.cantidad || 0
-      const maxAvailable = product.stock_disponible + originalQuantity
+      const maxAvailable = getAvailableStockInOrderLocation(product, originalQuantity)
 
       if (item.cantidad > maxAvailable) {
-        toast.error(`Stock insuficiente para ${product.nombre}. Disponible: ${maxAvailable}`)
+        toast.error(`Stock insuficiente para ${product.nombre} en la ubicación de la orden. Disponible: ${maxAvailable}`)
         return
       }
 
@@ -325,6 +369,8 @@ export function EditOrderDialog({
         customer_phone: phoneValidation.phone,
         canal,
         metodo_pago: metodoPago,
+        transfer_bank_name: metodoPago === 'transferencia' ? transferBankName.trim() : undefined,
+        transfer_reference: metodoPago === 'transferencia' ? transferReference.trim() : undefined,
         items: validItems,
         notes: notas.trim() || undefined,
         delivery_date: deliveryDate || undefined
@@ -402,7 +448,14 @@ export function EditOrderDialog({
               <Label htmlFor="edit-metodo-pago">Método de Pago</Label>
               <Select
                 value={metodoPago}
-                onValueChange={(v) => setMetodoPago(v as typeof metodoPago)}
+                onValueChange={(v) => {
+                  const next = v as typeof metodoPago
+                  setMetodoPago(next)
+                  if (next !== 'transferencia') {
+                    setTransferBankName('')
+                    setTransferReference('')
+                  }
+                }}
               >
                 <SelectTrigger id="edit-metodo-pago">
                   <SelectValue />
@@ -416,6 +469,41 @@ export function EditOrderDialog({
               </Select>
             </div>
           </div>
+
+          {metodoPago === 'transferencia' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-md border border-dashed border-blue-300 bg-blue-50/40 p-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-transfer-bank">Banco de la transferencia</Label>
+                <Input
+                  id="edit-transfer-bank"
+                  list="edit-transfer-bank-options"
+                  value={transferBankName}
+                  onChange={(e) => setTransferBankName(e.target.value)}
+                  placeholder="Ej: BAC, Ficohsa, Atlántida"
+                  maxLength={120}
+                />
+                <datalist id="edit-transfer-bank-options">
+                  {banks.map(bank => (
+                    <option key={bank.id} value={bank.name} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-transfer-reference">Número de referencia</Label>
+                <Input
+                  id="edit-transfer-reference"
+                  value={transferReference}
+                  onChange={(e) => setTransferReference(e.target.value)}
+                  placeholder="Ej: 84291372"
+                  maxLength={120}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Se valida contra referencias previas para evitar pagos duplicados.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">

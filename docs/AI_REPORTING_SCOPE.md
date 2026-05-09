@@ -61,7 +61,7 @@
 ### 3.2 Observabilidad y alertas
 - **Logs**: Centralizar los eventos criticos (errores de IA, fallos de reportes) via logging estandar de FastAPI. Prioridad para centralizacion en DataDog/ELK en Fase 2.
 - **Alertas N8N**: Configurar nodos que llamen `GET /api/ai/status` cada 5 min; disparar alerta si `training_backlog > 20`, `forecasting_alerts` no vacio por >24h, o si no hay interacciones en 6h (pico horarios).
-- **Health endpoints**: Agregar `/api/health` simple (si aun no existe) para monitoreo de uptime; si ya esta, documentarlo aqui (pendiente de verificacion).
+- **Health endpoints**: `GET /api/health` está disponible en `backend/app/main.py` para monitoreo de uptime.
 
 ### 3.3 Feature Flags y permisos
 - `ENABLE_AI_FEATURES` controla exposicion de `/api/ai/*`.

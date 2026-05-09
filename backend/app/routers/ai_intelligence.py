@@ -69,6 +69,9 @@ from app.utils.photo_detection import (
 )
 from app.routers.photo_requests import create_photo_request_internal
 from app.schemas.photos import PhotoRequestCreate
+from app.utils.location_access import get_accessible_location_ids, require_location_access
+
+FINAL_SALE_STATUSES = ["completada", "validada"]
 
 def _ensure_ai_features_enabled():
     if not prod_settings.ENABLE_AI_FEATURES:
@@ -612,11 +615,16 @@ def _mark_message_processed(
         return False
 
 
-def _make_business_insights_cache_key(days: int, payload: BusinessInsightsRequest) -> str:
+def _make_business_insights_cache_key(
+    days: int,
+    payload: BusinessInsightsRequest,
+    scoped_location_ids: Optional[List[int]],
+) -> str:
     return json.dumps(
         {
             "days": days,
             "location_id": payload.location_id,
+            "scope_locations": scoped_location_ids,
             "sales_profile_id": payload.sales_profile_id,
             "sales_profile_slug": payload.sales_profile_slug,
         },
@@ -640,7 +648,7 @@ def _cleanup_business_insights_cache(cache: Dict[str, Any]) -> None:
 def get_ai_config(
     sales_profile_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("settings:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Obtiene la configuración de IA para un perfil específico"""
     config = db.query(AIProfileConfig).filter(AIProfileConfig.sales_profile_id == sales_profile_id).first()
@@ -653,7 +661,7 @@ def update_ai_config(
     sales_profile_id: int, 
     config: AIConfigSchema, 
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("settings:edit"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Crea o actualiza la configuración de IA para un perfil"""
     # Verify profile exists
@@ -692,7 +700,7 @@ def update_ai_config(
 def get_ai_status(
     alerts_limit: int = 5,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Consolida métricas operativas de los bots IA y alertas de pronósticos."""
     now = _utcnow()
@@ -803,7 +811,8 @@ def get_ai_status(
 
     profile_metrics.sort(key=lambda metric: metric.interactions_last_7_days, reverse=True)
 
-    forecasts = generate_sales_forecasts(db)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    forecasts = generate_sales_forecasts(db, location_ids=accessible_location_ids)
     forecasting_alerts: List[ForecastingAlertItem] = []
 
     for forecast in forecasts:
@@ -863,16 +872,6 @@ def generate_business_insights(
     now = _utcnow()
     period_start = now - timedelta(days=days)
 
-    cache_store = _get_business_insights_cache(request)
-    cache_key = _make_business_insights_cache_key(days, payload)
-    cache_entry = cache_store.get(cache_key) if payload.use_cache and not payload.force_refresh else None
-    if cache_entry and cache_entry.get("expires_at") and cache_entry["expires_at"] > now:
-        response.headers["X-AI-Business-Cache"] = "HIT"
-        cached_value = cache_entry.get("value")
-        if isinstance(cached_value, BusinessInsightsResponse):
-            return cached_value.model_copy(deep=True)
-        return cached_value
-
     sales_profile_id = payload.sales_profile_id
     if payload.sales_profile_slug:
         profile = db.query(SalesProfile).filter(SalesProfile.slug == payload.sales_profile_slug).first()
@@ -884,21 +883,39 @@ def generate_business_insights(
         if not profile:
             raise HTTPException(status_code=404, detail="Sales Profile not found")
 
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    scoped_location_ids = accessible_location_ids
     if payload.location_id:
         location_exists = db.query(Location).filter(Location.id == payload.location_id).first()
         if not location_exists:
             raise HTTPException(status_code=404, detail="Location not found")
+        require_location_access(db, current_user, payload.location_id, "can_view")
+        scoped_location_ids = [payload.location_id]
+    if scoped_location_ids is not None:
+        scoped_location_ids = sorted(scoped_location_ids)
+
+    cache_store = _get_business_insights_cache(request)
+    cache_key = _make_business_insights_cache_key(days, payload, scoped_location_ids)
+    cache_entry = cache_store.get(cache_key) if payload.use_cache and not payload.force_refresh else None
+    if cache_entry and cache_entry.get("expires_at") and cache_entry["expires_at"] > now:
+        response.headers["X-AI-Business-Cache"] = "HIT"
+        cached_value = cache_entry.get("value")
+        if isinstance(cached_value, BusinessInsightsResponse):
+            return cached_value.model_copy(deep=True)
+        return cached_value
 
     orders_query = (
         db.query(Order)
         .options(joinedload(Order.items).joinedload(OrderItem.product))
         .filter(Order.created_at >= period_start)
-        .filter(Order.estado != "cancelada")
+        .filter(Order.estado.in_(FINAL_SALE_STATUSES))
     )
     if sales_profile_id:
         orders_query = orders_query.filter(Order.sales_profile_id == sales_profile_id)
     if payload.location_id:
         orders_query = orders_query.filter(Order.source_location_id == payload.location_id)
+    elif scoped_location_ids is not None:
+        orders_query = orders_query.filter(Order.source_location_id.in_(scoped_location_ids))
 
     orders = orders_query.all()
 
@@ -943,12 +960,16 @@ def generate_business_insights(
     orders_count = len(orders)
     avg_order_value = total_revenue / orders_count if orders_count else 0.0
 
-    products = (
+    products_query = (
         db.query(Product)
         .options(joinedload(Product.stock_items).joinedload(Stock.location))
         .filter(Product.activo == True)
-        .all()
     )
+    if scoped_location_ids is not None:
+        products_query = products_query.join(Stock, Stock.product_id == Product.id).filter(
+            Stock.location_id.in_(scoped_location_ids)
+        ).distinct()
+    products = products_query.all()
 
     top_sellers = [
         {
@@ -970,7 +991,7 @@ def generate_business_insights(
     for product in products:
         stock_available = 0
         for stock in product.stock_items:
-            if payload.location_id and stock.location_id != payload.location_id:
+            if scoped_location_ids is not None and stock.location_id not in scoped_location_ids:
                 continue
             available = max(0, (stock.cantidad_disponible or 0) - (stock.cantidad_reservada or 0))
             stock_available += available
@@ -1791,7 +1812,7 @@ def list_training_queue(
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=10, le=200, description="Resultados por página"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Lista preguntas pendientes de revisión con paginación."""
 
@@ -1840,7 +1861,7 @@ def resolve_training_item(
     action: str = Body(..., embed=True),
     correction: str = Body(None, embed=True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Resuelve un item de entrenamiento: aprobar, rechazar o convertir a FAQ"""
     item = db.query(TrainingQueue).filter(TrainingQueue.id == item_id).first()
@@ -1884,7 +1905,7 @@ def update_training_queue_item(
     item_id: int,
     updates: Dict[str, Any],
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view")),
+    current_user: User = Depends(check_permission("ai:manage")),
 ):
     """Actualiza campos de un item de training queue en modo API."""
     item = (
@@ -1980,7 +2001,7 @@ def list_customers_ai(
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=10, le=200, description="Resultados por página"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Lista clientes con datos de inteligencia."""
 
@@ -2045,7 +2066,7 @@ def update_customer_ai(
     customer_id: int,
     updates: Dict[str, Any],
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Actualiza estado de cliente (bloqueo, troll, notas)"""
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
@@ -2086,7 +2107,7 @@ def update_customer_ai(
 @router.get("/trade-in-policies", response_model=List[TradeInPolicyResponse])
 def list_trade_in_policies(
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("settings:view"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Lista todas las políticas de retoma"""
     return db.query(TradeInPolicy).order_by(TradeInPolicy.created_at.desc()).all()
@@ -2095,7 +2116,7 @@ def list_trade_in_policies(
 def create_trade_in_policy(
     policy: TradeInPolicyCreate, 
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("settings:edit"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Crea una nueva política de retoma"""
     new_policy = TradeInPolicy(**policy.dict())
@@ -2108,7 +2129,7 @@ def create_trade_in_policy(
 def delete_trade_in_policy(
     policy_id: int, 
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("settings:edit"))
+    current_user: User = Depends(check_permission("ai:manage"))
 ):
     """Elimina una política de retoma"""
     policy = db.query(TradeInPolicy).filter(TradeInPolicy.id == policy_id).first()
@@ -2126,9 +2147,13 @@ def link_order_to_interaction(
     current_user: User = Depends(check_permission("orders:create"))
 ):
     """Vincula la última interacción de un cliente con una orden creada (Atribución de Venta)"""
-    customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+    normalized_phone = _normalize_phone(request.customer_phone)
+    customer = db.query(Customer).filter(Customer.phone_number == normalized_phone).first()
+    if not customer and normalized_phone != request.customer_phone:
+        customer = db.query(Customer).filter(Customer.phone_number == request.customer_phone).first()
+
     if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        return {"status": "no_customer_found"}
         
     # Buscar la última interacción del cliente
     last_interaction = db.query(InteractionLog).filter(
@@ -2213,6 +2238,9 @@ def _create_order_from_ai_payload(
 
     if request.source_location_id <= 0:
         raise HTTPException(status_code=400, detail="source_location_id debe ser mayor a 0")
+
+    if auth_context is not None:
+        require_location_access(db, auth_context, request.source_location_id, "can_edit")
 
     resolved_items: List[Dict[str, Any]] = []
     for index, item in enumerate(request.items):
@@ -2425,7 +2453,7 @@ def handle_message_without_n8n(
 
 @router.get("/runtime-metrics")
 def get_ai_runtime_metrics(
-    current_user: User = Depends(check_permission("reports:view")),
+    current_user: User = Depends(check_permission("ai:manage")),
 ):
     latencies = _AI_RUNTIME_METRICS.get("latency_ms") or []
     avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0

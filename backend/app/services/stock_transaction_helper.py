@@ -209,7 +209,7 @@ class StockTransactionHelper:
         canal: Optional[str],
         user_identifier: str,
     ) -> None:
-        """Crea OrderItems, marca IMEIs vendidos y ajusta stock en una sola rutina."""
+        """Crea OrderItems, marca IMEIs vendidos y descuenta stock inmediatamente."""
 
         customer_label = (customer_name or "Cliente").strip() or "Cliente"
         canal_label = canal or "canal_desconocido"
@@ -450,7 +450,13 @@ class StockTransactionHelper:
 
                 imei_order_id = int(getattr(imei_record, "order_id", 0) or 0)
                 vendido_flag = bool(getattr(imei_record, "vendido", False))
-                if imei_order_id != order_id_value or not vendido_flag:
+                if imei_order_id != order_id_value:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"IMEI {imei_value} no pertenece a la orden #{order_id_value} o ya fue liberado",
+                    )
+
+                if not vendido_flag and getattr(order, "estado", None) in {"completada", "validada"}:
                     raise HTTPException(
                         status_code=400,
                         detail=f"IMEI {imei_value} no pertenece a la orden #{order_id_value} o ya fue liberado",

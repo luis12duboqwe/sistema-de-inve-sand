@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import { getKV } from '@/lib/kvStorage'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -59,6 +60,8 @@ import { apiClient } from '@/lib/apiClient'
 import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { DailyCloseDialog } from '@/components/DailyCloseDialog'
+import { MultiStoreControlDialog } from '@/components/MultiStoreControlDialog'
+import { ValidationCodeDialog } from '@/components/ValidationCodeDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -97,6 +100,8 @@ function MainApp() {
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showDailyCloseDialog, setShowDailyCloseDialog] = useState(false)
+  const [showMultiStoreControl, setShowMultiStoreControl] = useState(false)
+  const [multiStoreInitialTab, setMultiStoreInitialTab] = useState<string>('receipts')
   const [showKeyboardDialog, setShowKeyboardDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showSuppliersDialog, setShowSuppliersDialog] = useState(false)
@@ -140,6 +145,11 @@ function MainApp() {
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
+  const [validationCodeRequest, setValidationCodeRequest] = useState<{
+    title: string
+    description: string
+    resolve: (code: string | null) => void
+  } | null>(null)
   
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null)
@@ -304,19 +314,73 @@ function MainApp() {
   const canViewSettings = hasPermission('settings:view')
   const canEditSettings = hasPermission('settings:edit')
   const canViewReports = hasPermission('reports:view')
+  const canViewInventory = hasPermission('inventory:view')
   const canCreateInventory = hasPermission('inventory:create')
   const canEditInventory = hasPermission('inventory:edit')
   const canDeleteInventory = hasPermission('inventory:delete')
+  const canAdjustInventory = hasPermission('inventory:adjust')
+  const canCountInventory = hasPermission('inventory:count')
+  const canManagePurchases = hasPermission('purchases:manage')
   const canViewOrders = hasPermission('orders:view')
+  const canViewLocations = hasPermission('locations:view') || hasPermission('locations:manage')
   const canManageLocations = hasPermission('locations:manage')
+  const canManageLocationAccess = hasPermission('locations:access_manage')
   const canCreateOrders = hasPermission('orders:create')
   const canEditOrders = hasPermission('orders:edit')
   const canDeleteOrders = hasPermission('orders:delete')
   const canManageUsers = hasPermission('users:manage')
+  const canManageCashCloses = hasPermission('cash_closes:manage')
+  const canViewAudit = hasPermission('audit:view')
+  const isSuperUser = !useAPI || currentUser?.is_superuser === true
 
-  const normalizedRoleName = (currentUser?.role?.name ?? '').trim().toLowerCase()
-  const isAdminOrSuperAdmin = !useAPI || currentUser?.is_superuser === true || ['admin', 'super admin', 'superadmin', 'super-admin'].includes(normalizedRoleName)
-  const canAccessAIOps = isAdminOrSuperAdmin && canViewReports
+  const canValidateDailyClose = !useAPI || canEditOrders
+  const canAccessAIOps = hasPermission('ai:manage')
+  const canAccessMultiStoreControl = isSuperUser || canViewInventory || canCountInventory || canAdjustInventory || canManagePurchases || canManageCashCloses || canManageLocationAccess || canViewAudit || canViewReports
+  const activeLocations = useMemo(() => (locations ?? []).filter(location => location.activo), [locations])
+  const productsWithLocationTracking = useMemo(
+    () => (products ?? []).filter(product => (product.stock_items?.length ?? 0) > 0),
+    [products]
+  )
+  const totalTrackedUnits = useMemo(
+    () => (products ?? []).reduce((total, product) => total + Number(product.stock_disponible || 0), 0),
+    [products]
+  )
+  const outOfStockProducts = useMemo(
+    () => (products ?? []).filter(product => Number(product.stock_disponible || 0) <= 0).length,
+    [products]
+  )
+  const locatedOrders = useMemo(
+    () => (orders ?? []).filter(order => order.source_location_id).length,
+    [orders]
+  )
+  const locationSnapshots = useMemo(() => {
+    return activeLocations
+      .map(location => {
+        const productsAtLocation = (products ?? []).filter(product =>
+          product.stock_items?.some(stockItem => stockItem.location_id === location.id && Number(stockItem.cantidad_disponible || 0) > 0)
+        )
+
+        const unitsAtLocation = (products ?? []).reduce((total, product) => {
+          const stockItem = product.stock_items?.find(item => item.location_id === location.id)
+          return total + Number(stockItem?.cantidad_disponible || 0)
+        }, 0)
+
+        return {
+          id: location.id,
+          nombre: location.nombre,
+          tipo: location.tipo,
+          productsAtLocation: productsAtLocation.length,
+          unitsAtLocation,
+        }
+      })
+      .sort((a, b) => b.unitsAtLocation - a.unitsAtLocation)
+      .slice(0, 4)
+  }, [activeLocations, products])
+
+  const openMultiStoreSection = (tab: string) => {
+    setMultiStoreInitialTab(tab)
+    setShowMultiStoreControl(true)
+  }
   const transferProducts = (products ?? []).filter(product => {
     if (!product.stock_items || product.stock_items.length === 0) return false
     if (transferOriginFilter === 'all') return true
@@ -400,11 +464,11 @@ function MainApp() {
         
         const currentService = inventoryServiceFactory(useAPI ?? false, apiUrl ?? 'http://localhost:8000/api')
         const [loadedProducts, loadedOrders, loadedProfiles, loadedSalesProfiles, loadedLocations] = await Promise.all([
-          currentService.getProducts(),
+          canViewInventory ? currentService.getProducts() : Promise.resolve([]),
           canViewOrders ? currentService.getOrders() : Promise.resolve([]),
           canViewSettings ? currentService.getProfiles() : Promise.resolve([]),
-          canViewSettings && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
-          canViewSettings && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
+          (canViewSettings || canViewOrders || canCreateOrders) && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
+          (canViewSettings || canViewLocations || canCreateOrders || canAccessMultiStoreControl) && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
         
         console.log('✅ Datos cargados:', {
@@ -429,7 +493,7 @@ function MainApp() {
     }
 
     loadData()
-  }, [isInitialized, useAPI, apiUrl, currentUser, canViewOrders, canViewSettings, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
+  }, [isInitialized, useAPI, apiUrl, currentUser, canViewInventory, canViewOrders, canViewSettings, canCreateOrders, canViewLocations, canAccessMultiStoreControl, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
 
   const handleBulkDeleteProducts = async () => {
     if (selectedProducts.size === 0) return
@@ -485,13 +549,37 @@ function MainApp() {
     }
   }
 
+  const getCompletionValidationCode = async (newStatus: OrderWithItems['estado']): Promise<string | undefined | null> => {
+    if (!useAPI || newStatus !== 'completada') return undefined
+
+    try {
+      const config = await apiClient.getDailyCloseConfig()
+      if (!config.configured) return undefined
+    } catch (error) {
+      console.error('Error checking daily close validation config:', error)
+      toast.error('No se pudo verificar el código de validación')
+      return null
+    }
+
+    return new Promise(resolve => {
+      setValidationCodeRequest({
+        title: 'Validar venta',
+        description: 'Ingrese el código configurado para completar y validar esta venta.',
+        resolve,
+      })
+    })
+  }
+
   const handleBulkUpdateOrderStatus = async (newStatus: OrderWithItems['estado']) => {
     if (selectedOrders.size === 0) return
     
     try {
+      const validationCode = await getCompletionValidationCode(newStatus)
+      if (validationCode === null) return
+
       if (useAPI) {
         for (const orderId of selectedOrders) {
-          await service.updateOrderStatus(orderId, newStatus)
+          await service.updateOrderStatus(orderId, newStatus, validationCode)
         }
         const refreshed = await inventoryServiceInstance.getOrders()
         setOrders(refreshed)
@@ -629,7 +717,7 @@ function MainApp() {
       key: 'f',
       altKey: true,
       action: () => {
-        if (canViewReports) {
+        if (canAccessAIOps) {
           setShowForecastingDialog(true)
         }
       },
@@ -641,7 +729,7 @@ function MainApp() {
       key: 'o',
       altKey: true,
       action: () => {
-        if (canViewReports) {
+        if (canAccessAIOps) {
           setShowOptimizationDialog(true)
         }
       },
@@ -860,6 +948,7 @@ function MainApp() {
   const channelOptions = activeSalesProfiles.length ? activeSalesProfiles : activeProfiles
 
   const handleTabChange = (value: string) => {
+    if (value === 'products' && !canViewInventory) return
     if (value === 'orders' && !canViewOrders) return
     if (value === 'locations' && !canManageLocations) return
     if (value === 'sales-profiles' && !canViewSettings) return
@@ -873,13 +962,23 @@ function MainApp() {
   }
 
   useEffect(() => {
+    if (activeTab === 'products' && !canViewInventory) {
+      if (canViewOrders) {
+        setActiveTab('orders')
+      } else if (canViewReports) {
+        setActiveTab('charts')
+      } else if (canManageLocations) {
+        setActiveTab('locations')
+      }
+      return
+    }
     if (activeTab === 'orders' && !canViewOrders) {
       setActiveTab('products')
     }
     if (activeTab === 'ai-ops' && !canAccessAIOps) {
       setActiveTab('products')
     }
-  }, [activeTab, canViewOrders, canAccessAIOps])
+  }, [activeTab, canViewInventory, canViewOrders, canViewReports, canManageLocations, canAccessAIOps])
 
   // Verificar conexión del backend primero
   if (!backendConnected) {
@@ -1059,7 +1158,7 @@ function MainApp() {
                 </Button>
               )}
 
-              {isAdminOrSuperAdmin && useAPI && (
+              {canValidateDailyClose && useAPI && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1070,6 +1169,18 @@ function MainApp() {
                   <CheckCircle size={20} weight="fill" />
                 </Button>
               )}
+
+              {canAccessMultiStoreControl && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowMultiStoreControl(true)}
+                  title="Control Multitienda"
+                  className="hover:bg-primary/10 text-primary"
+                >
+                  <Database size={20} />
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1078,14 +1189,22 @@ function MainApp() {
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-8 max-w-7xl mb-6">
-            <TabsTrigger value="products" className="flex items-center gap-2">
-              <Package size={18} />
-              <span className="hidden sm:inline">Productos</span>
-            </TabsTrigger>
+            {canViewInventory && (
+              <TabsTrigger value="products" className="flex items-center gap-2">
+                <Package size={18} />
+                <span className="hidden sm:inline">Productos</span>
+              </TabsTrigger>
+            )}
             {canViewReports && (
               <TabsTrigger value="charts" className="flex items-center gap-2">
                 <ChartLine size={18} />
                 <span className="hidden sm:inline">Gráficas</span>
+              </TabsTrigger>
+            )}
+            {canAccessMultiStoreControl && (
+              <TabsTrigger value="multistore-control" className="flex items-center gap-2">
+                <Database size={18} />
+                <span className="hidden sm:inline">Multitienda</span>
               </TabsTrigger>
             )}
             {canViewOrders && (
@@ -1478,6 +1597,166 @@ function MainApp() {
             )}
           </TabsContent>
 
+          <TabsContent value="multistore-control" className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.9fr)] gap-6">
+              <div className="space-y-6">
+                <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-card via-card to-primary/5">
+                  <CardHeader className="space-y-3">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-xl">
+                          <Database size={22} className="text-primary" weight="duotone" />
+                          Control Multitienda
+                        </CardTitle>
+                        <CardDescription className="mt-1 max-w-2xl">
+                          Centro operativo para recepciones, conteos físicos, cierres de caja, conciliación bancaria,
+                          accesos por ubicación y auditoría distribuida.
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="secondary">{activeLocations.length} ubicaciones activas</Badge>
+                        <Badge variant="outline">{productsWithLocationTracking.length} productos trazados</Badge>
+                        <Badge variant="outline">{locatedOrders} órdenes con origen</Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                      <div className="rounded-xl border bg-background/80 p-4">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Ubicaciones activas</p>
+                        <p className="mt-2 text-3xl font-semibold">{activeLocations.length}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Tiendas, bodegas y oficinas operativas.</p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-4">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Unidades trazadas</p>
+                        <p className="mt-2 text-3xl font-semibold">{totalTrackedUnits.toLocaleString('es-HN')}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Stock consolidado entre ubicaciones.</p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-4">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Productos sin stock</p>
+                        <p className="mt-2 text-3xl font-semibold">{outOfStockProducts}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Catálogo con oportunidad de reposición.</p>
+                      </div>
+                      <div className="rounded-xl border bg-background/80 p-4">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Órdenes ubicadas</p>
+                        <p className="mt-2 text-3xl font-semibold">{locatedOrders}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Ventas registradas con ubicación de origen.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <Card className="border-border/70 bg-background/70">
+                        <CardHeader>
+                          <CardTitle className="text-base">Flujos operativos</CardTitle>
+                          <CardDescription>Entrá directo al proceso que necesitás ejecutar.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {(canViewInventory || canManagePurchases) && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('receipts')}>
+                              <Package size={18} className="mr-2" />
+                              Recepciones y entradas
+                            </Button>
+                          )}
+                          {(canViewInventory || canCountInventory || canAdjustInventory) && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('counts')}>
+                              <CheckSquare size={18} className="mr-2" />
+                              Conteos y ajustes
+                            </Button>
+                          )}
+                          {canManageCashCloses && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('closes')}>
+                              <CreditCard size={18} className="mr-2" />
+                              Cierres por tienda
+                            </Button>
+                          )}
+                          {canViewReports && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('bank')}>
+                              <ChartLine size={18} className="mr-2" />
+                              Conciliación bancaria
+                            </Button>
+                          )}
+                          {canManageLocationAccess && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('access')}>
+                              <ShieldCheck size={18} className="mr-2" />
+                              Accesos por ubicación
+                            </Button>
+                          )}
+                          {canViewAudit && (
+                            <Button variant="outline" className="justify-start h-auto py-3" onClick={() => openMultiStoreSection('audit')}>
+                              <Database size={18} className="mr-2" />
+                              Bitácora y auditoría
+                            </Button>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      <Card className="border-border/70 bg-background/70">
+                        <CardHeader>
+                          <CardTitle className="text-base">Cobertura por ubicación</CardTitle>
+                          <CardDescription>Resumen rápido de las ubicaciones con mayor carga operativa.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {locationSnapshots.length > 0 ? locationSnapshots.map(location => (
+                            <div key={location.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="font-medium">{location.nombre}</p>
+                                <p className="text-sm text-muted-foreground capitalize">{location.tipo}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-medium">{location.unitsAtLocation.toLocaleString('es-HN')} uds</p>
+                                <p className="text-xs text-muted-foreground">{location.productsAtLocation} productos con stock</p>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                              Aún no hay suficiente información de ubicaciones para construir este resumen.
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Visión del módulo</CardTitle>
+                    <CardDescription>Qué resuelve esta área dentro del sistema.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm text-muted-foreground">
+                    <div className="rounded-lg border p-3">
+                      <p className="font-medium text-foreground">Inventario por sede</p>
+                      <p className="mt-1">Permite recibir compras, contar físico vs sistema y ajustar diferencias con trazabilidad.</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="font-medium text-foreground">Caja y bancos</p>
+                      <p className="mt-1">Centraliza cierres diarios por tienda y conciliación de transferencias bancarias.</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="font-medium text-foreground">Gobierno operativo</p>
+                      <p className="mt-1">Administra accesos por ubicación y consulta la bitácora de acciones críticas.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Acción principal</CardTitle>
+                    <CardDescription>Abrí el panel completo del módulo con todas las pestañas habilitadas para tu rol.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button onClick={() => openMultiStoreSection(multiStoreInitialTab || 'receipts')} className="w-full gap-2">
+                      <Database size={18} />
+                      Abrir Panel Multitienda
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
           {canAccessAIOps && (
           <TabsContent value="ai-ops" className="space-y-6">
             <DashboardStats
@@ -1492,7 +1771,7 @@ function MainApp() {
                 <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                   <h3 className="text-lg font-semibold mb-1">Centro IA Operativo</h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Herramientas de IA y monitoreo operativo disponibles para administradores.
+                    Herramientas de IA y monitoreo operativo disponibles para Super Admin.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1618,6 +1897,7 @@ function MainApp() {
                     <SelectItem value="pendiente">Pendiente</SelectItem>
                     <SelectItem value="por_entregar">Por Entregar</SelectItem>
                     <SelectItem value="completada">Completada</SelectItem>
+                    <SelectItem value="validada">Validada</SelectItem>
                     <SelectItem value="cancelada">Cancelada</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1813,7 +2093,10 @@ function MainApp() {
                       order={order}
                       onStatusChange={canEditOrders ? async (orderId, newStatus) => {
                         console.log(`🔄 Cambiando estado de orden ${orderId} a: ${newStatus}`)
-                        const updated = await service.updateOrderStatus(orderId, newStatus)
+                        const validationCode = await getCompletionValidationCode(newStatus)
+                        if (validationCode === null) return
+
+                        const updated = await service.updateOrderStatus(orderId, newStatus, validationCode)
                         console.log('✅ Orden actualizada:', updated)
                         setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
@@ -2241,7 +2524,7 @@ function MainApp() {
             <SalesProfilesList onUpdate={async () => {
               const updated = await service.getSalesProfiles()
               setSalesProfiles(updated)
-            }} />
+            }} canManageAI={canAccessAIOps} canManageTechnicalChannels={currentUser?.is_superuser === true} />
           </TabsContent>
 
           <TabsContent value="financing" className="space-y-6">
@@ -2437,6 +2720,45 @@ function MainApp() {
           }
         }}
       />
+
+      <MultiStoreControlDialog
+        open={showMultiStoreControl}
+        onOpenChange={setShowMultiStoreControl}
+        locations={locations ?? []}
+        products={products ?? []}
+        permissions={{
+          canViewInventory,
+          canCountInventory,
+          canAdjustInventory,
+          canManagePurchases,
+          canManageCashCloses,
+          canManageLocationAccess,
+          canViewAudit,
+          canViewReports,
+        }}
+        onInventoryChanged={async () => {
+          if (!canViewInventory) return
+          const updatedProducts = await service.getProducts()
+          setProducts(updatedProducts)
+        }}
+      />
+
+      {validationCodeRequest && (
+        <ValidationCodeDialog
+          open={Boolean(validationCodeRequest)}
+          title={validationCodeRequest.title}
+          description={validationCodeRequest.description}
+          confirmLabel="Validar"
+          onCancel={() => {
+            validationCodeRequest.resolve(null)
+            setValidationCodeRequest(null)
+          }}
+          onConfirm={code => {
+            validationCodeRequest.resolve(code)
+            setValidationCodeRequest(null)
+          }}
+        />
+      )}
 
       <KeyboardShortcutsDialog
         open={showKeyboardDialog}

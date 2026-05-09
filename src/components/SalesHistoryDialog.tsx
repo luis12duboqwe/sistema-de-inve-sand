@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { Location, OrderWithItems, SalesProfile } from '@/lib/types'
+import { isFinalSaleStatus } from '@/lib/orderStatus'
 
 interface SalesHistoryDialogProps {
   open: boolean
@@ -80,7 +81,7 @@ export function SalesHistoryDialog({
     const profileMap = new Map(salesProfiles.map(profile => [profile.id, profile.name]))
 
     return orders
-      .filter(order => order.estado === 'completada')
+      .filter(order => isFinalSaleStatus(order.estado))
       .map(order => ({
         ...order,
         sellerName: order.sales_profile_id
@@ -151,7 +152,7 @@ export function SalesHistoryDialog({
 
   const exportTransactionsCsv = () => {
     const rows: string[][] = [
-      ['Orden', 'Fecha', 'Cliente', 'Vendedor', 'Ubicación', 'Canal', 'Método de Pago', 'Total']
+      ['Orden', 'Fecha', 'Cliente', 'Vendedor', 'Ubicación', 'Canal', 'Método de Pago', 'Banco Transferencia', 'Referencia Transferencia', 'Total']
     ]
 
     filteredOrders.forEach(order => {
@@ -163,6 +164,8 @@ export function SalesHistoryDialog({
         order.locationName,
         getChannelLabel(order.canal),
         order.metodo_pago || 'N/A',
+        order.transfer_bank_name || '',
+        order.transfer_reference || '',
         String(Number(order.total || 0))
       ])
     })

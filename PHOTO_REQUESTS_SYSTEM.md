@@ -470,16 +470,18 @@ MEDIA_S3_BUCKET=fotos-productos
 
 ## TODO / Mejoras futuras
 
-- [ ] Notificación real al agente (email, SMS, WhatsApp)
-- [ ] Soporte para cargar múltiples fotos a la vez
-- [ ] Galería interactiva (360°, video)
+- [x] Notificación por email al agente cuando SMTP está configurado
+- [x] Upload local/S3 para fotos y videos
+- [x] Envío al cliente por WhatsApp/Messenger/Instagram/Facebook con credenciales reales
+- [ ] Notificación adicional por SMS/WhatsApp al agente
+- [ ] Soporte para cargar múltiples fotos a la vez desde el dashboard
+- [ ] Galería interactiva (360°, video enriquecido)
 - [ ] Auto-tagging de fotos (por color, ángulo, etc.)
-- [ ] Integración con S3 / Cloudinary para upload
 - [ ] Timeout: Si agente no responde en X min, crear "respuesta de espera"
 - [ ] Analytics: Ver cuánto tarda agente, satisfacción del cliente
 - [ ] A/B testing: ¿Es mejor directo agente o bot con handoff?
 
 ---
 
-**Versión**: 1.0  
-**Última actualización**: March 10, 2026
+**Versión**: 1.1  
+**Última actualización**: May 4, 2026

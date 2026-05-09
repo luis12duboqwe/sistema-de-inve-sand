@@ -1,4 +1,5 @@
 import type { ProductWithStock, OrderWithItems } from './types'
+import { isFinalSaleStatus } from './orderStatus'
 
 export interface OptimizationMetrics {
   optimizationScore: number
@@ -523,7 +524,7 @@ export function analyzeOperations(
     })
   }
 
-  const _completedOrders = orders.filter(o => o.estado === 'completada') // Prefix with _ to indicate intentionally unused
+  const _completedOrders = orders.filter(o => isFinalSaleStatus(o.estado)) // Prefix with _ to indicate intentionally unused
   const cancelledOrders = orders.filter(o => o.estado === 'cancelada')
   if (cancelledOrders.length > 0) {
     const cancellationRate = (cancelledOrders.length / orders.length) * 100

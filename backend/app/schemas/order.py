@@ -368,6 +368,7 @@ class OrderListResponse(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     estado: EstadoOrdenEnum
+    validation_code: Optional[str] = Field(None, min_length=1, description="Código de validación para completar ventas")
 
 
 class OrderUpdate(BaseModel):
@@ -468,8 +469,11 @@ class StockTransferResponse(BaseModel):
     cantidad: int
     notas: Optional[str]
     estado: str
+    received_quantity: Optional[int] = None
+    missing_quantity: Optional[int] = None
     confirmed_at: Optional[datetime] = None
     confirmed_by: Optional[str] = None
+    incident_notes: Optional[str] = None
     rejection_reason: Optional[str] = None
     created_at: datetime
     created_by: Optional[str]
@@ -487,6 +491,9 @@ class StockTransferResponse(BaseModel):
 class StockTransferConfirm(BaseModel):
     confirmed_by: Optional[str] = None
     scanned_imeis: Optional[List[str]] = None
+    received_quantity: Optional[int] = Field(None, ge=0, description="Cantidad física recibida. Si se omite, se recibe todo.")
+    incident_notes: Optional[str] = Field(None, max_length=500, description="Notas de incidencia si la recepción fue parcial o con observaciones")
+    validation_code: Optional[str] = Field(None, min_length=1, description="Código de validación para confirmar transferencias")
 
 
 class StockTransferReject(BaseModel):
@@ -508,6 +515,7 @@ class OrderSearchParams(BaseModel):
     amount_max: Optional[Decimal] = None
     customer_query: Optional[str] = None
     product_id: Optional[int] = None
+    location_id: Optional[int] = Field(None, gt=0)
     estado: Optional[EstadoOrdenEnum] = None
 
 

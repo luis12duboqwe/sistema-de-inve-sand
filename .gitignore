@@ -27,6 +27,8 @@ dist-ssr
 .env
 backend/.env
 deploy/.env*
+!deploy/.env.prod.example
+deploy/backups/
 .env.production
 .env.local
 .env.*.local
@@ -49,6 +51,7 @@ backend/inventory.db-shm
 backend/inventory.db-wal
 backups/
 logs/
+coverage/
 uploads/
 
 # Python virtual envs

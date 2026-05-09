@@ -26,6 +26,7 @@ import type { Bank, FinancingOption,
   StockSummaryByLocation,
   SalesSummaryByLocation,
   TopProductByLocationEntry,
+  BankTransferReconciliationReport,
   CustomerStats,
   CustomerHistory,
   StockHistory,
@@ -48,32 +49,21 @@ import type { Bank, FinancingOption,
   PaginatedResponse,
   SetupInitialAdminRequest,
   AuthResponse,
-  ProductRestockPayload
+  ProductRestockPayload,
+  UserLocationAccess,
+  UserLocationAccessInput,
+  AuditLogEntry,
+  PurchaseReceipt,
+  PurchaseReceiptInput,
+  InventoryCount,
+  InventoryCountInput,
+  LocationDailyClose,
+  LocationDailyCloseInput
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
-
-function getEnvironmentDefaultApiUrl(): string {
-  if (typeof window === 'undefined') {
-    return DEFAULT_API_URL
-  }
-
-  const hostname = window.location.hostname
-  const port = window.location.port
-
-  if (hostname.includes('.app.github.dev')) {
-    const backendHostname = hostname.replace(/-\d+\.app\.github\.dev$/, '-8000.app.github.dev')
-    return `https://${backendHostname}/api`
-  }
-
-  if (port === '5000' || port === '5173') {
-    return `${window.location.origin}/api`
-  }
-
-  return 'http://localhost:8000/api'
-}
 
 function normalizeApiUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) {
@@ -83,6 +73,11 @@ function normalizeApiUrl(rawUrl: string | null | undefined): string | null {
   const trimmed = rawUrl.trim()
   if (!trimmed) {
     return null
+  }
+
+  if (trimmed.startsWith('/')) {
+    const path = trimmed.replace(/\/$/, '')
+    return path.endsWith('/api') ? path : `${path}/api`
   }
 
   try {
@@ -103,6 +98,48 @@ function normalizeApiUrl(rawUrl: string | null | undefined): string | null {
   }
 }
 
+function getBuildTimeApiUrl(): string | null {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+  return normalizeApiUrl(env?.VITE_API_BASE_URL)
+}
+
+function isLoopbackApiUrl(apiUrl: string): boolean {
+  return /:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0):\d+\/api$/i.test(apiUrl)
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0'
+}
+
+function shouldReplaceStoredApiUrl(apiUrl: string): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const useSameOriginProxy = window.location.port === '5000' || window.location.port === '5173'
+  return isLoopbackApiUrl(apiUrl) && (!isLoopbackHost(window.location.hostname) || useSameOriginProxy)
+}
+
+function getEnvironmentDefaultApiUrl(): string {
+  const buildTimeApiUrl = getBuildTimeApiUrl()
+  if (buildTimeApiUrl) {
+    return buildTimeApiUrl
+  }
+
+  if (typeof window === 'undefined') {
+    return DEFAULT_API_URL
+  }
+
+  const hostname = window.location.hostname
+
+  if (hostname.includes('.app.github.dev')) {
+    const backendHostname = hostname.replace(/-\d+\.app\.github\.dev$/, '-8000.app.github.dev')
+    return `https://${backendHostname}/api`
+  }
+
+  return `${window.location.origin}/api`
+}
+
 // Caché en memoria para evitar múltiples llamadas a KV
 let cachedApiUrl: string | null = null
 let cacheTimestamp = 0
@@ -111,7 +148,6 @@ const CACHE_DURATION = 60000 // 60 segundos
 async function getApiUrl(): Promise<string> {
   const now = Date.now()
   const environmentDefaultUrl = getEnvironmentDefaultApiUrl()
-  const useSameOriginApi = typeof window !== 'undefined' && (window.location.port === '5000' || window.location.port === '5173')
   
   // Si tenemos un valor en caché válido, usarlo
   if (cachedApiUrl && (now - cacheTimestamp) < CACHE_DURATION) {
@@ -126,7 +162,7 @@ async function getApiUrl(): Promise<string> {
       try {
         const parsedLocalUrl = normalizeApiUrl(JSON.parse(localValue) as string)
         if (parsedLocalUrl) {
-          if (useSameOriginApi && /:\/\/localhost:8000\/api$|:\/\/127\.0\.0\.1:8000\/api$/i.test(parsedLocalUrl)) {
+          if (shouldReplaceStoredApiUrl(parsedLocalUrl)) {
             cachedApiUrl = environmentDefaultUrl
             cacheTimestamp = now
             return cachedApiUrl
@@ -144,7 +180,7 @@ async function getApiUrl(): Promise<string> {
     const kv = getKV()
     const url = await kv.get<string>('settings_api_url')
     const normalizedUrl = normalizeApiUrl(url)
-    if (useSameOriginApi && normalizedUrl && /:\/\/localhost:8000\/api$|:\/\/127\.0\.0\.1:8000\/api$/i.test(normalizedUrl)) {
+    if (normalizedUrl && shouldReplaceStoredApiUrl(normalizedUrl)) {
       cachedApiUrl = environmentDefaultUrl
       cacheTimestamp = now
       return cachedApiUrl
@@ -197,7 +233,7 @@ interface ApiOrderResponse {
   transfer_bank_name?: string
   transfer_reference?: string
   total: number
-  estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
+  estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
   items: {
     id: number
@@ -340,7 +376,7 @@ class ApiClient {
           throw new Error(
             `No se puede conectar al backend en ${apiBaseUrl}. ` +
             `Verifica que el servidor esté corriendo. ` +
-            `Puedes inicializarlo con: bash /workspaces/spark-template/run-backend-direct.sh`
+            `Puedes iniciarlo desde la raíz del repositorio con: bash ./start-backend.sh`
           )
         }
         
@@ -472,12 +508,14 @@ class ApiClient {
 
   async getSalesReport(params?: {
     sales_profile_slug?: string
+    location_id?: number
     date_from?: string
     date_to?: string
     top_limit?: number
   }): Promise<SalesReport> {
     const queryParams = new URLSearchParams()
     if (params?.sales_profile_slug) queryParams.append('sales_profile_slug', params.sales_profile_slug)
+    if (params?.location_id) queryParams.append('location_id', params.location_id.toString())
     if (params?.date_from) queryParams.append('date_from', params.date_from)
     if (params?.date_to) queryParams.append('date_to', params.date_to)
     if (params?.top_limit) queryParams.append('top_limit', params.top_limit.toString())
@@ -520,6 +558,22 @@ class ApiClient {
     const query = queryParams.toString()
     const endpoint = query ? `/reports/top-products-by-location/${locationId}?${query}` : `/reports/top-products-by-location/${locationId}`
     return this.request<TopProductByLocationEntry[]>(endpoint)
+  }
+
+  async getBankTransferReconciliation(params?: {
+    start_date?: string
+    end_date?: string
+    location_id?: number
+    bank_name?: string
+  }): Promise<BankTransferReconciliationReport> {
+    const queryParams = new URLSearchParams()
+    if (params?.start_date) queryParams.append('start_date', params.start_date)
+    if (params?.end_date) queryParams.append('end_date', params.end_date)
+    if (params?.location_id) queryParams.append('location_id', params.location_id.toString())
+    if (params?.bank_name) queryParams.append('bank_name', params.bank_name)
+    const query = queryParams.toString()
+    const endpoint = query ? `/reports/bank-transfer-reconciliation?${query}` : '/reports/bank-transfer-reconciliation'
+    return this.request<BankTransferReconciliationReport>(endpoint)
   }
 
   // --- AI Intelligence Methods ---
@@ -921,6 +975,7 @@ class ApiClient {
         capacidad: p.capacidad || '',
         condicion: p.condicion!,
         precio: p.precio!,
+        costo: p.costo || 0,
         moneda: p.moneda || 'HNL',
         garantia_meses: p.garantia_meses || 0,
         activo: true,
@@ -1013,7 +1068,8 @@ class ApiClient {
 
   async updateOrderStatus(
     orderId: number,
-    estado: Order['estado']
+    estado: Order['estado'],
+    validationCode?: string
   ): Promise<OrderWithItems> {
     try {
       // Si se quiere cancelar, usar el endpoint especial que libera stock
@@ -1023,7 +1079,7 @@ class ApiClient {
 
       const apiOrder = await this.request<ApiOrderResponse>(`/orders/${orderId}/status`, {
         method: 'PUT',
-        body: JSON.stringify({ estado }),
+        body: JSON.stringify({ estado, validation_code: validationCode }),
       })
 
       return this.mapApiOrder(apiOrder)
@@ -1164,11 +1220,11 @@ class ApiClient {
     }
   }
 
-  async confirmStockTransfer(id: number, confirmed_by: string, scanned_imeis?: string[]): Promise<StockTransfer> {
+  async confirmStockTransfer(id: number, confirmed_by: string, scanned_imeis?: string[], validation_code?: string, received_quantity?: number, incident_notes?: string): Promise<StockTransfer> {
     try {
       return this.request(`/stock-transfers/${id}/confirm`, {
         method: 'POST',
-        body: JSON.stringify({ confirmed_by, scanned_imeis })
+        body: JSON.stringify({ confirmed_by, scanned_imeis, validation_code, received_quantity, incident_notes })
       })
     } catch (error) {
       console.error('Error confirming stock transfer:', error)
@@ -1806,9 +1862,16 @@ class ApiClient {
   }
 
   async createUser(user: Partial<import('./types').User> & { password?: string }): Promise<import('./types').User> {
+    const normalizedUser = {
+      ...user,
+      username: user.username?.trim(),
+      full_name: user.full_name?.trim() || undefined,
+      email: user.email?.trim() || undefined,
+    }
+
     return this.request<import('./types').User>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify(user)
+      body: JSON.stringify(normalizedUser)
     })
   }
 
@@ -1914,12 +1977,14 @@ class ApiClient {
   }
   async getStockHistory(productId: number, params?: {
     limit?: number
+    location_id?: number
     tipo_cambio?: string
     date_from?: string
     date_to?: string
   }): Promise<StockHistory[]> {
     const queryParams = new URLSearchParams()
     if (params?.limit) queryParams.append('limit', params.limit.toString())
+    if (params?.location_id) queryParams.append('location_id', params.location_id.toString())
     if (params?.tipo_cambio) queryParams.append('tipo_cambio', params.tipo_cambio)
     if (params?.date_from) queryParams.append('date_from', params.date_from)
     if (params?.date_to) queryParams.append('date_to', params.date_to)
@@ -2022,8 +2087,9 @@ class ApiClient {
 
   // ─────────────────────── CIERRE DE DÍA ───────────────────────────────────
 
-  async getDailyClosePending(): Promise<any[]> {
-    return this.request<any[]>('/daily-close/pending')
+  async getDailyClosePending(locationId?: number): Promise<any[]> {
+    const query = locationId ? `?location_id=${locationId}` : ''
+    return this.request<any[]>(`/daily-close/pending${query}`)
   }
 
   async getDailyCloseConfig(): Promise<{ configured: boolean; mensaje: string }> {
@@ -2044,6 +2110,7 @@ class ApiClient {
   async validateDailyClose(data: {
     validation_code: string
     order_ids: number[]
+    location_id?: number
     notas?: string
   }): Promise<{
     validated_count: number
@@ -2055,6 +2122,87 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  }
+
+  // ───────────────────── CONTROL MULTITIENDA ───────────────────────────────
+
+  async getMyLocationAccess(): Promise<UserLocationAccess[]> {
+    return this.request<UserLocationAccess[]>('/multistore-control/location-access/me')
+  }
+
+  async listUserLocationAccess(userId: number): Promise<UserLocationAccess[]> {
+    return this.request<UserLocationAccess[]>(`/multistore-control/location-access/users/${userId}`)
+  }
+
+  async replaceUserLocationAccess(userId: number, access: UserLocationAccessInput[]): Promise<UserLocationAccess[]> {
+    return this.request<UserLocationAccess[]>(`/multistore-control/location-access/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(access),
+    })
+  }
+
+  async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    return this.request<PurchaseReceipt>('/multistore-control/purchase-receipts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async listPurchaseReceipts(filters: { location_id?: number; supplier_id?: number; limit?: number } = {}): Promise<PurchaseReceipt[]> {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) params.set(key, String(value))
+    })
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return this.request<PurchaseReceipt[]>(`/multistore-control/purchase-receipts${suffix}`)
+  }
+
+  async createInventoryCount(data: InventoryCountInput): Promise<InventoryCount> {
+    return this.request<InventoryCount>('/multistore-control/inventory-counts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async listInventoryCounts(filters: { location_id?: number; status?: string; limit?: number } = {}): Promise<InventoryCount[]> {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) params.set(key, String(value))
+    })
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return this.request<InventoryCount[]>(`/multistore-control/inventory-counts${suffix}`)
+  }
+
+  async approveInventoryCount(countId: number, notes?: string): Promise<InventoryCount> {
+    return this.request<InventoryCount>(`/multistore-control/inventory-counts/${countId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    })
+  }
+
+  async createLocationDailyClose(data: LocationDailyCloseInput): Promise<LocationDailyClose> {
+    return this.request<LocationDailyClose>('/multistore-control/location-daily-closes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async listLocationDailyCloses(filters: { location_id?: number; limit?: number } = {}): Promise<LocationDailyClose[]> {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) params.set(key, String(value))
+    })
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return this.request<LocationDailyClose[]>(`/multistore-control/location-daily-closes${suffix}`)
+  }
+
+  async listAuditLogs(filters: { location_id?: number; entity_type?: string; action?: string; limit?: number } = {}): Promise<AuditLogEntry[]> {
+    const params = new URLSearchParams()
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) params.set(key, String(value))
+    })
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return this.request<AuditLogEntry[]>(`/multistore-control/audit-logs${suffix}`)
   }
 }
 

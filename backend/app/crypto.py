@@ -29,6 +29,11 @@ class TokenCryptoManager:
     def __init__(self):
         """Inicializa el gestor con clave del entorno o genera una dev."""
         self.encryption_key = self._get_or_create_key()
+        if self.encryption_key == b"dev_unencrypted_key":
+            self.cipher = None
+            self.encrypted = False
+            return
+
         try:
             self.cipher = Fernet(self.encryption_key)
             self.encrypted = self.encryption_key != b"dev_unencrypted_key"
@@ -45,6 +50,18 @@ class TokenCryptoManager:
             CHANNEL_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
         """
         key_str = os.getenv("CHANNEL_ENCRYPTION_KEY")
+        environment = os.getenv("ENVIRONMENT", "").strip().lower()
+
+        if not key_str or not environment:
+            try:
+                from app.config import settings
+
+                key_str = key_str or settings.channel_encryption_key
+                environment = environment or settings.environment
+            except Exception:
+                pass
+
+        environment = (environment or "development").strip().lower()
         
         if key_str:
             try:
@@ -54,7 +71,12 @@ class TokenCryptoManager:
                 return key_bytes
             except Exception as e:
                 logger.error(f"CHANNEL_ENCRYPTION_KEY inválido: {e}")
+                if environment == "production":
+                    raise RuntimeError("CHANNEL_ENCRYPTION_KEY inválido para producción") from e
                 logger.warning("Usando clave de desarrollo (insegura)")
+
+        if environment == "production":
+            raise RuntimeError("CHANNEL_ENCRYPTION_KEY es obligatorio en producción")
         
         # Clave de desarrollo (no encriptada realmente)
         logger.warning("⚠ CHANNEL_ENCRYPTION_KEY no configurado. Usando clave dev (insegura)")

@@ -87,6 +87,123 @@ export interface Location {
   updated_at?: string
 }
 
+export interface UserLocationAccess {
+  id: number
+  user_id: number
+  location_id: number
+  can_view: boolean
+  can_edit: boolean
+  can_close_cash: boolean
+  can_count_stock: boolean
+  can_receive_purchase: boolean
+  created_at: string
+  updated_at?: string
+}
+
+export type UserLocationAccessInput = Omit<UserLocationAccess, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+
+export interface AuditLogEntry {
+  id: number
+  user_id?: number
+  username?: string
+  action: string
+  entity_type: string
+  entity_id?: number
+  location_id?: number
+  before_data?: Record<string, any>
+  after_data?: Record<string, any>
+  metadata?: Record<string, any>
+  created_at: string
+}
+
+export interface PurchaseReceiptItemInput {
+  product_id: number
+  quantity: number
+  unit_cost: number
+  imeis?: string[]
+  notes?: string
+}
+
+export interface PurchaseReceiptInput {
+  supplier_id?: number
+  location_id: number
+  invoice_number?: string
+  notes?: string
+  items: PurchaseReceiptItemInput[]
+}
+
+export interface PurchaseReceipt extends PurchaseReceiptInput {
+  id: number
+  status: string
+  total_cost: number
+  received_by?: string
+  received_at: string
+  created_at: string
+}
+
+export interface InventoryCountItemInput {
+  product_id: number
+  counted_quantity: number
+  notes?: string
+  imeis?: string[]
+}
+
+export interface InventoryCountInput {
+  location_id: number
+  notes?: string
+  items: InventoryCountItemInput[]
+}
+
+export interface InventoryCountItem {
+  id: number
+  product_id: number
+  expected_quantity: number
+  counted_quantity: number
+  difference: number
+  imeis?: string[]
+  notes?: string
+}
+
+export interface InventoryCount {
+  id: number
+  location_id: number
+  status: 'draft' | 'approved' | 'rejected'
+  notes?: string
+  counted_by?: string
+  approved_by?: string
+  counted_at: string
+  approved_at?: string
+  created_at: string
+  items: InventoryCountItem[]
+}
+
+export interface LocationDailyCloseInput {
+  location_id: number
+  close_date: string
+  cash_counted: number
+  transfer_total?: number
+  card_total?: number
+  financing_total?: number
+  notes?: string
+}
+
+export interface LocationDailyClose extends LocationDailyCloseInput {
+  id: number
+  cash_expected: number
+  transfer_expected: number
+  card_expected: number
+  financing_expected: number
+  transfer_total: number
+  card_total: number
+  financing_total: number
+  difference: number
+  status: string
+  closed_by?: string
+  approved_by?: string
+  closed_at: string
+  approved_at?: string
+}
+
 // V2.0: Perfiles de venta (bots, vendedores)
 export interface SalesProfile {
   id: number
@@ -105,6 +222,7 @@ export interface AIProfileConfig {
   id?: number
   sales_profile_id: number
   model_name: string
+  imeis?: string[]
   temperature: number
   system_prompt: string
   initial_greeting?: string
@@ -350,6 +468,27 @@ export interface TopProductByLocationEntry {
   ingresos_totales: number
 }
 
+export interface BankTransferReconciliationItem {
+  order_id: number
+  created_at: string
+  customer_name: string
+  customer_phone: string
+  location_id?: number
+  location_nombre?: string
+  bank_name?: string
+  reference?: string
+  total: number
+  estado: Order['estado']
+  validated_by?: string
+  validada_at?: string
+}
+
+export interface BankTransferReconciliationReport {
+  total_amount: number
+  total_orders: number
+  items: BankTransferReconciliationItem[]
+}
+
 // V2.0: Stock por ubicación
 export interface StockByLocation {
   id: number
@@ -359,6 +498,8 @@ export interface StockByLocation {
   cantidad_reservada: number  // V2.0: Stock reservado en transferencias pendientes
   cantidad_defectuosa?: number // V2.0: Stock defectuoso/merma
   stock_libre?: number  // Computed: cantidad_disponible - cantidad_reservada
+  en_transito_salida?: number
+  en_transito_entrada?: number
   location?: Location
 }
 
@@ -410,7 +551,7 @@ export interface Order {
   transfer_reference_normalized?: string
   total: number
   financing_details?: string // JSON con datos de financiamiento (V2.1)
-  estado: 'pendiente' | 'por_entregar' | 'completada' | 'cancelada'
+  estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
   notes?: string
   delivery_date?: string
@@ -554,6 +695,9 @@ export interface StockTransfer {
   cantidad: number
   notas?: string
   estado: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
+  received_quantity?: number
+  missing_quantity?: number
+  incident_notes?: string
   confirmed_at?: string
   confirmed_by?: string
   rejection_reason?: string
@@ -584,12 +728,12 @@ export interface StockHistory {
   id: number
   product_id: number
   location_id?: number // V2.0: Ubicación donde ocurrió el movimiento
-  tipo_cambio: 'venta' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'ajuste' | 'devolucion' | 'retoma' | 'compra' | 'garantia_salida' | 'garantia_entrada' | 'devolucion_defectuosa'
+  tipo_cambio: 'venta' | 'venta_reserva' | 'venta_reserva_liberada' | 'VENTA_VALIDADA' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'transferencia_recepcion_parcial' | 'ajuste' | 'CONTEO_FISICO' | 'COMPRA_RECIBIDA' | 'devolucion' | 'retoma' | 'compra' | 'garantia_salida' | 'garantia_entrada' | 'devolucion_defectuosa'
   cantidad: number  // Positivo para entrada, negativo para salida
   stock_anterior: number
   stock_nuevo: number
   referencia_id?: number
-  referencia_tipo?: 'order' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled' | 'return' | 'initial_stock'
+  referencia_tipo?: 'order' | 'order_validated' | 'order_finalized' | 'purchase_receipt' | 'physical_inventory_count' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'transfer_partial' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled' | 'return' | 'initial_stock'
   notas?: string
   usuario?: string
   created_at: string

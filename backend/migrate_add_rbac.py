@@ -47,6 +47,10 @@ def migrate():
             {"slug": "inventory:edit", "description": "Editar productos", "module": "inventory"},
             {"slug": "inventory:delete", "description": "Eliminar productos", "module": "inventory"},
             {"slug": "inventory:adjust", "description": "Ajustar stock manualmente", "module": "inventory"},
+            {"slug": "inventory:count", "description": "Realizar conteos físicos", "module": "inventory"},
+            {"slug": "purchases:manage", "description": "Registrar recepciones de compras", "module": "purchases"},
+            {"slug": "cash_closes:manage", "description": "Cerrar caja por tienda", "module": "cash_closes"},
+            {"slug": "audit:view", "description": "Ver bitácora de auditoría", "module": "audit"},
             
             # Órdenes
             {"slug": "orders:view", "description": "Ver órdenes", "module": "orders"},
@@ -57,6 +61,7 @@ def migrate():
             # Ubicaciones (Tiendas)
             {"slug": "locations:view", "description": "Ver ubicaciones", "module": "locations"},
             {"slug": "locations:manage", "description": "Crear/Editar/Borrar ubicaciones", "module": "locations"},
+            {"slug": "locations:access_manage", "description": "Gestionar accesos por ubicación", "module": "locations"},
             
             # Configuración y Usuarios
             {"slug": "settings:view", "description": "Ver configuraciones", "module": "settings"},
@@ -65,6 +70,13 @@ def migrate():
             
             # Reportes
             {"slug": "reports:view", "description": "Ver reportes financieros", "module": "reports"},
+
+            # Solicitudes de fotos
+            {"slug": "photo_requests:list", "description": "Listar solicitudes de fotos", "module": "photo_requests"},
+            {"slug": "photo_requests:read", "description": "Ver solicitudes de fotos", "module": "photo_requests"},
+            {"slug": "photo_requests:update", "description": "Actualizar solicitudes de fotos", "module": "photo_requests"},
+            {"slug": "photo_requests:upload", "description": "Cargar fotos solicitadas", "module": "photo_requests"},
+            {"slug": "photo_requests:send", "description": "Enviar fotos al cliente", "module": "photo_requests"},
         ]
 
         print("🔑 Creando permisos...")
@@ -94,12 +106,23 @@ def migrate():
                     permissions_map["inventory:create"],
                     permissions_map["inventory:edit"],
                     permissions_map["inventory:delete"], # Puede borrar productos? Asumimos que sí
+                    permissions_map["inventory:adjust"],
+                    permissions_map["inventory:count"],
+                    permissions_map["purchases:manage"],
+                    permissions_map["cash_closes:manage"],
+                    permissions_map["audit:view"],
                     permissions_map["orders:view"],
                     permissions_map["orders:create"],
                     permissions_map["orders:edit"],
                     permissions_map["orders:delete"],
                     permissions_map["locations:view"], # Solo ver
+                    permissions_map["locations:manage"],
                     permissions_map["reports:view"],
+                    permissions_map["photo_requests:list"],
+                    permissions_map["photo_requests:read"],
+                    permissions_map["photo_requests:update"],
+                    permissions_map["photo_requests:upload"],
+                    permissions_map["photo_requests:send"],
                 ]
             },
             {
@@ -108,9 +131,15 @@ def migrate():
                 "is_system_role": False,
                 "permissions": [
                     permissions_map["inventory:view"],
+                    permissions_map["inventory:count"],
                     permissions_map["orders:view"],
                     permissions_map["orders:create"],
                     permissions_map["locations:view"],
+                    permissions_map["photo_requests:list"],
+                    permissions_map["photo_requests:read"],
+                    permissions_map["photo_requests:update"],
+                    permissions_map["photo_requests:upload"],
+                    permissions_map["photo_requests:send"],
                 ]
             },
             {

@@ -1,5 +1,6 @@
 import type { OrderWithItems, ProductWithStock, AdvancedSearchFilters, ReportData } from './types'
 import { startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns'
+import { isFinalSaleStatus } from './orderStatus'
 
 export function filterOrdersByAdvancedSearch(
   orders: OrderWithItems[],
@@ -62,7 +63,7 @@ export function generateMonthlyTrends(orders: OrderWithItems[], months: number =
     const monthOrders = orders.filter(order => {
       const orderDate = new Date(order.created_at)
       return isWithinInterval(orderDate, { start: monthStart, end: monthEnd }) &&
-             order.estado !== 'cancelada'
+             isFinalSaleStatus(order.estado)
     })
 
     const revenue = monthOrders.reduce((sum, order) => sum + order.total, 0)
@@ -81,7 +82,7 @@ export function generateReportData(
   orders: OrderWithItems[],
   products: ProductWithStock[]
 ): ReportData {
-  const completedOrders = orders.filter(o => o.estado === 'completada')
+  const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado))
   const totalRevenue = completedOrders.reduce((sum, order) => sum + order.total, 0)
 
   const productSales = new Map<number, { quantity: number; revenue: number }>()
@@ -152,7 +153,7 @@ export function getCustomerHistory(
     .filter(o => o.customer_phone === customerPhone)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  const completedOrders = customerOrders.filter(o => o.estado === 'completada')
+  const completedOrders = customerOrders.filter(o => isFinalSaleStatus(o.estado))
   const totalSpent = completedOrders.reduce((sum, order) => sum + order.total, 0)
   const averageOrderValue = completedOrders.length > 0 ? totalSpent / completedOrders.length : 0
 
@@ -174,7 +175,7 @@ export function getProductProfitability(
   estimatedProfit: number
   profitMargin: number
 } {
-  const completedOrders = orders.filter(o => o.estado === 'completada')
+  const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado))
   
   let unitsSold = 0
   let revenue = 0

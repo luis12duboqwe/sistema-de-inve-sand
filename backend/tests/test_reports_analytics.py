@@ -38,15 +38,15 @@ def test_reports_dashboard_rejects_unknown_location(client, db_session):
 
 def test_analytics_dashboard_excludes_cancelled_orders(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
-    imeis = ["111111111111111", "222222222222222"]
+    imeis = ["111111111111111", "222222222222222", "333333333333333"]
     product = seed_product(
         client,
         location.id,
-        stock_inicial=2,
+        stock_inicial=3,
         imei_values=imeis,
     )
 
-    # Crear dos órdenes: una quedará cancelada
+    # Crear tres órdenes: una venta final, una cancelada y una pendiente.
     order_a = _create_order(
         client,
         sales_profile.slug,
@@ -63,17 +63,28 @@ def test_analytics_dashboard_excludes_cancelled_orders(client, db_session):
         customer_phone="77777777",
         imei=imeis[1],
     )
+    _create_order(
+        client,
+        sales_profile.slug,
+        location.id,
+        product["id"],
+        customer_phone="66666666",
+        imei=imeis[2],
+    )
+
+    complete_res = client.put(f"/api/orders/{order_a['id']}/status", json={"estado": "completada"})
+    assert complete_res.status_code == 200, complete_res.text
 
     cancel_res = client.post(f"/api/orders/{order_b['id']}/cancel?reason=test")
     assert cancel_res.status_code == 200, cancel_res.text
 
     dash = client.get("/api/analytics/dashboard").json()
 
-    # Solo una orden no cancelada debe contarse en el día
+    # Solo una venta final debe contarse en el día.
     assert dash["total_orders_today"] == 1
     assert dash["total_revenue_today"] == 1000
 
-    # Inventario usa costo (500) * stock disponible (1) -> 500
+    # Inventario usa costo (500) * stock disponible (1) -> 500.
     assert dash["total_inventory_value"] == 500
 
 

@@ -1459,13 +1459,16 @@ export function NewOrderDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="delivery-date">Fecha de Entrega (opcional)</Label>
+            <Label htmlFor="delivery-date">Fecha programada de entrega (opcional)</Label>
             <Input
               id="delivery-date"
               type="datetime-local"
               value={deliveryDate}
               onChange={e => setDeliveryDate(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              La fecha y hora de creacion de la orden se registran automaticamente al guardarla.
+            </p>
           </div>
 
           <div className="pt-4 border-t">

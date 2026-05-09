@@ -89,7 +89,7 @@ describe('inventoryService local mode', () => {
     ])
   })
 
-  it('creates order, excludes gifts from total, stores financing details and updates stock', async () => {
+  it('creates order, excludes gifts from total, stores financing details and reserves stock', async () => {
     const order = await inventoryService.createOrder({
       profile_slug: 'demo',
       customer_name: 'Cliente',
@@ -115,6 +115,45 @@ describe('inventoryService local mode', () => {
     expect(parsed.monthly_payment).toBe(0)
 
     const stockAfter = store.get(STOCK_KEY) as Stock[]
-    expect(stockAfter[0].cantidad_disponible).toBe(4)
+    expect(stockAfter[0].cantidad_disponible).toBe(5)
+    expect(stockAfter[0].cantidad_reservada).toBe(1)
+    expect(stockAfter[0].cantidad_disponible - (stockAfter[0].cantidad_reservada || 0)).toBe(4)
+  })
+
+  it('confirms partial stock transfer and releases missing quantity locally', async () => {
+    const locations = store.get(LOCATIONS_KEY) as Location[]
+    store.set(LOCATIONS_KEY, [
+      ...locations,
+      { id: 2, nombre: 'Bodega', tipo: 'bodega', activo: true, created_at: new Date().toISOString() }
+    ])
+
+    const transfer = await inventoryService.createStockTransfer({
+      product_id: 1,
+      from_location_id: 1,
+      to_location_id: 2,
+      cantidad: 3,
+      notas: 'Reposicion'
+    })
+
+    const stockAfterCreate = store.get(STOCK_KEY) as Stock[]
+    expect(stockAfterCreate.find(item => item.location_id === 1)?.cantidad_disponible).toBe(5)
+    expect(stockAfterCreate.find(item => item.location_id === 1)?.cantidad_reservada).toBe(3)
+
+    const confirmed = await inventoryService.confirmStockTransfer(
+      transfer.id,
+      'tester',
+      undefined,
+      undefined,
+      2,
+      'Una unidad queda pendiente de revision'
+    )
+
+    expect(confirmed.received_quantity).toBe(2)
+    expect(confirmed.missing_quantity).toBe(1)
+
+    const stockAfterConfirm = store.get(STOCK_KEY) as Stock[]
+    expect(stockAfterConfirm.find(item => item.location_id === 1)?.cantidad_disponible).toBe(3)
+    expect(stockAfterConfirm.find(item => item.location_id === 1)?.cantidad_reservada).toBe(0)
+    expect(stockAfterConfirm.find(item => item.location_id === 2)?.cantidad_disponible).toBe(2)
   })
 })

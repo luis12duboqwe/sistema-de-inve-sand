@@ -56,6 +56,29 @@ def _apply_daily_close_migration():
         logger.warning("Auto-migration daily_close no crítica, continuando: %s", e)
 
 
+def _apply_transfer_receiving_fields_migration():
+    """Agrega columnas de recepción parcial a stock_transfers si faltan."""
+    try:
+        from app.database import engine
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS received_quantity INTEGER"
+            ))
+            conn.execute(text(
+                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS missing_quantity INTEGER"
+            ))
+            conn.execute(text(
+                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS incident_notes TEXT"
+            ))
+            conn.commit()
+
+        logger.info("Auto-migration: columnas de recepción parcial en stock_transfers verificadas.")
+    except Exception as e:
+        logger.warning("Auto-migration stock_transfers no crítica, continuando: %s", e)
+
+
 def run_auto_migrations():
     """
     Execute auto-migrations script if database exists.
@@ -63,6 +86,7 @@ def run_auto_migrations():
     """
     logger.info("Ejecutando auto-migraciones al iniciar...")
     _apply_daily_close_migration()
+    _apply_transfer_receiving_fields_migration()
     logger.info("Auto-migraciones completadas.")
     return True
 

@@ -12,8 +12,23 @@ from app.schemas import (
 from app.auth import get_current_active_user, check_permission
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_validators import validate_location_exists
+from app.utils.location_access import get_accessible_location_ids, require_location_access
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+FINAL_SALE_STATUSES = ["completada", "validada"]
+
+
+def _apply_location_scope_to_orders(query, accessible_location_ids: Optional[list[int]]):
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+    return query
+
+
+def _apply_location_scope_to_stock(query, accessible_location_ids: Optional[list[int]]):
+    if accessible_location_ids is not None:
+        query = query.filter(Stock.location_id.in_(accessible_location_ids))
+    return query
 
 
 def _get_refunds_in_range(
@@ -21,6 +36,7 @@ def _get_refunds_in_range(
     start_dt: datetime,
     end_dt: datetime,
     sales_profile_id: Optional[int] = None,
+    accessible_location_ids: Optional[list[int]] = None,
 ) -> Decimal:
     """
     Calcula el total de reembolsos (action='refund') de devoluciones creadas
@@ -36,6 +52,7 @@ def _get_refunds_in_range(
                 0,
             )
         )
+        .select_from(Return)
         .join(ReturnItem, ReturnItem.return_id == Return.id)  # type: ignore[attr-defined]
         .join(Order, Order.id == Return.order_id)
         .join(
@@ -51,6 +68,8 @@ def _get_refunds_in_range(
     )
     if sales_profile_id:
         query = query.filter(Order.sales_profile_id == sales_profile_id)
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
 
     result = query.scalar()
     return Decimal(result or 0)
@@ -78,15 +97,29 @@ def get_dashboard_stats(
         Estadísticas del dashboard
     """
     
-    # Products stats - GLOBALES (sin filtro)
-    active_products = db.query(Product).filter(Product.activo == True).count()
-    total_products = db.query(Product).count()
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    scoped_location_id = None
+    if location_id:
+        location_obj = validate_location_exists(db, location_id)
+        require_location_access(db, current_user, location_obj.id, "can_view")
+        scoped_location_id = location_obj.id
+
+    # Products stats - globales para admin, acotados por ubicación para usuarios restringidos
+    product_query = db.query(Product)
+    if scoped_location_id:
+        product_query = product_query.join(Stock, Stock.product_id == Product.id).filter(Stock.location_id == scoped_location_id).distinct()
+    elif accessible_location_ids is not None:
+        product_query = product_query.join(Stock, Stock.product_id == Product.id).filter(Stock.location_id.in_(accessible_location_ids)).distinct()
+
+    active_products = product_query.filter(Product.activo == True).count()
+    total_products = product_query.count()
     
     # Stock alerts - Por ubicación si se especifica, sino global
     stock_query = db.query(Stock).join(Product).filter(Product.activo == True)
-    if location_id:
-        location_obj = validate_location_exists(db, location_id)
-        stock_query = stock_query.filter(Stock.location_id == location_obj.id)
+    if scoped_location_id:
+        stock_query = stock_query.filter(Stock.location_id == scoped_location_id)
+    else:
+        stock_query = _apply_location_scope_to_stock(stock_query, accessible_location_ids)
 
     unit_value_expr = func.coalesce(
         func.nullif(Product.costo, 0),
@@ -116,6 +149,10 @@ def get_dashboard_stats(
     today_end = datetime.combine(today, datetime.max.time())
     
     orders_query = db.query(Order)
+    if scoped_location_id:
+        orders_query = orders_query.filter(Order.source_location_id == scoped_location_id)
+    else:
+        orders_query = _apply_location_scope_to_orders(orders_query, accessible_location_ids)
     sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
     if sales_profile:
         orders_query = orders_query.filter(Order.sales_profile_id == sales_profile.id)
@@ -126,7 +163,7 @@ def get_dashboard_stats(
     orders_today_stats = orders_query.filter(
         Order.created_at >= today_start,
         Order.created_at <= today_end,
-        Order.estado != "cancelada"  # Excluir canceladas
+        Order.estado.in_(FINAL_SALE_STATUSES)
     ).with_entities(
         func.count(Order.id),
         func.coalesce(func.sum(Order.total), 0)
@@ -139,6 +176,7 @@ def get_dashboard_stats(
     refunds_today = _get_refunds_in_range(
         db, today_start, today_end,
         sales_profile_id=sales_profile.id if sales_profile else None,
+        accessible_location_ids=[scoped_location_id] if scoped_location_id else accessible_location_ids,
     )
     total_revenue_today = max(Decimal("0.00"), total_revenue_today - refunds_today)
 
@@ -148,7 +186,7 @@ def get_dashboard_stats(
     
     orders_this_month_stats = orders_query.filter(
         Order.created_at >= month_start_dt,
-        Order.estado != "cancelada"  # Excluir canceladas
+        Order.estado.in_(FINAL_SALE_STATUSES)
     ).with_entities(
         func.count(Order.id),
         func.coalesce(func.sum(Order.total), 0)
@@ -161,6 +199,7 @@ def get_dashboard_stats(
     refunds_month = _get_refunds_in_range(
         db, month_start_dt, month_end_dt,
         sales_profile_id=sales_profile.id if sales_profile else None,
+        accessible_location_ids=[scoped_location_id] if scoped_location_id else accessible_location_ids,
     )
     total_revenue_month = max(Decimal("0.00"), total_revenue_month - refunds_month)
 
@@ -188,8 +227,12 @@ def get_dashboard_stats(
             Product, Product.id == OrderItem.product_id
         ).filter(
             Order.created_at >= month_start_dt,
-            Order.estado != "cancelada"
+            Order.estado.in_(FINAL_SALE_STATUSES)
         )
+        if scoped_location_id:
+            cost_query = cost_query.filter(Order.source_location_id == scoped_location_id)
+        else:
+            cost_query = _apply_location_scope_to_orders(cost_query, accessible_location_ids)
 
         if sales_profile:
             cost_query = cost_query.filter(Order.sales_profile_id == sales_profile.id)
@@ -213,7 +256,7 @@ def get_dashboard_stats(
     orders_last_month_stats = orders_query.filter(
         Order.created_at >= last_month_start,
         Order.created_at <= last_month_end,
-        Order.estado != "cancelada"  # Excluir canceladas
+        Order.estado.in_(FINAL_SALE_STATUSES)
     ).with_entities(
         func.count(Order.id),
         func.coalesce(func.sum(Order.total), 0)
@@ -225,6 +268,7 @@ def get_dashboard_stats(
     refunds_last_month = _get_refunds_in_range(
         db, last_month_start, last_month_end,
         sales_profile_id=sales_profile.id if sales_profile else None,
+        accessible_location_ids=[scoped_location_id] if scoped_location_id else accessible_location_ids,
     )
     total_revenue_last_month = max(Decimal("0.00"), total_revenue_last_month - refunds_last_month)
 
@@ -247,6 +291,7 @@ def get_dashboard_stats(
 @router.get("/sales", response_model=SalesReport, dependencies=[Depends(check_permission("reports:view"))])
 def get_sales_report(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación de origen"),
     date_from: Optional[date] = Query(None, description="Fecha inicial (default: hace 30 días)"),
     date_to: Optional[date] = Query(None, description="Fecha final (default: hoy)"),
     top_limit: int = Query(10, ge=1, le=50, description="Número de top products a retornar"),
@@ -283,8 +328,15 @@ def get_sales_report(
     orders_query = db.query(Order).filter(
         Order.created_at >= start_dt,
         Order.created_at <= end_dt,
-        Order.estado != "cancelada"  # Excluir canceladas
+        Order.estado.in_(FINAL_SALE_STATUSES)
     )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if location_id:
+        location_obj = validate_location_exists(db, location_id)
+        require_location_access(db, current_user, location_obj.id, "can_view")
+        orders_query = orders_query.filter(Order.source_location_id == location_obj.id)
+    else:
+        orders_query = _apply_location_scope_to_orders(orders_query, accessible_location_ids)
     
     sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug)
     if sales_profile:
@@ -321,8 +373,9 @@ def get_sales_report(
     ).filter(
         Order.created_at >= start_dt,
         Order.created_at <= end_dt,
-        Order.estado != "cancelada"
+        Order.estado.in_(FINAL_SALE_STATUSES)
     )
+    product_query = _apply_location_scope_to_orders(product_query, accessible_location_ids)
 
     if sales_profile:
         product_query = product_query.filter(Order.sales_profile_id == sales_profile.id)
@@ -356,7 +409,7 @@ def get_sales_report(
 def get_inventory_alerts(
     location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("inventory:view"))
+    current_user: User = Depends(check_permission("reports:view"))
 ):
     """
     Obtiene alertas de inventario para productos con stock bajo o agotado.
@@ -376,7 +429,11 @@ def get_inventory_alerts(
     
     if location_id:
         location_obj = validate_location_exists(db, location_id)
+        require_location_access(db, current_user, location_obj.id, "can_view")
         stock_query = stock_query.filter(Stock.location_id == location_obj.id)
+    else:
+        accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+        stock_query = _apply_location_scope_to_stock(stock_query, accessible_location_ids)
     
     stocks = stock_query.all()
     
@@ -448,6 +505,9 @@ def get_stock_summary_by_location(
     
     if active_only:
         query = query.filter(Location.activo == True)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Location.id.in_(accessible_location_ids))
     
     query = query.group_by(
         Location.id,
@@ -495,8 +555,11 @@ def get_sales_summary_by_location(
     ).join(
         OrderItem, Order.id == OrderItem.order_id
     ).filter(
-        Order.estado == 'completada'  # Solo órdenes completadas (ventas confirmadas), excluye canceladas y pendientes
+        Order.estado.in_(['completada', 'validada'])  # Ventas confirmadas y validadas; excluye canceladas y pendientes
     )
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Location.id.in_(accessible_location_ids))
     
     if start_date:
         query = query.filter(func.date(Order.created_at) >= start_date)
@@ -539,6 +602,7 @@ def get_top_products_by_location(
     
     # Verificar ubicación
     location = validate_location_exists(db, location_id)
+    require_location_access(db, current_user, location_id, "can_view")
     
     query = db.query(
         Product.id,
@@ -553,7 +617,7 @@ def get_top_products_by_location(
     ).filter(
         and_(
             Order.source_location_id == location_id,
-            Order.estado == 'completada'  # Solo ventas completadas (confirmadas), excluye canceladas y pendientes
+            Order.estado.in_(['completada', 'validada'])  # Ventas confirmadas y validadas; excluye canceladas y pendientes
         )
     )
     
@@ -580,3 +644,65 @@ def get_top_products_by_location(
         }
         for r in results
     ]
+
+
+@router.get("/bank-transfer-reconciliation", dependencies=[Depends(check_permission("reports:view"))])
+def get_bank_transfer_reconciliation(
+    start_date: Optional[date] = Query(None, description="Fecha inicial (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="Fecha final (YYYY-MM-DD)"),
+    location_id: Optional[int] = Query(None, description="Filtrar por ubicación"),
+    bank_name: Optional[str] = Query(None, description="Filtrar por banco"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("reports:view")),
+):
+    """Detalle conciliable de órdenes pagadas por transferencia bancaria."""
+    from sqlalchemy import desc
+
+    if location_id is not None:
+        validate_location_exists(db, location_id)
+        require_location_access(db, current_user, location_id, "can_view")
+
+    query = db.query(Order, Location.nombre.label("location_nombre")).outerjoin(
+        Location,
+        Location.id == Order.source_location_id,
+    ).filter(
+        Order.metodo_pago == "transferencia",
+        Order.estado.in_(["completada", "validada"]),
+    )
+
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+    if location_id is not None:
+        query = query.filter(Order.source_location_id == location_id)
+    if bank_name:
+        query = query.filter(Order.transfer_bank_name.ilike(f"%{bank_name.strip()}%"))
+    if start_date:
+        query = query.filter(func.date(Order.created_at) >= start_date)
+    if end_date:
+        query = query.filter(func.date(Order.created_at) <= end_date)
+
+    rows = query.order_by(desc(Order.created_at)).all()
+    total = sum((order.total or Decimal("0")) for order, _location_nombre in rows)
+
+    return {
+        "total_amount": float(total),
+        "total_orders": len(rows),
+        "items": [
+            {
+                "order_id": order.id,
+                "created_at": order.created_at,
+                "customer_name": order.customer_name,
+                "customer_phone": order.customer_phone,
+                "location_id": order.source_location_id,
+                "location_nombre": location_nombre,
+                "bank_name": order.transfer_bank_name,
+                "reference": order.transfer_reference,
+                "total": float(order.total or 0),
+                "estado": order.estado,
+                "validated_by": order.validated_by,
+                "validada_at": order.validada_at,
+            }
+            for order, location_nombre in rows
+        ],
+    }

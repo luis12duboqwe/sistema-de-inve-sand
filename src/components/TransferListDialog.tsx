@@ -9,7 +9,9 @@ import { ScrollArea } from './ui/scroll-area'
 import { Loader2, Check, X, Clock, Package, MapPin, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { inventoryServiceInstance } from '../lib/inventoryServiceFactory'
+import { apiClient } from '../lib/apiClient'
 import { StockTransfer, Location } from '../lib/types'
+import { ValidationCodeDialog } from './ValidationCodeDialog'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -33,19 +35,28 @@ export function TransferListDialog({
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [confirmedBy, setConfirmedBy] = useState('')
+  const [receivedQuantity, setReceivedQuantity] = useState('')
+  const [incidentNotes, setIncidentNotes] = useState('')
   const [receiveScanInput, setReceiveScanInput] = useState('')
   const [scannedReceiveImeis, setScannedReceiveImeis] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'in_transit' | 'received' | 'incidents'>('in_transit')
+  const [validationCodeRequest, setValidationCodeRequest] = useState<{
+    resolve: (code: string | null) => void
+  } | null>(null)
 
   useEffect(() => {
     if (!selectedTransfer) {
       setConfirmedBy('')
+      setReceivedQuantity('')
+      setIncidentNotes('')
       setReceiveScanInput('')
       setScannedReceiveImeis([])
       return
     }
 
     setConfirmedBy('')
+    setReceivedQuantity(String(selectedTransfer.cantidad))
+    setIncidentNotes('')
     setReceiveScanInput('')
     setScannedReceiveImeis([])
   }, [selectedTransfer])
@@ -76,27 +87,68 @@ export function TransferListDialog({
     }
   }, [open, loadTransfers])
 
+  const getTransferValidationCode = async (): Promise<string | undefined | null> => {
+    try {
+      const config = await apiClient.getDailyCloseConfig()
+      if (!config.configured) return undefined
+    } catch (error) {
+      console.error('Error checking transfer validation config:', error)
+      toast.error('No se pudo verificar el código de validación')
+      return null
+    }
+
+    return new Promise(resolve => {
+      setValidationCodeRequest({ resolve })
+    })
+  }
+
   const handleConfirm = async (transfer: StockTransfer) => {
     if (!confirmedBy.trim()) {
       toast.error('Por favor ingresa tu nombre para confirmar')
       return
     }
 
+    const parsedReceivedQuantity = receivedQuantity.trim() === ''
+      ? transfer.cantidad
+      : Number(receivedQuantity)
+
+    if (!Number.isInteger(parsedReceivedQuantity) || parsedReceivedQuantity < 0 || parsedReceivedQuantity > transfer.cantidad) {
+      toast.error(`La cantidad recibida debe estar entre 0 y ${transfer.cantidad}`)
+      return
+    }
+
+    if (parsedReceivedQuantity < transfer.cantidad && !incidentNotes.trim()) {
+      toast.error('Agrega notas de incidencia para una recepción parcial')
+      return
+    }
+
     const expectedImeis = transfer.imeis || []
     const scannedImeis = expectedImeis.length > 0 ? scannedReceiveImeis : undefined
 
-    if (expectedImeis.length > 0 && scannedReceiveImeis.length !== expectedImeis.length) {
-      toast.error(`Debes volver a escanear ${expectedImeis.length} IMEIs en la ubicación de recepción`)
+    if (expectedImeis.length > 0 && scannedReceiveImeis.length !== parsedReceivedQuantity) {
+      toast.error(`Debes escanear ${parsedReceivedQuantity} IMEIs recibidos en la ubicación de recepción`)
       return
     }
+
+    const validationCode = await getTransferValidationCode()
+    if (validationCode === null) return
 
     setActionLoading(true)
     try {
       const service = inventoryServiceInstance
-      await service.confirmStockTransfer(transfer.id, confirmedBy, scannedImeis)
+      await service.confirmStockTransfer(
+        transfer.id,
+        confirmedBy,
+        scannedImeis,
+        validationCode,
+        parsedReceivedQuantity,
+        incidentNotes.trim() || undefined
+      )
       toast.success('Transferencia confirmada exitosamente')
       setSelectedTransfer(null)
       setConfirmedBy('')
+      setReceivedQuantity('')
+      setIncidentNotes('')
       loadTransfers()
       onTransferUpdated?.()
     } catch (error) {
@@ -487,11 +539,45 @@ export function TransferListDialog({
                 />
               </div>
 
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="receivedQuantity">Cantidad recibida *</Label>
+                  <Input
+                    id="receivedQuantity"
+                    type="number"
+                    min={0}
+                    max={selectedTransfer.cantidad}
+                    value={receivedQuantity}
+                    onChange={(e) => setReceivedQuantity(e.target.value)}
+                    disabled={actionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Faltante</Label>
+                  <div className="h-10 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    {Math.max(selectedTransfer.cantidad - (Number(receivedQuantity) || 0), 0)} unidades
+                  </div>
+                </div>
+              </div>
+
+              {Number(receivedQuantity) < selectedTransfer.cantidad && (
+                <div className="space-y-2">
+                  <Label htmlFor="incidentNotes">Notas de incidencia *</Label>
+                  <Input
+                    id="incidentNotes"
+                    value={incidentNotes}
+                    onChange={(e) => setIncidentNotes(e.target.value)}
+                    placeholder="Ej: llegó una unidad menos, paquete abierto, equipo dañado"
+                    disabled={actionLoading}
+                  />
+                </div>
+              )}
+
               {(selectedTransfer.imeis?.length || 0) > 0 && (
                 <div className="space-y-3 rounded-lg border border-dashed p-3 bg-muted/20">
                   <div>
                     <Label htmlFor="receiveScanInput">
-                      Escanear IMEIs en ubicación de recepción ({scannedReceiveImeis.length}/{selectedTransfer.imeis?.length || 0})
+                      Escanear IMEIs recibidos ({scannedReceiveImeis.length}/{Number(receivedQuantity) || 0})
                     </Label>
                     <div className="flex gap-2 mt-2">
                       <Input
@@ -559,7 +645,11 @@ export function TransferListDialog({
                   disabled={
                     actionLoading ||
                     !confirmedBy.trim() ||
-                    ((selectedTransfer.imeis?.length || 0) > 0 && scannedReceiveImeis.length !== (selectedTransfer.imeis?.length || 0))
+                    !Number.isInteger(Number(receivedQuantity)) ||
+                    Number(receivedQuantity) < 0 ||
+                    Number(receivedQuantity) > selectedTransfer.cantidad ||
+                    (Number(receivedQuantity) < selectedTransfer.cantidad && !incidentNotes.trim()) ||
+                    ((selectedTransfer.imeis?.length || 0) > 0 && scannedReceiveImeis.length !== (Number(receivedQuantity) || 0))
                   }
                 >
                   {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -603,6 +693,23 @@ export function TransferListDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {validationCodeRequest && (
+        <ValidationCodeDialog
+          open={Boolean(validationCodeRequest)}
+          title="Confirmar transferencia"
+          description="Ingrese el código de validación para confirmar la recepción de inventario."
+          confirmLabel="Confirmar"
+          onCancel={() => {
+            validationCodeRequest.resolve(null)
+            setValidationCodeRequest(null)
+          }}
+          onConfirm={code => {
+            validationCodeRequest.resolve(code)
+            setValidationCodeRequest(null)
+          }}
+        />
+      )}
     </>
   )
 }

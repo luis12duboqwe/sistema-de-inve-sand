@@ -11,12 +11,13 @@ class DailyCloseValidateRequest(BaseModel):
     """Solicitud de validación de cierre de día."""
     validation_code: str = Field(..., min_length=1, description="Código de validación configurado por el admin")
     order_ids: List[int] = Field(..., min_length=1, description="IDs de órdenes a validar")
+    location_id: Optional[int] = Field(None, gt=0, description="Ubicación a cerrar/validar")
     notas: Optional[str] = Field(None, max_length=500)
 
 
 class DailyCloseConfigRequest(BaseModel):
     """Configurar o cambiar el código de validación."""
-    new_code: str = Field(..., min_length=4, max_length=20, description="Nuevo código de validación (4-20 caracteres)")
+    new_code: str = Field(..., min_length=6, max_length=64, description="Nuevo código de validación (6-64 caracteres)")
     confirm_code: str = Field(..., description="Confirmar el nuevo código")
     current_code: Optional[str] = Field(None, description="Código actual (requerido si ya existe uno)")
 
@@ -30,6 +31,8 @@ class DailyCloseOrderSummary(BaseModel):
     metodo_pago: str
     total: float
     estado: str
+    source_location_id: Optional[int] = None
+    source_location_name: Optional[str] = None
     created_at: datetime
     items_count: int
     items_summary: str  # Ej: "iPhone 14 x1, Cargador x2"

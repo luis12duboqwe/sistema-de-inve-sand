@@ -80,7 +80,12 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
     }
     setCreatingUser(true)
     try {
-      await createUser(pendingUser)
+      await createUser({
+        ...pendingUser,
+        username: pendingUser.username.trim(),
+        full_name: pendingUser.full_name?.trim() || undefined,
+        email: pendingUser.email?.trim() || undefined,
+      })
       toast.success('Usuario creado correctamente')
       setPendingUser({ username: '', email: '', full_name: '', password: '', role_id: 0 })
       setShowNewUserForm(false)

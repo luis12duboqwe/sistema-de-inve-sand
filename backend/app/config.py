@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     
     # CORS
-    cors_origins: List[str] = ["*"]
-    allowed_hosts: List[str] = ["*"]
+    cors_origins: str | List[str] = ["*"]
+    allowed_hosts: str | List[str] = ["*"]
     
     # JWT Authentication
     secret_key: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     sentry_environment: Optional[str] = None
     sentry_traces_sample_rate: float = 0.0
     sentry_profiles_sample_rate: float = 0.0
+    channel_encryption_key: Optional[str] = None
     
     model_config = SettingsConfigDict(
         env_file=".env",

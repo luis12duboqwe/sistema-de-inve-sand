@@ -137,8 +137,8 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
       toast.error('Los códigos no coinciden')
       return
     }
-    if (dcNewCode.length < 4) {
-      toast.error('El código debe tener al menos 4 caracteres')
+    if (dcNewCode.length < 6) {
+      toast.error('El código debe tener al menos 6 caracteres')
       return
     }
     setDcSaving(true)
@@ -491,7 +491,7 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Nuevo código (mín. 4 caracteres)</Label>
+                  <Label className="text-xs">Nuevo código (mín. 6 caracteres)</Label>
                   <Input
                     type="password"
                     placeholder="Nuevo código"

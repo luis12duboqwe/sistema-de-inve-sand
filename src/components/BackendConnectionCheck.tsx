@@ -158,7 +158,7 @@ export function BackendConnectionCheck({ onSuccess }: { onSuccess: () => void })
               <div className="pt-2">
                 <p className="text-sm font-semibold mb-2">Para iniciar el backend:</p>
                 <code className="block bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto">
-                  bash /workspaces/spark-template/run-backend-direct.sh
+                  bash ./start-backend.sh
                 </code>
               </div>
               <div className="pt-2 space-y-2">

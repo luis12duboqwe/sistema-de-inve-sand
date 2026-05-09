@@ -1,9 +1,9 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
 from decimal import Decimal
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import math
 import json
 from app.database import get_db
@@ -38,11 +38,157 @@ from app.utils.order_validators import (
     normalize_customer_phone,
 )
 from app.utils.stock_manager import StockManager, StockValidationError
+from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_close_code
+from app.utils.location_access import get_accessible_location_ids, require_location_access
+from app.utils.audit import log_audit_event
 
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+def _mark_order_as_validated(db: Session, order: Order, username: str) -> None:
+    if getattr(order, "validada_at", None) is not None:
+        return
+
+    setattr(order, "validada_at", datetime.now(timezone.utc))
+    setattr(order, "validated_by", username)
+
+    order_items = cast(list[Any], getattr(order, "items", []))
+    for item in order_items:
+        if cast(bool, getattr(item, "es_regalo_promocion", False)):
+            continue
+
+        db.add(StockHistory(
+            product_id=cast(int, getattr(item, "product_id")),
+            location_id=cast(int | None, getattr(order, "source_location_id", None)),
+            tipo_cambio="VENTA_VALIDADA",
+            cantidad=cast(int, getattr(item, "cantidad")),
+            stock_anterior=0,
+            stock_nuevo=0,
+            referencia_id=cast(int, getattr(order, "id")),
+            referencia_tipo="order_validated",
+            notas=f"Validado al completar la venta por {username}",
+            usuario=username,
+        ))
+
+
+FINAL_ORDER_STATUSES = {"completada", "validada"}
+
+
+def _order_has_sale_history(db: Session, order_id: int, product_id: int) -> bool:
+    return db.query(StockHistory.id).filter(
+        StockHistory.referencia_id == order_id,
+        StockHistory.product_id == product_id,
+        StockHistory.tipo_cambio.in_(["venta", "retoma_cancelada"]),
+    ).first() is not None
+
+
+def _release_order_imei_reservations(db: Session, order_id: int, user_identifier: str, notes: str) -> None:
+    reserved_imeis = db.query(ProductIMEI).filter(
+        ProductIMEI.order_id == order_id,
+        ProductIMEI.vendido == False,
+    ).all()
+    for imei_record in reserved_imeis:
+        previous_location_id = imei_record.location_id
+        imei_record.order_id = None
+        db.add(IMEIHistory(
+            imei=imei_record.imei,
+            product_id=imei_record.product_id,
+            location_id=previous_location_id,
+            event_type="reserva_liberada",
+            reference_id=order_id,
+            reference_type="order",
+            notes=notes,
+            created_by=user_identifier,
+            created_at=datetime.now(timezone.utc),
+        ))
+
+
+def _release_pending_order_reservations(db: Session, order: Order, user_identifier: str, notes: str) -> None:
+    stock_manager = StockManager(db)
+    for item in order.items:
+        if not order.source_location_id:
+            continue
+        stock = db.query(Stock).filter(
+            Stock.product_id == item.product_id,
+            Stock.location_id == order.source_location_id,
+        ).with_for_update().first()
+        if not stock:
+            continue
+
+        if stock.cantidad_reservada >= item.cantidad:
+            stock_manager.release_reservation(
+                stock=stock,
+                quantity=item.cantidad,
+                transfer_id=order.id,
+                notes=notes,
+                user_id=user_identifier,
+                is_rejection=True,
+                tipo_cambio="venta_reserva_liberada",
+                referencia_tipo="order_cancelled",
+            )
+        elif _order_has_sale_history(db, order.id, item.product_id):
+            stock_manager.increase_stock(
+                product_id=item.product_id,
+                location_id=order.source_location_id,
+                quantity=item.cantidad,
+                operation_type="devolucion",
+                notes=f"{notes} (orden pendiente legacy con stock ya descontado)",
+                user_id=user_identifier,
+                create_if_missing=True,
+            )
+
+    _release_order_imei_reservations(db, order.id, user_identifier, notes)
+
+
+def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> None:
+    stock_manager = StockManager(db)
+    for item in order.items:
+        if not order.source_location_id:
+            raise HTTPException(status_code=400, detail="La orden no tiene ubicación de origen para descontar stock")
+
+        stock = db.query(Stock).filter(
+            Stock.product_id == item.product_id,
+            Stock.location_id == order.source_location_id,
+        ).with_for_update().first()
+        if not stock:
+            raise HTTPException(status_code=404, detail=f"No existe stock para el producto {item.product_id} en la ubicación de la orden")
+
+        if stock.cantidad_reservada >= item.cantidad:
+            stock_manager.release_reservation(
+                stock=stock,
+                quantity=item.cantidad,
+                transfer_id=order.id,
+                notes=f"Confirmación de venta orden #{order.id}",
+                user_id=user_identifier,
+                is_rejection=False,
+            )
+            stock_manager.decrease_stock(
+                stock=stock,
+                quantity=item.cantidad,
+                operation_type="venta",
+                notes=f"Venta finalizada orden #{order.id}",
+                user_id=user_identifier,
+                order_id=order.id,
+            )
+        elif not _order_has_sale_history(db, order.id, item.product_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"La orden #{order.id} no tiene reserva suficiente para el producto {item.product_id}",
+            )
+
+    reserved_imeis = db.query(ProductIMEI).filter(
+        ProductIMEI.order_id == order.id,
+        ProductIMEI.vendido == False,
+    ).all()
+    if reserved_imeis:
+        stock_manager.mark_imeis_as_sold(
+            imeis=reserved_imeis,
+            order_id=order.id,
+            notes=f"Venta finalizada orden #{order.id}",
+            user_id=user_identifier,
+        )
 
 
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
@@ -111,6 +257,13 @@ def _serialize_order(order: Order) -> OrderResponse:
     )
 
 
+def _apply_order_location_access(query: Any, db: Session, user: User) -> Any:
+    accessible_location_ids = get_accessible_location_ids(db, user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+    return query
+
+
 def _emit_trade_in_alert_notification(
     db: Session,
     *,
@@ -123,37 +276,18 @@ def _emit_trade_in_alert_notification(
     if not alerts:
         return
 
-    # notification_service = NotificationService(db)
-#     metadata = {
-#         "order_id": order_id,
-#         "location_id": location_id,
-#         "alerts": alerts,
-#         "trade_in_ids": trade_in_ids,
-#     }
-# 
-#     try:
-#         notification_service.create(
-#             type="trade_in_issue",
-#             title="Incidencias al revertir retomas",
-#             message=(
-#                 f"Se detectaron problemas al revertir las retomas de la orden #{order_id}. "
-#                 "Revisa el historial de notas para más detalles."
-#             ),
-#             severity="warning",
-#             source="orders",
-#             metadata=metadata,
-#         )
-#         db.commit()
-#     except Exception:
-        db.rollback()
-        logger.exception(
-            "No se pudo registrar la notificación de retomas para la orden %s",
-            order_id,
-        )
+    logger.warning(
+        "Incidencias al revertir retomas en orden %s: alerts=%s location_id=%s trade_in_ids=%s",
+        order_id,
+        alerts,
+        location_id,
+        trade_in_ids,
+    )
 
 @router.get("", response_model=PaginatedResponse[OrderResponse], dependencies=[Depends(check_permission("orders:view"))])
 def list_orders(
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta (ej: 'bot-whatsapp')"),
+    location_id: Optional[int] = Query(None, gt=0, description="Filtrar por ubicación origen"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db),
@@ -175,11 +309,14 @@ def list_orders(
     Raises:
         - 404: Si el sales_profile_slug especificado no existe
     """
-    query = db.query(Order)
+    query = _apply_order_location_access(db.query(Order), db, current_user)
+    if location_id:
+        require_location_access(db, current_user, location_id, "can_view")
+        query = query.filter(Order.source_location_id == location_id)
     sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug)
     if sales_profile:
         query = query.filter(Order.sales_profile_id == sales_profile.id)
-    
+
     total = query.count()
     offset = (page - 1) * per_page
     orders = query.order_by(Order.created_at.desc()).offset(offset).limit(per_page).all()
@@ -226,12 +363,16 @@ def search_orders(
     Returns:
         Respuesta paginada con órdenes que coinciden con los criterios
     """
-    query = db.query(Order)
+    query = _apply_order_location_access(db.query(Order), db, current_user)
     
     # Filter by sales profile (V2.0)
     sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
     if sales_profile:
         query = query.filter(Order.sales_profile_id == sales_profile.id)
+
+    if search_params.location_id:
+        require_location_access(db, current_user, search_params.location_id, "can_view")
+        query = query.filter(Order.source_location_id == search_params.location_id)
     
     # Filter by date range
     if search_params.date_from:
@@ -288,8 +429,12 @@ def create_order(
     current_user: Optional[User] = Depends(check_permission("orders:create"))
 ):
     """Crea una orden usando OrderService para centralizar la lógica V2.0."""
+    if current_user and order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_edit")
     service = OrderService(db)
     created_order = service.create_order(order, current_user=current_user)
+    log_audit_event(db, action="order.create", entity_type="order", entity_id=created_order.id, location_id=created_order.source_location_id, user=current_user, after_data=order.model_dump())
+    db.commit()
     return _serialize_order(created_order)
 
 
@@ -310,6 +455,9 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
 
+    if order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_edit")
+
     # Validar que no se intente cancelar usando este endpoint
     if payload.estado == "cancelada":
         raise HTTPException(
@@ -324,7 +472,31 @@ def update_order_status(
             detail="No se puede cambiar el estado de una orden cancelada"
         )
 
+    if payload.estado == "completada":
+        configured_code_hash = get_daily_close_code_hash(db)
+        if configured_code_hash:
+            if not payload.validation_code:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Debe ingresar el código de validación para completar la orden.",
+                )
+            if not verify_daily_close_code(configured_code_hash, payload.validation_code):
+                logger.warning(
+                    "Intento fallido de completar orden %s por usuario %s: código inválido",
+                    order_id,
+                    current_user.username,
+                )
+                raise HTTPException(status_code=403, detail="Código de validación incorrecto.")
+
+            _mark_order_as_validated(db, order, current_user.username)
+            payload.estado = "validada"
+
+    previous_estado = order.estado
+    if previous_estado not in FINAL_ORDER_STATUSES and payload.estado in FINAL_ORDER_STATUSES:
+        _finalize_order_stock(db, order, resolve_user_label(current_user))
+
     order.estado = payload.estado
+    log_audit_event(db, action="order.status_update", entity_type="order", entity_id=order.id, location_id=order.source_location_id, user=current_user, before_data={"estado": previous_estado}, after_data={"estado": payload.estado})
 
     try:
         db.commit()
@@ -364,11 +536,14 @@ def update_order(
                 detail="No se puede modificar una orden cancelada"
             )
         
-        if order.estado == "completada":
+        if order.estado in {"completada", "validada"}:
             raise HTTPException(
                 status_code=400,
-                detail="No se puede modificar una orden completada. Use el proceso de devolución o ajuste."
+                detail="No se puede modificar una orden completada o validada. Use el proceso de devolución o ajuste."
             )
+
+        if order.source_location_id:
+            require_location_access(db, current_user, order.source_location_id, "can_edit")
 
         user_identifier = resolve_user_label(current_user)
 
@@ -381,42 +556,72 @@ def update_order(
         # Determinar la ubicación de origen para los nuevos items
         # Si se actualiza la ubicación, usar la nueva; de lo contrario, usar la actual
         target_location_id = order.source_location_id
+        location_is_changing = False
         if hasattr(updates, 'source_location_id') and updates.source_location_id:
             new_location = validate_location_exists(db, updates.source_location_id)
+            require_location_access(db, current_user, new_location.id, "can_edit")
             target_location_id = new_location.id
+            location_is_changing = order.source_location_id != new_location.id
+
+        if location_is_changing and updates.items is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Para cambiar la ubicación de una orden debe reenviar los productos, IMEIs y cantidades para recalcular el stock correctamente."
+            )
 
         if updates.items is not None:
             # Liberar IMEIs de los items actuales antes de reemplazarlos
             # ProductIMEI ya está importado globalmente
             stock_manager = StockManager(db)
             stock_helper = StockTransactionHelper(db, stock_manager=stock_manager)
+
+            _release_order_imei_reservations(
+                db,
+                order_id,
+                user_identifier,
+                f"Actualización de orden #{order.id} - Reservas pendientes liberadas",
+            )
             
             for item in current_items:
-                # Liberar IMEIs asociados a este item
-                imeis_item = db.query(ProductIMEI).filter(
+                imeis_vendidos = db.query(ProductIMEI).filter(
                     ProductIMEI.order_id == order_id,
                     ProductIMEI.product_id == item.product_id,
-                    ProductIMEI.vendido == True
+                    ProductIMEI.vendido == True,
                 ).all()
-                
-                if imeis_item:
+                if imeis_vendidos:
                     stock_manager.release_imeis(
-                        imeis=imeis_item,
+                        imeis=imeis_vendidos,
                         notes=f"Actualización de orden #{order.id} - Items removidos",
-                        user_id=user_identifier
+                        user_id=user_identifier,
                     )
-                
-                # V2.0: Devolver stock a la ubicación de origen
+
+                # V2.0: liberar reserva de la ubicación de origen
                 if order.source_location_id:
-                    stock_manager.increase_stock(
-                        product_id=item.product_id,
-                        location_id=order.source_location_id,
-                        quantity=item.cantidad,
-                        operation_type="devolucion",
-                        notes=f"Actualización de orden #{order.id} - Items removidos/modificados",
+                    stock = db.query(Stock).filter(
+                        Stock.product_id == item.product_id,
+                        Stock.location_id == order.source_location_id,
+                    ).with_for_update().first()
+                    if stock and stock.cantidad_reservada >= item.cantidad:
+                        stock_manager.release_reservation(
+                            stock=stock,
+                            quantity=item.cantidad,
+                            transfer_id=order.id,
+                            notes=f"Actualización de orden #{order.id} - Reserva liberada",
                             user_id=user_identifier,
-                        create_if_missing=True
-                    )
+                            is_rejection=True,
+                            tipo_cambio="venta_reserva_liberada",
+                            referencia_tipo="order_update",
+                        )
+                    elif stock and _order_has_sale_history(db, order.id, item.product_id):
+                        stock_manager.increase_stock(
+                            product_id=item.product_id,
+                            location_id=order.source_location_id,
+                            quantity=item.cantidad,
+                            operation_type="devolucion",
+                            notes=f"Actualización de orden #{order.id} - Item legacy restaurado",
+                            user_id=user_identifier,
+                            create_if_missing=True
+                        )
                 else:
                     # Legacy: Sin ubicación específica - Mantener lógica manual limitada
                     stock = db.query(Stock).filter(Stock.product_id == item.product_id).first()
@@ -459,7 +664,7 @@ def update_order(
                         imeis=item_data.imeis_to_sell,
                         order_id=order.id,
                         notes=f"Venta en actualización de orden #{order.id}",
-                        user_id=user_identifier
+                        user_id=user_identifier,
                     )
 
                 new_item = OrderItem(
@@ -479,7 +684,7 @@ def update_order(
                         operation_type="venta",
                         notes=f"Actualización de orden #{order.id} - Item añadido/modificado",
                         user_id=user_identifier,
-                        order_id=order.id
+                        order_id=order.id,
                     )
                 except StockValidationError as e:
                     db.rollback()
@@ -605,6 +810,8 @@ def get_order(
             status_code=404, 
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
+    if order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_view")
     
     return _serialize_order(order)
 
@@ -643,6 +850,8 @@ def cancel_order(
             status_code=404,
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
+    if order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_edit")
     
     # Validar que la orden no esté ya cancelada
     if order.estado == "cancelada":
@@ -663,42 +872,48 @@ def cancel_order(
         stock_manager = StockManager(db)
         user_identifier = resolve_user_label(current_user)
         
-        # Procesar cada item de la orden
-        for idx, item in enumerate(order.items):
-            logger.debug(
-                "Procesando item %s/%s de la orden %s (producto %s, cantidad %s)",
-                idx + 1,
-                len(order.items),
-                order_id,
-                item.product_id,
-                item.cantidad
-            )
-            
-            # 1. Devolver stock a la ubicación de origen
-            if order.source_location_id:
-                stock_manager.increase_stock(
-                    product_id=item.product_id,
-                    location_id=order.source_location_id,
-                    quantity=item.cantidad,
-                    operation_type="devolucion",
-                    notes=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
-                    user_id=user_identifier,
-                    create_if_missing=True
+        if order.estado in FINAL_ORDER_STATUSES:
+            # Procesar cada item de la orden finalizada: el stock sí salió y debe devolverse.
+            for idx, item in enumerate(order.items):
+                logger.debug(
+                    "Procesando item %s/%s de la orden %s (producto %s, cantidad %s)",
+                    idx + 1,
+                    len(order.items),
+                    order_id,
+                    item.product_id,
+                    item.cantidad
                 )
-            
-            # 2. Liberar IMEIs asociados a esta orden
-            imeis_vendidos = db.query(ProductIMEI).filter(
-                ProductIMEI.order_id == order_id,
-                ProductIMEI.product_id == item.product_id,
-                ProductIMEI.vendido == True
-            ).all()
-            
-            if imeis_vendidos:
-                stock_manager.release_imeis(
-                    imeis=imeis_vendidos,
-                    notes=f"Cancelación de orden #{order_id}",
+                
+                if order.source_location_id:
+                    stock_manager.increase_stock(
+                        product_id=item.product_id,
+                        location_id=order.source_location_id,
+                        quantity=item.cantidad,
+                        operation_type="devolucion",
+                        notes=f"Cancelación de orden #{order_id}: {reason or 'Sin motivo especificado'}",
+                        user_id=user_identifier,
+                        create_if_missing=True
+                    )
+                
+                imeis_vendidos = db.query(ProductIMEI).filter(
+                    ProductIMEI.order_id == order_id,
+                    ProductIMEI.product_id == item.product_id,
+                    ProductIMEI.vendido == True
+                ).all()
+                
+                if imeis_vendidos:
+                    stock_manager.release_imeis(
+                        imeis=imeis_vendidos,
+                        notes=f"Cancelación de orden #{order_id}",
                         user_id=user_identifier
-                )
+                    )
+        else:
+            _release_pending_order_reservations(
+                db,
+                order,
+                user_identifier,
+                f"Cancelación de orden pendiente #{order_id}: {reason or 'Sin motivo especificado'}",
+            )
 
         trade_in_alerts: List[str] = []
 
@@ -884,7 +1099,7 @@ def cancel_order(
 def delete_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("orders:edit"))
+    current_user: User = Depends(check_permission("orders:delete"))
 ):
     """
     Elimina una orden del sistema y repone el stock de los productos.
@@ -912,6 +1127,8 @@ def delete_order(
             status_code=404,
             detail=f"La orden con ID {order_id} no fue encontrada"
         )
+    if order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_edit")
     
     # En V2.0 la eliminación directa está prohibida salvo que ya esté cancelada
     if order.estado != "cancelada":

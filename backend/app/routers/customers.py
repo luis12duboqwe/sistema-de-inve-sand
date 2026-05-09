@@ -8,8 +8,18 @@ from app.models import Order, Profile, SalesProfile, Customer, User
 from app.schemas import CustomerStats, CustomerHistory, OrderListResponse
 from app.routers.orders import _serialize_order
 from app.auth import get_current_active_user, check_permission
+from app.utils.location_access import get_accessible_location_ids
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
+
+FINAL_SALE_STATUSES = ["completada", "validada"]
+
+
+def _apply_customer_location_access(query, db: Session, user: User):
+    accessible_location_ids = get_accessible_location_ids(db, user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
+    return query
 
 
 @router.get("", response_model=List[CustomerStats], dependencies=[Depends(check_permission("orders:view"))])
@@ -18,7 +28,7 @@ def list_customers(
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(50, ge=1, le=100, description="Resultados por página"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("orders:view"))
 ):
     """
     Lista clientes únicos con sus estadísticas básicas.
@@ -53,14 +63,16 @@ def list_customers(
         Order.customer_phone,
         func.max(Order.customer_name).label('customer_name'),
         func.count(Order.id).label('total_orders'),
-        func.sum(case((Order.estado != 'cancelada', Order.total), else_=0)).label('total_spent'),
-        func.sum(case((Order.estado != 'cancelada', 1), else_=0)).label('completed_orders_count'),
+        func.sum(case((Order.estado.in_(FINAL_SALE_STATUSES), Order.total), else_=0)).label('total_spent'),
+        func.sum(case((Order.estado.in_(FINAL_SALE_STATUSES), 1), else_=0)).label('completed_orders_count'),
         func.min(Order.created_at).label('first_order_date'),
         func.max(Order.created_at).label('last_order_date')
     )
 
     if filter_conditions:
         query = query.filter(*filter_conditions)
+
+    query = _apply_customer_location_access(query, db, current_user)
 
     query = query.group_by(Order.customer_phone).order_by(desc('total_spent'))
     
@@ -108,7 +120,7 @@ def get_customer_stats(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("orders:view"))
 ):
     """
     Obtiene estadísticas de un cliente específico por su teléfono.
@@ -125,7 +137,11 @@ def get_customer_stats(
     Raises:
         - 404: Si el cliente no tiene órdenes
     """
-    query = db.query(Order).filter(Order.customer_phone == customer_phone)
+    query = _apply_customer_location_access(
+        db.query(Order).filter(Order.customer_phone == customer_phone),
+        db,
+        current_user,
+    )
     
     if sales_profile_slug:
         sales_profile = db.query(SalesProfile).filter(
@@ -147,8 +163,8 @@ def get_customer_stats(
             detail=f"No se encontraron órdenes para el cliente con teléfono '{customer_phone}'"
         )
     
-    # Solo contar órdenes completadas para total gastado (no canceladas)
-    completed_orders = [o for o in orders if o.estado != 'cancelada']
+    # Solo contar ventas finales para total gastado.
+    completed_orders = [o for o in orders if o.estado in FINAL_SALE_STATUSES]
     total_spent = sum(o.total for o in completed_orders)
     
     # Fetch AI Customer data
@@ -176,7 +192,7 @@ def get_customer_history(
     customer_phone: str,
     sales_profile_slug: Optional[str] = Query(None, description="Filtrar por canal de venta"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("reports:view"))
+    current_user: User = Depends(check_permission("orders:view"))
 ):
     """
     Obtiene el historial completo de órdenes de un cliente.
@@ -193,7 +209,11 @@ def get_customer_history(
     Raises:
         - 404: Si el cliente no tiene órdenes
     """
-    query = db.query(Order).filter(Order.customer_phone == customer_phone)
+    query = _apply_customer_location_access(
+        db.query(Order).filter(Order.customer_phone == customer_phone),
+        db,
+        current_user,
+    )
     
     if sales_profile_slug:
         sales_profile = db.query(SalesProfile).filter(
@@ -215,8 +235,8 @@ def get_customer_history(
             detail=f"No se encontraron órdenes para el cliente con teléfono '{customer_phone}'"
         )
     
-    # Solo contar órdenes no canceladas en el total
-    completed_orders = [o for o in orders if o.estado != 'cancelada']
+    # Solo contar ventas finales en el total.
+    completed_orders = [o for o in orders if o.estado in FINAL_SALE_STATUSES]
     total_spent = sum(o.total for o in completed_orders)
     
     # Fetch AI Customer data

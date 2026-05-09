@@ -42,15 +42,36 @@ export default defineConfig(({ mode }) => {
       jsx: 'automatic',
     },
     resolve: {
-      alias: {
-        '@': resolve(projectRoot, 'src')
-      }
+      alias: [
+        { find: '@', replacement: resolve(projectRoot, 'src') },
+        { find: /^@phosphor-icons\/react$/, replacement: resolve(projectRoot, 'src/lib/icon-proxies/phosphor.ts') },
+        { find: /^lucide-react$/, replacement: resolve(projectRoot, 'src/lib/icon-proxies/lucide.ts') },
+      ]
     },
     server: {
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8000',
           changeOrigin: true,
+        },
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 1300,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'react'
+            if (id.includes('/@tanstack/react-query/')) return 'query'
+            if (id.includes('/react-hook-form/') || id.includes('/@hookform/')) return 'forms'
+            if (id.includes('/@radix-ui/')) return 'radix'
+            if (id.includes('/@phosphor-icons/') || id.includes('/lucide-react/')) return 'icons'
+            if (id.includes('/framer-motion/')) return 'motion'
+            if (id.includes('/recharts/') || id.includes('/d3-')) return 'charts'
+            if (id.includes('/date-fns/')) return 'date-fns'
+            return undefined
+          },
         },
       },
     },

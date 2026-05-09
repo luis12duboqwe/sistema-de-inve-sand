@@ -10,9 +10,12 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { apiClient } from '@/lib/apiClient'
+import { ValidationCodeDialog } from '@/components/ValidationCodeDialog'
 import type { Location, StockTransfer } from '@/lib/types'
 import { 
   ArrowRightLeft, 
@@ -39,7 +42,13 @@ export function PendingTransfersDialog({
   const [transfers, setTransfers] = useState<StockTransfer[]>([])
   const [loading, setLoading] = useState(false)
   const [rejectionReason, setRejectionReason] = useState<Record<number, string>>({})
+  const [receivedQuantity, setReceivedQuantity] = useState<Record<number, number>>({})
+  const [receivedImeis, setReceivedImeis] = useState<Record<number, string>>({})
+  const [incidentNotes, setIncidentNotes] = useState<Record<number, string>>({})
   const [processingId, setProcessingId] = useState<number | null>(null)
+  const [validationCodeRequest, setValidationCodeRequest] = useState<{
+    resolve: (code: string | null) => void
+  } | null>(null)
 
   const loadPendingTransfers = async () => {
     setLoading(true)
@@ -63,34 +72,96 @@ export function PendingTransfersDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, locations])
 
+  const getTransferValidationCode = async (): Promise<string | undefined | null> => {
+    try {
+      const config = await apiClient.getDailyCloseConfig()
+      if (!config.configured) return undefined
+    } catch (error) {
+      console.error('Error checking transfer validation config:', error)
+      toast.error('No se pudo verificar el código de validación')
+      return null
+    }
+
+    return new Promise(resolve => {
+      setValidationCodeRequest({ resolve })
+    })
+  }
+
   const handleConfirm = async (transfer: StockTransfer) => {
-    // V2.0: Check for serialized items
-    let scannedImeis: string[] | undefined = undefined;
+    const quantityReceived = receivedQuantity[transfer.id] ?? transfer.cantidad
+    if (!Number.isInteger(quantityReceived) || quantityReceived < 0 || quantityReceived > transfer.cantidad) {
+      toast.error(`La cantidad recibida debe estar entre 0 y ${transfer.cantidad}`)
+      return
+    }
+
+    const missingQuantity = transfer.cantidad - quantityReceived
+    const notes = incidentNotes[transfer.id]?.trim()
+    if (missingQuantity > 0 && !notes) {
+      toast.error('Indica notas de incidencia para una recepción parcial')
+      return
+    }
+
+    let scannedImeis: string[] | undefined
     
     if (transfer.imeis && transfer.imeis.length > 0) {
-        // For now, we'll just auto-confirm with the expected IMEIs if the user agrees.
-        // In a real app, we would open a scanning dialog.
-        const message = `Esta transferencia incluye ${transfer.imeis.length} productos serializados (IMEIs).\n\n` +
-                        `IMEIs esperados:\n${transfer.imeis.join('\\n')}\n\n` +
-                        `¿Confirma que ha verificado físicamente estos seriales?`;
-        
-        if (!confirm(message)) {
-            return;
-        }
-        scannedImeis = transfer.imeis;
+      const rawImeis = receivedImeis[transfer.id] ?? transfer.imeis.join('\n')
+      scannedImeis = rawImeis
+        .split(/[\n,;\s]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
+
+      if (scannedImeis.length !== quantityReceived) {
+        toast.error(`Debes registrar ${quantityReceived} IMEI(s) recibido(s) para esta transferencia`)
+        return
+      }
+
+      const expectedSet = new Set(transfer.imeis)
+      const invalidImeis = scannedImeis.filter(imei => !expectedSet.has(imei))
+      if (invalidImeis.length > 0) {
+        toast.error(`IMEIs fuera de esta transferencia: ${invalidImeis.join(', ')}`)
+        return
+      }
     } else {
-        if (!confirm(`¿Confirmar la recepción de ${transfer.cantidad} unidad(es) de "${transfer.product_nombre}"?`)) {
+        if (!confirm(`¿Confirmar la recepción de ${quantityReceived} de ${transfer.cantidad} unidad(es) de "${transfer.product_nombre}"?`)) {
             return
         }
     }
 
+    const validationCode = await getTransferValidationCode()
+    if (validationCode === null) return
+
     setProcessingId(transfer.id)
     try {
-      await inventoryServiceInstance.confirmStockTransfer(transfer.id, 'Sistema', scannedImeis)
+      await inventoryServiceInstance.confirmStockTransfer(
+        transfer.id,
+        'Sistema',
+        scannedImeis,
+        validationCode,
+        quantityReceived,
+        notes || undefined
+      )
 
       toast.success(
-        `Transferencia confirmada. ${transfer.cantidad} unidad(es) agregadas al inventario.`
+        missingQuantity > 0
+          ? `Recepción parcial registrada. ${quantityReceived} recibidas, ${missingQuantity} con incidencia.`
+          : `Transferencia confirmada. ${quantityReceived} unidad(es) agregadas al inventario.`
       )
+
+      setReceivedQuantity(prev => {
+        const next = { ...prev }
+        delete next[transfer.id]
+        return next
+      })
+      setReceivedImeis(prev => {
+        const next = { ...prev }
+        delete next[transfer.id]
+        return next
+      })
+      setIncidentNotes(prev => {
+        const next = { ...prev }
+        delete next[transfer.id]
+        return next
+      })
       
       await loadPendingTransfers()
       onTransferUpdate()
@@ -199,6 +270,12 @@ export function PendingTransfersDialog({
                             <strong>Desde:</strong> {transfer.from_profile_name}
                           </div>
                           <div>
+                            <strong>Origen físico:</strong> {transfer.from_location_name || `Ubicación ${transfer.from_location_id}`}
+                          </div>
+                          <div>
+                            <strong>Destino:</strong> {transfer.to_location_name || `Ubicación ${transfer.to_location_id}`}
+                          </div>
+                          <div>
                             <strong>Solicitada:</strong> {formatDate(transfer.created_at)}
                           </div>
                         </div>
@@ -215,10 +292,70 @@ export function PendingTransfersDialog({
                       <div className="flex items-start gap-2">
                         <AlertCircle className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
                         <p className="text-xs text-muted-foreground">
-                          Al confirmar, se agregarán {transfer.cantidad} unidad(es) a tu inventario.
-                          Al rechazar, el stock permanecerá en el perfil de origen.
+                          Al confirmar, se agregará la cantidad recibida al destino. Si recibes menos, el faltante queda registrado como incidencia y se libera en origen.
                         </p>
                       </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label htmlFor={`received-${transfer.id}`} className="text-xs">
+                            Cantidad recibida
+                          </Label>
+                          <Input
+                            id={`received-${transfer.id}`}
+                            type="number"
+                            min={0}
+                            max={transfer.cantidad}
+                            value={receivedQuantity[transfer.id] ?? transfer.cantidad}
+                            onChange={(event) => setReceivedQuantity(prev => ({
+                              ...prev,
+                              [transfer.id]: Number(event.target.value)
+                            }))}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Transferidas: {transfer.cantidad}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`incident-${transfer.id}`} className="text-xs">
+                            Incidencia de recepción parcial
+                          </Label>
+                          <Textarea
+                            id={`incident-${transfer.id}`}
+                            value={incidentNotes[transfer.id] || ''}
+                            onChange={(event) => setIncidentNotes(prev => ({
+                              ...prev,
+                              [transfer.id]: event.target.value
+                            }))}
+                            placeholder="Ej: llegaron 2 de 3 unidades, queda una pendiente de revisión"
+                            rows={2}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {transfer.imeis && transfer.imeis.length > 0 && (
+                        <div className="space-y-2">
+                          <Label htmlFor={`imeis-${transfer.id}`} className="text-xs">
+                            IMEIs recibidos verificados
+                          </Label>
+                          <Textarea
+                            id={`imeis-${transfer.id}`}
+                            value={receivedImeis[transfer.id] ?? transfer.imeis.join('\n')}
+                            onChange={(event) => setReceivedImeis(prev => ({
+                              ...prev,
+                              [transfer.id]: event.target.value
+                            }))}
+                            placeholder="Escanea o pega un IMEI por línea"
+                            rows={Math.min(Math.max(transfer.imeis.length, 2), 6)}
+                            className="font-mono text-xs"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Debe coincidir con la cantidad recibida.
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex gap-2">
                         <Button
@@ -270,6 +407,22 @@ export function PendingTransfersDialog({
           )}
         </div>
       </DialogContent>
+      {validationCodeRequest && (
+        <ValidationCodeDialog
+          open={Boolean(validationCodeRequest)}
+          title="Confirmar transferencia"
+          description="Ingrese el código de validación para confirmar la recepción de inventario."
+          confirmLabel="Confirmar"
+          onCancel={() => {
+            validationCodeRequest.resolve(null)
+            setValidationCodeRequest(null)
+          }}
+          onConfirm={code => {
+            validationCodeRequest.resolve(code)
+            setValidationCodeRequest(null)
+          }}
+        />
+      )}
     </Dialog>
   )
 }

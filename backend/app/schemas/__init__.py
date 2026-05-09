@@ -138,4 +138,16 @@ from .stock_history import (
     StockHistoryCreate,
     StockHistoryResponse,
 )
+from .control import (
+    AuditLogResponse,
+    InventoryCountApproveRequest,
+    InventoryCountCreate,
+    InventoryCountResponse,
+    LocationDailyCloseCreate,
+    LocationDailyCloseResponse,
+    PurchaseReceiptCreate,
+    PurchaseReceiptResponse,
+    UserLocationAccessResponse,
+    UserLocationAccessUpsert,
+)
 

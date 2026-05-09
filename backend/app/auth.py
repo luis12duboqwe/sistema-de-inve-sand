@@ -137,3 +137,27 @@ def check_permission(permission_slug: str):
             )
         return user
     return _check
+
+
+def check_any_permission(*permission_slugs: str):
+    """Dependency factory to check if user has at least one allowed permission."""
+    def _check(user: User = Depends(get_current_active_user)):
+        if user.is_superuser:
+            return user
+
+        if not user.role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User has no role assigned"
+            )
+
+        allowed = set(permission_slugs)
+        has_perm = any(permission.slug in allowed for permission in user.role.permissions)
+        if not has_perm:
+            required = ", ".join(permission_slugs)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied. Required any of: {required}"
+            )
+        return user
+    return _check

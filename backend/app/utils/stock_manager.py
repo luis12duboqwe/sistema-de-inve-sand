@@ -240,6 +240,7 @@ class StockManager:
             ProductIMEI.product_id == product_id,
             ProductIMEI.location_id == location_id,
             ProductIMEI.vendido == False,
+            ProductIMEI.order_id == None,
             ProductIMEI.imei.in_(imeis_requested)
         ).with_for_update().all()
         
@@ -779,7 +780,9 @@ class StockManager:
         quantity: int,
         transfer_id: int,
         notes: Optional[str] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        tipo_cambio: str = "transferencia_reserva",
+        referencia_tipo: str = "transfer_pending",
     ) -> StockHistory:
         """
         Reserva stock para una transferencia.
@@ -838,12 +841,12 @@ class StockManager:
         history_entry = StockHistory(
             product_id=stock.product_id,
             location_id=stock.location_id,
-            tipo_cambio='transferencia_reserva',
+            tipo_cambio=tipo_cambio,
             cantidad=-quantity, # Negativo porque reduce stock libre
             stock_anterior=stock_anterior_libre,
             stock_nuevo=stock_nuevo_libre,
             referencia_id=transfer_id,
-            referencia_tipo='transfer_pending',
+            referencia_tipo=referencia_tipo,
             notas=notes or f"Reserva para transferencia #{transfer_id}",
             usuario=user_id,
             created_at=_utcnow()
@@ -859,7 +862,9 @@ class StockManager:
         transfer_id: int,
         notes: Optional[str] = None,
         user_id: Optional[str] = None,
-        is_rejection: bool = False
+        is_rejection: bool = False,
+        tipo_cambio: str = "transferencia_rechazada",
+        referencia_tipo: str = "transfer_rejected",
     ) -> Optional[StockHistory]:
         """
         Libera stock reservado (por rechazo o cancelación).
@@ -896,12 +901,12 @@ class StockManager:
             history_entry = StockHistory(
                 product_id=stock.product_id,
                 location_id=stock.location_id,
-                tipo_cambio='transferencia_rechazada',
+                tipo_cambio=tipo_cambio,
                 cantidad=quantity, # Positivo porque aumenta stock libre
                 stock_anterior=stock_anterior_libre,
                 stock_nuevo=stock_nuevo_libre,
                 referencia_id=transfer_id,
-                referencia_tipo='transfer_rejected',
+                referencia_tipo=referencia_tipo,
                 notas=notes or f"Reserva liberada de transferencia #{transfer_id}",
                 usuario=user_id,
                 created_at=_utcnow()

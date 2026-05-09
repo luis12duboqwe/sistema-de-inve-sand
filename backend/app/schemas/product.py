@@ -43,6 +43,9 @@ class StockByLocationUpdate(BaseModel):
 
 class StockByLocationResponse(StockByLocationBase):
     id: int
+    stock_libre: int = Field(0, ge=0)
+    en_transito_salida: int = Field(0, ge=0)
+    en_transito_entrada: int = Field(0, ge=0)
     location: Optional[LocationResponse] = None
 
     model_config = ConfigDict(from_attributes=True)

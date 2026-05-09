@@ -23,21 +23,37 @@ interface StockHistoryDialogProps {
 
 const TIPO_CAMBIO_LABELS: Record<string, string> = {
   'venta': 'Venta',
+  'venta_reserva': 'Reserva de Venta',
+  'venta_reserva_liberada': 'Reserva Liberada',
+  'VENTA_VALIDADA': 'Venta Validada',
   'compra': 'Compra',
+  'COMPRA_RECIBIDA': 'Compra Recibida',
   'inicial': 'Inventario Inicial',
   'transferencia_salida': 'Transfer. Salida',
   'transferencia_entrada': 'Transfer. Entrada',
+  'transferencia_reserva': 'Transfer. Reservada',
+  'transferencia_rechazada': 'Transfer. Rechazada',
+  'transferencia_recepcion_parcial': 'Recepción Parcial',
   'ajuste': 'Ajuste Manual',
+  'CONTEO_FISICO': 'Conteo Físico',
   'devolucion': 'Devolución'
 }
 
 const TIPO_CAMBIO_COLORS: Record<string, string> = {
   'venta': 'bg-blue-500',
+  'venta_reserva': 'bg-amber-500',
+  'venta_reserva_liberada': 'bg-amber-700',
+  'VENTA_VALIDADA': 'bg-blue-600',
   'compra': 'bg-emerald-600',
+  'COMPRA_RECIBIDA': 'bg-emerald-700',
   'inicial': 'bg-gray-500',
   'transferencia_salida': 'bg-orange-500',
   'transferencia_entrada': 'bg-green-500',
+  'transferencia_reserva': 'bg-yellow-600',
+  'transferencia_rechazada': 'bg-red-500',
+  'transferencia_recepcion_parcial': 'bg-orange-700',
   'ajuste': 'bg-purple-500',
+  'CONTEO_FISICO': 'bg-indigo-500',
   'devolucion': 'bg-cyan-500'
 }
 
@@ -45,6 +61,7 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
   const [history, setHistory] = useState<StockHistory[]>([])
   const [loading, setLoading] = useState(false)
   const [tipoFilter, setTipoFilter] = useState<string>('all')
+  const [locationFilter, setLocationFilter] = useState<string>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [_days, _setDays] = useState(30)
@@ -54,6 +71,7 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
     try {
       const params: any = { limit: 100 }
       if (tipoFilter !== 'all') params.tipo_cambio = tipoFilter
+      if (locationFilter !== 'all') params.location_id = Number(locationFilter)
       if (dateFrom) params.date_from = dateFrom
       if (dateTo) params.date_to = dateTo
 
@@ -65,7 +83,7 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
     } finally {
       setLoading(false)
     }
-  }, [product.id, tipoFilter, dateFrom, dateTo])
+  }, [product.id, tipoFilter, locationFilter, dateFrom, dateTo])
 
   useEffect(() => {
     if (open) {
@@ -86,11 +104,15 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
     }, {} as Record<string, number>)
   }
 
+  const locationOptions = product.stock_items?.filter(stock => stock.location) ?? []
+  const locationName = (locationId?: number) => locationOptions.find(stock => stock.location_id === locationId)?.location?.nombre || (locationId ? `Ubicación #${locationId}` : '')
+
   const handleExport = () => {
     const csv = [
-      ['Fecha', 'Tipo', 'Cantidad', 'Stock Anterior', 'Stock Nuevo', 'Referencia', 'Usuario', 'Notas'].join(','),
+      ['Fecha', 'Ubicación', 'Tipo', 'Cantidad', 'Stock Anterior', 'Stock Nuevo', 'Referencia', 'Usuario', 'Notas'].join(','),
       ...filteredHistory.map(h => [
         format(new Date(h.created_at), 'dd/MM/yyyy HH:mm'),
+        locationName(h.location_id) || '',
         TIPO_CAMBIO_LABELS[h.tipo_cambio] || h.tipo_cambio,
         h.cantidad,
         h.stock_anterior,
@@ -160,13 +182,40 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="venta">Venta</SelectItem>
+                  <SelectItem value="venta_reserva">Reserva de Venta</SelectItem>
+                  <SelectItem value="venta_reserva_liberada">Reserva Liberada</SelectItem>
+                  <SelectItem value="VENTA_VALIDADA">Venta Validada</SelectItem>
+                  <SelectItem value="COMPRA_RECIBIDA">Compra Recibida</SelectItem>
+                  <SelectItem value="CONTEO_FISICO">Conteo Físico</SelectItem>
                   <SelectItem value="transferencia_salida">Transfer. Salida</SelectItem>
                   <SelectItem value="transferencia_entrada">Transfer. Entrada</SelectItem>
+                  <SelectItem value="transferencia_reserva">Transfer. Reservada</SelectItem>
+                  <SelectItem value="transferencia_rechazada">Transfer. Rechazada</SelectItem>
+                  <SelectItem value="transferencia_recepcion_parcial">Recepción Parcial</SelectItem>
                   <SelectItem value="ajuste">Ajuste Manual</SelectItem>
                   <SelectItem value="devolucion">Devolución</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {locationOptions.length > 0 && (
+              <div className="flex-1 min-w-[180px]">
+                <Label>Ubicación</Label>
+                <Select value={locationFilter} onValueChange={setLocationFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {locationOptions.map(stock => (
+                      <SelectItem key={stock.location_id} value={String(stock.location_id)}>
+                        {stock.location?.nombre || `Ubicación #${stock.location_id}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex-1 min-w-[140px]">
               <Label>Desde</Label>
@@ -191,6 +240,7 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
                 variant="outline"
                 onClick={() => {
                   setTipoFilter('all')
+                  setLocationFilter('all')
                   setDateFrom('')
                   setDateTo('')
                 }}
@@ -210,6 +260,7 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
               <TableHeader>
                 <TableRow>
                   <TableHead>Fecha</TableHead>
+                  <TableHead>Ubicación</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead className="text-right">Stock Ant.</TableHead>
@@ -222,13 +273,13 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       Cargando historial...
                     </TableCell>
                   </TableRow>
                 ) : filteredHistory.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No hay movimientos registrados
                     </TableCell>
                   </TableRow>
@@ -237,6 +288,9 @@ export function StockHistoryDialog({ open, onOpenChange, product }: StockHistory
                     <TableRow key={item.id}>
                       <TableCell className="whitespace-nowrap">
                         {format(new Date(item.created_at), 'dd/MM/yyyy HH:mm', { locale: es })}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {locationName(item.location_id) || '-'}
                       </TableCell>
                       <TableCell>
                         <Badge className={TIPO_CAMBIO_COLORS[item.tipo_cambio]}>

@@ -15,6 +15,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   CheckCircle,
   Clock,
   CurrencyDollar,
@@ -26,6 +33,7 @@ import {
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/apiClient'
 import { motion, AnimatePresence } from 'framer-motion'
+import type { Location } from '@/lib/types'
 
 interface DailyCloseOrder {
   id: number
@@ -35,6 +43,8 @@ interface DailyCloseOrder {
   metodo_pago: string
   total: number
   estado: string
+  source_location_id?: number
+  source_location_name?: string
   created_at: string
   items_count: number
   items_summary: string
@@ -62,6 +72,8 @@ const PAGO_LABELS: Record<string, string> = {
 
 export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyCloseDialogProps) {
   const [pendingOrders, setPendingOrders] = useState<DailyCloseOrder[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState('all')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [validationCode, setValidationCode] = useState('')
   const [notas, setNotas] = useState('')
@@ -78,11 +90,14 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
   const loadPendingOrders = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ordersData, configData] = await Promise.all([
-        apiClient.getDailyClosePending(),
+      const locationId = selectedLocationId === 'all' ? undefined : Number(selectedLocationId)
+      const [ordersData, configData, locationsData] = await Promise.all([
+        apiClient.getDailyClosePending(locationId),
         apiClient.getDailyCloseConfig(),
+        apiClient.listLocations(true),
       ])
       setPendingOrders(ordersData)
+      setLocations(locationsData)
       setSelectedIds(new Set(ordersData.map((o: DailyCloseOrder) => o.id)))
       setCodeConfigured(configData.configured)
     } catch {
@@ -90,7 +105,7 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [selectedLocationId])
 
   useEffect(() => {
     if (open) {
@@ -123,6 +138,20 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
     .filter(o => selectedIds.has(o.id))
     .reduce((sum, o) => sum + o.total, 0)
 
+  const totalPending = pendingOrders.reduce((sum, order) => sum + order.total, 0)
+  const totalItemsPending = pendingOrders.reduce((sum, order) => sum + order.items_count, 0)
+  const averageTicket = pendingOrders.length > 0 ? totalPending / pendingOrders.length : 0
+  const oldestPendingOrder = pendingOrders[0]
+
+  const paymentBreakdown = pendingOrders.reduce<Record<string, { count: number; total: number }>>((acc, order) => {
+    const key = order.metodo_pago
+    const current = acc[key] ?? { count: 0, total: 0 }
+    current.count += 1
+    current.total += order.total
+    acc[key] = current
+    return acc
+  }, {})
+
   const handleValidate = async () => {
     if (!validationCode.trim()) {
       toast.error('Ingrese el código de validación')
@@ -138,6 +167,7 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
       const result = await apiClient.validateDailyClose({
         validation_code: validationCode,
         order_ids: Array.from(selectedIds),
+        location_id: selectedLocationId === 'all' ? undefined : Number(selectedLocationId),
         notas: notas || undefined,
       })
 
@@ -222,6 +252,25 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
                 </div>
               )}
 
+              <div className="grid gap-1.5">
+                <Label htmlFor="daily-close-location" className="text-sm text-muted-foreground">
+                  Ubicación
+                </Label>
+                <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                  <SelectTrigger id="daily-close-location" className="w-full">
+                    <SelectValue placeholder="Todas las ubicaciones accesibles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las ubicaciones accesibles</SelectItem>
+                    {locations.map(location => (
+                      <SelectItem key={location.id} value={String(location.id)}>
+                        {location.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Lista de órdenes */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -236,6 +285,50 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
                   </Button>
                 )}
               </div>
+
+              {pendingOrders.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Pendientes</p>
+                    <p className="mt-1 text-xl font-semibold">{pendingOrders.length}</p>
+                    <p className="text-xs text-muted-foreground">Ventas por validar</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Monto total</p>
+                    <p className="mt-1 text-xl font-semibold text-emerald-600">
+                      Lps {totalPending.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Suma de órdenes pendientes</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Items</p>
+                    <p className="mt-1 text-xl font-semibold">{totalItemsPending}</p>
+                    <p className="text-xs text-muted-foreground">Unidades registradas en total</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Ticket promedio</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      Lps {averageTicket.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {oldestPendingOrder ? `Más antigua: ${formatDate(oldestPendingOrder.created_at)}` : 'Sin órdenes'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {pendingOrders.length > 0 && Object.keys(paymentBreakdown).length > 0 && (
+                <div className="rounded-md border bg-background p-3">
+                  <p className="text-sm font-medium">Desglose por método de pago</p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {Object.entries(paymentBreakdown).map(([method, data]) => (
+                      <span key={method} className="rounded-full border px-2 py-1">
+                        {PAGO_LABELS[method] ?? method}: {data.count} venta(s) · Lps {data.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isLoading ? (
                 <div className="text-center text-muted-foreground py-8 text-sm">Cargando órdenes...</div>
@@ -263,22 +356,41 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-sm truncate">
-                              #{order.id} — {order.customer_name}
-                            </span>
-                            <span className="font-semibold text-sm text-emerald-600 shrink-0">
-                              Lps {order.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
-                            </span>
+                            <div className="min-w-0">
+                              <span className="font-medium text-sm truncate block">
+                                #{order.id} — {order.customer_name}
+                              </span>
+                              <span className="text-xs text-muted-foreground block truncate">
+                                {order.customer_phone || 'Sin teléfono'}
+                              </span>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-semibold text-sm text-emerald-600 block">
+                                Lps {order.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                              </span>
+                              <Badge variant="outline" className="mt-1 text-[11px] px-1.5 py-0">
+                                {order.estado}
+                              </Badge>
+                            </div>
                           </div>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{order.items_summary}</p>
-                          <div className="flex gap-1 mt-1 flex-wrap">
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {order.items_count} item(s) · {order.items_summary}
+                          </p>
+                          <div className="flex gap-1 mt-2 flex-wrap">
                             <Badge variant="secondary" className="text-xs px-1.5 py-0">
                               {CANAL_LABELS[order.canal] ?? order.canal}
                             </Badge>
                             <Badge variant="outline" className="text-xs px-1.5 py-0">
                               {PAGO_LABELS[order.metodo_pago] ?? order.metodo_pago}
                             </Badge>
-                            <span className="text-xs text-muted-foreground">{formatDate(order.created_at)}</span>
+                            {order.source_location_name && (
+                              <Badge variant="outline" className="text-xs px-1.5 py-0">
+                                {order.source_location_name}
+                              </Badge>
+                            )}
+                            <Badge variant="outline" className="text-xs px-1.5 py-0">
+                              {formatDate(order.created_at)}
+                            </Badge>
                           </div>
                         </div>
                       </div>

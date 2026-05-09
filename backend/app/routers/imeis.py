@@ -9,6 +9,7 @@ from app.auth import get_current_active_user, check_permission
 from app.database import get_db
 from app.models import IMEIHistory, Location, Order, Product, ProductIMEI, User
 from app.schemas import IMEIDetailResponse, IMEIHistoryResponse, PaginatedResponse, ProductIMEIResponse
+from app.utils.location_access import get_accessible_location_ids, require_location_access
 
 router = APIRouter(prefix="/api/imeis", tags=["imeis"])
 
@@ -69,10 +70,15 @@ def list_product_imeis(
         joinedload(ProductIMEI.order),
     )
 
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+
     if vendido is not None:
         query = query.filter(ProductIMEI.vendido == vendido)
     if location_id is not None:
+        require_location_access(db, current_user, location_id, "can_view")
         query = query.filter(ProductIMEI.location_id == location_id)
+    elif accessible_location_ids is not None:
+        query = query.filter(ProductIMEI.location_id.in_(accessible_location_ids))
     if product_id is not None:
         query = query.filter(ProductIMEI.product_id == product_id)
     if search:
@@ -119,12 +125,17 @@ def list_imei_history(
         joinedload(IMEIHistory.supplier),
     )
 
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+
     if imei:
         query = query.filter(IMEIHistory.imei == imei)
     if product_id is not None:
         query = query.filter(IMEIHistory.product_id == product_id)
     if location_id is not None:
+        require_location_access(db, current_user, location_id, "can_view")
         query = query.filter(IMEIHistory.location_id == location_id)
+    elif accessible_location_ids is not None:
+        query = query.filter(IMEIHistory.location_id.in_(accessible_location_ids))
     if days is not None:
         cutoff = datetime.now() - timedelta(days=days)
         query = query.filter(IMEIHistory.created_at >= cutoff)
@@ -173,6 +184,8 @@ def check_warranty_status(
     
     if not product_imei:
         raise HTTPException(status_code=404, detail="IMEI no encontrado en el sistema")
+    if product_imei.location_id:
+        require_location_access(db, current_user, product_imei.location_id, "can_view")
         
     if not product_imei.vendido or not product_imei.order_id:
         return {
@@ -245,6 +258,8 @@ def get_imei_detail(
 
     if not record:
         raise HTTPException(status_code=404, detail="IMEI no encontrado en el sistema")
+    if record.location_id:
+        require_location_access(db, current_user, record.location_id, "can_view")
 
     serialized = _serialize_product_imei(record)
     return IMEIDetailResponse(
@@ -263,7 +278,11 @@ def get_imei_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("inventory:view"))
 ):
-    history = db.query(IMEIHistory).filter(IMEIHistory.imei == imei).order_by(IMEIHistory.created_at.desc()).all()
+    query = db.query(IMEIHistory).filter(IMEIHistory.imei == imei)
+    accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
+    if accessible_location_ids is not None:
+        query = query.filter(IMEIHistory.location_id.in_(accessible_location_ids))
+    history = query.order_by(IMEIHistory.created_at.desc()).all()
     
     # Enrich with names
     result = []

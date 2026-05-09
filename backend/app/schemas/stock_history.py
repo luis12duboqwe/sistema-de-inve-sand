@@ -10,6 +10,7 @@ class StockHistoryBase(BaseModel):
     """Datos compartidos por las entradas de historial de stock."""
 
     product_id: int
+    location_id: Optional[int] = None
     tipo_cambio: str  # venta, transferencia_salida, transferencia_entrada, ajuste, devolucion
     cantidad: int
     stock_anterior: int

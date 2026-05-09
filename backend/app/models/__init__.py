@@ -17,6 +17,15 @@ from .finance import Bank, FinancingOption
 from .photos import PhotoRequest, PhotoRequestMediaItem
 from .ai import ProcessedMessage
 from .system import SystemConfig
+from .control import (
+    AuditLog,
+    LocationDailyClose,
+    PhysicalInventoryCount,
+    PhysicalInventoryCountItem,
+    PurchaseReceipt,
+    PurchaseReceiptItem,
+    UserLocationAccess,
+)
 
 __all__ = [
     "Permission",
@@ -50,6 +59,13 @@ __all__ = [
     "PhotoRequest",
     "PhotoRequestMediaItem",
     "SystemConfig",
+    "UserLocationAccess",
+    "AuditLog",
+    "PurchaseReceipt",
+    "PurchaseReceiptItem",
+    "PhysicalInventoryCount",
+    "PhysicalInventoryCountItem",
+    "LocationDailyClose",
 ]
 
 
