@@ -22,7 +22,6 @@ const getBackendUrls = (): string[] => {
     const backendHostname = hostname.replace(/-\d+\.app\.github\.dev$/, '-8000.app.github.dev')
     urls.push(`https://${backendHostname}/api`)
     
-    console.log(`🔍 Codespace detectado. Frontend: ${hostname}, Backend: ${backendHostname}`)
   }
   
   // URLs para desarrollo local
@@ -55,7 +54,6 @@ export function BackendConnectionCheck({ onSuccess }: { onSuccess: () => void })
     // Intentar cada URL en secuencia con timeout corto
     for (const apiUrl of urls) {
       try {
-        console.log(`🔍 Intentando conectar a: ${apiUrl}/health`)
         
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 segundos timeout
@@ -71,7 +69,6 @@ export function BackendConnectionCheck({ onSuccess }: { onSuccess: () => void })
         clearTimeout(timeoutId)
 
         if (response.ok) {
-          console.log(`✅ Conexión exitosa con: ${apiUrl}`)
           setWorkingUrl(apiUrl)
           
           // Guardar la URL que funcionó usando la función optimizada
@@ -82,7 +79,6 @@ export function BackendConnectionCheck({ onSuccess }: { onSuccess: () => void })
             const kv = getKV()
             await kv.set('settings_use_api', true)
             await kv.set('settings_api_url', apiUrl)
-            console.log('✅ Modo API habilitado automáticamente')
           } catch (error) {
             console.error('Error al habilitar modo API:', error)
           }

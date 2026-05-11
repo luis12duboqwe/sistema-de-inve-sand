@@ -405,17 +405,19 @@ class ApiClient {
       this.setToken(response.access_token)
     }
     
-    // Fetch user details separately if not provided in token response
     if (!response.user) {
       try {
-        const user = await this.request<import('./types').User>('/auth/me')
-        response.user = user
+        response.user = await this.getCurrentUser()
       } catch (e) {
         console.error('Failed to fetch user details after login', e)
       }
     }
     
     return response
+  }
+
+  async getCurrentUser(): Promise<import('./types').User> {
+    return this.request<import('./types').User>('/auth/me')
   }
 
   async setupInitialAdmin(payload: SetupInitialAdminRequest): Promise<AuthResponse> {

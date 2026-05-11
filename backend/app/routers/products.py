@@ -66,7 +66,12 @@ def _serialize_product(product: Product, accessible_location_ids: Optional[List[
     # Obtener IMEIs del producto (solo no vendidos)
     imeis_list = []
     if hasattr(product, 'imeis') and product.imeis:
-        imeis_list = [imei_obj.imei for imei_obj in product.imeis if not imei_obj.vendido]
+        imeis_list = [
+            imei_obj.imei
+            for imei_obj in product.imeis
+            if not imei_obj.vendido
+            and (accessible_location_ids is None or imei_obj.location_id in accessible_location_ids)
+        ]
     
     # Calcular stock total de todas las ubicaciones
     total_stock = 0
@@ -222,20 +227,29 @@ def list_products(
     )
     accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
 
+    if accessible_location_ids == []:
+        return PaginatedResponse(
+            items=[],
+            total=0,
+            page=page,
+            per_page=per_page,
+            pages=0,
+        )
+
     # Filtro por ubicación específica (V2.0) - SEPARADO del joinedload
     if location_id:
         if accessible_location_ids is not None and location_id not in accessible_location_ids:
             raise HTTPException(status_code=403, detail="No tiene acceso a esta ubicación")
         # Usar distinct() para evitar cartesian product con joinedload
-        query = query.join(Stock, Product.id == Stock.product_id).filter(
-            Stock.location_id == location_id,
-            Stock.cantidad_disponible > 0
-        ).distinct()
+        stock_filters = [Stock.location_id == location_id]
+        if not include_inactive:
+            stock_filters.append(Stock.cantidad_disponible > 0)
+        query = query.join(Stock, Product.id == Stock.product_id).filter(*stock_filters).distinct()
     elif accessible_location_ids is not None:
-        query = query.join(Stock, Product.id == Stock.product_id).filter(
-            Stock.location_id.in_(accessible_location_ids),
-            Stock.cantidad_disponible > 0,
-        ).distinct()
+        stock_filters = [Stock.location_id.in_(accessible_location_ids)]
+        if not include_inactive:
+            stock_filters.append(Stock.cantidad_disponible > 0)
+        query = query.join(Stock, Product.id == Stock.product_id).filter(*stock_filters).distinct()
     
     if not include_inactive:
         query = query.filter(Product.activo == True)

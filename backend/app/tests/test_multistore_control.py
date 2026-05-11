@@ -1,8 +1,25 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.models import AuditLog, IMEIHistory, Location, Order, Product, ProductIMEI, PurchaseReceipt, Stock, StockHistory, StockTransfer, Supplier, User, UserLocationAccess
+from app.models import (
+    AuditLog,
+    IMEIHistory,
+    Location,
+    Order,
+    Permission,
+    Product,
+    ProductIMEI,
+    PurchaseReceipt,
+    Role,
+    Stock,
+    StockHistory,
+    StockTransfer,
+    Supplier,
+    User,
+    UserLocationAccess,
+)
 from app.routers.multistore_control import list_purchase_receipts
+from app.routers.products import list_products
 
 
 def _seed_location_product(db_session, *, initial_stock=0, serialized=False):
@@ -27,6 +44,106 @@ def _seed_location_product(db_session, *, initial_stock=0, serialized=False):
     db_session.add(Stock(product_id=product.id, location_id=location.id, cantidad_disponible=initial_stock))
     db_session.commit()
     return location, supplier, product
+
+
+def _seed_system_role_user(db_session, *, role_name="Vendedor", username="seller"):
+    permission = Permission(slug="inventory:view", description="Ver inventario", module="inventory")
+    role = Role(name=role_name, description=f"Rol {role_name}", is_system_role=True)
+    role.permissions = [permission]
+    user = User(
+        username=username,
+        email=f"{username}@example.com",
+        hashed_password="x",
+        is_active=True,
+        is_superuser=False,
+        role=role,
+    )
+    db_session.add_all([permission, role, user])
+    db_session.commit()
+    return user
+
+
+def test_list_products_system_role_without_location_rows_keeps_inventory_visible(db_session):
+    _location, _supplier, product = _seed_location_product(db_session, initial_stock=4)
+    user = _seed_system_role_user(db_session)
+
+    response = list_products(
+        search=None,
+        location_id=None,
+        include_inactive=True,
+        page=1,
+        per_page=50,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert response.total == 1
+    assert response.items[0].id == product.id
+    assert response.items[0].stock_disponible == 4
+
+
+def test_list_products_with_explicit_location_access_includes_zero_stock_when_requested(db_session):
+    location, _supplier, product = _seed_location_product(db_session, initial_stock=0)
+    user = _seed_system_role_user(db_session, username="scoped-seller")
+    db_session.add(UserLocationAccess(
+        user_id=user.id,
+        location_id=location.id,
+        can_view=True,
+    ))
+    db_session.commit()
+
+    response = list_products(
+        search=None,
+        location_id=None,
+        include_inactive=True,
+        page=1,
+        per_page=50,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert response.total == 1
+    assert response.items[0].id == product.id
+    assert response.items[0].stock_disponible == 0
+
+
+def test_list_products_with_explicit_location_access_hides_blocked_locations(db_session):
+    allowed_location, _supplier, allowed_product = _seed_location_product(db_session, initial_stock=2)
+    blocked_location = Location(nombre="Tienda Sin Acceso", tipo="tienda", activo=True)
+    blocked_product = Product(
+        sku="TEST-MULTI-BLOCKED-001",
+        nombre="Producto Bloqueado",
+        categoria="accesorio",
+        marca="Marca",
+        modelo="Modelo",
+        condicion="nuevo",
+        precio=Decimal("1000.00"),
+        costo=Decimal("600.00"),
+        moneda="HNL",
+        garantia_meses=12,
+        activo=True,
+    )
+    user = _seed_system_role_user(db_session, username="location-scoped-seller")
+    db_session.add_all([blocked_location, blocked_product])
+    db_session.flush()
+    db_session.add_all([
+        Stock(product_id=blocked_product.id, location_id=blocked_location.id, cantidad_disponible=9),
+        UserLocationAccess(user_id=user.id, location_id=allowed_location.id, can_view=True),
+    ])
+    db_session.commit()
+
+    response = list_products(
+        search=None,
+        location_id=None,
+        include_inactive=True,
+        page=1,
+        per_page=50,
+        db=db_session,
+        current_user=user,
+    )
+
+    assert response.total == 1
+    assert [item.id for item in response.items] == [allowed_product.id]
 
 
 def test_purchase_receipt_updates_stock_and_audit(client, db_session):

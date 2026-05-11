@@ -266,13 +266,11 @@ export function NewOrderDialog({
       const stockLibre = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
       const hasStock = stockInLocation && stockLibre > 0
       
-      console.log('📦 Producto:', product.nombre, '| Ubicación:', sourceLocationId, '| Disponible:', stockInLocation?.cantidad_disponible || 0, '| Reservado:', stockInLocation?.cantidad_reservada || 0, '| Libre:', stockLibre, '| Mostrar:', hasStock)
       
       return hasStock
     }
     
     // Si no tiene stock_items, NO mostrar (requiere migración a V2.0)
-    console.log('⚠️ Producto sin stock_items (no compatible con V2.0):', product.nombre)
     return false
   })
 

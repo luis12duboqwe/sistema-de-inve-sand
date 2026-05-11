@@ -158,12 +158,25 @@ function MainApp() {
   useEffect(() => {
     const token = apiClient.getToken()
     const storedUser = localStorage.getItem('auth_user')
+    let cancelled = false
     
     // Only show login if using API mode
     if (useAPI) {
       if (token && storedUser) {
         try {
-          setCurrentUser(JSON.parse(storedUser))
+          const parsedUser = JSON.parse(storedUser)
+          setCurrentUser(parsedUser)
+
+          apiClient.getCurrentUser()
+            .then((freshUser) => {
+              if (cancelled) return
+              setCurrentUser(freshUser)
+              localStorage.setItem('auth_user', JSON.stringify(freshUser))
+            })
+            .catch((error) => {
+              if (cancelled) return
+              console.warn('No se pudo refrescar el usuario autenticado:', error)
+            })
         } catch (error) {
           console.error('Error parsing auth_user from storage', error)
           setShowLoginDialog(true)
@@ -172,13 +185,14 @@ function MainApp() {
         setShowLoginDialog(true)
       }
     }
+
+    return () => {
+      cancelled = true
+    }
   }, [useAPI])
 
   useEffect(() => {
     if (currentUser) {
-      console.log('👤 Current User:', currentUser)
-      console.log('🛡️ Role:', currentUser.role?.name)
-      console.log('🔐 Is System Role:', currentUser.role?.is_system_role)
     }
   }, [currentUser])
 
@@ -249,7 +263,6 @@ function MainApp() {
   }, [useAPI, currentUser])
 
   const handleLoginSuccess = (user: User, _token: string) => {
-    console.log('✅ Login Success:', user)
     setCurrentUser(user)
     localStorage.setItem('auth_user', JSON.stringify(user))
     setShowLoginDialog(false)
@@ -265,7 +278,6 @@ function MainApp() {
   // Listen for unauthorized events from apiClient
   useEffect(() => {
     const handleUnauthorized = () => {
-      console.log('🔒 Sesión expirada detectada, cerrando sesión...')
       handleLogout()
       toast.error('Tu sesión ha expirado. Por favor inicia sesión nuevamente.')
     }
@@ -445,14 +457,11 @@ function MainApp() {
       if (useAPI && !currentUser) return
       
       try {
-        console.log('🔄 Cargando datos iniciales...')
-        console.log('📊 useAPI:', useAPI, 'apiUrl:', apiUrl)
         
         // AUTO-RESET: Limpiar datos locales una sola vez para asegurar limpieza
         const kv = getKV()
         const resetDone = await kv.get('v2_reset_complete_final')
         if (!resetDone && !useAPI) {
-          console.log('🧹 Ejecutando limpieza automática de datos locales...')
           await clearAllData()
           await kv.set('v2_reset_complete_final', true)
           window.location.reload()
@@ -471,7 +480,6 @@ function MainApp() {
           (canViewSettings || canViewLocations || canCreateOrders || canAccessMultiStoreControl) && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
         
-        console.log('✅ Datos cargados:', {
           productos: loadedProducts.length,
           ordenes: loadedOrders.length,
           perfiles: loadedProfiles.length,
@@ -1572,7 +1580,6 @@ function MainApp() {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
 
                           if (message.includes('referenciado') || message.includes('orders') || message.includes('históricas')) {
-                             console.log('Delete prevented due to existing references (expected behavior)')
 
                              if (confirm(`No se puede eliminar el producto "${p.nombre}" porque tiene historial de ventas.\n\n¿Deseas desactivarlo en su lugar para que no aparezca en nuevas ventas?`)) {
                                 try {
@@ -2092,17 +2099,14 @@ function MainApp() {
                     <OrderCard
                       order={order}
                       onStatusChange={canEditOrders ? async (orderId, newStatus) => {
-                        console.log(`🔄 Cambiando estado de orden ${orderId} a: ${newStatus}`)
                         const validationCode = await getCompletionValidationCode(newStatus)
                         if (validationCode === null) return
 
                         const updated = await service.updateOrderStatus(orderId, newStatus, validationCode)
-                        console.log('✅ Orden actualizada:', updated)
                         setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
                         
                         // Recargar productos para reflejar cambios en stock
-                        console.log('🔄 Recargando productos después de cambio de estado...')
                         const updatedProducts = await service.getProducts()
                         setProducts(updatedProducts)
                       } : undefined}
@@ -2151,22 +2155,17 @@ function MainApp() {
                         }
                       }}
                       onDelete={canDeleteOrders ? async (order) => {
-                        console.log('🗑️ Intentando eliminar orden:', order.id)
                         if (!confirm(`¿Estás seguro de eliminar la orden #${order.id}?\n\nEsta acción no se puede deshacer y se repondrá el stock de los productos.`)) {
-                          console.log('❌ Eliminación cancelada por el usuario')
                           return
                         }
                         try {
-                          console.log('📡 Llamando a service.deleteOrder...')
                           await service.deleteOrder(order.id)
-                          console.log('✅ Orden eliminada del backend, actualizando estado local...')
                           setOrders((current: OrderWithItems[]) => (current ?? []).filter(o => o.id !== order.id))
                           toast.success('Orden eliminada exitosamente')
                         } catch (error) {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
                           
                           if (message.includes('completada') || message.includes('cancelar')) {
-                              console.log('Delete prevented for completed order (expected behavior)')
                               if (confirm(`No se puede eliminar una orden completada.\n\n¿Deseas cancelarla en su lugar? Esto repondrá el stock automáticamente.`)) {
                                   try {
                                       const cancelledOrder = await service.cancelOrder(order.id, 'Cancelación solicitada por usuario al intentar eliminar')
@@ -2551,20 +2550,16 @@ function MainApp() {
         locations={locations.filter(l => l.activo)}
         onSubmit={async (newProduct, stock, locationId) => {
           try {
-            console.log('📦 Creando producto V2.0:', { newProduct, stock, locationId })
             
             const productWithStock = { ...newProduct, activo: true, stock_disponible: stock }
             const created = await service.createProduct(productWithStock, locationId)
             
-            console.log('✅ Producto creado en backend:', created)
             
             // Pequeña pausa para asegurar que el backend procesó la petición
             await new Promise(resolve => setTimeout(resolve, 300))
             
             // Recargar todos los productos desde el backend para asegurar sincronización
-            console.log('🔄 Recargando productos desde el backend...')
             const updatedProducts = await service.getProducts()
-            console.log('✅ Productos recargados:', updatedProducts.length, 'productos')
             
             setProducts(updatedProducts)
             
@@ -2618,7 +2613,6 @@ function MainApp() {
             if (newOrder.customer_phone) {
               try {
                 await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
-                console.log('✅ Orden vinculada a interacción AI')
               } catch (e) {
                 console.warn('⚠️ No se pudo vincular orden a interacción:', e)
                 // Don't fail the whole operation if linking fails

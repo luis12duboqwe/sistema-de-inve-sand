@@ -29,7 +29,6 @@ export function LocationsList() {
   const loadLocations = useCallback(async () => {
     try {
       const data = await inventoryServiceInstance.getLocations()
-      console.log('✅ Ubicaciones cargadas:', data)
       setLocations(data || [])
     } catch (error) {
       console.error('❌ Error al cargar ubicaciones:', error)
@@ -58,7 +57,6 @@ export function LocationsList() {
         activo: true,
       } as any)
 
-      console.log('✅ Ubicación creada:', newLocation)
       
       toast.success('✅ Ubicación creada exitosamente')
       setIsCreateOpen(false)

@@ -243,7 +243,6 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  console.log('🗑️ Click en botón eliminar orden, onDelete:', typeof onDelete)
                   onDelete(order)
                 }}
                 className="hover:text-destructive"
