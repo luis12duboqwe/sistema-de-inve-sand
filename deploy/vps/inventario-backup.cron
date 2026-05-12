@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Backup diario de PostgreSQL a las 2:00 AM.
+0 2 * * * inventario cd /var/www/inventario/backend && set -a && . ./.env && set +a && ./backup_database.sh >> /var/log/inventario-backup.log 2>&1

@@ -355,6 +355,42 @@ def test_create_product_preserves_currency_and_cost(client, db_session):
     assert product.costo == Decimal("10.50")
 
 
+def test_create_product_rejects_duplicate_imeis_without_partial_product(client, db_session):
+    location = Location(nombre="Tienda IMEI", tipo="tienda", activo=True)
+    db_session.add(location)
+    db_session.commit()
+
+    response = client.post(
+        "/api/products",
+        json={
+            "sku": "DUP-IMEI-001",
+            "nombre": "Telefono duplicado",
+            "categoria": "celular",
+            "marca": "Apple",
+            "modelo": "iPhone 15",
+            "color": "Negro",
+            "capacidad": "128GB",
+            "condicion": "nuevo",
+            "precio": "25000.00",
+            "costo": "18000.00",
+            "moneda": "HNL",
+            "garantia_meses": 12,
+            "is_serialized": True,
+            "stock_inicial": 2,
+            "initial_location_id": location.id,
+            "imeis_con_ubicacion": [
+                {"imei": "345634563456342", "location_id": location.id},
+                {"imei": "345634563456342", "location_id": location.id},
+            ],
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "duplicado" in response.json()["detail"].lower()
+    assert db_session.query(Product).filter_by(sku="DUP-IMEI-001").first() is None
+    assert db_session.query(ProductIMEI).filter_by(imei="345634563456342").first() is None
+
+
 def test_update_product_persists_cost(client, db_session):
     _location, _supplier, product = _seed_location_product(db_session, initial_stock=1)
 
@@ -369,6 +405,34 @@ def test_update_product_persists_cost(client, db_session):
 
     db_session.refresh(product)
     assert product.costo == Decimal("725.25")
+
+
+def test_restock_product_requires_cost_and_updates_average(client, db_session):
+    location, supplier, product = _seed_location_product(db_session, initial_stock=2)
+
+    response = client.post(
+        f"/api/products/{product.id}/restock",
+        json={
+            "location_id": location.id,
+            "cantidad": 2,
+            "costo_unitario": "900.00",
+            "supplier_id": supplier.id,
+            "notas": "Factura A-1023",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["costo"] == "750.00"
+    assert data["stock_disponible"] == 4
+
+    db_session.refresh(product)
+    assert product.costo == Decimal("750.00")
+
+    history = db_session.query(StockHistory).filter_by(product_id=product.id, tipo_cambio="compra").first()
+    assert history is not None
+    assert "Costo compra: 900.00 HNL" in history.notas
+    assert "Costo promedio: 750.00 HNL" in history.notas
 
 
 def test_purchase_receipt_list_respects_location_access_without_filter(db_session):

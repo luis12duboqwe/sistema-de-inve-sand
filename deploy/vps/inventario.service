@@ -1,0 +1,26 @@
+[Unit]
+Description=Sistema de Inventario FastAPI
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=inventario
+Group=www-data
+WorkingDirectory=/var/www/inventario/backend
+EnvironmentFile=/var/www/inventario/backend/.env
+Environment=PYTHONPATH=/var/www/inventario/backend
+ExecStart=/var/www/inventario/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/www/inventario/backend/logs /var/www/inventario/backend/uploads /var/backups/inventory
+
+[Install]
+WantedBy=multi-user.target

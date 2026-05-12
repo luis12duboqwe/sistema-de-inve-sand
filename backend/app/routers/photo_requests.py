@@ -13,6 +13,7 @@ Workflow:
 
 import logging
 import json
+import hmac
 import smtplib
 import ssl
 from pathlib import Path
@@ -37,7 +38,7 @@ from app.schemas.photos import (
     PhotoRequestSummaryResponse,
     NotifyAgentPayload,
 )
-from app.auth import check_permission
+from app.auth import check_permission, get_current_user_optional
 from app.config_production import prod_settings
 from app.utils.s3_storage import get_storage_manager
 from app.utils.websocket_manager import get_connection_manager
@@ -55,6 +56,40 @@ OPEN_PHOTO_REQUEST_STATUSES = ["pending", "claimed", "awaiting_upload", "in_prog
 # Initialize storage manager (S3 or local)
 storage_manager = get_storage_manager()
 ws_manager = get_connection_manager()
+
+
+def _valid_photo_request_service_token(request: Request) -> bool:
+    configured_token = getattr(prod_settings, "N8N_AUTH_TOKEN", "")
+    if not configured_token:
+        return True
+
+    presented_token = (
+        request.headers.get("X-AI-Service-Token")
+        or request.headers.get("X-N8N-Token")
+    )
+    if not presented_token:
+        authorization = request.headers.get("Authorization", "")
+        if authorization.lower().startswith("bearer "):
+            presented_token = authorization[7:].strip()
+
+    return bool(presented_token) and hmac.compare_digest(presented_token, configured_token)
+
+
+def require_photo_request_create_auth(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+) -> None:
+    if current_user and current_user.is_active:
+        return
+
+    if _valid_photo_request_service_token(request):
+        return
+
+    raise HTTPException(
+        status_code=401,
+        detail="Photo request integration authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def _select_best_agent_for_photo_requests(db: Session) -> Optional[User]:
@@ -294,7 +329,11 @@ def _notify_agent_of_request(
     logger.info(f"Notifying agent: {payload}")
 
 
-@router.post("/create", response_model=PhotoRequestResponse)
+@router.post(
+    "/create",
+    response_model=PhotoRequestResponse,
+    dependencies=[Depends(require_photo_request_create_auth)],
+)
 async def create_photo_request(
     data: PhotoRequestCreate,
     request: Request,
@@ -489,6 +528,12 @@ def update_photo_request(
 
     if data.completion_notes:
         request.completion_notes = data.completion_notes
+
+    if data.csat_score is not None:
+        request.csat_score = data.csat_score
+
+    if data.csat_feedback is not None:
+        request.csat_feedback = data.csat_feedback
 
     db.add(request)
     db.commit()
@@ -765,6 +810,12 @@ async def send_photos_to_customer(
 
         request.status = "completed"
         request.resolved_at = datetime.now(UTC)
+
+        # Calculate agent response time
+        if request.created_at:
+            delta = request.resolved_at - request.created_at
+            request.agent_response_time_minutes = int(delta.total_seconds() / 60)
+
         request.photo_urls = [m.media_url for m in media_items]
 
         db.add(request)

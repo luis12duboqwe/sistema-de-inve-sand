@@ -1,6 +1,8 @@
-# Despliegue En Producción
+# Despliegue En Produccion
 
 Esta carpeta contiene lo necesario para levantar el sistema con Docker Compose en un servidor Linux.
+
+Para VPS con Nginx + systemd, usa la guia y archivos en [vps/README.md](vps/README.md).
 
 ## 1. Preparar variables
 

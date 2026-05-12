@@ -3,6 +3,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import math
 from app.database import get_db
@@ -51,6 +52,15 @@ def _extract_imei_location(imei_data) -> tuple[str, int]:
     imei_val = imei_data.get("imei") if isinstance(imei_data, dict) else imei_data.imei
     loc_id = imei_data.get("location_id") if isinstance(imei_data, dict) else imei_data.location_id
     return imei_val.strip(), int(loc_id)
+
+
+def _first_duplicate(values: List[str]) -> Optional[str]:
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            return value
+        seen.add(value)
+    return None
 
 
 def _serialize_product(product: Product, accessible_location_ids: Optional[List[int]] = None) -> ProductResponse:
@@ -354,6 +364,34 @@ def create_product(
         
         # Eliminar el campo imei obsoleto (usar imeis en su lugar)
         product_data.pop("imei", None)
+
+        imeis_a_validar: List[str] = []
+        if imeis_con_ubicacion:
+            for imei_data in imeis_con_ubicacion:
+                imei_val, _loc_id = _extract_imei_location(imei_data)
+                if imei_val:
+                    imeis_a_validar.append(imei_val)
+        elif imeis:
+            imeis_a_validar = [
+                str(imei_value).strip()
+                for imei_value in imeis
+                if imei_value and str(imei_value).strip()
+            ]
+
+        duplicate_imei = _first_duplicate(imeis_a_validar)
+        if duplicate_imei:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El IMEI '{duplicate_imei}' está duplicado en esta carga. Revise los campos antes de guardar."
+            )
+
+        if imeis_a_validar:
+            existing_imei = db.query(ProductIMEI).filter(ProductIMEI.imei.in_(imeis_a_validar)).first()
+            if existing_imei:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El IMEI '{existing_imei.imei}' ya está registrado en el sistema"
+                )
         
         db_product = Product(**product_data)
         db.add(db_product)
@@ -510,6 +548,14 @@ def create_product(
         return _serialize_product(db_product)
     except HTTPException:
         raise
+    except IntegrityError as e:
+        db.rollback()
+        error_detail = str(getattr(e, "orig", e))
+        if "product_imeis" in error_detail or "ix_product_imeis_imei" in error_detail:
+            raise HTTPException(status_code=400, detail="El IMEI ya está registrado en el sistema")
+        if "products" in error_detail and "sku" in error_detail.lower():
+            raise HTTPException(status_code=400, detail=f"Ya existe un producto con el SKU '{product.sku}'")
+        raise HTTPException(status_code=400, detail="No se pudo crear el producto porque ya existe un valor único registrado")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al crear producto: {str(e)}")
@@ -787,6 +833,21 @@ def restock_product(
         Stock.location_id == payload.location_id,
     ).first()
 
+    stock_total_anterior = sum(
+        int(stock_item.cantidad_disponible or 0)
+        for stock_item in db.query(Stock).filter(Stock.product_id == product_id).all()
+    )
+    costo_anterior = Decimal(product.costo or 0)
+    costo_compra = Decimal(payload.costo_unitario)
+    stock_total_nuevo = stock_total_anterior + payload.cantidad
+    if stock_total_anterior > 0 and costo_anterior > 0:
+        costo_promedio_nuevo = (
+            (costo_anterior * Decimal(stock_total_anterior)) + (costo_compra * Decimal(payload.cantidad))
+        ) / Decimal(stock_total_nuevo)
+    else:
+        costo_promedio_nuevo = costo_compra
+    costo_promedio_nuevo = costo_promedio_nuevo.quantize(Decimal("0.01"))
+
     if not stock:
         stock = Stock(
             product_id=product_id,
@@ -799,10 +860,15 @@ def restock_product(
 
     stock_anterior = stock.cantidad_disponible
     stock.cantidad_disponible = stock_anterior + payload.cantidad
+    product.costo = costo_promedio_nuevo
 
     notas_restock = f"Reabastecimiento manual de '{product.nombre}'"
     if supplier_name:
         notas_restock += f" | Proveedor: {supplier_name}"
+    notas_restock += (
+        f" | Costo compra: {costo_compra:.2f} {product.moneda}"
+        f" | Costo promedio: {costo_promedio_nuevo:.2f} {product.moneda}"
+    )
     if payload.notas:
         notas_restock += f" | Nota: {payload.notas.strip()}"
 
@@ -856,7 +922,12 @@ def restock_product(
         entity_id=product.id,
         location_id=payload.location_id,
         user=current_user,
-        after_data=payload.model_dump(),
+        before_data={"costo": str(costo_anterior), "stock_total": stock_total_anterior},
+        after_data={
+            **payload.model_dump(),
+            "costo_promedio_nuevo": str(costo_promedio_nuevo),
+            "stock_total_nuevo": stock_total_nuevo,
+        },
     )
 
     try:

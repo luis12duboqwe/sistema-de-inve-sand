@@ -4,7 +4,6 @@
  * Usage:
  * ```tsx
  * const { connected, lastEvent } = usePhotoRequestWebSocket(authToken, (event) => {
- *   console.log('Photo event:', event)
  *   // Refetch list or update local state
  * })
  * ```
@@ -59,7 +58,6 @@ export function usePhotoRequestWebSocket(
       const ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
-        console.log('✅ WebSocket connected to photo-requests')
         setConnected(true)
         setError(null)
         reconnectCountRef.current = 0
@@ -81,13 +79,11 @@ export function usePhotoRequestWebSocket(
       }
 
       ws.onclose = () => {
-        console.log('WebSocket disconnected')
         setConnected(false)
 
         // Attempt reconnection
         if (autoReconnect && reconnectCountRef.current < maxReconnectAttempts) {
           reconnectCountRef.current += 1
-          console.log(`Auto-reconnecting in ${reconnectDelay}ms (attempt ${reconnectCountRef.current}/${maxReconnectAttempts})`)
           
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()

@@ -141,6 +141,30 @@ interface NewProductDialogProps {
   onSubmit: (product: Omit<Product, 'id' | 'activo'>, stock: number, locationId?: number) => Promise<ProductWithStock | void>
 }
 
+type DuplicateImeiInfo = {
+  imei: string
+  indexes: number[]
+}
+
+function findDuplicateImeis(values: string[]): DuplicateImeiInfo[] {
+  const indexesByImei = new Map<string, number[]>()
+
+  values.forEach((value, index) => {
+    const normalizedValue = value.trim()
+    if (!normalizedValue) {
+      return
+    }
+
+    const indexes = indexesByImei.get(normalizedValue) ?? []
+    indexes.push(index)
+    indexesByImei.set(normalizedValue, indexes)
+  })
+
+  return Array.from(indexesByImei.entries())
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([imei, indexes]) => ({ imei, indexes }))
+}
+
 export function NewProductDialog({
   open,
   onOpenChange,
@@ -166,6 +190,7 @@ export function NewProductDialog({
   const [stockInicial, setStockInicial] = useState('1')
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined)
   const [imeis, setImeis] = useState<string[]>([''])
+  const [duplicateImeiIndexes, setDuplicateImeiIndexes] = useState<Set<number>>(new Set())
   const [scanInput, setScanInput] = useState('')
   const [garantiaCondiciones, setGarantiaCondiciones] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -356,6 +381,14 @@ export function NewProductDialog({
     })
   }, [stockInicial])
 
+  useEffect(() => {
+    const nextDuplicateIndexes = new Set<number>()
+    findDuplicateImeis(imeis).forEach(duplicate => {
+      duplicate.indexes.forEach(index => nextDuplicateIndexes.add(index))
+    })
+    setDuplicateImeiIndexes(nextDuplicateIndexes)
+  }, [imeis])
+
   const handleImeiChange = (index: number, value: string) => {
     // Solo permitir números
     const cleanValue = value.replace(/\D/g, '')
@@ -491,6 +524,30 @@ export function NewProductDialog({
       return
     }
 
+    const stockNumber = parseInt(stockInicial) || 0
+    const cleanedImeis = imeis.map(value => value.trim()).filter(Boolean)
+
+    if (isSerialized && stockNumber > 0) {
+      if (cleanedImeis.length !== stockNumber) {
+        toast.error(`Ingresa ${stockNumber} IMEI${stockNumber > 1 ? 's' : ''} para el stock inicial antes de guardar.`)
+        return
+      }
+
+      const invalidImei = cleanedImeis.find(value => value.length !== 15)
+      if (invalidImei) {
+        toast.error(`El IMEI ${invalidImei} debe tener 15 dígitos.`)
+        return
+      }
+    }
+
+    const duplicateImeis = findDuplicateImeis(imeis)
+    if (duplicateImeis.length > 0) {
+      const firstDuplicate = duplicateImeis[0]
+      const duplicateUnits = firstDuplicate.indexes.map(index => index + 1).join(', ')
+      toast.error(`El IMEI ${firstDuplicate.imei} está repetido en las unidades ${duplicateUnits}. Corrige uno antes de guardar.`)
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const result = await onSubmit(
@@ -511,14 +568,18 @@ export function NewProductDialog({
           garantia_meses: parseInt(garantiaMeses),
           garantia_condiciones: garantiaCondiciones.trim() || undefined,
           is_serialized: isSerialized,
-          imeis: imeis.filter(i => i.trim()).length > 0 ? imeis.filter(i => i.trim()) : undefined
+          imeis: cleanedImeis.length > 0 ? cleanedImeis : undefined
         },
-        parseInt(stockInicial),
+        stockNumber,
         selectedLocationId  // V2.0: Pasar ubicación seleccionada
       )
 
+      if (!result) {
+        return
+      }
+
       // V2.5: Si es serializado, ofrecer imprimir etiquetas
-      if (isSerialized && result) {
+      if (isSerialized) {
         setCreatedProduct(result)
         setShowPrintDialog(true)
         toast.success('Producto creado. Abriendo impresión de etiquetas...')
@@ -875,7 +936,7 @@ export function NewProductDialog({
 
             {isSerialized && (
               <div className="space-y-2">
-                <Label>IMEI (Opcional)</Label>
+                <Label>IMEIs del stock inicial</Label>
                 <div className="space-y-2 rounded-md border border-dashed p-3 bg-muted/30">
                   <Label className="text-sm">Escáner 3nStar SC100-1</Label>
                   <div className="flex items-center gap-2">
@@ -908,9 +969,11 @@ export function NewProductDialog({
                         value={imei}
                         onChange={e => handleImeiChange(index, e.target.value)}
                         maxLength={15}
+                        aria-invalid={duplicateImeiIndexes.has(index) || undefined}
+                        className={duplicateImeiIndexes.has(index) ? 'border-destructive focus-visible:ring-destructive' : undefined}
                       />
-                      <span className="text-sm text-muted-foreground whitespace-nowrap">
-                        Unidad {index + 1}
+                      <span className={duplicateImeiIndexes.has(index) ? 'text-sm text-destructive whitespace-nowrap' : 'text-sm text-muted-foreground whitespace-nowrap'}>
+                        {duplicateImeiIndexes.has(index) ? `Duplicado ${index + 1}` : `Unidad ${index + 1}`}
                       </span>
                     </div>
                   ))}

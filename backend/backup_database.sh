@@ -16,7 +16,49 @@ set -euo pipefail
 # CONFIGURACIÓN
 # ====================================
 
-# Cambiar según tu entorno
+load_db_settings_from_url() {
+    if [[ -z "${DATABASE_URL:-}" ]]; then
+        return 0
+    fi
+
+    local parsed
+    local python_bin="${PYTHON_BIN:-python3}"
+    parsed="$("$python_bin" - "$DATABASE_URL" <<'PY'
+import sys
+from urllib.parse import unquote, urlparse
+
+url = sys.argv[1]
+url = url.replace("postgresql+psycopg2://", "postgresql://", 1)
+parsed = urlparse(url)
+
+values = {
+    "DB_USER": unquote(parsed.username or ""),
+    "DB_PASSWORD": unquote(parsed.password or ""),
+    "DB_HOST": parsed.hostname or "",
+    "DB_PORT": str(parsed.port or 5432),
+    "DB_NAME": (parsed.path or "").lstrip("/"),
+}
+
+for key, value in values.items():
+    if value:
+        print(f"{key}={value}")
+PY
+)"
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            DB_USER) DB_USER="${DB_USER:-$value}" ;;
+            DB_PASSWORD) DB_PASSWORD="${DB_PASSWORD:-$value}" ;;
+            DB_HOST) DB_HOST="${DB_HOST:-$value}" ;;
+            DB_PORT) DB_PORT="${DB_PORT:-$value}" ;;
+            DB_NAME) DB_NAME="${DB_NAME:-$value}" ;;
+        esac
+    done <<< "$parsed"
+}
+
+load_db_settings_from_url
+
+# Cambiar según tu entorno, o define DATABASE_URL en .env para derivarlos automaticamente.
 DB_USER="${DB_USER:-inventory_user}"
 DB_NAME="${DB_NAME:-inventory_db}"
 DB_HOST="${DB_HOST:-localhost}"

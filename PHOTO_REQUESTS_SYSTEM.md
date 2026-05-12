@@ -112,6 +112,7 @@ color, size = extract_photo_request_context("Quiero ver fotos del iPhone 15 en g
 ```http
 POST /api/photo-requests/create
 Content-Type: application/json
+X-N8N-Token: <token>   # requerido si N8N_AUTH_TOKEN esta configurado
 
 {
   "customer_id": "34600000000",

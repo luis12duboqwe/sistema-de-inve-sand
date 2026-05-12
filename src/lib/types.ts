@@ -581,6 +581,7 @@ export interface ProductWithStock extends Product {
 export interface ProductRestockPayload {
   location_id: number
   cantidad: number
+  costo_unitario: number
   supplier_id?: number
   notas?: string
   imeis?: string[]
@@ -883,6 +884,9 @@ export interface PhotoRequest {
   sla_breached?: boolean
   created_at: string
   resolved_at?: string
+  agent_response_time_minutes?: number
+  csat_score?: number
+  csat_feedback?: string
   photo_urls?: string[]
   media_items?: PhotoRequestMedia[]
   assigned_to_user?: Record<string, unknown>

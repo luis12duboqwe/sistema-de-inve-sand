@@ -20,6 +20,8 @@ class PhotoRequestUpdate(BaseModel):
     status: Optional[str] = None  # in_progress, completed, failed, declined
     completion_notes: Optional[str] = None
     assigned_to_user_id: Optional[int] = None
+    csat_score: Optional[int] = Field(None, ge=1, le=5)
+    csat_feedback: Optional[str] = None
 
 
 class PhotoRequestMediaCreate(BaseModel):
@@ -66,6 +68,9 @@ class PhotoRequestResponse(BaseModel):
     
     created_at: datetime
     resolved_at: Optional[datetime]
+    agent_response_time_minutes: Optional[int] = None
+    csat_score: Optional[int] = None
+    csat_feedback: Optional[str] = None
     
     photo_urls: Optional[List[str]]  # URLs de fotos ya enviadas
 

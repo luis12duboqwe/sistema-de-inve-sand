@@ -49,7 +49,7 @@ export function LocationsList() {
     }
 
     try {
-      const newLocation = await inventoryServiceInstance.createLocation({
+      await inventoryServiceInstance.createLocation({
         nombre: nombre.trim(),
         tipo,
         direccion: direccion.trim() || undefined,

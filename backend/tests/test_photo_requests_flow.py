@@ -9,6 +9,8 @@ from _pytest.monkeypatch import MonkeyPatch
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user_optional
+from app.main import app
 from app.models import PhotoRequest, PhotoRequestMediaItem, SalesProfile, User
 from app.routers import photo_requests as photo_requests_router
 from app.utils.photo_detection import BOT_PHOTO_RESPONSE_TEMPLATES, detect_photo_request
@@ -82,6 +84,52 @@ def test_detect_photo_request_patterns() -> None:
     assert detect_photo_request("Muestrame imagenes en gris")
     assert detect_photo_request("Can I see photos of the black color?")
     assert not detect_photo_request("Cual es el precio en efectivo?")
+
+
+def test_photo_request_create_requires_service_token_when_configured(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _seed_sales_profile_with_whatsapp(db_session)
+    monkeypatch.setattr(photo_requests_router.prod_settings, "N8N_AUTH_TOKEN", "photo-token")
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+
+    response = client.post(
+        "/api/photo-requests/create",
+        json={
+            "customer_id": "50411112222",
+            "product_name": "iPhone 15 Pro",
+            "color_requested": "gris",
+        },
+    )
+
+    assert response.status_code == 401
+    assert db_session.query(PhotoRequest).count() == 0
+
+
+def test_photo_request_create_accepts_service_token_when_configured(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    sales_profile = _seed_sales_profile_with_whatsapp(db_session)
+    monkeypatch.setattr(photo_requests_router.prod_settings, "N8N_AUTH_TOKEN", "photo-token")
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+
+    response = client.post(
+        "/api/photo-requests/create",
+        headers={"X-N8N-Token": "photo-token"},
+        json={
+            "customer_id": "50411113333",
+            "product_name": "iPhone 15 Pro",
+            "color_requested": "gris",
+        },
+        params={"sales_profile_slug": sales_profile.slug, "channel": "whatsapp"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "pending"
 
 
 def test_photo_request_full_flow_create_upload_send(

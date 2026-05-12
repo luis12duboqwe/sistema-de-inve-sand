@@ -14,7 +14,7 @@ export function PhotoRequestsDashboard() {
   const [loading, setLoading] = useState(true)
   const [selectedRequest, setSelectedRequest] = useState<PhotoRequest | null>(null)
   const [mediaUrl, setMediaUrl] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
@@ -55,25 +55,37 @@ export function PhotoRequestsDashboard() {
   }
 
   const handleUploadMedia = async (requestId: number) => {
-    if (!mediaUrl.trim() && !selectedFile) {
-      toast.error('Ingresa una URL o selecciona un archivo')
+    if (!mediaUrl.trim() && selectedFiles.length === 0) {
+      toast.error('Ingresa una URL o selecciona archivo(s)')
       return
     }
 
     try {
       setUploading(true)
-      if (selectedFile) {
-        await apiClient.uploadPhotoFile(requestId, selectedFile)
-      } else {
-        await apiClient.uploadPhotoMedia(requestId, {
-          media_url: mediaUrl,
-          media_type: 'photo'
-        })
+
+      const uploadPromises: Promise<any>[] = []
+
+      if (selectedFiles.length > 0) {
+        for (const file of selectedFiles) {
+          uploadPromises.push(apiClient.uploadPhotoFile(requestId, file))
+        }
       }
 
-      toast.success('Foto cargada')
+      if (mediaUrl.trim()) {
+        const urls = mediaUrl.split(',').map(u => u.trim()).filter(Boolean)
+        for (const url of urls) {
+          uploadPromises.push(apiClient.uploadPhotoMedia(requestId, {
+            media_url: url,
+            media_type: 'photo'
+          }))
+        }
+      }
+
+      await Promise.all(uploadPromises)
+
+      toast.success('Foto(s) cargada(s) exitosamente')
       setMediaUrl('')
-      setSelectedFile(null)
+      setSelectedFiles([])
 
       if (selectedRequest?.id === requestId) {
         const updatedRequest = await apiClient.getPhotoRequest(requestId)
@@ -162,6 +174,7 @@ export function PhotoRequestsDashboard() {
                       Canal: {activeRequest.origin_channel || 'no definido'}
                       {typeof activeRequest.priority_score === 'number' && ` • Prioridad ${activeRequest.priority_score}`}
                       {activeRequest.sla_breached && ' • SLA vencido'}
+                      {activeRequest.csat_score !== undefined && ` • CSAT: ${activeRequest.csat_score}/5`}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
                       Solicitado hace:{' '}
@@ -235,14 +248,14 @@ export function PhotoRequestsDashboard() {
                     <Label>Cargar foto</Label>
                     <div className="flex gap-2">
                       <Input
-                        placeholder="URL de imagen (S3, Cloudinary, etc)"
+                        placeholder="URLs de imagen separadas por coma"
                         value={mediaUrl}
                         onChange={(e) => setMediaUrl(e.target.value)}
                         disabled={uploading}
                       />
                       <Button
                         onClick={() => handleUploadMedia(activeRequest.id)}
-                        disabled={uploading || (!mediaUrl.trim() && !selectedFile)}
+                        disabled={uploading || (!mediaUrl.trim() && selectedFiles.length === 0)}
                         size="sm"
                       >
                         {uploading ? '⟳' : <Plus size={16} />}
@@ -251,11 +264,19 @@ export function PhotoRequestsDashboard() {
                     <Input
                       type="file"
                       accept="image/*,video/*"
+                      multiple
                       disabled={uploading}
-                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                      onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
                     />
-                    {selectedFile && (
-                      <p className="text-xs text-gray-500">Archivo seleccionado: {selectedFile.name}</p>
+                    {selectedFiles.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Archivos seleccionados: {selectedFiles.length}
+                        <ul className="list-disc pl-4 mt-1">
+                          {selectedFiles.map((f, i) => (
+                            <li key={i} className="truncate">{f.name}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 )}

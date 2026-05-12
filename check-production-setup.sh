@@ -94,8 +94,11 @@ else
     MISSING_STEPS+=("./setup-postgres.sh")
 fi
 
-# 10. Verificar SENTRY_DSN
-if grep -q "^SENTRY_DSN=" "$BACKEND_DIR/.env" 2>/dev/null; then
+# 10. Verificar SENTRY_DSN (opcional si se deshabilita explícitamente)
+if grep -q "^SENTRY_DISABLED=true" "$BACKEND_DIR/.env" 2>/dev/null; then
+    echo -e "${GREEN}[✓]${NC} Sentry deshabilitado explícitamente"
+    ((COMPLETED++))
+elif grep -q "^SENTRY_DSN=" "$BACKEND_DIR/.env" 2>/dev/null; then
     SENTRY_DSN=$(grep "^SENTRY_DSN=" "$BACKEND_DIR/.env" | cut -d'=' -f2)
     if [[ "$SENTRY_DSN" != *"YOUR_DSN_HERE"* ]] && [[ ! -z "$SENTRY_DSN" ]]; then
         echo -e "${GREEN}[✓]${NC} SENTRY_DSN configurado"
@@ -200,7 +203,12 @@ else
 fi
 
 # 15. Verificar que backend compilada (imports)
-if DATABASE_URL="$DATABASE_URL" python3 -c "import sys; sys.path.insert(0, '$BACKEND_DIR'); from app.main import app" 2>/dev/null; then
+if (
+    set -a
+    [ -f "$BACKEND_DIR/.env" ] && . "$BACKEND_DIR/.env"
+    set +a
+    python3 -c "import sys; sys.path.insert(0, '$BACKEND_DIR'); from app.main import app"
+) 2>/dev/null; then
     echo -e "${GREEN}[✓]${NC} Backend compila sin errores"
     ((COMPLETED++))
 else

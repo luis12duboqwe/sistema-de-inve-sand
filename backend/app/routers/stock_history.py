@@ -13,7 +13,7 @@ from app.schemas import StockHistoryResponse, StockHistoryCreate
 from app.auth import get_current_active_user, check_permission
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 
-router = APIRouter(prefix="/stock-history", tags=["stock-history"])
+router = APIRouter(prefix="/api/stock-history", tags=["stock-history"])
 
 
 @router.get("/product/{product_id}", response_model=List[StockHistoryResponse], dependencies=[Depends(check_permission("inventory:view"))])

@@ -82,6 +82,7 @@ Endpoints protegidos por integración:
 - `POST /api/ai/flag-troll`
 - `POST /api/ai/create-order`
 - `POST /api/ai/handle-message`
+- `POST /api/photo-requests/create` si `N8N_AUTH_TOKEN` está configurado
 
 Configura `N8N_AUTH_TOKEN` en `.env` y envíalo en alguno de estos headers:
 

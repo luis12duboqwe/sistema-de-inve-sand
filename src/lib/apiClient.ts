@@ -585,7 +585,6 @@ class ApiClient {
     try {
       const endpoint = activeOnly ? '/locations?activo=true' : '/locations'
       const response = await this.request<Location[]>(endpoint)
-      console.log('📍 API listLocations response:', response)
       // El backend retorna directamente un array, no { items: [] }
       return Array.isArray(response) ? response : []
     } catch (error) {
@@ -944,14 +943,9 @@ class ApiClient {
 
   async deleteOrder(orderId: number): Promise<void> {
     try {
-      const apiBaseUrl = await getApiUrl()
-      const fullUrl = `${apiBaseUrl}/orders/${orderId}`
-      console.log(`🗑️ Eliminando orden ${orderId} via API...`)
-      console.log(`📡 DELETE URL: ${fullUrl}`)
       await this.request(`/orders/${orderId}`, {
         method: 'DELETE',
       })
-      console.log(`✅ Orden ${orderId} eliminada exitosamente`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       if (!message.includes('completada') && !message.includes('cancelar')) {

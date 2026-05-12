@@ -130,6 +130,7 @@ class ProductUpdate(BaseModel):
 class ProductRestockRequest(BaseModel):
     location_id: int
     cantidad: int = Field(..., gt=0, le=100000)
+    costo_unitario: Decimal = Field(..., gt=0, le=Decimal("1000000"))
     supplier_id: Optional[int] = None
     notas: Optional[str] = None
     imeis: Optional[List[str]] = None

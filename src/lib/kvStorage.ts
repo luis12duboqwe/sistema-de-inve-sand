@@ -83,7 +83,6 @@ class _SafeSparkKV implements SparkKV {
     // Verificar caché en memoria primero
     const cached = this.cache.get(key)
     if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
-      console.log(`Cache hit for key "${key}"`)
       return cached.value as T
     }
 
@@ -151,15 +150,12 @@ export function getKVStorage(): SparkKV {
         typeof kv.delete === 'function' && 
         typeof kv.keys === 'function') {
       // DESHABILITADO: Spark KV causa errores 429 (Too Many Requests)
-      // console.log('Using Spark KV with localStorage fallback')
       // return new _SafeSparkKV(kv)
-      console.log('Spark KV disabled due to rate limits, using localStorage')
       return new LocalStorageKV()
     }
   }
   
   // Fallback a localStorage
-  console.log('Spark KV not available, using localStorage')
   return new LocalStorageKV()
 }
 

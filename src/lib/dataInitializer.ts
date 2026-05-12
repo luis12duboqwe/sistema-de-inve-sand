@@ -11,17 +11,14 @@ export async function initializeDefaultData() {
     const existingProfiles = await kv.get('inventory-profiles')
     
     if (!existingProfiles) {
-      console.log('No profiles found, initializing with empty array...')
       await kv.set('inventory-profiles', [])
       await kv.set('inventory-products', [])
       await kv.set('inventory-stock', [])
       await kv.set('inventory-orders', [])
       await kv.set('inventory-order-items', [])
-      console.log('✅ Default data initialized successfully')
       return true
     }
     
-    console.log('Data already initialized')
     return false
   } catch (error) {
     console.error('Error initializing default data:', error)
@@ -57,8 +54,6 @@ export async function clearAllData() {
     
     // Settings
     await kv.delete('v2_reset_complete_final')
-    
-    console.log('✅ All data cleared successfully')
   } catch (error) {
     console.error('Error clearing data:', error)
     throw error
@@ -112,8 +107,6 @@ export async function importAllData(data: {
     if (data.stock) await kv.set('inventory-stock', data.stock)
     if (data.orders) await kv.set('inventory-orders', data.orders)
     if (data.orderItems) await kv.set('inventory-order-items', data.orderItems)
-    
-    console.log('✅ Data imported successfully')
   } catch (error) {
     console.error('Error importing data:', error)
     throw error

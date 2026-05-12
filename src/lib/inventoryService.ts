@@ -2603,6 +2603,11 @@ export class InventoryService {
         throw new Error('La cantidad a agregar debe ser mayor a 0')
       }
 
+      const costoUnitario = Number(payload.costo_unitario)
+      if (!Number.isFinite(costoUnitario) || costoUnitario <= 0) {
+        throw new Error('El costo unitario de compra debe ser mayor a 0')
+      }
+
       const imeisLimpios = (payload.imeis ?? []).map(i => String(i || '').trim()).filter(Boolean)
       if (product.is_serialized) {
         if (imeisLimpios.length === 0) {
@@ -2625,6 +2630,22 @@ export class InventoryService {
         }
       }
 
+      const stockTotalAnterior = stock
+        .filter(s => s.product_id === productId)
+        .reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0)
+      const costoAnterior = Number(product.costo || 0)
+      const stockTotalNuevo = stockTotalAnterior + cantidad
+      const costoPromedioNuevo = stockTotalAnterior > 0 && costoAnterior > 0
+        ? ((costoAnterior * stockTotalAnterior) + (costoUnitario * cantidad)) / stockTotalNuevo
+        : costoUnitario
+      const costoPromedioRedondeado = Math.round(costoPromedioNuevo * 100) / 100
+
+      const productIndex = products.findIndex(p => p.id === productId)
+      products[productIndex] = {
+        ...product,
+        costo: costoPromedioRedondeado,
+      }
+
       let stockEntry = stock.find(s => s.product_id === productId && s.location_id === payload.location_id)
       if (!stockEntry) {
         stockEntry = {
@@ -2644,6 +2665,8 @@ export class InventoryService {
       if (supplier?.nombre) {
         notasRestockParts.push(`Proveedor: ${supplier.nombre}`)
       }
+      notasRestockParts.push(`Costo compra: ${costoUnitario.toFixed(2)} ${product.moneda}`)
+      notasRestockParts.push(`Costo promedio: ${costoPromedioRedondeado.toFixed(2)} ${product.moneda}`)
       const notasLimpias = payload.notas?.trim()
       if (notasLimpias) {
         notasRestockParts.push(`Nota: ${notasLimpias}`)
@@ -2698,6 +2721,7 @@ export class InventoryService {
         })
       }
 
+      await this.setProducts(products)
       await this.setStock(stock)
       await this.setStockHistory(stockHistory)
       await this.setProductIMEIs(productIMEIs)
@@ -2714,6 +2738,8 @@ export class InventoryService {
           stock_anterior: stockAnterior,
           stock_nuevo: stockEntry.cantidad_disponible,
           incremento: cantidad,
+          costo_unitario: costoUnitario,
+          costo_promedio_nuevo: costoPromedioRedondeado,
         },
       })
 
@@ -2751,7 +2777,7 @@ export class InventoryService {
         .map(i => i.imei)
 
       return {
-        ...product,
+        ...products[productIndex],
         stock_disponible: stockTotal,
         stock_items: stockItems,
         imeis: imeisDisponibles.length > 0 ? imeisDisponibles : undefined,
@@ -3445,7 +3471,6 @@ export class InventoryService {
     try {
       const kv = getKV()
       const data = await kv.get<Location[]>(STORAGE_KEYS.LOCATIONS)
-      console.log('📂 Cargando ubicaciones desde KV:', data?.length || 0, 'ubicaciones')
       return data || []
     } catch (error) {
       console.error('❌ Error loading locations:', error)
@@ -3505,14 +3530,8 @@ export class InventoryService {
       }
 
       const updatedLocations = [...locations, newLocation]
-      console.log('💾 Guardando ubicación en localStorage:', newLocation)
-      console.log('📍 Total ubicaciones:', updatedLocations.length)
       
       await this.setLocations(updatedLocations)
-      
-      // Verificar que se guardó
-      const saved = await this.loadLocations()
-      console.log('✅ Verificación - Ubicaciones guardadas:', saved.length)
 
       await this.recordSyncEvent({
         entity: 'location',

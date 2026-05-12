@@ -192,11 +192,6 @@ function MainApp() {
   }, [useAPI])
 
   useEffect(() => {
-    if (currentUser) {
-    }
-  }, [currentUser])
-
-  useEffect(() => {
     if (!useAPI) {
       setChannelHealthReady(null)
       setIsChannelHealthLoading(false)
@@ -479,14 +474,6 @@ function MainApp() {
           (canViewSettings || canViewOrders || canCreateOrders) && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
           (canViewSettings || canViewLocations || canCreateOrders || canAccessMultiStoreControl) && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
-        
-          productos: loadedProducts.length,
-          ordenes: loadedOrders.length,
-          perfiles: loadedProfiles.length,
-          salesProfiles: loadedSalesProfiles.length,
-          locations: loadedLocations.length
-        })
-        
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
@@ -2575,10 +2562,19 @@ function MainApp() {
             if (normalized.includes('sku') && normalized.includes('ya existe')) {
               toast.error('Ese producto ya existe (SKU duplicado).')
               toast.info('Para agregar más inventario: abre el producto → "Ver por Ubicación" → ícono de lápiz y ajusta la cantidad.')
-              return
+              throw error
+            }
+
+            if (normalized.includes('imei') && (normalized.includes('duplicado') || normalized.includes('ya está registrado'))) {
+              const cleanMessage = rawMessage
+                .replace(/^Failed to create product:\s*/i, '')
+                .replace(/^Error al crear producto:\s*/i, '')
+              toast.error(cleanMessage)
+              throw error
             }
 
             toast.error(`Error al crear producto: ${rawMessage}`)
+            throw error
           }
         }}
       />

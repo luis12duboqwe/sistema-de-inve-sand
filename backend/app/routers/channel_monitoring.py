@@ -10,10 +10,15 @@ from sqlalchemy.orm import Session
 from datetime import datetime, UTC, timedelta
 from app.database import get_db
 from app.models import SalesProfile, InteractionLog, ProcessedMessage
+from app.auth import check_permission
 from app.channel_audit import channel_metrics
 from typing import Any, Dict, List
 
-router = APIRouter(prefix="/api/channels/monitoring", tags=["Channel Monitoring"])
+router = APIRouter(
+    prefix="/api/channels/monitoring",
+    tags=["Channel Monitoring"],
+    dependencies=[Depends(check_permission("reports:view"))],
+)
 
 
 @router.get("/metrics")

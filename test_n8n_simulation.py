@@ -198,5 +198,27 @@ def test_n8n_flow():
     except Exception as e:
         print(f"❌ Error en creación de orden IA: {e}")
 
+    # 7. Test Photo Request
+    print_step(7, "Backend nativo: simular solicitud de fotos de cliente")
+    photo_payload = {
+        "sales_profile_slug": slug,
+        "customer_phone": customer_phone,
+        "customer_name": customer_name,
+        "message_content": "Quiero ver fotos del iPhone 15 en gris por favor"
+    }
+
+    try:
+        photo_res = requests.post(f"{BASE_URL}/ai/handle-message", json=photo_payload, headers=_headers())
+        if photo_res.status_code == 200:
+            resp_data = photo_res.json()
+            print("✅ Solicitud de fotos procesada.")
+            print(f"   - Respuesta IA: {resp_data.get('reply')}")
+            if resp_data.get("photo_request_created"):
+                 print("   📸 Solicitud interna de fotos CREA EXITOSAMENTE.")
+        else:
+            print(f"❌ Error creando solicitud de fotos: {photo_res.text}")
+    except Exception as e:
+        print(f"❌ Error en creación solicitud de fotos: {e}")
+
 if __name__ == "__main__":
     test_n8n_flow()

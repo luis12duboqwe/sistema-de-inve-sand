@@ -22,6 +22,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
   const [productId, setProductId] = useState<string>('')
   const [locationId, setLocationId] = useState<string>('')
   const [cantidad, setCantidad] = useState<string>('1')
+  const [costoUnitario, setCostoUnitario] = useState<string>('')
   const [supplierId, setSupplierId] = useState<string>('none')
   const [notas, setNotas] = useState('')
   const [imeis, setImeis] = useState<string[]>([''])
@@ -77,6 +78,15 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
   }, [cantidad, isSerialized, open])
 
   useEffect(() => {
+    if (!open || !selectedProduct) {
+      return
+    }
+
+    const currentCost = Number(selectedProduct.costo || 0)
+    setCostoUnitario(currentCost > 0 ? String(currentCost) : '')
+  }, [open, selectedProduct])
+
+  useEffect(() => {
     if (!open || !isSerialized) {
       return
     }
@@ -86,6 +96,8 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
 
   const resetForm = () => {
     setCantidad('1')
+    const currentCost = Number(selectedProduct?.costo || 0)
+    setCostoUnitario(currentCost > 0 ? String(currentCost) : '')
     setSupplierId('none')
     setNotas('')
     setImeis([''])
@@ -163,6 +175,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
     const parsedProductId = Number(productId)
     const parsedLocationId = Number(locationId)
     const parsedCantidad = Number(cantidad)
+    const parsedCostoUnitario = Number(costoUnitario)
 
     if (!parsedProductId) {
       toast.error('Selecciona un producto')
@@ -176,6 +189,11 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
 
     if (!Number.isFinite(parsedCantidad) || parsedCantidad <= 0) {
       toast.error('La cantidad debe ser mayor a 0')
+      return
+    }
+
+    if (!Number.isFinite(parsedCostoUnitario) || parsedCostoUnitario <= 0) {
+      toast.error('Ingresa el costo unitario de compra')
       return
     }
 
@@ -197,6 +215,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
       const updated = await inventoryServiceInstance.restockProduct(parsedProductId, {
         location_id: parsedLocationId,
         cantidad: parsedCantidad,
+        costo_unitario: parsedCostoUnitario,
         supplier_id: supplierId !== 'none' ? Number(supplierId) : undefined,
         notas: notas.trim() || undefined,
         imeis: isSerialized ? imeisLimpios : undefined,
@@ -258,14 +277,28 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Cantidad a agregar *</Label>
-            <Input
-              type="number"
-              min="1"
-              value={cantidad}
-              onChange={(e) => setCantidad(e.target.value)}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Cantidad a agregar *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={cantidad}
+                onChange={(e) => setCantidad(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Costo unitario de compra *</Label>
+              <Input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={costoUnitario}
+                onChange={(e) => setCostoUnitario(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
