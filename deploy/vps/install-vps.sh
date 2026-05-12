@@ -17,6 +17,7 @@ WITH_SAMPLE_DATA="false"
 SKIP_SSL="false"
 SKIP_NODE_SETUP="false"
 FORCE_ENV="false"
+SELF_TEST="false"
 
 usage() {
     cat <<'EOF'
@@ -34,6 +35,7 @@ Opciones:
   --skip-ssl                No ejecuta Certbot ni configura HTTPS final
   --skip-node-setup         No instala Node.js desde NodeSource
   --force-env               Reescribe backend/.env si ya existe
+    --self-test               Valida el instalador sin instalar paquetes ni tocar /etc
   -h, --help                Muestra esta ayuda
 
 Ejemplo despues de clonar:
@@ -100,6 +102,10 @@ parse_args() {
                 FORCE_ENV="true"
                 shift
                 ;;
+            --self-test)
+                SELF_TEST="true"
+                shift
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -117,6 +123,74 @@ parse_args() {
 
 random_password() {
     openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
+}
+
+run_self_test() {
+    log "Self-test: validando repositorio"
+    validate_repo
+
+    log "Self-test: validando herramientas locales"
+    command -v bash >/dev/null || fail "bash no disponible"
+    command -v openssl >/dev/null || fail "openssl no disponible"
+    command -v python3 >/dev/null || fail "python3 no disponible"
+    command -v npm >/dev/null || fail "npm no disponible"
+    command -v node >/dev/null || fail "node no disponible"
+
+    log "Self-test: generando secretos"
+    local generated_password
+    local generated_secret
+    local generated_fernet
+    generated_password="$(random_password)"
+    generated_secret="$(openssl rand -hex 32)"
+    generated_fernet="$(python3 - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+PY
+)"
+    [[ ${#generated_password} -ge 24 ]] || fail "password generado demasiado corto"
+    [[ ${#generated_secret} -eq 64 ]] || fail "SECRET_KEY generado invalido"
+    python3 - "$generated_fernet" <<'PY'
+import sys
+from cryptography.fernet import Fernet
+Fernet(sys.argv[1].encode())
+PY
+
+    log "Self-test: validando npm ci con legacy peer deps"
+    (cd "$APP_DIR" && npm ci --legacy-peer-deps --dry-run)
+
+    log "Self-test: validando imports backend"
+    local python_bin="python3"
+    if [[ -x "$APP_DIR/backend/venv/bin/python" ]]; then
+        python_bin="$APP_DIR/backend/venv/bin/python"
+    fi
+    PYTHONPATH="$APP_DIR/backend" ENVIRONMENT=testing DEBUG=true ALLOWED_HOSTS='*' \
+        DATABASE_URL='postgresql+psycopg2://selftest:selftest@localhost:5432/selftest' \
+        "$python_bin" - <<'PY'
+from app.config import Settings
+
+settings = Settings(
+    database_url="postgresql+psycopg2://selftest:selftest@localhost:5432/selftest",
+    environment="testing",
+    debug=True,
+    allowed_hosts="*",
+    cors_origins="http://localhost",
+)
+assert settings.environment == "testing"
+PY
+
+    log "Self-test: validando plantillas de texto"
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+    cat > "$tmp_dir/inventario.service" <<EOF
+[Service]
+WorkingDirectory=${APP_DIR}/backend
+EnvironmentFile=${APP_DIR}/backend/.env
+ExecStart=${APP_DIR}/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+EOF
+    grep -q "$APP_DIR/backend" "$tmp_dir/inventario.service"
+
+    echo "Self-test OK: el instalador esta listo para ejecutarse en VPS."
 }
 
 install_packages() {
@@ -185,6 +259,17 @@ write_env() {
     local env_file="$APP_DIR/backend/.env"
     if [[ -f "$env_file" && "$FORCE_ENV" != "true" ]]; then
         echo "Ya existe ${env_file}; no lo reescribo. Usa --force-env para regenerarlo."
+        echo "Verificando que el .env existente pueda conectarse a PostgreSQL..."
+        if ! sudo -u "$APP_USER" bash -lc "cd '$APP_DIR/backend' && set -a && . ./.env && set +a && ./venv/bin/python - <<'PY'
+from sqlalchemy import create_engine, text
+from app.config import settings
+
+engine = create_engine(settings.database_url)
+with engine.connect() as connection:
+    connection.execute(text('SELECT 1'))
+PY"; then
+            fail "El .env existente no conecta a PostgreSQL. Reejecuta con --force-env para regenerar DATABASE_URL y password."
+        fi
         return 0
     fi
 
@@ -264,7 +349,7 @@ init_database() {
 build_frontend() {
     log "Construyendo frontend"
     cd "$APP_DIR"
-    npm ci
+    npm ci --legacy-peer-deps
     npm run build
     chown -R "$APP_USER:$APP_GROUP" "$APP_DIR/dist"
 }
@@ -497,6 +582,11 @@ run_checks() {
 
 main() {
     parse_args "$@"
+    if [[ "$SELF_TEST" == "true" ]]; then
+        run_self_test
+        exit 0
+    fi
+
     require_root
     validate_repo
     install_packages
