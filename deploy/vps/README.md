@@ -2,6 +2,32 @@
 
 Configuracion para desplegar el sistema en un VPS Linux con Nginx y systemd.
 
+## Instalacion automatica
+
+Despues de clonar el repositorio en el VPS:
+
+```bash
+sudo mkdir -p /var/www
+cd /var/www
+sudo git clone https://github.com/luis12duboqwe/sistema-de-inve-sand.git inventario
+cd /var/www/inventario
+sudo bash deploy/vps/install-vps.sh --domain invjear.com --email admin@invjear.com
+```
+
+El script instala paquetes, crea PostgreSQL, genera claves seguras, crea `backend/.env`, compila frontend, configura systemd, Nginx, SSL y backup diario.
+
+Opciones utiles:
+
+```bash
+sudo bash deploy/vps/install-vps.sh --domain invjear.com --skip-ssl
+sudo bash deploy/vps/install-vps.sh --domain invjear.com --with-sample-data
+sudo bash deploy/vps/install-vps.sh --domain invjear.com --force-env
+```
+
+Si el DNS todavia no apunta al VPS, usa primero `--skip-ssl` y luego ejecuta de nuevo sin `--skip-ssl` cuando el dominio resuelva correctamente.
+
+## Instalacion manual
+
 ## 1. DNS
 
 Crea registros A/AAAA apuntando al IP del VPS:
