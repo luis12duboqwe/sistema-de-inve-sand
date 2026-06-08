@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import List, Optional, Sequence
+import json
 import logging
 
 from fastapi import HTTPException
@@ -74,6 +75,22 @@ def ensure_unique_transfer_reference(
                 f"({created_label}, cliente: {duplicated_order.customer_name})."
             ),
         )
+
+
+def serialize_payment_breakdown(payment_breakdown: object) -> Optional[str]:
+    if not payment_breakdown:
+        return None
+
+    payload = []
+    for item in payment_breakdown:  # type: ignore[union-attr]
+        method = item.method.value if hasattr(item.method, "value") else item.method
+        payload.append({
+            "method": str(method),
+            "amount": str(item.amount),
+            "bank_name": item.bank_name,
+            "reference": item.reference,
+        })
+    return json.dumps(payload)
 
 
 def resolve_user_label(
@@ -265,6 +282,7 @@ class OrderService:
             customer_phone=customer_phone,
             canal=order.canal,
             metodo_pago=order.metodo_pago,
+            payment_breakdown=serialize_payment_breakdown(order.payment_breakdown),
             transfer_bank_name=transfer_bank_name,
             transfer_reference=transfer_reference,
             transfer_reference_normalized=transfer_reference_normalized,
@@ -282,11 +300,17 @@ class OrderService:
         self,
         order: OrderCreate,
     ) -> tuple[Optional[str], Optional[str], Optional[str]]:
-        if order.metodo_pago != "transferencia":
+        transfer_part = next(
+            (item for item in (order.payment_breakdown or []) if getattr(item, "method", None) == "transferencia"),
+            None,
+        )
+        uses_transfer = order.metodo_pago == "transferencia" or transfer_part is not None
+
+        if not uses_transfer:
             return None, None, None
 
-        bank_name = (order.transfer_bank_name or "").strip()
-        transfer_reference = (order.transfer_reference or "").strip()
+        bank_name = (order.transfer_bank_name or getattr(transfer_part, "bank_name", None) or "").strip()
+        transfer_reference = (order.transfer_reference or getattr(transfer_part, "reference", None) or "").strip()
 
         if not bank_name:
             raise HTTPException(

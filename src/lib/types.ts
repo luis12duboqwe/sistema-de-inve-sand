@@ -546,6 +546,7 @@ export interface Order {
   customer_phone: string
   canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  payment_breakdown?: PaymentBreakdownEntry[]
   transfer_bank_name?: string
   transfer_reference?: string
   transfer_reference_normalized?: string
@@ -560,6 +561,13 @@ export interface Order {
   sales_profile?: SalesProfile  // V2.0: Perfil de venta expandido
   source_location?: Location  // V2.0: Ubicación origen expandida
   trade_ins?: TradeIn[] // V2.0: Equipos recibidos en parte de pago
+}
+
+export interface PaymentBreakdownEntry {
+  method: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  amount: number
+  bank_name?: string
+  reference?: string
 }
 
 export interface OrderItem {
@@ -616,6 +624,7 @@ export interface CreateOrderRequest {
   customer_name: string
   customer_phone: string
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  payment_breakdown?: PaymentBreakdownEntry[]
   transfer_bank_name?: string
   transfer_reference?: string
   items: {
@@ -725,16 +734,148 @@ export interface CreateStockTransferRequest {
   created_by?: string
 }
 
+export interface SuperAdminStockImeiIssue {
+  product_id: number
+  product_name: string
+  location_id: number
+  location_name?: string
+  stock_disponible: number
+  imeis_disponibles: number
+  difference: number
+  severity: 'media' | 'alta' | string
+}
+
+export interface SuperAdminStockImeiDiagnostics {
+  issues: SuperAdminStockImeiIssue[]
+  total_issues: number
+}
+
+export interface SuperAdminStockAdjustmentPayload {
+  product_id: number
+  location_id: number
+  cantidad_disponible: number
+  cantidad_reservada: number
+  cantidad_defectuosa: number
+  reason: string
+}
+
+export interface SuperAdminPaymentCorrectionPayload {
+  metodo_pago?: string
+  payment_breakdown?: PaymentBreakdownEntry[]
+  transfer_bank_name?: string
+  transfer_reference?: string
+  notes?: string
+  reason: string
+}
+
+export interface SuperAdminProductCorrectionPayload {
+  sku?: string
+  nombre?: string
+  marca?: string
+  modelo?: string
+  color?: string
+  capacidad?: string
+  precio?: number
+  costo?: number
+  activo?: boolean
+  reason: string
+}
+
+export interface SuperAdminAuditLogEntry {
+  id: number
+  user_id?: number
+  username?: string
+  action: string
+  entity_type: string
+  entity_id?: number
+  location_id?: number
+  before_data?: Record<string, unknown> | string | null
+  after_data?: Record<string, unknown> | string | null
+  metadata?: Record<string, unknown> | string | null
+  created_at: string
+}
+
+export interface SuperAdminStockHistoryEntry {
+  id: number
+  product_id: number
+  product_name?: string
+  location_id?: number
+  location_name?: string
+  tipo_cambio: string
+  cantidad: number
+  stock_anterior: number
+  stock_nuevo: number
+  referencia_id?: number
+  referencia_tipo?: string
+  notas?: string
+  usuario?: string
+  created_at: string
+}
+
+export interface SuperAdminImeiHistoryEntry {
+  id: number
+  imei: string
+  product_id: number
+  product_name?: string
+  location_id?: number
+  location_name?: string
+  event_type: string
+  reference_id?: number
+  reference_type?: string
+  notes?: string
+  created_by?: string
+  created_at: string
+}
+
+export interface SuperAdminEntityHistory {
+  audit_logs: SuperAdminAuditLogEntry[]
+  stock_history: SuperAdminStockHistoryEntry[]
+  imei_history: SuperAdminImeiHistoryEntry[]
+}
+
+export interface SuperAdminAlert {
+  id: string
+  severity: string
+  category: string
+  title: string
+  detail: string
+  entity_type?: string
+  entity_id?: number
+  location_id?: number
+  created_at: string
+}
+
+export interface SuperAdminUserSummary {
+  id: number
+  username: string
+  email?: string
+  full_name?: string
+  is_active: boolean
+  is_superuser: boolean
+  role_id?: number
+  role_name?: string
+  created_at: string
+  updated_at?: string
+  audit_action_count: number
+  last_action_at?: string
+  last_action?: string
+}
+
+export interface SuperAdminListResponse<T> {
+  items: T[]
+  total: number
+}
+
 export interface StockHistory {
   id: number
   product_id: number
   location_id?: number // V2.0: Ubicación donde ocurrió el movimiento
-  tipo_cambio: 'venta' | 'venta_reserva' | 'venta_reserva_liberada' | 'VENTA_VALIDADA' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'transferencia_recepcion_parcial' | 'ajuste' | 'CONTEO_FISICO' | 'COMPRA_RECIBIDA' | 'devolucion' | 'retoma' | 'compra' | 'garantia_salida' | 'garantia_entrada' | 'devolucion_defectuosa'
+  tipo_cambio: 'venta' | 'venta_reserva' | 'venta_reserva_liberada' | 'VENTA_VALIDADA' | 'transferencia_salida' | 'transferencia_entrada' | 'transferencia_reserva' | 'transferencia_cancelada' | 'transferencia_rechazada' | 'transferencia_recepcion_parcial' | 'ajuste' | 'super_admin_adjustment' | 'CONTEO_FISICO' | 'COMPRA_RECIBIDA' | 'devolucion' | 'retoma' | 'compra' | 'garantia_salida' | 'garantia_entrada' | 'devolucion_defectuosa'
   cantidad: number  // Positivo para entrada, negativo para salida
   stock_anterior: number
   stock_nuevo: number
   referencia_id?: number
-  referencia_tipo?: 'order' | 'order_validated' | 'order_finalized' | 'purchase_receipt' | 'physical_inventory_count' | 'transfer' | 'adjustment' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'transfer_partial' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled' | 'return' | 'initial_stock'
+  referencia_tipo?: 'order' | 'order_validated' | 'order_finalized' | 'purchase_receipt' | 'physical_inventory_count' | 'transfer' | 'adjustment' | 'super_admin_panel' | 'transfer_pending' | 'transfer_rejected' | 'transfer_cancelled' | 'transfer_partial' | 'manual_adjustment' | 'product_creation' | 'order_update' | 'order_cancelled' | 'return' | 'initial_stock'
   notas?: string
   usuario?: string
   created_at: string
@@ -769,6 +910,18 @@ export interface ProductIMEI {
   product_name?: string
   location_name?: string
   supplier_name?: string
+}
+
+export interface IMEIAdminCreateRequest {
+  product_id: number
+  location_id: number
+  imei: string
+  reason: string
+}
+
+export interface IMEIAdminCorrectRequest {
+  new_imei: string
+  reason: string
 }
 
 export interface IMEIHistory {

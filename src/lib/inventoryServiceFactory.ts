@@ -223,6 +223,8 @@ export interface IInventoryService {
     search?: string
   }): Promise<ProductIMEI[]>
   getProductIMEIs(productId: number): Promise<ProductIMEI[]>
+  adminAddMissingIMEI(payload: { product_id: number; location_id: number; imei: string; reason: string }): Promise<ProductIMEI>
+  adminCorrectIMEI(imeiId: number, payload: { new_imei: string; reason: string }): Promise<ProductIMEI>
   
   getProductByIMEI(imei: string): Promise<ProductWithStock>
 
@@ -572,6 +574,12 @@ class LocalServiceWrapper implements IInventoryService {
   }
   async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
     return this.service.getProductIMEIs(productId)
+  }
+  async adminAddMissingIMEI(payload: { product_id: number; location_id: number; imei: string; reason: string }): Promise<ProductIMEI> {
+    return this.service.adminAddMissingIMEI(payload)
+  }
+  async adminCorrectIMEI(imeiId: number, payload: { new_imei: string; reason: string }): Promise<ProductIMEI> {
+    return this.service.adminCorrectIMEI(imeiId, payload)
   }
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
@@ -1459,6 +1467,24 @@ class UnifiedInventoryService implements IInventoryService {
       throw new Error(`Failed to get product IMEIs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+  async adminAddMissingIMEI(payload: { product_id: number; location_id: number; imei: string; reason: string }): Promise<ProductIMEI> {
+    try {
+      const service = await this.getService()
+      return service.adminAddMissingIMEI(payload)
+    } catch (error) {
+      console.error('Error adding missing IMEI (unified):', error)
+      throw new Error(`Failed to add missing IMEI: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+  async adminCorrectIMEI(imeiId: number, payload: { new_imei: string; reason: string }): Promise<ProductIMEI> {
+    try {
+      const service = await this.getService()
+      return service.adminCorrectIMEI(imeiId, payload)
+    } catch (error) {
+      console.error('Error correcting IMEI (unified):', error)
+      throw new Error(`Failed to correct IMEI: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     try {
@@ -2271,6 +2297,14 @@ class ApiInventoryService implements IInventoryService {
 
   async getProductIMEIs(productId: number): Promise<ProductIMEI[]> {
     return apiClient.fetchProductIMEIs({ product_id: productId })
+  }
+
+  async adminAddMissingIMEI(payload: { product_id: number; location_id: number; imei: string; reason: string }): Promise<ProductIMEI> {
+    return apiClient.adminAddMissingIMEI(payload)
+  }
+
+  async adminCorrectIMEI(imeiId: number, payload: { new_imei: string; reason: string }): Promise<ProductIMEI> {
+    return apiClient.adminCorrectIMEI(imeiId, payload)
   }
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {

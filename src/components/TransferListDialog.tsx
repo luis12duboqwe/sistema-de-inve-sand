@@ -439,7 +439,7 @@ export function TransferListDialog({
                     </div>
                     <div className="pt-2 text-xs text-muted-foreground">
                       <p>Para crear una transferencia:</p>
-                      <p className="mt-1">Transferencias → Nueva transferencia rápida → Iniciar transferencia</p>
+                      <p className="mt-1">Transferencias → Nueva transferencia</p>
                     </div>
                   </div>
                 ) : (

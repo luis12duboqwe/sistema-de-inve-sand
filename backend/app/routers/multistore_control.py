@@ -155,14 +155,29 @@ def _serialize_audit(row: AuditLog) -> AuditLogResponse:
 
 
 def _payment_expected_total(db: Session, location_id: int, payment_method: str, day_start: datetime, day_end: datetime) -> Decimal:
-    total = db.query(func.coalesce(func.sum(Order.total), 0)).filter(
+    orders = db.query(Order).filter(
         Order.source_location_id == location_id,
-        Order.metodo_pago == payment_method,
         Order.estado.in_(["completada", "validada"]),
         Order.created_at >= day_start,
         Order.created_at <= day_end,
-    ).scalar()
-    return Decimal(str(total or 0))
+    ).all()
+
+    total = Decimal("0")
+    for order in orders:
+        if getattr(order, "payment_breakdown", None):
+            try:
+                breakdown = json.loads(order.payment_breakdown)
+            except (TypeError, json.JSONDecodeError):
+                breakdown = []
+            for item in breakdown:
+                if isinstance(item, dict) and item.get("method") == payment_method:
+                    total += Decimal(str(item.get("amount") or 0))
+            continue
+
+        if order.metodo_pago == payment_method:
+            total += Decimal(str(order.total or 0))
+
+    return total
 
 
 @router.get("/location-access/me", response_model=List[UserLocationAccessResponse])

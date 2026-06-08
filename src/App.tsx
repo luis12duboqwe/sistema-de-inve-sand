@@ -10,9 +10,10 @@ import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { toast } from 'sonner'
-import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User as UserIcon, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise, Camera, CaretUpDown, SquaresFour, Rows } from '@phosphor-icons/react'
+import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User as UserIcon, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise, Camera, CaretUpDown, SquaresFour, Rows, Printer } from '@phosphor-icons/react'
 import type { User, Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
 import { ProductCard } from '@/components/ProductCard'
+import { PrintLabelsDialog } from '@/components/PrintLabelsDialog'
 import { OrderCard } from '@/components/OrderCard'
 import { ManageSuppliersDialog } from '@/components/ManageSuppliersDialog'
 import { ReturnsListDialog } from '@/components/ReturnsListDialog'
@@ -53,6 +54,7 @@ import { CustomerInsights } from '@/components/CustomerInsights'
 import { AIChatOrchestratorDialog } from '@/components/AIChatOrchestratorDialog'
 import { ChannelHealthDialog } from '@/components/ChannelHealthDialog'
 import { ManageUsersDialog } from '@/components/ManageUsersDialog'
+import { SuperAdminControlPanelDialog } from '@/components/SuperAdminControlPanelDialog'
 import { LoginPage } from '@/components/LoginPage'
 import { PendingTradeInsDialog } from '@/components/PendingTradeInsDialog'
 import { PhotoRequestsDashboardDialog } from '@/components/PhotoRequestsDashboardDialog'
@@ -96,6 +98,7 @@ function MainApp() {
   const [orderDateTo, setOrderDateTo] = useState<string>('')
   const [activeTab, setActiveTab] = useState('products')
   const [showNewProductDialog, setShowNewProductDialog] = useState(false)
+  const [showBulkPrintLabels, setShowBulkPrintLabels] = useState(false)
   const [showRestockDialog, setShowRestockDialog] = useState(false)
   const [showNewOrderDialog, setShowNewOrderDialog] = useState(false)
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
@@ -118,10 +121,8 @@ function MainApp() {
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState('')
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters | null>(null)
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null)
+  const [showTransferStockDialog, setShowTransferStockDialog] = useState(false)
   const [transferringProduct, setTransferringProduct] = useState<ProductWithStock | null>(null)
-  const [quickTransferProductId, setQuickTransferProductId] = useState<string>('')
-  const [quickTransferSearchTerm, setQuickTransferSearchTerm] = useState('')
-  const [quickTransferProductOpen, setQuickTransferProductOpen] = useState(false)
   const [transferOriginFilter, setTransferOriginFilter] = useState<string>('all')
   const [quickTransferToLocationId, setQuickTransferToLocationId] = useState<string>('all')
   const [showTransferListDialog, setShowTransferListDialog] = useState(false)
@@ -133,6 +134,7 @@ function MainApp() {
   const [channelHealthReady, setChannelHealthReady] = useState<boolean | null>(null)
   const [, setIsChannelHealthLoading] = useState(false)
   const [showManageUsersDialog, setShowManageUsersDialog] = useState(false)
+  const [showSuperAdminPanel, setShowSuperAdminPanel] = useState(false)
   const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
   const [showPhotoRequestsDialog, setShowPhotoRequestsDialog] = useState(false)
   const [photoRequestPendingCount, setPhotoRequestPendingCount] = useState(0)
@@ -398,39 +400,6 @@ function MainApp() {
       return sameLocation && stockLibre > 0
     })
   })
-
-  const getTransferAvailableStock = (product: ProductWithStock, locationId?: string) => {
-    if (!locationId || locationId === 'all') return product.stock_disponible ?? 0
-
-    const stockItem = product.stock_items?.find(item => String(item.location_id) === locationId)
-    if (!stockItem) return 0
-
-    return Math.max(0, (stockItem.cantidad_disponible || 0) - (stockItem.cantidad_reservada || 0))
-  }
-
-  const filteredTransferProducts = transferProducts
-    .filter(product => {
-      const term = quickTransferSearchTerm.trim().toLowerCase()
-      if (!term) return true
-      const nombre = String(product.nombre ?? '').toLowerCase()
-      const marca = String(product.marca ?? '').toLowerCase()
-      const modelo = String(product.modelo ?? '').toLowerCase()
-      const sku = String(product.sku ?? '').toLowerCase()
-      return (
-        nombre.includes(term) ||
-        marca.includes(term) ||
-        modelo.includes(term) ||
-        sku.includes(term)
-      )
-    })
-    .sort((a, b) => {
-      const stockA = getTransferAvailableStock(a, transferOriginFilter)
-      const stockB = getTransferAvailableStock(b, transferOriginFilter)
-      if (stockB !== stockA) return stockB - stockA
-      return a.nombre.localeCompare(b.nombre)
-    })
-
-  const selectedQuickTransferProduct = (products ?? []).find(product => String(product.id) === quickTransferProductId) ?? null
 
   const {
     status: aiStatus,
@@ -1153,6 +1122,18 @@ function MainApp() {
                 </Button>
               )}
 
+              {useAPI && currentUser?.is_superuser === true && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSuperAdminPanel(true)}
+                  title="Panel de Control Super Admin"
+                  className="hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600"
+                >
+                  <Wrench size={20} weight="bold" />
+                </Button>
+              )}
+
               {canValidateDailyClose && useAPI && (
                 <Button
                   variant="ghost"
@@ -1335,6 +1316,14 @@ function MainApp() {
                     <Button
                       variant="outline"
                       size="icon"
+                      onClick={() => setShowBulkPrintLabels(true)}
+                      title="Imprimir etiquetas en bulk"
+                    >
+                      <Printer size={18} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
                       onClick={() => setShowSuppliersDialog(true)}
                       title="Gestionar Proveedores"
                     >
@@ -1513,7 +1502,10 @@ function MainApp() {
                           </Button>
                         )}
                         {canEditInventory && (
-                          <Button variant="outline" size="sm" onClick={() => setTransferringProduct(product)}>
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setTransferringProduct(product)
+                            setShowTransferStockDialog(true)
+                          }}>
                             Transferir
                           </Button>
                         )}
@@ -1547,7 +1539,10 @@ function MainApp() {
                     <ProductCard
                       product={product}
                       onEdit={canEditInventory ? setEditingProduct : undefined}
-                      onTransfer={canEditInventory ? setTransferringProduct : undefined}
+                      onTransfer={canEditInventory ? (product) => {
+                        setTransferringProduct(product)
+                        setShowTransferStockDialog(true)
+                      } : undefined}
                       onViewHistory={setViewingProductHistory}
                       onToggleActive={canEditInventory ? async (p) => {
                         const updated = await service.updateProduct(p.id, { ...p, activo: !p.activo })
@@ -1566,7 +1561,7 @@ function MainApp() {
                         } catch (error) {
                           const message = error instanceof Error ? error.message : 'Error desconocido'
 
-                          if (message.includes('referenciado') || message.includes('orders') || message.includes('históricas')) {
+                          if (message.includes('referenciado') || message.includes('orders') || message.includes('históricas') || message.includes('historial') || message.includes('trazabilidad')) {
 
                              if (confirm(`No se puede eliminar el producto "${p.nombre}" porque tiene historial de ventas.\n\n¿Deseas desactivarlo en su lugar para que no aparezca en nuevas ventas?`)) {
                                 try {
@@ -2199,9 +2194,9 @@ function MainApp() {
               </div>
 
               <div className="rounded-lg border p-4 space-y-3">
-                <h3 className="font-semibold">Nueva transferencia rápida</h3>
+                <h3 className="font-semibold">Nueva transferencia</h3>
                 <p className="text-sm text-muted-foreground">
-                  Elige el origen, el destino y el producto; luego haz clic en <strong>Iniciar transferencia</strong>.
+                  Elige origen y destino si ya los tienes claros. Los modelos se seleccionan juntos en la siguiente ventana.
                 </p>
 
                 {/* Fila 1: Origen → Destino */}
@@ -2214,9 +2209,6 @@ function MainApp() {
                       value={transferOriginFilter}
                       onValueChange={(value) => {
                         setTransferOriginFilter(value)
-                        setQuickTransferProductId('')
-                        setQuickTransferSearchTerm('')
-                        setQuickTransferProductOpen(false)
                         if (value !== 'all' && value === quickTransferToLocationId) setQuickTransferToLocationId('all')
                       }}
                     >
@@ -2245,7 +2237,6 @@ function MainApp() {
                       value={quickTransferToLocationId}
                       onValueChange={(value) => {
                         setQuickTransferToLocationId(value)
-                        setQuickTransferProductOpen(false)
                         if (value !== 'all' && value === transferOriginFilter) setTransferOriginFilter('all')
                       }}
                     >
@@ -2282,92 +2273,17 @@ function MainApp() {
                   </div>
                 )}
 
-                {/* Fila 2: Producto + Botón */}
-                <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-end">
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Producto a transferir
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {filteredTransferProducts.length} producto(s) encontrado(s)
-                    </p>
-                    <Popover open={quickTransferProductOpen} onOpenChange={setQuickTransferProductOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={quickTransferProductOpen}
-                          className="w-full justify-between font-normal"
-                        >
-                          <span className="truncate text-left">
-                            {selectedQuickTransferProduct
-                              ? `${selectedQuickTransferProduct.nombre} · ${selectedQuickTransferProduct.sku} · ${getTransferAvailableStock(selectedQuickTransferProduct, transferOriginFilter)} uds`
-                              : 'Buscar y seleccionar producto'}
-                          </span>
-                          <CaretUpDown size={16} className="ml-2 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <CommandInput
-                            value={quickTransferSearchTerm}
-                            onValueChange={(value) => {
-                              setQuickTransferSearchTerm(value)
-                              setQuickTransferProductId('')
-                            }}
-                            placeholder="Buscar por nombre, marca, modelo o SKU..."
-                          />
-                          <CommandList>
-                            <CommandEmpty>No se encontraron productos.</CommandEmpty>
-                            {filteredTransferProducts.map(product => (
-                              <CommandItem
-                                key={product.id}
-                                value={String(product.id)}
-                                onSelect={() => {
-                                  setQuickTransferProductId(String(product.id))
-                                  setQuickTransferSearchTerm('')
-                                  setQuickTransferProductOpen(false)
-                                }}
-                              >
-                                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="truncate font-medium">{product.nombre}</p>
-                                    <p className="truncate text-xs text-muted-foreground">
-                                      {product.marca || 'Sin marca'} {product.modelo || ''} · SKU: {product.sku || 'Sin SKU'}
-                                    </p>
-                                  </div>
-                                  <Badge variant="secondary" className="shrink-0">
-                                    {getTransferAvailableStock(product, transferOriginFilter)} uds
-                                  </Badge>
-                                </div>
-                                {quickTransferProductId === String(product.id) && (
-                                  <CheckCircle size={16} weight="fill" className="ml-auto text-primary" />
-                                )}
-                              </CommandItem>
-                            ))}
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-
-                  <Button
-                    onClick={() => {
-                      const selected = (products ?? []).find(p => String(p.id) === quickTransferProductId)
-                      if (!selected) {
-                        toast.error('Selecciona un producto para transferir')
-                        return
-                      }
-                      setTransferringProduct(selected)
-                    }}
-                    disabled={!canEditInventory || !quickTransferProductId}
-                    className="gap-2"
-                  >
-                    <ArrowsLeftRight size={18} weight="bold" />
-                    Iniciar transferencia
-                  </Button>
-                </div>
+                <Button
+                  onClick={() => {
+                    setTransferringProduct(null)
+                    setShowTransferStockDialog(true)
+                  }}
+                  disabled={!canEditInventory}
+                  className="gap-2"
+                >
+                  <ArrowsLeftRight size={18} weight="bold" />
+                  Nueva transferencia
+                </Button>
               </div>
 
               {/* Instrucciones mejoradas */}
@@ -2493,7 +2409,10 @@ function MainApp() {
                             variant="outline"
                             size="sm"
                             className="w-full"
-                            onClick={() => setTransferringProduct(product)}
+                            onClick={() => {
+                              setTransferringProduct(product)
+                              setShowTransferStockDialog(true)
+                            }}
                           >
                             <ArrowsLeftRight size={16} className="mr-2" weight="bold" />
                             Transferir Stock
@@ -2590,6 +2509,12 @@ function MainApp() {
         }}
       />
 
+      <PrintLabelsDialog
+        open={showBulkPrintLabels}
+        onOpenChange={setShowBulkPrintLabels}
+        products={(products ?? []).filter(product => product.activo !== false)}
+      />
+
       <NewOrderDialog
         open={showNewOrderDialog}
         onOpenChange={setShowNewOrderDialog}
@@ -2639,17 +2564,22 @@ function MainApp() {
       )}
 
       {/* V2.0: TransferStockDialog para transferencias entre ubicaciones */}
-      {transferringProduct && (
+      {showTransferStockDialog && (
         <TransferStockDialog
-          open={true}
+          open={showTransferStockDialog}
           product={transferringProduct}
-          onOpenChange={(open) => !open && setTransferringProduct(null)}
-                    initialFromLocationId={transferOriginFilter !== 'all' ? Number(transferOriginFilter) : undefined}
-                    initialToLocationId={quickTransferToLocationId !== 'all' ? Number(quickTransferToLocationId) : undefined}
+          products={products ?? []}
+          onOpenChange={(open) => {
+            setShowTransferStockDialog(open)
+            if (!open) setTransferringProduct(null)
+          }}
+          initialFromLocationId={transferOriginFilter !== 'all' ? Number(transferOriginFilter) : undefined}
+          initialToLocationId={quickTransferToLocationId !== 'all' ? Number(quickTransferToLocationId) : undefined}
           onTransferComplete={async () => {
             // Recargar productos después de la transferencia
             const updatedProducts = await inventoryServiceInstance.getProducts()
             setProducts(updatedProducts)
+            setShowTransferStockDialog(false)
             setTransferringProduct(null)
             toast.success('Transferencia creada - pendiente de confirmación')
             // Abrir el diálogo de lista de transferencias
@@ -2935,6 +2865,24 @@ function MainApp() {
         open={showManageUsersDialog}
         onOpenChange={setShowManageUsersDialog}
       />
+
+      {useAPI && currentUser?.is_superuser === true && (
+        <SuperAdminControlPanelDialog
+          open={showSuperAdminPanel}
+          onOpenChange={setShowSuperAdminPanel}
+          products={products ?? []}
+          locations={locations ?? []}
+          orders={orders ?? []}
+          onUpdated={async () => {
+            const [updatedProducts, updatedOrders] = await Promise.all([
+              service.getProducts(),
+              service.getOrders(),
+            ])
+            setProducts(updatedProducts)
+            setOrders(updatedOrders)
+          }}
+        />
+      )}
 
       <PendingTradeInsDialog
         open={showPendingTradeIns}

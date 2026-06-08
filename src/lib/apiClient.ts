@@ -58,7 +58,16 @@ import type { Bank, FinancingOption,
   InventoryCount,
   InventoryCountInput,
   LocationDailyClose,
-  LocationDailyCloseInput
+  LocationDailyCloseInput,
+  SuperAdminAlert,
+  SuperAdminAuditLogEntry,
+  SuperAdminEntityHistory,
+  SuperAdminListResponse,
+  SuperAdminPaymentCorrectionPayload,
+  SuperAdminProductCorrectionPayload,
+  SuperAdminStockAdjustmentPayload,
+  SuperAdminStockImeiDiagnostics,
+  SuperAdminUserSummary
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
@@ -230,6 +239,7 @@ interface ApiOrderResponse {
   customer_phone: string
   canal: 'whatsapp' | 'facebook' | 'instagram' | 'tienda'
   metodo_pago: 'efectivo' | 'transferencia' | 'tarjeta' | 'financiamiento'
+  payment_breakdown?: Order['payment_breakdown']
   transfer_bank_name?: string
   transfer_reference?: string
   total: number
@@ -824,6 +834,106 @@ class ApiClient {
     }
 
     return collected
+  }
+
+  async adminAddMissingIMEI(payload: import('./types').IMEIAdminCreateRequest): Promise<ProductIMEI> {
+    return this.request<ProductIMEI>('/imeis/admin/add-missing', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async adminCorrectIMEI(imeiId: number, payload: import('./types').IMEIAdminCorrectRequest): Promise<ProductIMEI> {
+    return this.request<ProductIMEI>(`/imeis/admin/${imeiId}/correct`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async getSuperAdminStockImeiDiagnostics(): Promise<SuperAdminStockImeiDiagnostics> {
+    return this.request<SuperAdminStockImeiDiagnostics>('/super-admin/diagnostics/stock-imeis')
+  }
+
+  async getSuperAdminAuditLogs(params: Record<string, string | number | boolean | undefined> = {}): Promise<SuperAdminListResponse<SuperAdminAuditLogEntry>> {
+    const query = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    })
+    return this.request<SuperAdminListResponse<SuperAdminAuditLogEntry>>(`/super-admin/audit-logs${query.size ? `?${query}` : ''}`)
+  }
+
+  async getSuperAdminEntityHistory(params: Record<string, string | number | undefined> = {}): Promise<SuperAdminEntityHistory> {
+    const query = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') query.set(key, String(value))
+    })
+    return this.request<SuperAdminEntityHistory>(`/super-admin/entity-history${query.size ? `?${query}` : ''}`)
+  }
+
+  async getSuperAdminAlerts(staleTransferDays = 2): Promise<SuperAdminListResponse<SuperAdminAlert>> {
+    return this.request<SuperAdminListResponse<SuperAdminAlert>>(`/super-admin/alerts?stale_transfer_days=${staleTransferDays}`)
+  }
+
+  async getSuperAdminUsers(search = ''): Promise<SuperAdminListResponse<SuperAdminUserSummary>> {
+    const query = new URLSearchParams()
+    if (search.trim()) query.set('search', search.trim())
+    return this.request<SuperAdminListResponse<SuperAdminUserSummary>>(`/super-admin/users${query.size ? `?${query}` : ''}`)
+  }
+
+  async superAdminAdjustStock(payload: SuperAdminStockAdjustmentPayload): Promise<StockByLocation> {
+    return this.request<StockByLocation>('/super-admin/stock/adjust', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async superAdminCancelOrder(orderId: number, reason: string): Promise<OrderWithItems> {
+    return this.request<OrderWithItems>(`/super-admin/orders/${orderId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  }
+
+  async superAdminCorrectOrderPayment(orderId: number, payload: SuperAdminPaymentCorrectionPayload): Promise<{ ok: boolean; order_id: number }> {
+    return this.request<{ ok: boolean; order_id: number }>(`/super-admin/orders/${orderId}/payment-correction`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async superAdminCancelTransfer(transferId: number, reason: string): Promise<{ ok: boolean; transfer_id: number }> {
+    return this.request<{ ok: boolean; transfer_id: number }>(`/super-admin/stock-transfers/${transferId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  }
+
+  async superAdminCorrectProduct(productId: number, payload: SuperAdminProductCorrectionPayload): Promise<{ ok: boolean; product_id: number }> {
+    return this.request<{ ok: boolean; product_id: number }>(`/super-admin/products/${productId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async superAdminSetUserActive(userId: number, payload: { is_active: boolean; reason: string }): Promise<{ ok: boolean; user_id: number; is_active: boolean }> {
+    return this.request<{ ok: boolean; user_id: number; is_active: boolean }>(`/super-admin/users/${userId}/active`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async superAdminResetUserRole(userId: number, reason: string): Promise<{ ok: boolean; user_id: number }> {
+    return this.request<{ ok: boolean; user_id: number }>(`/super-admin/users/${userId}/reset-role`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  }
+
+  async superAdminRevertAudit(auditId: number, reason: string): Promise<{ ok: boolean; reverted_audit_id: number }> {
+    return this.request<{ ok: boolean; reverted_audit_id: number }>(`/super-admin/audit-logs/${auditId}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
   }
 
   async createProduct(

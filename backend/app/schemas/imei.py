@@ -3,7 +3,23 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class IMEIAdminCreateRequest(BaseModel):
+    """Carga administrativa de un IMEI faltante para corregir inventario."""
+
+    product_id: int
+    location_id: int
+    imei: str = Field(min_length=15, max_length=15)
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class IMEIAdminCorrectRequest(BaseModel):
+    """Corrección administrativa de un IMEI disponible mal digitado."""
+
+    new_imei: str = Field(min_length=15, max_length=15)
+    reason: str = Field(min_length=5, max_length=500)
 
 
 class ProductIMEIResponse(BaseModel):
@@ -39,4 +55,4 @@ class IMEIDetailResponse(ProductIMEIResponse):
     warranty_expires_at: Optional[datetime] = None
 
 
-__all__ = ["ProductIMEIResponse", "IMEIDetailResponse"]
+__all__ = ["ProductIMEIResponse", "IMEIDetailResponse", "IMEIAdminCreateRequest", "IMEIAdminCorrectRequest"]

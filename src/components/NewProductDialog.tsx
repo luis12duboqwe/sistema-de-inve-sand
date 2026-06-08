@@ -24,6 +24,7 @@ import type { Profile, Product, Supplier, Location, ProductWithStock } from '@/l
 import { toast } from 'sonner'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
 import { PrintLabelsDialog } from './PrintLabelsDialog'
+import { CheckCircle } from '@phosphor-icons/react'
 
 // Por marca → lista de modelos custom guardados
 const CUSTOM_MODELS_KEY = 'custom_product_models_v1'
@@ -78,8 +79,8 @@ const MARCAS_CELULAR = [
 ]
 
 const MODELOS_POR_MARCA: Record<string, string[]> = {
-  Apple: ['iPhone 15 Pro Max', 'iPhone 15 Pro', 'iPhone 15 Plus', 'iPhone 15', 'iPhone 14 Pro Max', 'iPhone 14 Pro', 'iPhone 14', 'iPhone 13', 'iPhone 12', 'iPhone SE'],
-  Samsung: ['Galaxy S24 Ultra', 'Galaxy S24+', 'Galaxy S24', 'Galaxy S23 Ultra', 'Galaxy S23', 'Galaxy A54', 'Galaxy A34', 'Galaxy A24', 'Galaxy A14', 'Galaxy Z Fold 5', 'Galaxy Z Flip 5'],
+  Apple: ['iPhone 16 Pro Max', 'iPhone 16 Pro', 'iPhone 16 Plus', 'iPhone 16', 'iPhone 15 Pro Max', 'iPhone 15 Pro', 'iPhone 15 Plus', 'iPhone 15', 'iPhone 14 Pro Max', 'iPhone 14 Pro', 'iPhone 14', 'iPhone 13', 'iPhone 12', 'iPhone SE'],
+  Samsung: ['Galaxy S25 Ultra', 'Galaxy S25+', 'Galaxy S25', 'Galaxy S24 Ultra', 'Galaxy S24+', 'Galaxy S24', 'Galaxy S23 Ultra', 'Galaxy S23', 'Galaxy A55', 'Galaxy A54', 'Galaxy A35', 'Galaxy A34', 'Galaxy A24', 'Galaxy A14', 'Galaxy Z Fold 6', 'Galaxy Z Flip 6', 'Galaxy Z Fold 5', 'Galaxy Z Flip 5'],
   Xiaomi: ['Xiaomi 14 Pro', 'Xiaomi 14', 'Xiaomi 13 Pro', 'Xiaomi 13', 'Redmi Note 13 Pro', 'Redmi Note 13', 'Redmi Note 12', 'Redmi 12', 'POCO X6 Pro', 'POCO F5'],
   Motorola: ['Moto G84', 'Moto G73', 'Moto G53', 'Moto G23', 'Moto Edge 40 Pro', 'Moto Edge 30', 'Razr 40'],
   Huawei: ['P60 Pro', 'P50 Pro', 'Mate 50 Pro', 'Nova 11', 'Nova 10'],
@@ -205,6 +206,8 @@ export function NewProductDialog({
   // Custom modelos/colores persistidos
   const [customModelsForMarca, setCustomModelsForMarca] = useState<string[]>([])
   const [customColors, setCustomColors] = useState<string[]>(loadCustomColors())
+  const [brandSearchTerm, setBrandSearchTerm] = useState('')
+  const [modelSearchTerm, setModelSearchTerm] = useState('')
 
   // Moneda configurable
   const [moneda, setMoneda] = useState('HNL')
@@ -213,6 +216,62 @@ export function NewProductDialog({
   const [createdProduct, setCreatedProduct] = useState<ProductWithStock | null>(null)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
   const scannerInputRef = useRef<HTMLInputElement | null>(null)
+
+  const filteredCellphoneBrands = MARCAS_CELULAR.filter(item =>
+    item.toLowerCase().includes(brandSearchTerm.trim().toLowerCase())
+  )
+
+  const currentBrandText = marca === 'Otra' ? marcaOtra : marca
+  const currentModelText = modelo === 'otro' ? modeloOtro : modelo
+  const visibleBrandSuggestions = brandSearchTerm.trim()
+    ? filteredCellphoneBrands
+    : MARCAS_CELULAR.slice(0, 8)
+
+  const availableModelOptions = marca && marca !== 'Otra' && MODELOS_POR_MARCA[marca]
+    ? [
+        ...MODELOS_POR_MARCA[marca],
+        ...customModelsForMarca.filter(item => !MODELOS_POR_MARCA[marca].includes(item)),
+        'otro'
+      ]
+    : []
+
+  const filteredModelOptions = availableModelOptions.filter(item => {
+    const label = item === 'otro' ? 'Otro modelo' : item
+    return label.toLowerCase().includes(modelSearchTerm.trim().toLowerCase())
+  })
+
+  const visibleModelSuggestions = modelSearchTerm.trim()
+    ? filteredModelOptions
+    : availableModelOptions.filter(item => item !== 'otro').slice(0, 8)
+
+  const selectBrand = (value: string) => {
+    setMarca(value)
+    setModelo('')
+    setModeloOtro('')
+    setBrandSearchTerm('')
+    setModelSearchTerm('')
+  }
+
+  const selectModel = (value: string) => {
+    setModelo(value)
+    setModelSearchTerm('')
+    if (value !== 'otro') setModeloOtro('')
+  }
+
+  const handleBrandSearchChange = (value: string) => {
+    setBrandSearchTerm(value)
+    setMarca('Otra')
+    setMarcaOtra(value)
+    setModelo('')
+    setModeloOtro('')
+    setModelSearchTerm('')
+  }
+
+  const handleModelSearchChange = (value: string) => {
+    setModelSearchTerm(value)
+    setModelo('otro')
+    setModeloOtro(value)
+  }
 
   // Cargar modelos custom cuando cambia la marca
   useEffect(() => {
@@ -638,57 +697,85 @@ export function NewProductDialog({
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="marca">Marca *</Label>
-                  <Select value={marca} onValueChange={setMarca}>
-                    <SelectTrigger id="marca">
-                      <SelectValue placeholder="Seleccionar marca" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MARCAS_CELULAR.map(m => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {marca === 'Otra' && (
-                    <Input
-                      value={marcaOtra}
-                      onChange={e => setMarcaOtra(e.target.value)}
-                      placeholder="Ingresa la marca"
-                      className="mt-2"
-                    />
-                  )}
+                  <Input
+                    id="marca"
+                    value={brandSearchTerm || currentBrandText}
+                    onChange={e => handleBrandSearchChange(e.target.value)}
+                    onFocus={() => setBrandSearchTerm('')}
+                    placeholder="Buscar o escribir marca"
+                  />
+                  <div className="max-h-32 overflow-y-auto rounded-md border bg-background p-1">
+                    {visibleBrandSuggestions.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Se guardará como marca nueva.</div>
+                    ) : (
+                      visibleBrandSuggestions.map(item => (
+                        <button
+                          key={item}
+                          type="button"
+                          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                          onClick={() => selectBrand(item)}
+                        >
+                          <span className="truncate">{item}</span>
+                          {marca === item && <CheckCircle size={16} weight="fill" className="text-primary" />}
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="modelo">Modelo *</Label>
                   {marca && marca !== 'Otra' && MODELOS_POR_MARCA[marca] ? (
-                    <Select value={modelo} onValueChange={setModelo}>
-                      <SelectTrigger id="modelo">
-                        <SelectValue placeholder="Seleccionar modelo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MODELOS_POR_MARCA[marca].map(m => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                        {customModelsForMarca.length > 0 && (
-                          <>
-                            <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-t mt-1 pt-2">Modelos guardados</div>
-                            {customModelsForMarca.map(m => (
-                              <SelectItem key={`custom-${m}`} value={m}>★ {m}</SelectItem>
-                            ))}
-                          </>
+                    <>
+                      <Input
+                        id="modelo"
+                        value={modelSearchTerm || currentModelText}
+                        onChange={e => handleModelSearchChange(e.target.value)}
+                        onFocus={() => setModelSearchTerm('')}
+                        placeholder="Buscar o escribir modelo"
+                      />
+                      <div className="max-h-32 overflow-y-auto rounded-md border bg-background p-1">
+                        {visibleModelSuggestions.length === 0 ? (
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                            onClick={() => selectModel('otro')}
+                          >
+                            <span className="truncate">Usar modelo nuevo: {modelSearchTerm || currentModelText}</span>
+                            {modelo === 'otro' && <CheckCircle size={16} weight="fill" className="text-primary" />}
+                          </button>
+                        ) : (
+                          visibleModelSuggestions.map(item => {
+                            const isCustom = customModelsForMarca.includes(item)
+                            const label = item === 'otro' ? 'Otro modelo...' : `${isCustom ? 'Guardado: ' : ''}${item}`
+
+                            return (
+                              <button
+                                key={item}
+                                type="button"
+                                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                onClick={() => selectModel(item)}
+                              >
+                                <span className="truncate">{label}</span>
+                                {modelo === item && <CheckCircle size={16} weight="fill" className="text-primary" />}
+                              </button>
+                            )
+                          })
                         )}
-                        <SelectItem value="otro">Otro modelo...</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    </>
                   ) : (
                     <Input
                       id="modelo"
                       value={modeloOtro}
-                      onChange={e => setModeloOtro(e.target.value)}
+                      onChange={e => {
+                        setModelo('otro')
+                        setModeloOtro(e.target.value)
+                      }}
                       placeholder="Ingresa el modelo"
                     />
                   )}
-                  {modelo === 'otro' && (
+                  {modelo === 'otro' && marca !== 'Otra' && MODELOS_POR_MARCA[marca] && (
                     <Input
                       value={modeloOtro}
                       onChange={e => setModeloOtro(e.target.value)}

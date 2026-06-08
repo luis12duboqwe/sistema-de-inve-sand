@@ -99,6 +99,8 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
     return metodo ? (text[metodo] || metodo) : 'N/A'
   }
 
+  const paymentBreakdown = order.payment_breakdown?.filter(item => Number(item.amount) > 0) || []
+
   return (
     <Card className="p-6">
       <div className="flex flex-col gap-4">
@@ -154,10 +156,24 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
           </div>
           <div>
             <span className="text-muted-foreground">Método de Pago:</span>
-            <p className="font-medium">{getPaymentText(order.metodo_pago)}</p>
+            <p className="font-medium">{paymentBreakdown.length > 1 ? 'Pago mixto' : getPaymentText(order.metodo_pago)}</p>
           </div>
 
-          {order.metodo_pago === 'transferencia' && (order.transfer_bank_name || order.transfer_reference) && (
+          {paymentBreakdown.length > 0 && (
+            <div className="md:col-span-2 rounded-md border bg-muted/40 p-2 text-sm">
+              <p className="font-medium mb-1">Desglose de pago</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {paymentBreakdown.map(item => (
+                  <p key={item.method}>
+                    <span className="text-muted-foreground">{getPaymentText(item.method)}:</span>{' '}
+                    <span className="font-medium">HNL {Number(item.amount).toLocaleString()}</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(order.metodo_pago === 'transferencia' || paymentBreakdown.some(item => item.method === 'transferencia')) && (order.transfer_bank_name || order.transfer_reference) && (
             <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-sm">
               <p>
                 <span className="text-muted-foreground">Banco:</span>{' '}

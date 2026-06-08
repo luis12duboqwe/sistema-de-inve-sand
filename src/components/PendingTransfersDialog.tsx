@@ -104,7 +104,7 @@ export function PendingTransfersDialog({
     let scannedImeis: string[] | undefined
     
     if (transfer.imeis && transfer.imeis.length > 0) {
-      const rawImeis = receivedImeis[transfer.id] ?? transfer.imeis.join('\n')
+      const rawImeis = receivedImeis[transfer.id] ?? ''
       scannedImeis = rawImeis
         .split(/[\n,;\s]+/)
         .map(value => value.trim())
@@ -342,7 +342,7 @@ export function PendingTransfersDialog({
                           </Label>
                           <Textarea
                             id={`imeis-${transfer.id}`}
-                            value={receivedImeis[transfer.id] ?? transfer.imeis.join('\n')}
+                            value={receivedImeis[transfer.id] ?? ''}
                             onChange={(event) => setReceivedImeis(prev => ({
                               ...prev,
                               [transfer.id]: event.target.value

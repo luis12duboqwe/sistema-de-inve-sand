@@ -18,7 +18,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Plus, Trash, Robot, MapPin, WarningCircle, CreditCard } from '@phosphor-icons/react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Plus, Trash, Robot, MapPin, WarningCircle, CreditCard, CaretUpDown, CheckCircle } from '@phosphor-icons/react'
 import type { Profile, ProductWithStock, CreateOrderRequest, SalesProfile, Location, Bank, TradeIn } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { toast } from 'sonner'
@@ -113,6 +115,14 @@ export function NewOrderDialog({
   const [customerPhone, setCustomerPhone] = useState('')
   const [canal, setCanal] = useState<CreateOrderRequest['canal']>('whatsapp')
   const [metodoPago, setMetodoPago] = useState<CreateOrderRequest['metodo_pago']>('efectivo')
+  const [cashPaymentAmount, setCashPaymentAmount] = useState('')
+  const [transferPaymentAmount, setTransferPaymentAmount] = useState('')
+  const [cardPaymentAmount, setCardPaymentAmount] = useState('')
+  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<Record<'efectivo' | 'transferencia' | 'tarjeta', boolean>>({
+    efectivo: true,
+    transferencia: false,
+    tarjeta: false,
+  })
   const [transferBankName, setTransferBankName] = useState('')
   const [transferReference, setTransferReference] = useState('')
   const [items, setItems] = useState<OrderItemForm[]>([{ product_id: 0, cantidad: 1 }])
@@ -140,6 +150,8 @@ export function NewOrderDialog({
 
   const [availableIMEIs, setAvailableIMEIs] = useState<Record<number, string[]>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [productSelectorOpen, setProductSelectorOpen] = useState<Record<number, boolean>>({})
+  const [productSearchTerms, setProductSearchTerms] = useState<Record<number, string>>({})
   const scannerInputRef = useRef<HTMLInputElement | null>(null)
 
   const clearFieldError = (field: string) => {
@@ -186,6 +198,10 @@ export function NewOrderDialog({
     setCustomerPhone('')
     setCanal('whatsapp')
     setMetodoPago('efectivo')
+    setCashPaymentAmount('')
+    setTransferPaymentAmount('')
+    setCardPaymentAmount('')
+    setEnabledPaymentMethods({ efectivo: true, transferencia: false, tarjeta: false })
     setTransferBankName('')
     setTransferReference('')
     setItems([{ product_id: 0, cantidad: 1 }])
@@ -417,6 +433,43 @@ export function NewOrderDialog({
 
   const handleRemoveItem = (index: number) => {
     setItems(items.filter((_, i) => i !== index))
+    setProductSelectorOpen(prev => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
+    setProductSearchTerms(prev => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
+  }
+
+  const getProductSearchText = (product: ProductWithStock): string => [
+    product.nombre,
+    product.sku,
+    product.marca,
+    product.modelo,
+    product.color,
+    product.capacidad,
+    product.condicion,
+    product.categoria
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  const getFilteredProductsForSelector = (index: number): ProductWithStock[] => {
+    const term = (productSearchTerms[index] || '').trim().toLowerCase()
+    if (!term) return availableProducts
+
+    const tokens = term.split(/\s+/).filter(Boolean)
+    return availableProducts.filter(product => {
+      const searchText = getProductSearchText(product)
+      return tokens.every(token => searchText.includes(token))
+    })
+  }
+
+  const closeProductSelector = (index: number) => {
+    setProductSelectorOpen(prev => ({ ...prev, [index]: false }))
+    setProductSearchTerms(prev => ({ ...prev, [index]: '' }))
   }
 
   const handleItemChange = async (index: number, field: keyof OrderItemForm, value: any) => {
@@ -515,7 +568,7 @@ export function NewOrderDialog({
     setItems(newItems)
   }
 
-    const calculateTotal = () => {
+    const getOrderFinancials = () => {
       const itemsTotal = items.reduce((total, item) => {
         const product = products.find(p => p.id === item.product_id)
         if (!product) return total
@@ -526,6 +579,12 @@ export function NewOrderDialog({
 
       const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
       const baseTotal = Math.max(0, itemsTotal - tradeInsTotal)
+      const cashAmount = parseFlexibleNumber(cashPaymentAmount) ?? 0
+      const transferAmount = parseFlexibleNumber(transferPaymentAmount) ?? 0
+      const cardBaseAmount = parseFlexibleNumber(cardPaymentAmount) ?? 0
+      const bank = selectedBankId ? banks.find(b => b.id === selectedBankId) : undefined
+      const cardRate = selectedBankId ? Number(bank?.normal_card_rate || 0) : 0
+      const cardSurcharge = cardBaseAmount * cardRate
 
       // Base para financiamiento = (Productos - TradeIns - Prima)
       // La prima se resta ANTES de calcular el recargo, porque eso se paga en efectivo
@@ -550,10 +609,78 @@ export function NewOrderDialog({
       }
 
       // Total Orden (alineado con backend): downPayment + monto a financiar + recargo
-      return downPayment + amountToFinance + surcharge
+      return {
+        itemsTotal,
+        tradeInsTotal,
+        baseTotal,
+        cashAmount,
+        transferAmount,
+        cardBaseAmount,
+        cardRate,
+        cardSurcharge,
+        financingSurcharge: surcharge,
+        total: metodoPago === 'financiamiento'
+          ? downPayment + amountToFinance + surcharge
+          : baseTotal + cardSurcharge,
+      }
+    }
+
+    const calculateTotal = () => {
+      return getOrderFinancials().total
+    }
+
+    const togglePaymentMethod = (method: 'efectivo' | 'transferencia' | 'tarjeta') => {
+      setEnabledPaymentMethods(prev => {
+        const next = { ...prev, [method]: !prev[method] }
+        if (!next[method]) {
+          if (method === 'efectivo') setCashPaymentAmount('')
+          if (method === 'transferencia') setTransferPaymentAmount('')
+          if (method === 'tarjeta') setCardPaymentAmount('')
+        }
+        return next
+      })
+      clearFieldError('paymentBreakdown')
     }
 
   const handleSubmit = async () => {
+    const financials = getOrderFinancials()
+    const currentTotal = financials.total
+    const paymentAmounts = {
+      efectivo: parseFlexibleNumber(cashPaymentAmount) ?? 0,
+      transferencia: parseFlexibleNumber(transferPaymentAmount) ?? 0,
+      tarjeta: parseFlexibleNumber(cardPaymentAmount) ?? 0,
+    }
+    const providedPaymentTotal = paymentAmounts.efectivo + paymentAmounts.transferencia + paymentAmounts.tarjeta
+    const hasPaymentBreakdown = providedPaymentTotal > 0
+
+    if (hasPaymentBreakdown && Math.abs(providedPaymentTotal - financials.baseTotal) > 0.01) {
+      setFormErrors(prev => ({
+        ...prev,
+        paymentBreakdown: `La suma de pagos debe ser HNL ${financials.baseTotal.toLocaleString()} antes del recargo de tarjeta`
+      }))
+      toast.error(`La suma de pagos (HNL ${providedPaymentTotal.toLocaleString()}) no coincide con el neto de la orden (HNL ${financials.baseTotal.toLocaleString()})`)
+      return
+    }
+
+    if (paymentAmounts.tarjeta > 0 && !selectedBankId) {
+      setFormErrors(prev => ({ ...prev, selectedBankId: 'Selecciona el banco/POS de la tarjeta' }))
+      toast.error('Selecciona el banco/POS para calcular el recargo de tarjeta')
+      return
+    }
+
+    if (paymentAmounts.transferencia > 0) {
+      if (!transferBankName.trim()) {
+        setFormErrors(prev => ({ ...prev, transferBankName: 'Selecciona o ingresa el banco de la transferencia' }))
+        toast.error('Ingresa el banco de la transferencia')
+        return
+      }
+      if (!transferReference.trim()) {
+        setFormErrors(prev => ({ ...prev, transferReference: 'Ingresa el número de referencia de la transferencia' }))
+        toast.error('Ingresa el número de referencia de la transferencia')
+        return
+      }
+    }
+
     const validation = validateOrderForm(
       {
         salesProfileSlug,
@@ -592,6 +719,23 @@ export function NewOrderDialog({
     const trimmedName = customerName.trim()
     const phoneValidation = validatePhoneNumber(customerPhone)
     const parsedDownPayment = cashDownPayment ? Number(cashDownPayment) : 0
+    const paymentBreakdown = hasPaymentBreakdown
+      ? [
+          paymentAmounts.efectivo > 0 ? { method: 'efectivo' as const, amount: paymentAmounts.efectivo } : null,
+          paymentAmounts.transferencia > 0
+            ? {
+                method: 'transferencia' as const,
+                amount: paymentAmounts.transferencia,
+                bank_name: transferBankName.trim() || undefined,
+                reference: transferReference.trim() || undefined,
+              }
+            : null,
+          paymentAmounts.tarjeta > 0 ? { method: 'tarjeta' as const, amount: paymentAmounts.tarjeta + financials.cardSurcharge } : null,
+        ].filter(Boolean) as CreateOrderRequest['payment_breakdown']
+      : undefined
+    const primaryPaymentMethod = paymentBreakdown?.length
+      ? paymentBreakdown.reduce((largest, item) => item.amount > largest.amount ? item : largest, paymentBreakdown[0]).method
+      : metodoPago
 
     const sanitizedTradeIns: TradeIn[] | undefined = tradeIns.length
       ? tradeIns.map(tradeIn => ({
@@ -644,9 +788,10 @@ export function NewOrderDialog({
         canal,
         customer_name: trimmedName,
         customer_phone: phoneValidation.phone,
-        metodo_pago: metodoPago,
-        transfer_bank_name: metodoPago === 'transferencia' ? transferBankName.trim() || undefined : undefined,
-        transfer_reference: metodoPago === 'transferencia' ? transferReference.trim() || undefined : undefined,
+        metodo_pago: primaryPaymentMethod,
+        payment_breakdown: paymentBreakdown,
+        transfer_bank_name: paymentAmounts.transferencia > 0 || primaryPaymentMethod === 'transferencia' ? transferBankName.trim() || undefined : undefined,
+        transfer_reference: paymentAmounts.transferencia > 0 || primaryPaymentMethod === 'transferencia' ? transferReference.trim() || undefined : undefined,
         items: validItems,
         trade_ins: sanitizedTradeIns,
         notes: notas.trim() || undefined,
@@ -842,37 +987,82 @@ export function NewOrderDialog({
                   <div key={index} className="border p-3 rounded-md space-y-3 bg-card">
                     <div className="flex flex-col md:flex-row md:items-end gap-2">
                       <div className="flex-1 space-y-2 w-full">
-                        <Select
-                          value={item.product_id.toString()}
-                          onValueChange={v => handleItemChange(index, 'product_id', parseInt(v))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleccionar producto" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableProducts.length === 0 ? (
-                              <div className="p-4 text-center text-sm text-muted-foreground">
-                                {sourceLocationId 
-                                  ? 'No hay productos con stock en esta ubicación'
-                                  : 'Selecciona primero una ubicación'}
-                              </div>
-                            ) : (
-                              availableProducts.map(product => {
-                                // Obtener stock en la ubicación seleccionada
-                                const stockDisplay = getAvailableStockForProduct(product)
-                                
-                                return (
-                                  <SelectItem key={product.id} value={product.id.toString()}>
-                                    {product.nombre} - HNL {(parseFlexibleNumber(product.precio) ?? 0).toLocaleString()} 
-                                    <span className="ml-2 text-muted-foreground">
-                                      (Stock: {stockDisplay})
-                                    </span>
-                                  </SelectItem>
-                                )
-                              })
-                            )}
-                          </SelectContent>
-                        </Select>
+                        {(() => {
+                          const selectedProduct = products.find(product => product.id === item.product_id)
+                          const filteredProducts = getFilteredProductsForSelector(index)
+
+                          return (
+                            <Popover
+                              open={Boolean(productSelectorOpen[index])}
+                              onOpenChange={open => setProductSelectorOpen(prev => ({ ...prev, [index]: open }))}
+                            >
+                              <PopoverTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={Boolean(productSelectorOpen[index])}
+                                  className="h-10 w-full justify-between font-normal"
+                                >
+                                  <span className="truncate text-left">
+                                    {selectedProduct
+                                      ? `${selectedProduct.nombre} · ${selectedProduct.sku || 'Sin SKU'}`
+                                      : 'Buscar producto por modelo, marca o SKU'}
+                                  </span>
+                                  <CaretUpDown size={16} className="ml-2 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                <Command shouldFilter={false}>
+                                  <CommandInput
+                                    value={productSearchTerms[index] || ''}
+                                    onValueChange={value => setProductSearchTerms(prev => ({ ...prev, [index]: value }))}
+                                    placeholder="Buscar por modelo, marca, SKU, color..."
+                                  />
+                                  <CommandList>
+                                    <CommandEmpty>
+                                      {sourceLocationId
+                                        ? 'No se encontraron productos con stock.'
+                                        : 'Selecciona primero una ubicación.'}
+                                    </CommandEmpty>
+                                    {filteredProducts.map(product => {
+                                      const stockDisplay = getAvailableStockForProduct(product)
+                                      const price = parseFlexibleNumber(product.precio) ?? 0
+                                      const isSelected = item.product_id === product.id
+
+                                      return (
+                                        <CommandItem
+                                          key={product.id}
+                                          value={String(product.id)}
+                                          onSelect={() => {
+                                            void handleItemChange(index, 'product_id', product.id)
+                                            closeProductSelector(index)
+                                          }}
+                                        >
+                                          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <p className="truncate font-medium">{product.nombre}</p>
+                                              <p className="truncate text-xs text-muted-foreground">
+                                                {product.marca || 'Sin marca'} {product.modelo || ''} · {product.color || 'Sin color'} · {product.capacidad || 'Sin capacidad'} · SKU: {product.sku || 'Sin SKU'}
+                                              </p>
+                                            </div>
+                                            <div className="shrink-0 text-right text-xs">
+                                              <p className="font-medium">HNL {price.toLocaleString()}</p>
+                                              <p className="text-muted-foreground">Stock: {stockDisplay}</p>
+                                            </div>
+                                          </div>
+                                          {isSelected && (
+                                            <CheckCircle size={16} weight="fill" className="ml-auto text-primary" />
+                                          )}
+                                        </CommandItem>
+                                      )
+                                    })}
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          )
+                        })()}
                       </div>
 
                       <div className="flex items-end gap-2 w-full md:w-auto">
@@ -1211,34 +1401,109 @@ export function NewOrderDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="metodo-pago">Método de Pago</Label>
-                <Select
-                  value={metodoPago}
-                  onValueChange={(v) => {
-                    const next = v as typeof metodoPago
-                    setMetodoPago(next)
-                    if (next !== 'transferencia') {
-                      setTransferBankName('')
-                      setTransferReference('')
-                      clearFieldError('transferBankName')
-                      clearFieldError('transferReference')
-                    }
-                  }}
-                >
-                  <SelectTrigger id="metodo-pago">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="efectivo">Efectivo</SelectItem>
-                    <SelectItem value="transferencia">Transferencia</SelectItem>
-                    <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                    <SelectItem value="financiamiento">Financiamiento</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Formas de pago</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ['efectivo', 'Efectivo'],
+                    ['transferencia', 'Transferencia'],
+                    ['tarjeta', 'Tarjeta'],
+                  ] as const).map(([method, label]) => (
+                    <Button
+                      key={method}
+                      type="button"
+                      variant={enabledPaymentMethods[method] ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => togglePaymentMethod(method)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Puedes activar más de una forma de pago para dividir la venta.</p>
               </div>
             </div>
 
-            {metodoPago === 'transferencia' && (
+            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4" />
+                  Pagos recibidos
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Total: HNL {calculateTotal().toLocaleString()}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {enabledPaymentMethods.efectivo && <div className="space-y-1.5">
+                  <Label htmlFor="cash-payment-amount">Efectivo</Label>
+                  <Input
+                    id="cash-payment-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cashPaymentAmount}
+                    onChange={event => {
+                      setCashPaymentAmount(event.target.value)
+                      clearFieldError('paymentBreakdown')
+                    }}
+                    placeholder="0.00"
+                  />
+                </div>}
+                {enabledPaymentMethods.transferencia && <div className="space-y-1.5">
+                  <Label htmlFor="transfer-payment-amount">Transferencia</Label>
+                  <Input
+                    id="transfer-payment-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={transferPaymentAmount}
+                    onChange={event => {
+                      setTransferPaymentAmount(event.target.value)
+                      clearFieldError('paymentBreakdown')
+                    }}
+                    placeholder="0.00"
+                  />
+                </div>}
+                {enabledPaymentMethods.tarjeta && <div className="space-y-1.5">
+                  <Label htmlFor="card-payment-amount">Tarjeta antes de recargo</Label>
+                  <Input
+                    id="card-payment-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={cardPaymentAmount}
+                    onChange={event => {
+                      setCardPaymentAmount(event.target.value)
+                      clearFieldError('paymentBreakdown')
+                    }}
+                    placeholder="0.00"
+                  />
+                </div>}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Distribuye el total neto entre las formas activas. Si usas tarjeta, el recargo se calcula aparte y se suma al total final.
+              </p>
+              {(() => {
+                const financials = getOrderFinancials()
+                const entered = financials.cashAmount + financials.transferAmount + financials.cardBaseAmount
+                return (
+                  <div className="rounded-md bg-background p-2 text-xs space-y-1 border">
+                    <div className="flex justify-between"><span>Neto a cubrir:</span><span>HNL {financials.baseTotal.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span>Monto distribuido:</span><span>HNL {entered.toLocaleString()}</span></div>
+                    {financials.cardBaseAmount > 0 && (
+                      <div className="flex justify-between text-red-600"><span>Recargo tarjeta ({(financials.cardRate * 100).toFixed(2)}%):</span><span>HNL {financials.cardSurcharge.toLocaleString()}</span></div>
+                    )}
+                    <div className="flex justify-between font-semibold border-t pt-1"><span>Total a cobrar:</span><span>HNL {financials.total.toLocaleString()}</span></div>
+                  </div>
+                )
+              })()}
+              {formErrors.paymentBreakdown && (
+                <p className="text-xs text-red-600">{formErrors.paymentBreakdown}</p>
+              )}
+            </div>
+
+            {(enabledPaymentMethods.transferencia || (parseFlexibleNumber(transferPaymentAmount) ?? 0) > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-md border border-dashed border-blue-300 bg-blue-50/40 p-3">
                 <div className="space-y-2">
                   <Label htmlFor="transfer-bank">Banco de la transferencia</Label>
@@ -1286,7 +1551,7 @@ export function NewOrderDialog({
             )}
 
             {/* V2.1: Financing Options */}
-            {(metodoPago === 'tarjeta' || metodoPago === 'financiamiento') && (
+            {(enabledPaymentMethods.tarjeta || metodoPago === 'financiamiento') && (
               <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
                  <div className="flex items-center justify-between">
                    <div className="flex items-center gap-2 text-sm font-medium text-primary">
@@ -1311,7 +1576,7 @@ export function NewOrderDialog({
                           <SelectContent>
                              {banks.map(bank => (
                                 <SelectItem key={bank.id} value={bank.id.toString()}>
-                                   {bank.name} {metodoPago === 'tarjeta' && Number(bank.normal_card_rate) > 0 ? `(${Number(bank.normal_card_rate * 100).toFixed(2)}%)` : ''}
+                                   {bank.name} {enabledPaymentMethods.tarjeta && Number(bank.normal_card_rate) > 0 ? `(${Number(bank.normal_card_rate * 100).toFixed(2)}%)` : ''}
                                 </SelectItem>
                              ))}
                           </SelectContent>
@@ -1354,7 +1619,7 @@ export function NewOrderDialog({
 
                  {selectedBankId && (
                     <div className="text-xs bg-background p-2 rounded border space-y-1">
-                       {metodoPago === 'tarjeta' && (
+                        {enabledPaymentMethods.tarjeta && metodoPago !== 'financiamiento' && (
                           <div className="text-blue-600 font-medium mb-1">
                              Cobro con tarjeta aplica tasa normal
                           </div>
@@ -1372,6 +1637,8 @@ export function NewOrderDialog({
                           }, 0)
                           const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
                           
+                          const mixedFinancials = getOrderFinancials()
+
                           // V2.1: Split Payment Logic
                           const downPayment = parseFloat(cashDownPayment) || 0
                           
@@ -1389,9 +1656,9 @@ export function NewOrderDialog({
                                 surcharge = financedAmount * rate
                                 monthly = (financedAmount + surcharge) / selectedMonths
                              }
-                          } else if (metodoPago === 'tarjeta') {
+                            } else if (enabledPaymentMethods.tarjeta) {
                              rate = Number(bank.normal_card_rate || 0)
-                             surcharge = financedAmount * rate
+                              surcharge = mixedFinancials.cardSurcharge
                           }
                           
                           return (
@@ -1415,9 +1682,9 @@ export function NewOrderDialog({
                                    </div>
                                 )}
 
-                                <div className="flex justify-between font-medium border-t border-dashed pt-1">
-                                   <span>Monto a Financiar:</span>
-                                   <span>HNL {financedAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                  <div className="flex justify-between font-medium border-t border-dashed pt-1">
+                                    <span>{metodoPago === 'financiamiento' ? 'Monto a Financiar:' : 'Monto en Tarjeta:'}</span>
+                                    <span>HNL {(metodoPago === 'financiamiento' ? financedAmount : mixedFinancials.cardBaseAmount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                 </div>
 
                                 <div className="flex justify-between text-red-500">
@@ -1427,7 +1694,7 @@ export function NewOrderDialog({
 
                                 <div className="flex justify-between font-bold border-t pt-1 mt-1">
                                    <span>A Cobrar en POS:</span>
-                                   <span>HNL {(financedAmount + surcharge).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                    <span>HNL {((metodoPago === 'financiamiento' ? financedAmount : mixedFinancials.cardBaseAmount) + surcharge).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                 </div>
 
                                 {monthly > 0 && (

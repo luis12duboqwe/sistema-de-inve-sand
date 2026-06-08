@@ -784,6 +784,147 @@ export class InventoryService {
     }
   }
 
+  async adminAddMissingIMEI(payload: { product_id: number; location_id: number; imei: string; reason: string }): Promise<ProductIMEI> {
+    const release = await inventoryLock.acquire()
+    try {
+      const [products, locations, productIMEIs, imeiHistory, suppliers] = await Promise.all([
+        this.loadProducts(),
+        this.loadLocations(),
+        this.loadProductIMEIs(),
+        this.loadIMEIHistory(),
+        this.loadSuppliers(),
+      ])
+
+      const product = products.find(item => item.id === payload.product_id)
+      if (!product) throw new Error('Producto no encontrado')
+      if (!product.is_serialized) throw new Error('Solo se pueden agregar IMEIs administrativos a productos serializados')
+
+      const location = locations.find(item => item.id === payload.location_id && item.activo)
+      if (!location) throw new Error('Ubicación no encontrada o inactiva')
+
+      const imei = payload.imei.trim()
+      if (!/^\d{15}$/.test(imei)) throw new Error('El IMEI debe tener exactamente 15 dígitos')
+      if (productIMEIs.some(item => item.imei === imei)) throw new Error('Ese IMEI ya está registrado en el sistema')
+      if (payload.reason.trim().length < 5) throw new Error('Debe indicar el motivo de la corrección')
+
+      const now = new Date().toISOString()
+      const supplier = suppliers.find(item => item.id === product.supplier_id)
+      const notes = `Corrección administrativa: ${payload.reason.trim()}`
+      const newRecord: ProductIMEI = {
+        id: Math.max(0, ...productIMEIs.map(item => item.id)) + 1,
+        product_id: product.id,
+        location_id: location.id,
+        supplier_id: product.supplier_id,
+        imei,
+        vendido: false,
+        received_at: now,
+        acquisition_type: 'admin_correction',
+        received_notes: notes,
+        received_by: 'Super Admin Local',
+        created_at: now,
+        product_name: product.nombre,
+        location_name: location.nombre,
+        supplier_name: supplier?.nombre,
+      }
+      const historyEntry: IMEIHistory = {
+        id: Math.max(0, ...imeiHistory.map(item => item.id)) + 1,
+        imei,
+        product_id: product.id,
+        location_id: location.id,
+        supplier_id: product.supplier_id,
+        event_type: 'admin_add_missing',
+        reference_id: newRecord.id,
+        reference_type: 'product_imei',
+        notes,
+        created_at: now,
+        created_by: 'Super Admin Local',
+      }
+
+      await this.setProductIMEIs([...productIMEIs, newRecord])
+      await this.setIMEIHistory([...imeiHistory, historyEntry])
+      return newRecord
+    } finally {
+      release()
+    }
+  }
+
+  async adminCorrectIMEI(imeiId: number, payload: { new_imei: string; reason: string }): Promise<ProductIMEI> {
+    const release = await inventoryLock.acquire()
+    try {
+      const [products, locations, productIMEIs, imeiHistory, suppliers] = await Promise.all([
+        this.loadProducts(),
+        this.loadLocations(),
+        this.loadProductIMEIs(),
+        this.loadIMEIHistory(),
+        this.loadSuppliers(),
+      ])
+
+      const index = productIMEIs.findIndex(item => item.id === imeiId)
+      if (index === -1) throw new Error('IMEI no encontrado')
+      const current = productIMEIs[index]
+      if (current.vendido || current.order_id || current.transfer_id) {
+        throw new Error('Solo se puede corregir un IMEI disponible, sin venta ni transferencia asociada')
+      }
+
+      const newImei = payload.new_imei.trim()
+      if (!/^\d{15}$/.test(newImei)) throw new Error('El IMEI debe tener exactamente 15 dígitos')
+      if (current.imei === newImei) throw new Error('El nuevo IMEI es igual al actual')
+      if (productIMEIs.some(item => item.id !== imeiId && item.imei === newImei)) throw new Error('El nuevo IMEI ya está registrado en el sistema')
+      if (payload.reason.trim().length < 5) throw new Error('Debe indicar el motivo de la corrección')
+
+      const product = products.find(item => item.id === current.product_id)
+      const location = locations.find(item => item.id === current.location_id)
+      const supplier = suppliers.find(item => item.id === current.supplier_id)
+      const previousImei = current.imei
+      const notes = `Corrección administrativa de IMEI ${previousImei} a ${newImei}: ${payload.reason.trim()}`
+      const updated: ProductIMEI = {
+        ...current,
+        imei: newImei,
+        received_notes: `${current.received_notes || ''}\n${notes}`.trim(),
+        product_name: product?.nombre,
+        location_name: location?.nombre,
+        supplier_name: supplier?.nombre,
+      }
+      productIMEIs[index] = updated
+
+      const nextHistoryId = Math.max(0, ...imeiHistory.map(item => item.id)) + 1
+      const now = new Date().toISOString()
+      await this.setProductIMEIs(productIMEIs)
+      await this.setIMEIHistory([
+        ...imeiHistory,
+        {
+          id: nextHistoryId,
+          imei: previousImei,
+          product_id: current.product_id,
+          location_id: current.location_id,
+          supplier_id: current.supplier_id,
+          event_type: 'admin_correct_from',
+          reference_id: current.id,
+          reference_type: 'product_imei',
+          notes,
+          created_at: now,
+          created_by: 'Super Admin Local',
+        },
+        {
+          id: nextHistoryId + 1,
+          imei: newImei,
+          product_id: current.product_id,
+          location_id: current.location_id,
+          supplier_id: current.supplier_id,
+          event_type: 'admin_correct_to',
+          reference_id: current.id,
+          reference_type: 'product_imei',
+          notes,
+          created_at: now,
+          created_by: 'Super Admin Local',
+        },
+      ])
+      return updated
+    } finally {
+      release()
+    }
+  }
+
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
     const release = await inventoryLock.acquire()
     try {
@@ -914,15 +1055,21 @@ export class InventoryService {
         return normalized || undefined
       }
 
-      const transferBankName = request.metodo_pago === 'transferencia'
-        ? request.transfer_bank_name?.trim()
+      const hasTransferPayment = request.metodo_pago === 'transferencia' || Boolean(
+        request.payment_breakdown?.some(payment => payment.method === 'transferencia' && Number(payment.amount) > 0)
+      )
+
+      const transferBreakdown = request.payment_breakdown?.find(payment => payment.method === 'transferencia')
+
+      const transferBankName = hasTransferPayment
+        ? (request.transfer_bank_name || transferBreakdown?.bank_name)?.trim()
         : undefined
-      const transferReference = request.metodo_pago === 'transferencia'
-        ? request.transfer_reference?.trim()
+      const transferReference = hasTransferPayment
+        ? (request.transfer_reference || transferBreakdown?.reference)?.trim()
         : undefined
       const transferReferenceNormalized = normalizeTransferReference(transferReference)
 
-      if (request.metodo_pago === 'transferencia') {
+      if (hasTransferPayment) {
         if (!transferBankName) {
           throw new Error('Debes indicar el banco cuando el método de pago es transferencia')
         }
@@ -1455,6 +1602,7 @@ export class InventoryService {
         customer_phone: phoneAsString,
         canal: request.canal,
         metodo_pago: request.metodo_pago,
+        payment_breakdown: request.payment_breakdown,
         transfer_bank_name: transferBankName,
         transfer_reference: transferReference,
         transfer_reference_normalized: transferReferenceNormalized,
@@ -2422,12 +2570,21 @@ export class InventoryService {
          isSerialized = true
       }
 
-      if (isSerialized && initialStock > 0) {
-          if (!product.imeis || product.imeis.length === 0) {
+        const cleanedInitialImeis = (product.imeis ?? []).map(imei => String(imei || '').trim()).filter(Boolean)
+
+        if (isSerialized && initialStock > 0) {
+          if (cleanedInitialImeis.length === 0) {
               throw new Error("Para productos serializados con stock inicial, debe proporcionar los IMEIs.")
           }
-          if (product.imeis.length !== initialStock) {
-              throw new Error(`La cantidad de IMEIs proporcionados (${product.imeis.length}) no coincide con el stock inicial (${initialStock})`)
+          if (cleanedInitialImeis.length !== initialStock) {
+            throw new Error(`La cantidad de IMEIs proporcionados (${cleanedInitialImeis.length}) no coincide con el stock inicial (${initialStock})`)
+          }
+          const invalidImei = cleanedInitialImeis.find(imei => imei.length !== 15)
+          if (invalidImei) {
+            throw new Error(`El IMEI ${invalidImei} debe tener 15 dígitos.`)
+          }
+          if (new Set(cleanedInitialImeis).size !== cleanedInitialImeis.length) {
+            throw new Error('La lista de IMEIs contiene valores duplicados')
           }
       }
 
@@ -2454,10 +2611,10 @@ export class InventoryService {
         const now = new Date().toISOString()
         const initialImeiNotes = `Stock inicial del producto '${newProduct.nombre}' (SKU: ${newProduct.sku})`
       
-      if (newProduct.imeis && newProduct.imeis.length > 0) {
+        if (cleanedInitialImeis.length > 0) {
           let nextImeiId = Math.max(0, ...productIMEIs.map(i => i.id)) + 1
           let nextImeiHistoryId = Math.max(0, ...imeiHistory.map(h => h.id)) + 1
-          for (const imeiStr of newProduct.imeis) {
+          for (const imeiStr of cleanedInitialImeis) {
               // Check for duplicates globally
               if (productIMEIs.some(pi => pi.imei === imeiStr)) {
                   throw new Error(`El IMEI ${imeiStr} ya existe en el sistema.`)
@@ -2510,12 +2667,23 @@ export class InventoryService {
         })
       }
 
-      await this.setProducts([...products, newProduct])
-      await this.setStock([...stock, newStock])
-      await this.setStockHistory(stockHistory)
-      if (newIMEIs.length > 0) {
-          await this.setProductIMEIs([...productIMEIs, ...newIMEIs])
-          await this.setIMEIHistory([...imeiHistory, ...newIMEIHistory])
+      try {
+        await this.setProducts([...products, newProduct])
+        await this.setStock([...stock, newStock])
+        await this.setStockHistory(stockHistory)
+        if (newIMEIs.length > 0) {
+            await this.setProductIMEIs([...productIMEIs, ...newIMEIs])
+            await this.setIMEIHistory([...imeiHistory, ...newIMEIHistory])
+        }
+      } catch (persistError) {
+        await Promise.allSettled([
+          this.setProducts(products),
+          this.setStock(stock),
+          this.setStockHistory(stockHistory.filter(history => history.product_id !== newProduct.id)),
+          this.setProductIMEIs(productIMEIs),
+          this.setIMEIHistory(imeiHistory),
+        ])
+        throw persistError
       }
 
       await this.recordSyncEvent({
@@ -3740,6 +3908,7 @@ export class InventoryService {
         estado: 'pendiente',
         created_at: new Date().toISOString(),
         created_by: request.created_by,
+        imeis: imeisToReserve.length > 0 ? imeisToReserve.map(imei => imei.imei) : undefined,
         product: {
             id: product.id,
             nombre: product.nombre,
@@ -3827,7 +3996,10 @@ export class InventoryService {
     estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
   }): Promise<StockTransfer[]> {
     try {
-      const transfers = await this.loadStockTransfers()
+      const [transfers, productIMEIs] = await Promise.all([
+        this.loadStockTransfers(),
+        this.loadProductIMEIs()
+      ])
       
       return transfers.filter(t => {
         if (filters?.product_id && t.product_id !== filters.product_id) return false
@@ -3836,7 +4008,12 @@ export class InventoryService {
         if (filters?.location_id && t.from_location_id !== filters.location_id && t.to_location_id !== filters.location_id) return false
         if (filters?.estado && t.estado !== filters.estado) return false
         return true
-      }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      }).map(transfer => ({
+        ...transfer,
+        imeis: transfer.imeis && transfer.imeis.length > 0
+          ? transfer.imeis
+          : productIMEIs.filter(imei => imei.transfer_id === transfer.id).map(imei => imei.imei)
+      })).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     } catch (error) {
       console.error('Error listing stock transfers:', error)
       return []
@@ -6619,6 +6796,10 @@ export class InventoryService {
       if (!role) {
         throw new Error('Rol no disponible en modo local')
       }
+      const isSuperAdminRole = role.name.toLowerCase().replace(/\s+/g, '') === 'superadmin'
+      if (isSuperAdminRole && users.some(user => user.is_superuser)) {
+        throw new Error('En modo local no se pueden crear Super Admin adicionales')
+      }
       const nextId = users.length > 0 ? Math.max(...users.map(user => user.id)) + 1 : 1
       const timestamp = new Date().toISOString()
       const newUser: User = {
@@ -6627,7 +6808,7 @@ export class InventoryService {
         email: normalizedPayload.email,
         full_name: normalizedPayload.full_name,
         is_active: true,
-        is_superuser: role.name.toLowerCase().includes('super') || (role.permissions?.length || 0) === PERMISSION_SEED_DATA.length,
+        is_superuser: isSuperAdminRole,
         role_id: role.id,
         role,
         created_at: timestamp,
@@ -6691,13 +6872,17 @@ export class InventoryService {
       if (!role) {
         throw new Error('Rol no disponible en modo local')
       }
+      const isSuperAdminRole = role.name.toLowerCase().replace(/\s+/g, '') === 'superadmin'
+      if (isSuperAdminRole && !users[index].is_superuser && users.some(user => user.is_superuser)) {
+        throw new Error('En modo local no se pueden promover usuarios a Super Admin')
+      }
       const now = new Date().toISOString()
       const previousUser = { ...users[index] }
       const updated: User = {
         ...users[index],
         role_id: role.id,
         role,
-        is_superuser: role.name.toLowerCase().includes('super'),
+        is_superuser: isSuperAdminRole,
         updated_at: now
       }
       users[index] = updated
@@ -6743,6 +6928,10 @@ export class InventoryService {
       if (typeof updates.role_id === 'number' && !nextRole) {
         throw new Error('Rol no disponible en modo local')
       }
+      const isNextSuperAdminRole = nextRole?.name.toLowerCase().replace(/\s+/g, '') === 'superadmin'
+      if (isNextSuperAdminRole && !users[index].is_superuser && users.some(user => user.is_superuser)) {
+        throw new Error('En modo local no se pueden promover usuarios a Super Admin')
+      }
 
       const { password: _password, ...restUpdates } = updates
       const now = new Date().toISOString()
@@ -6752,7 +6941,7 @@ export class InventoryService {
         ...restUpdates,
         role_id: typeof updates.role_id === 'number' ? updates.role_id : users[index].role_id,
         role: nextRole,
-        is_superuser: nextRole ? nextRole.name.toLowerCase().includes('super') : users[index].is_superuser,
+        is_superuser: nextRole ? isNextSuperAdminRole : users[index].is_superuser,
         updated_at: now
       }
 

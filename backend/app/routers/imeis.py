@@ -5,13 +5,27 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth import get_current_active_user, check_permission
+from app.auth import check_permission, get_current_superuser
 from app.database import get_db
 from app.models import IMEIHistory, Location, Order, Product, ProductIMEI, User
-from app.schemas import IMEIDetailResponse, IMEIHistoryResponse, PaginatedResponse, ProductIMEIResponse
+from app.schemas import (
+    IMEIAdminCorrectRequest,
+    IMEIAdminCreateRequest,
+    IMEIDetailResponse,
+    IMEIHistoryResponse,
+    PaginatedResponse,
+    ProductIMEIResponse,
+)
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 
 router = APIRouter(prefix="/api/imeis", tags=["imeis"])
+
+
+def _validate_imei_digits(imei: str) -> str:
+    cleaned = imei.strip()
+    if len(cleaned) != 15 or not cleaned.isdigit():
+        raise HTTPException(status_code=400, detail="El IMEI debe tener exactamente 15 dígitos")
+    return cleaned
 
 
 def _serialize_product_imei(record: ProductIMEI) -> ProductIMEIResponse:
@@ -48,6 +62,113 @@ def _build_warranty_expiration(record: ProductIMEI) -> Optional[datetime]:
     if not record.sold_at or not record.product or not record.product.garantia_meses:
         return None
     return record.sold_at + timedelta(days=record.product.garantia_meses * 30)
+
+
+@router.post("/admin/add-missing", response_model=ProductIMEIResponse)
+def admin_add_missing_imei(
+    payload: IMEIAdminCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser),
+):
+    """Agrega un IMEI faltante a un producto existente. Solo super admin."""
+
+    imei = _validate_imei_digits(payload.imei)
+    product = db.query(Product).filter(Product.id == payload.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if not product.is_serialized:
+        raise HTTPException(status_code=400, detail="Solo se pueden agregar IMEIs administrativos a productos serializados")
+
+    location = db.query(Location).filter(Location.id == payload.location_id, Location.activo == True).first()
+    if not location:
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada o inactiva")
+
+    existing = db.query(ProductIMEI).filter(ProductIMEI.imei == imei).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Ese IMEI ya está registrado en el sistema")
+
+    now = datetime.now()
+    notes = f"Corrección administrativa: {payload.reason.strip()}"
+    record = ProductIMEI(
+        product_id=product.id,
+        location_id=location.id,
+        supplier_id=product.supplier_id,
+        imei=imei,
+        vendido=False,
+        received_at=now,
+        acquisition_type="admin_correction",
+        received_notes=notes,
+        received_by=current_user.username,
+    )
+    db.add(record)
+    db.flush()
+    db.add(IMEIHistory(
+        imei=imei,
+        product_id=product.id,
+        location_id=location.id,
+        supplier_id=product.supplier_id,
+        event_type="admin_add_missing",
+        reference_id=record.id,
+        reference_type="product_imei",
+        notes=notes,
+        created_by=current_user.username,
+    ))
+    db.commit()
+    db.refresh(record)
+    return _serialize_product_imei(record)
+
+
+@router.patch("/admin/{imei_id}/correct", response_model=ProductIMEIResponse)
+def admin_correct_imei(
+    imei_id: int,
+    payload: IMEIAdminCorrectRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser),
+):
+    """Corrige un IMEI disponible mal digitado. Solo super admin."""
+
+    new_imei = _validate_imei_digits(payload.new_imei)
+    record = db.query(ProductIMEI).filter(ProductIMEI.id == imei_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="IMEI no encontrado")
+    if record.vendido or record.order_id or record.transfer_id:
+        raise HTTPException(status_code=400, detail="Solo se puede corregir un IMEI disponible, sin venta ni transferencia asociada")
+    if record.imei == new_imei:
+        raise HTTPException(status_code=400, detail="El nuevo IMEI es igual al actual")
+
+    existing = db.query(ProductIMEI).filter(ProductIMEI.imei == new_imei, ProductIMEI.id != record.id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="El nuevo IMEI ya está registrado en el sistema")
+
+    previous_imei = record.imei
+    notes = f"Corrección administrativa de IMEI {previous_imei} a {new_imei}: {payload.reason.strip()}"
+    record.imei = new_imei
+    record.received_notes = f"{record.received_notes or ''}\n{notes}".strip()
+    db.add(IMEIHistory(
+        imei=previous_imei,
+        product_id=record.product_id,
+        location_id=record.location_id,
+        supplier_id=record.supplier_id,
+        event_type="admin_correct_from",
+        reference_id=record.id,
+        reference_type="product_imei",
+        notes=notes,
+        created_by=current_user.username,
+    ))
+    db.add(IMEIHistory(
+        imei=new_imei,
+        product_id=record.product_id,
+        location_id=record.location_id,
+        supplier_id=record.supplier_id,
+        event_type="admin_correct_to",
+        reference_id=record.id,
+        reference_type="product_imei",
+        notes=notes,
+        created_by=current_user.username,
+    ))
+    db.commit()
+    db.refresh(record)
+    return _serialize_product_imei(record)
 
 
 @router.get("", response_model=PaginatedResponse[ProductIMEIResponse])

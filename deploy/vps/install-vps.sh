@@ -125,6 +125,15 @@ random_password() {
     openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 }
 
+get_public_ipv4() {
+    curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true
+}
+
+resolve_ipv4() {
+    local hostname="$1"
+    getent ahostsv4 "$hostname" 2>/dev/null | awk '{print $1; exit}' || true
+}
+
 run_self_test() {
     log "Self-test: validando repositorio"
     validate_repo
@@ -352,6 +361,8 @@ build_frontend() {
     npm ci --legacy-peer-deps
     npm run build
     chown -R "$APP_USER:$APP_GROUP" "$APP_DIR/dist"
+    find "$APP_DIR/dist" -type d -exec chmod 755 {} \;
+    find "$APP_DIR/dist" -type f -exec chmod 644 {} \;
 }
 
 write_systemd() {
@@ -450,6 +461,14 @@ configure_ssl() {
     if [[ "$SKIP_SSL" == "true" ]]; then
         echo "SSL omitido por --skip-ssl."
         return 0
+    fi
+
+    local server_ip
+    local domain_ip
+    server_ip="$(get_public_ipv4)"
+    domain_ip="$(resolve_ipv4 "$DOMAIN")"
+    if [[ -n "$server_ip" && -n "$domain_ip" && "$server_ip" != "$domain_ip" ]]; then
+        fail "${DOMAIN} resuelve a ${domain_ip}, pero este VPS parece ser ${server_ip}. Corrige DNS antes de pedir SSL."
     fi
 
     log "Solicitando certificado Let's Encrypt"
@@ -571,8 +590,32 @@ EOF
 run_checks() {
     log "Ejecutando verificaciones finales"
     systemctl --no-pager --full status inventario || true
+
+    local attempt
+    for attempt in {1..60}; do
+        if curl -fsS "http://127.0.0.1:8000/api/health" >/dev/null; then
+            break
+        fi
+        sleep 1
+    done
     curl -fsS "http://127.0.0.1:8000/api/health" >/dev/null
+
+    for attempt in {1..30}; do
+        if curl -fsS "http://127.0.0.1/health" >/dev/null; then
+            break
+        fi
+        sleep 1
+    done
     curl -fsS "http://127.0.0.1/health" >/dev/null
+
+    local server_ip
+    local domain_ip
+    server_ip="$(get_public_ipv4)"
+    domain_ip="$(resolve_ipv4 "$DOMAIN")"
+    if [[ -n "$server_ip" && -n "$domain_ip" && "$server_ip" != "$domain_ip" ]]; then
+        echo "ADVERTENCIA: ${DOMAIN} resuelve a ${domain_ip}, pero este VPS parece ser ${server_ip}."
+        echo "Corrige el DNS A record para que apunte a este VPS antes de activar SSL."
+    fi
 
     if [[ "$SKIP_SSL" != "true" ]]; then
         curl -fsS "https://${DOMAIN}/health" >/dev/null || true

@@ -504,6 +504,13 @@ def create_product(
         
         # LEGACY: Si hay IMEIs sin ubicación (para compatibilidad V1)
         elif imeis and len(imeis) > 0:
+            if product.is_serialized and cantidad_inicial > 0 and len(imeis) != cantidad_inicial:
+                db.rollback()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La cantidad de IMEIs ({len(imeis)}) debe coincidir con el stock inicial ({cantidad_inicial})"
+                )
+
             # ProductIMEI ya está importado globalmente
             for imei_value in imeis:
                 if imei_value and imei_value.strip():
@@ -1183,6 +1190,16 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
             detail=f"No se puede eliminar el producto porque está referenciado en {historical_order_items} órdenes históricas. Use 'activo=false' para desactivarlo sin perder trazabilidad."
         )
 
+    imei_history_count = db.query(IMEIHistory).filter(
+        IMEIHistory.product_id == product_id
+    ).count()
+
+    if imei_history_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar el producto porque tiene {imei_history_count} registro(s) de historial IMEI. Use 'activo=false' para desactivarlo sin perder trazabilidad."
+        )
+
     # Verificar stock reservado y transferencias pendientes
     from app.models import StockTransfer
 
@@ -1224,6 +1241,12 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         db.delete(product)
         db.commit()
         return None
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar el producto porque tiene historial o referencias asociadas. Use 'activo=false' para desactivarlo sin perder trazabilidad."
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar producto: {str(e)}")

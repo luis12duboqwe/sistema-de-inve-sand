@@ -22,7 +22,7 @@ from app.schemas import (
 )
 from app.auth import check_permission, get_current_active_user
 from app.services.order_service import OrderService, resolve_user_label
-from app.services.order_service import normalize_transfer_reference, ensure_unique_transfer_reference
+from app.services.order_service import normalize_transfer_reference, ensure_unique_transfer_reference, serialize_payment_breakdown
 from app.services.stock_transaction_helper import (
     PreparedSaleItem,
     StockTransactionHelper,
@@ -235,6 +235,13 @@ def _serialize_order(order: Order) -> OrderResponse:
         for trade_in in order.trade_ins:
             trade_ins_response.append(TradeInResponse.model_validate(trade_in))
 
+    payment_breakdown = None
+    if getattr(order, "payment_breakdown", None):
+        try:
+            payment_breakdown = json.loads(order.payment_breakdown)
+        except (TypeError, json.JSONDecodeError):
+            payment_breakdown = None
+
     return OrderResponse(
         id=order.id,
         profile_id=order.profile_id,
@@ -244,6 +251,7 @@ def _serialize_order(order: Order) -> OrderResponse:
         customer_phone=order.customer_phone,
         canal=order.canal,
         metodo_pago=order.metodo_pago,
+        payment_breakdown=payment_breakdown,
         transfer_bank_name=order.transfer_bank_name,
         transfer_reference=order.transfer_reference,
         total=order.total,
@@ -704,6 +712,9 @@ def update_order(
         if updates.metodo_pago is not None:
             order.metodo_pago = updates.metodo_pago
 
+        if updates.payment_breakdown is not None:
+            order.payment_breakdown = serialize_payment_breakdown(updates.payment_breakdown)
+
         if hasattr(updates, 'transfer_bank_name') and updates.transfer_bank_name is not None:
             order.transfer_bank_name = updates.transfer_bank_name.strip() or None
 
@@ -711,7 +722,18 @@ def update_order(
             order.transfer_reference = updates.transfer_reference.strip() or None
 
         # Validación anti-fraude para transferencias
-        if order.metodo_pago == "transferencia":
+        payment_breakdown = []
+        if getattr(order, "payment_breakdown", None):
+            try:
+                payment_breakdown = json.loads(order.payment_breakdown)
+            except (TypeError, json.JSONDecodeError):
+                payment_breakdown = []
+        uses_transfer = order.metodo_pago == "transferencia" or any(
+            isinstance(item, dict) and item.get("method") == "transferencia"
+            for item in payment_breakdown
+        )
+
+        if uses_transfer:
             if not order.transfer_bank_name:
                 raise HTTPException(
                     status_code=400,

@@ -111,7 +111,7 @@ from .product import (
     StockByLocationUpdate,
     StockUpdate,
 )
-from .imei import IMEIDetailResponse, ProductIMEIResponse
+from .imei import IMEIAdminCorrectRequest, IMEIAdminCreateRequest, IMEIDetailResponse, ProductIMEIResponse
 from .public import PublicProductResponse
 from .rbac import (
     PermissionBase,

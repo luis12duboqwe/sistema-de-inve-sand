@@ -18,6 +18,7 @@ class Order(Base):
     customer_phone = Column(String, nullable=False, index=True)
     canal = Column(String, nullable=False, index=True)
     metodo_pago = Column(String, nullable=False)
+    payment_breakdown = Column(Text, nullable=True)
     transfer_bank_name = Column(String(120), nullable=True, index=True)
     transfer_reference = Column(String(120), nullable=True)
     transfer_reference_normalized = Column(String(120), nullable=True, index=True)

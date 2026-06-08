@@ -35,6 +35,7 @@ from app.routers import (
     websocket,
     daily_close,
     multistore_control,
+    super_admin,
 )
 from app.models import Profile, Product, Stock, Location
 from app.config import settings
@@ -149,6 +150,7 @@ app.include_router(forecasting.router)
 app.include_router(analytics.router)
 app.include_router(daily_close.router)
 app.include_router(multistore_control.router)
+app.include_router(super_admin.router)
 
 @app.get("/")
 def read_root():

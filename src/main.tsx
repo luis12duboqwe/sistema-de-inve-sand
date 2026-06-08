@@ -13,6 +13,6 @@ import "./index.css"
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary FallbackComponent={ErrorFallback}>
     <App />
-    <Toaster />
+    <Toaster position="top-right" richColors />
   </ErrorBoundary>
 )

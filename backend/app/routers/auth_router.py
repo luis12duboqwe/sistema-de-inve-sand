@@ -219,6 +219,26 @@ def ensure_superuser_has_role(db: Session, user: User) -> User:
     db.refresh(user)
     return user
 
+
+def _is_super_admin_role(role: Optional[Role]) -> bool:
+    return bool(role and role.name.strip().lower().replace(" ", "") == "superadmin")
+
+
+def _require_superuser_for_super_admin_role(current_user: User, role: Optional[Role]) -> None:
+    if _is_super_admin_role(role) and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un Super Admin puede crear o asignar el rol Super Admin"
+        )
+
+
+def _require_superuser_for_super_admin_target(current_user: User, target_user: User) -> None:
+    if target_user.is_superuser and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un Super Admin puede modificar cuentas Super Admin"
+        )
+
 @router.post("/setup", response_model=Token)
 def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
     """
@@ -287,6 +307,11 @@ def register_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
+
+    selected_role = db.query(Role).filter(Role.id == user.role_id).first() if user.role_id else None
+    if user.role_id and not selected_role:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Role with ID {user.role_id} not found")
+    _require_superuser_for_super_admin_role(current_user, selected_role)
     
     # Create new user
     hashed_password = get_password_hash(user.password)
@@ -295,7 +320,8 @@ def register_user(
         email=normalized_email,
         full_name=user.full_name,
         hashed_password=hashed_password,
-        role_id=user.role_id
+        role_id=user.role_id,
+        is_superuser=_is_super_admin_role(selected_role),
     )
     
     try:
@@ -458,8 +484,12 @@ def update_user_role(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Role with ID {role_id} not found"
         )
-        
+
+    _require_superuser_for_super_admin_target(current_user, user)
+    _require_superuser_for_super_admin_role(current_user, role)
+
     user.role_id = role_id
+    user.is_superuser = _is_super_admin_role(role)
     db.commit()
     db.refresh(user)
     return user
@@ -482,6 +512,8 @@ def update_user_admin(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with ID {user_id} not found"
         )
+
+    _require_superuser_for_super_admin_target(current_user, user)
     
     if updates.email is not None:
         existing = db.query(User).filter(User.email == updates.email, User.id != user_id).first()
@@ -508,7 +540,9 @@ def update_user_admin(
         role = db.query(Role).filter(Role.id == updates.role_id).first()
         if not role:
             raise HTTPException(status_code=404, detail=f"Role {updates.role_id} not found")
+        _require_superuser_for_super_admin_role(current_user, role)
         user.role_id = updates.role_id
+        user.is_superuser = _is_super_admin_role(role)
         
     if updates.password is not None:
         user.hashed_password = get_password_hash(updates.password)
@@ -590,6 +624,8 @@ def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with ID {user_id} not found"
         )
+
+    _require_superuser_for_super_admin_target(current_user, user)
     
     try:
         db.delete(user)

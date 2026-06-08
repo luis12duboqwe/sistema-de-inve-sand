@@ -20,6 +20,7 @@ interface RestockProductDialogProps {
 
 export function RestockProductDialog({ open, onOpenChange, products, locations, onSuccess }: RestockProductDialogProps) {
   const [productId, setProductId] = useState<string>('')
+  const [productSearch, setProductSearch] = useState('')
   const [locationId, setLocationId] = useState<string>('')
   const [cantidad, setCantidad] = useState<string>('1')
   const [costoUnitario, setCostoUnitario] = useState<string>('')
@@ -37,6 +38,19 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
     () => activeProducts.find(p => p.id === Number(productId)),
     [activeProducts, productId]
   )
+  const filteredProducts = useMemo(() => {
+    const tokens = productSearch.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    return activeProducts
+      .filter(product => {
+        if (tokens.length === 0) return true
+        const haystack = [product.nombre, product.sku, product.marca, product.modelo, product.color, product.capacidad]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return tokens.every(token => haystack.includes(token))
+      })
+      .slice(0, 12)
+  }, [activeProducts, productSearch])
   const isSerialized = !!selectedProduct?.is_serialized
 
   useEffect(() => {
@@ -46,6 +60,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
 
     if (!productId && activeProducts.length > 0) {
       setProductId(String(activeProducts[0].id))
+      setProductSearch(activeProducts[0].nombre)
     }
 
     if (!locationId && activeLocations.length > 0) {
@@ -102,6 +117,16 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
     setNotas('')
     setImeis([''])
     setScanInput('')
+  }
+
+  const handleProductSearchChange = (value: string) => {
+    setProductSearch(value)
+    setProductId('')
+  }
+
+  const handleSelectProduct = (product: ProductWithStock) => {
+    setProductId(String(product.id))
+    setProductSearch(product.nombre)
   }
 
   const normalizeImeiForScanner = (value: string): string => {
@@ -246,18 +271,26 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Producto *</Label>
-              <Select value={productId} onValueChange={setProductId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar producto" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeProducts.map(product => (
-                    <SelectItem key={product.id} value={String(product.id)}>
-                      {product.nombre} · {product.sku}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                value={productSearch}
+                onChange={event => handleProductSearchChange(event.target.value)}
+                placeholder="Buscar producto, SKU o modelo"
+              />
+              <div className="max-h-32 overflow-y-auto rounded-md border bg-background p-1">
+                {filteredProducts.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">Sin productos encontrados</p>
+                ) : filteredProducts.map(product => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => handleSelectProduct(product)}
+                  >
+                    <span className="min-w-0 truncate">{product.nombre}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{product.sku || 'Sin SKU'}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-2">

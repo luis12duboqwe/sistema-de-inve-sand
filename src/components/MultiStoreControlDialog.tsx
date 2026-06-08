@@ -51,6 +51,7 @@ interface MultiStoreControlDialogProps {
 interface ReceiptLine {
   id: string
   product_id: string
+  product_search: string
   quantity: string
   unit_cost: string
   imeis: string
@@ -60,6 +61,7 @@ interface ReceiptLine {
 interface CountLine {
   id: string
   product_id: string
+  product_search: string
   counted_quantity: string
   imeis: string
   notes: string
@@ -91,6 +93,7 @@ const createLineId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}
 const createReceiptLine = (productId = ''): ReceiptLine => ({
   id: createLineId(),
   product_id: productId,
+  product_search: '',
   quantity: '1',
   unit_cost: '0',
   imeis: '',
@@ -100,6 +103,7 @@ const createReceiptLine = (productId = ''): ReceiptLine => ({
 const createCountLine = (productId = ''): CountLine => ({
   id: createLineId(),
   product_id: productId,
+  product_search: '',
   counted_quantity: '0',
   imeis: '',
   notes: '',
@@ -638,6 +642,38 @@ export function MultiStoreControlDialog({
   const productName = (id?: number) => products.find(product => product.id === id)?.nombre || `Producto #${id}`
   const userName = (user: User) => user.full_name || user.username || `Usuario #${user.id}`
 
+  const productSearchText = (product: ProductWithStock) => [
+    product.nombre,
+    product.sku,
+    product.marca,
+    product.modelo,
+    product.color,
+    product.capacidad,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  const filteredProductsForSearch = (search: string, selectedProductId?: string) => {
+    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const selectedProduct = activeProducts.find(product => String(product.id) === selectedProductId)
+    const matches = activeProducts.filter(product => {
+      if (tokens.length === 0) return true
+      const haystack = productSearchText(product)
+      return tokens.every(token => haystack.includes(token))
+    })
+
+    const deduped = new Map<number, ProductWithStock>()
+    if (selectedProduct) deduped.set(selectedProduct.id, selectedProduct)
+    matches.slice(0, 12).forEach(product => deduped.set(product.id, product))
+    return Array.from(deduped.values())
+  }
+
+  const selectReceiptProduct = (lineId: string, product: ProductWithStock) => {
+    updateReceiptLine(lineId, { product_id: String(product.id), product_search: product.nombre })
+  }
+
+  const selectCountProduct = (lineId: string, product: ProductWithStock) => {
+    updateCountLine(lineId, { product_id: String(product.id), product_search: product.nombre })
+  }
+
   const updateReceiptLine = (lineId: string, updates: Partial<ReceiptLine>) => {
     setReceiptLines(current => current.map(line => line.id === lineId ? { ...line, ...updates } : line))
   }
@@ -802,6 +838,7 @@ export function MultiStoreControlDialog({
       .map<CountLine>(summary => ({
         id: createLineId(),
         product_id: String(summary.product_id),
+        product_search: summary.product_name,
         counted_quantity: String(summary.scanned_quantity),
         imeis: summary.scanned_imeis.join('\n'),
         notes: summary.difference === 0
@@ -974,13 +1011,33 @@ export function MultiStoreControlDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {receiptLines.map(line => (
+                    {receiptLines.map(line => {
+                      const receiptProductMatches = filteredProductsForSearch(line.product_search, line.product_id)
+                      return (
                       <TableRow key={line.id}>
                         <TableCell className="min-w-56">
-                          <Select value={line.product_id} onValueChange={value => updateReceiptLine(line.id, { product_id: value })}>
-                            <SelectTrigger><SelectValue placeholder="Producto" /></SelectTrigger>
-                            <SelectContent>{activeProducts.map(product => <SelectItem key={product.id} value={String(product.id)}>{product.nombre}</SelectItem>)}</SelectContent>
-                          </Select>
+                          <div className="space-y-1.5">
+                            <Input
+                              value={line.product_search}
+                              onChange={event => updateReceiptLine(line.id, { product_search: event.target.value, product_id: '' })}
+                              placeholder="Buscar producto, SKU o modelo"
+                            />
+                            <div className="max-h-28 overflow-y-auto rounded-md border bg-background p-1">
+                              {receiptProductMatches.length === 0 ? (
+                                <p className="px-2 py-1.5 text-xs text-muted-foreground">Sin coincidencias</p>
+                              ) : receiptProductMatches.map(product => (
+                                <button
+                                  key={product.id}
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                                  onClick={() => selectReceiptProduct(line.id, product)}
+                                >
+                                  <span className="min-w-0 truncate">{product.nombre}</span>
+                                  <Badge variant="secondary" className="shrink-0">{product.sku || 'Sin SKU'}</Badge>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell><Input type="number" min="1" value={line.quantity} onChange={event => updateReceiptLine(line.id, { quantity: event.target.value })} /></TableCell>
                         <TableCell><Input type="number" min="0" step="0.01" value={line.unit_cost} onChange={event => updateReceiptLine(line.id, { unit_cost: event.target.value })} /></TableCell>
@@ -992,7 +1049,7 @@ export function MultiStoreControlDialog({
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )})}
                   </TableBody>
                 </Table>
               </Card>
@@ -1228,10 +1285,28 @@ export function MultiStoreControlDialog({
                       return (
                       <TableRow key={line.id}>
                         <TableCell className="min-w-56">
-                          <Select value={line.product_id} onValueChange={value => updateCountLine(line.id, { product_id: value })}>
-                            <SelectTrigger><SelectValue placeholder="Producto" /></SelectTrigger>
-                            <SelectContent>{activeProducts.map(product => <SelectItem key={product.id} value={String(product.id)}>{product.nombre}</SelectItem>)}</SelectContent>
-                          </Select>
+                          <div className="space-y-1.5">
+                            <Input
+                              value={line.product_search}
+                              onChange={event => updateCountLine(line.id, { product_search: event.target.value, product_id: '' })}
+                              placeholder="Buscar producto, SKU o modelo"
+                            />
+                            <div className="max-h-28 overflow-y-auto rounded-md border bg-background p-1">
+                              {filteredProductsForSearch(line.product_search, line.product_id).length === 0 ? (
+                                <p className="px-2 py-1.5 text-xs text-muted-foreground">Sin coincidencias</p>
+                              ) : filteredProductsForSearch(line.product_search, line.product_id).map(product => (
+                                <button
+                                  key={product.id}
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                                  onClick={() => selectCountProduct(line.id, product)}
+                                >
+                                  <span className="min-w-0 truncate">{product.nombre}</span>
+                                  <Badge variant="secondary" className="shrink-0">{product.sku || 'Sin SKU'}</Badge>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell><Input type="number" min="0" value={line.imeis.trim() ? String(imeiCount) : line.counted_quantity} onChange={event => updateCountLine(line.id, { counted_quantity: event.target.value })} disabled={Boolean(line.imeis.trim())} /></TableCell>
                         <TableCell>

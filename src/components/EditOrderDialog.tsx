@@ -50,6 +50,7 @@ interface EditOrderDialogProps {
 
 interface OrderItemForm {
   product_id: number
+  product_search?: string
   cantidad: number
   imeis?: string[]
 }
@@ -154,7 +155,7 @@ export function EditOrderDialog({
           } else {
              // No hay items pendientes, preguntar si agregar
              if (confirm(`El producto ${product.nombre} no está en la orden. ¿Deseas agregarlo?`)) {
-               setItems([...items, { product_id: product.id, cantidad: 1, imeis: [imei] }])
+               setItems([...items, { product_id: product.id, product_search: product.nombre, cantidad: 1, imeis: [imei] }])
                toast.success('Producto agregado')
              }
           }
@@ -182,6 +183,7 @@ export function EditOrderDialog({
       setItems(
         order.items.map(item => ({
           product_id: item.product_id,
+          product_search: products.find(product => product.id === item.product_id)?.nombre || '',
           cantidad: item.cantidad,
           imeis: item.imeis || []
         }))
@@ -248,7 +250,7 @@ export function EditOrderDialog({
   }, [open, items, order.source_location_id, products, order.items])
 
   const addItem = () => {
-    setItems([...items, { product_id: 0, cantidad: 1 }])
+    setItems([...items, { product_id: 0, product_search: '', cantidad: 1 }])
   }
 
   const removeItem = (index: number) => {
@@ -256,9 +258,19 @@ export function EditOrderDialog({
   }
 
   const updateItemProduct = (index: number, productId: number) => {
+    const selectedProduct = products.find(product => product.id === productId)
     const newItems = [...items]
     newItems[index].product_id = productId
+    newItems[index].product_search = selectedProduct?.nombre || ''
     newItems[index].imeis = [] // Reset IMEIs when product changes
+    setItems(newItems)
+  }
+
+  const updateItemSearch = (index: number, value: string) => {
+    const newItems = [...items]
+    newItems[index].product_search = value
+    newItems[index].product_id = 0
+    newItems[index].imeis = []
     setItems(newItems)
   }
 
@@ -292,6 +304,26 @@ export function EditOrderDialog({
       const availableStock = stockLibre + (originalItem?.cantidad || 0)
       return availableStock > 0
     })
+  }
+
+  const productSearchText = (product: ProductWithStock) => [
+    product.nombre,
+    product.sku,
+    product.marca,
+    product.modelo,
+    product.color,
+    product.capacidad,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  const getFilteredAvailableProducts = (currentProductId: number, search = '') => {
+    const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    return getAvailableProducts(currentProductId)
+      .filter(product => {
+        if (tokens.length === 0) return true
+        const haystack = productSearchText(product)
+        return tokens.every(token => haystack.includes(token))
+      })
+      .slice(0, 12)
   }
 
   const getAvailableStockInOrderLocation = (product: ProductWithStock, originalQuantity = 0) => {
@@ -535,7 +567,7 @@ export function EditOrderDialog({
               </Button>
             </div>
             {items.map((item, index) => {
-              const availableForThisItem = getAvailableProducts(item.product_id)
+              const availableForThisItem = getFilteredAvailableProducts(item.product_id, item.product_search || '')
               const originalItem = order.items.find(oi => oi.product_id === item.product_id)
               const product = products.find(p => p.id === item.product_id)
               
@@ -544,25 +576,33 @@ export function EditOrderDialog({
                   <div className="flex items-end gap-2">
                     <div className="flex-1 space-y-2">
                       <Label className="text-sm">Producto</Label>
-                      <Select
-                        value={item.product_id.toString()}
-                        onValueChange={(v) => updateItemProduct(index, parseInt(v))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar producto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableForThisItem.map(product => {
-                            const availableStock = product.stock_disponible + (originalItem?.cantidad || 0)
-                            return (
-                              <SelectItem key={product.id} value={product.id.toString()}>
-                                {product.nombre} - HNL {product.precio.toLocaleString()} (Stock:{' '}
-                                {availableStock})
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        value={item.product_search || ''}
+                        onChange={event => updateItemSearch(index, event.target.value)}
+                        placeholder="Buscar producto, SKU o modelo"
+                      />
+                      <div className="max-h-32 overflow-y-auto rounded-md border bg-background p-1">
+                        {availableForThisItem.length === 0 ? (
+                          <p className="px-2 py-1.5 text-xs text-muted-foreground">Sin productos disponibles</p>
+                        ) : availableForThisItem.map(product => {
+                          const availableStock = getAvailableStockInOrderLocation(product, originalItem?.cantidad || 0)
+                          const selected = item.product_id === product.id
+                          return (
+                            <button
+                              key={product.id}
+                              type="button"
+                              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                              onClick={() => updateItemProduct(index, product.id)}
+                            >
+                              <span className="min-w-0 truncate">
+                                {product.nombre} · HNL {product.precio.toLocaleString()}
+                              </span>
+                              <span className="shrink-0 text-xs text-muted-foreground">Stock: {availableStock}</span>
+                              {selected && <span className="shrink-0 text-xs text-primary">Seleccionado</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
 
                     <div className="w-24 space-y-2">

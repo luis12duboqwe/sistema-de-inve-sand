@@ -38,6 +38,23 @@ class MetodoPagoEnum(str, Enum):
     FINANCIAMIENTO = "financiamiento"
 
 
+class PaymentBreakdownEntry(BaseModel):
+    """Monto cobrado por método de pago en ventas mixtas."""
+
+    method: MetodoPagoEnum
+    amount: Decimal = Field(..., gt=0)
+    bank_name: Optional[str] = Field(None, max_length=120)
+    reference: Optional[str] = Field(None, max_length=120)
+
+    @field_validator("bank_name", "reference")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
 class EstadoOrdenEnum(str, Enum):
     """Estados permitidos para una orden."""
 
@@ -233,6 +250,7 @@ class OrderCreate(BaseModel):
     customer_name: str = Field(...)
     customer_phone: str = Field(...)
     metodo_pago: MetodoPagoEnum
+    payment_breakdown: Optional[List[PaymentBreakdownEntry]] = None
     transfer_bank_name: Optional[str] = Field(None, max_length=120)
     transfer_reference: Optional[str] = Field(None, max_length=120)
     items: List[OrderItemCreate] = Field(..., min_length=1)
@@ -315,11 +333,21 @@ class OrderCreate(BaseModel):
         if not self.sales_profile_slug and not self.profile_slug:
             raise ValueError("Debe proporcionar sales_profile_slug (V2.0) o profile_slug (legacy)")
 
-        if self.metodo_pago == MetodoPagoEnum.TRANSFERENCIA:
+        transfer_part = next(
+            (item for item in (self.payment_breakdown or []) if item.method == MetodoPagoEnum.TRANSFERENCIA),
+            None,
+        )
+        uses_transfer = self.metodo_pago == MetodoPagoEnum.TRANSFERENCIA or transfer_part is not None
+
+        if uses_transfer:
+            if not self.transfer_bank_name and transfer_part:
+                self.transfer_bank_name = transfer_part.bank_name
+            if not self.transfer_reference and transfer_part:
+                self.transfer_reference = transfer_part.reference
             if not self.transfer_bank_name:
-                raise ValueError("Debe indicar el banco cuando el método de pago es transferencia")
+                raise ValueError("Debe indicar el banco cuando hay pago por transferencia")
             if not self.transfer_reference:
-                raise ValueError("Debe indicar el número de referencia cuando el método de pago es transferencia")
+                raise ValueError("Debe indicar el número de referencia cuando hay pago por transferencia")
         return self
 
 
@@ -332,6 +360,7 @@ class OrderResponse(BaseModel):
     customer_phone: str
     canal: str
     metodo_pago: str
+    payment_breakdown: Optional[List[PaymentBreakdownEntry]] = None
     transfer_bank_name: Optional[str] = None
     transfer_reference: Optional[str] = None
     total: Decimal
@@ -355,6 +384,7 @@ class OrderListResponse(BaseModel):
     customer_phone: str
     canal: str
     metodo_pago: str
+    payment_breakdown: Optional[List[PaymentBreakdownEntry]] = None
     transfer_bank_name: Optional[str] = None
     transfer_reference: Optional[str] = None
     total: Decimal
@@ -376,6 +406,7 @@ class OrderUpdate(BaseModel):
     customer_phone: Optional[str] = None
     canal: Optional[CanalEnum] = None
     metodo_pago: Optional[MetodoPagoEnum] = None
+    payment_breakdown: Optional[List[PaymentBreakdownEntry]] = None
     transfer_bank_name: Optional[str] = Field(None, max_length=120)
     transfer_reference: Optional[str] = Field(None, max_length=120)
     items: Optional[List[OrderItemUpdate]] = Field(None, min_length=1)

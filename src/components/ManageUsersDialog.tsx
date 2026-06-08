@@ -36,6 +36,7 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
   const [creatingUser, setCreatingUser] = useState(false)
   const [pendingUser, setPendingUser] = useState<CreateUserPayload>({ username: '', email: '', full_name: '', password: '', role_id: 0 })
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [currentUser, setCurrentUser] = useState<Partial<User> | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -45,6 +46,7 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
         const parsed = JSON.parse(stored) as Partial<User>
         if (parsed?.id) {
           setCurrentUserId(parsed.id)
+          setCurrentUser(parsed)
         }
       } catch (err) {
         console.warn('No se pudo parsear auth_user', err)
@@ -68,10 +70,24 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
     }, {})
   }, [permissions])
 
+  const isCurrentSuperAdmin = currentUser?.is_superuser === true
+  const isSuperAdminRole = (roleId?: number) => {
+    const role = roles.find(entry => entry.id === roleId)
+    return role?.name.trim().toLowerCase().replace(/\s+/g, '') === 'superadmin'
+  }
+  const assignableRoles = useMemo(() => {
+    if (isCurrentSuperAdmin) return roles
+    return roles.filter(role => role.name.trim().toLowerCase().replace(/\s+/g, '') !== 'superadmin')
+  }, [isCurrentSuperAdmin, roles])
+
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!pendingUser.role_id) {
       toast.error('Selecciona un rol para el nuevo usuario')
+      return
+    }
+    if (!isCurrentSuperAdmin && isSuperAdminRole(pendingUser.role_id)) {
+      toast.error('Solo un Super Admin puede crear otro Super Admin')
       return
     }
     if ((pendingUser.password || "").length < 6) {
@@ -113,6 +129,10 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
   }
 
   const handleRoleChange = async (user: User, roleId: number) => {
+    if (!isCurrentSuperAdmin && isSuperAdminRole(roleId)) {
+      toast.error('Solo un Super Admin puede asignar el rol Super Admin')
+      return
+    }
     try {
       await updateRole(user.id, roleId)
       toast.success('Rol actualizado')
@@ -282,7 +302,7 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
                     <div className="space-y-2 sm:col-span-2">
                       <Label>Rol asignado</Label>
                       <RoleSelect
-                        roles={roles}
+                        roles={assignableRoles}
                         value={pendingUser.role_id || undefined}
                         onChange={(roleId) => setPendingUser((prev) => ({ ...prev, role_id: roleId }))}
                         disabled={!featureEnabled || isForbidden}
@@ -340,7 +360,7 @@ export function ManageUsersDialog({ open, onOpenChange }: ManageUsersDialogProps
                           </TableCell>
                           <TableCell>
                             <RoleSelect
-                              roles={roles}
+                              roles={user.is_superuser ? roles : assignableRoles}
                               value={user.role_id}
                               onChange={(roleId) => handleRoleChange(user, roleId)}
                               disabled={!featureEnabled || isForbidden || user.is_superuser}
