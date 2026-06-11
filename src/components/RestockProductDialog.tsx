@@ -31,6 +31,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const scannerInputRef = useRef<HTMLInputElement | null>(null)
+  const wasOpenRef = useRef(false)
 
   const activeProducts = useMemo(() => products.filter(p => p.activo), [products])
   const activeLocations = useMemo(() => locations.filter(l => l.activo), [locations])
@@ -55,17 +56,20 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
 
   useEffect(() => {
     if (!open) {
+      wasOpenRef.current = false
       return
     }
 
-    if (!productId && activeProducts.length > 0) {
+    if (!wasOpenRef.current && activeProducts.length > 0) {
       setProductId(String(activeProducts[0].id))
       setProductSearch(activeProducts[0].nombre)
     }
 
-    if (!locationId && activeLocations.length > 0) {
+    if (!wasOpenRef.current && !locationId && activeLocations.length > 0) {
       setLocationId(String(activeLocations[0].id))
     }
+
+    wasOpenRef.current = true
 
     const loadSuppliers = async () => {
       try {
@@ -77,7 +81,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
     }
 
     loadSuppliers()
-  }, [open, productId, locationId, activeProducts, activeLocations])
+  }, [open, activeProducts, activeLocations, locationId])
 
   useEffect(() => {
     if (!open || !isSerialized) {

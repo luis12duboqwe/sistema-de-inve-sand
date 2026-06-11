@@ -161,11 +161,10 @@ export function SuperAdminControlPanelDialog({
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userReason, setUserReason] = useState('')
 
-  const activeProducts = useMemo(() => products.filter(product => product.activo !== false), [products])
   const catalogProducts = useMemo(() => products, [products])
   const activeLocations = useMemo(() => locations.filter(location => location.activo !== false), [locations])
   const pendingTransfers = useMemo(() => transfers.filter(transfer => transfer.estado === 'pendiente'), [transfers])
-  const selectedStockProduct = activeProducts.find(product => String(product.id) === stockProductId)
+  const selectedStockProduct = catalogProducts.find(product => String(product.id) === stockProductId)
   const selectedStock = selectedStockProduct?.stock_items?.find(stock => String(stock.location_id) === stockLocationId)
   const selectedOrder = orders.find(order => String(order.id) === orderId)
   const selectedTransfer = pendingTransfers.find(transfer => String(transfer.id) === transferId)
@@ -244,15 +243,30 @@ export function SuperAdminControlPanelDialog({
     }
   }
 
-  const loadAuditLogs = async () => {
+  const loadAuditLogs = async (overrides: Partial<{
+    username: string
+    action: string
+    entity_type: string
+    entity_id: string
+    start_date: string
+    end_date: string
+  }> = {}) => {
     try {
+      const filters = {
+        username: overrides.username ?? auditUsername,
+        action: overrides.action ?? auditAction,
+        entity_type: overrides.entity_type ?? auditEntityType,
+        entity_id: overrides.entity_id ?? auditEntityId,
+        start_date: overrides.start_date ?? auditStartDate,
+        end_date: overrides.end_date ?? auditEndDate,
+      }
       const result = await apiClient.getSuperAdminAuditLogs({
-        username: auditUsername,
-        action: auditAction,
-        entity_type: auditEntityType,
-        entity_id: auditEntityId ? Number(auditEntityId) : undefined,
-        start_date: auditStartDate || undefined,
-        end_date: auditEndDate || undefined,
+        username: filters.username,
+        action: filters.action,
+        entity_type: filters.entity_type,
+        entity_id: filters.entity_id ? Number(filters.entity_id) : undefined,
+        start_date: filters.start_date || undefined,
+        end_date: filters.end_date || undefined,
         super_admin_only: true,
         limit: 150,
       })
@@ -499,8 +513,8 @@ export function SuperAdminControlPanelDialog({
       await apiClient.superAdminCorrectOrderPayment(Number(orderId), {
         metodo_pago: paymentMethod || undefined,
         payment_breakdown: parsedBreakdown,
-        transfer_bank_name: transferBankName || undefined,
-        transfer_reference: transferReference || undefined,
+        transfer_bank_name: transferBankName.trim(),
+        transfer_reference: transferReference.trim(),
         notes: paymentNotes || undefined,
         reason: orderReason,
       })
@@ -755,7 +769,7 @@ export function SuperAdminControlPanelDialog({
   }
 
   const prepareStockAdjustmentFromIssue = (issue: SuperAdminStockImeiIssue) => {
-    const product = activeProducts.find(item => item.id === issue.product_id)
+    const product = catalogProducts.find(item => item.id === issue.product_id)
     const stock = product?.stock_items?.find(item => item.location_id === issue.location_id)
     const reserved = Number(stock?.cantidad_reservada || 0)
     const defective = Number(stock?.cantidad_defectuosa || 0)
@@ -771,7 +785,7 @@ export function SuperAdminControlPanelDialog({
   }
 
   const prepareDefectiveAdjustmentFromIssue = (issue: SuperAdminStockImeiIssue) => {
-    const product = activeProducts.find(item => item.id === issue.product_id)
+    const product = catalogProducts.find(item => item.id === issue.product_id)
     const stock = product?.stock_items?.find(item => item.location_id === issue.location_id)
     const reserved = Number(stock?.cantidad_reservada || 0)
     const defective = Number(stock?.cantidad_defectuosa || 0)
@@ -841,7 +855,7 @@ export function SuperAdminControlPanelDialog({
     if (alert.category === 'security') {
       setAuditAction('super_admin.access.denied')
       setActiveTab('audit')
-      void loadAuditLogs()
+      void loadAuditLogs({ action: 'super_admin.access.denied' })
       return
     }
 
@@ -1142,7 +1156,7 @@ export function SuperAdminControlPanelDialog({
               <div className="space-y-1.5"><Label>Hasta</Label><Input type="date" value={auditEndDate} onChange={event => setAuditEndDate(event.target.value)} /></div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={loadAuditLogs}>Filtrar auditoría</Button>
+              <Button variant="outline" onClick={() => loadAuditLogs()}>Filtrar auditoría</Button>
               <Button variant="outline" onClick={() => exportCsv('auditoria_super_admin.csv', auditLogs as unknown as Array<Record<string, unknown>>)}>Exportar CSV</Button>
             </div>
             <div className="space-y-2"><Label>Motivo para reversa</Label><Input value={auditReason} onChange={event => setAuditReason(event.target.value)} placeholder="Obligatorio si vas a revertir" /></div>
@@ -1286,6 +1300,8 @@ export function SuperAdminControlPanelDialog({
           onOpenChange={open => !open && setImeiRegistryProduct(null)}
           product={imeiRegistryProduct}
           allowAdminActions
+          locations={activeLocations}
+          onUpdated={refreshPanelData}
         />
       )}
     </>

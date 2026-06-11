@@ -37,7 +37,7 @@ from app.routers import (
     multistore_control,
     super_admin,
 )
-from app.models import Profile, Product, Stock, Location
+from app.utils.demo_seed import seed_demo_data
 from app.config import settings
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
@@ -195,114 +195,11 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         )
 
     try:
-        existing_profile = db.query(Profile).filter(Profile.slug == "softmobile").first()
-        if existing_profile:
-            return {"message": "Los datos de ejemplo ya existen"}
-        
-        profile = Profile(
-            name="Softmobile",
-            slug="softmobile",
-            active=True
-        )
-        db.add(profile)
-        db.flush()
+        summary = seed_demo_data(db, created_by="api-init-data")
 
-        default_location = db.query(Location).filter(Location.nombre == "Tienda Principal").first()
-        if not default_location:
-            default_location = Location(
-                nombre="Tienda Principal",
-                tipo="tienda",
-                direccion="",
-                telefono=None,
-                activo=True
-            )
-            db.add(default_location)
-            db.flush()
-        
-        products_data = [
-            {
-                "sku": "SM-S24-256-NEGRO-NUEVO",
-                "nombre": "Samsung Galaxy S24 256GB Negro",
-                "categoria": "celular",
-                "marca": "Samsung",
-                "modelo": "Galaxy S24",
-                "capacidad": "256GB",
-                "condicion": "nuevo",
-                "precio": 18500.00,
-                "garantia_meses": 12,
-                "stock": 5
-            },
-            {
-                "sku": "IP-15PRO-512-TITANIO-NUEVO",
-                "nombre": "iPhone 15 Pro 512GB Titanio",
-                "categoria": "celular",
-                "marca": "Apple",
-                "modelo": "iPhone 15 Pro",
-                "capacidad": "512GB",
-                "condicion": "nuevo",
-                "precio": 35000.00,
-                "garantia_meses": 12,
-                "stock": 3
-            },
-            {
-                "sku": "ACC-FUNDA-SILICONA-UNIVERSAL",
-                "nombre": "Funda de Silicona Universal",
-                "categoria": "accesorio",
-                "marca": "Genérico",
-                "modelo": "Universal",
-                "capacidad": None,
-                "condicion": "nuevo",
-                "precio": 150.00,
-                "garantia_meses": 0,
-                "stock": 50
-            },
-            {
-                "sku": "ACC-CARGADOR-RAPIDO-20W",
-                "nombre": "Cargador Rápido 20W USB-C",
-                "categoria": "accesorio",
-                "marca": "Anker",
-                "modelo": "PowerPort 20W",
-                "capacidad": "20W",
-                "condicion": "nuevo",
-                "precio": 350.00,
-                "garantia_meses": 6,
-                "stock": 25
-            }
-        ]
-        
-        for product_data in products_data:
-            stock_qty = product_data.pop("stock")
-            
-            product = Product(
-                profile_id=profile.id,
-                **product_data,
-                moneda="HNL",
-                activo=True
-            )
-            db.add(product)
-            db.flush()
-            
-            stock = Stock(
-                product_id=product.id,
-                location_id=default_location.id,
-                cantidad_disponible=stock_qty
-            )
-            db.add(stock)
-        
-        db.commit()
-        
         return {
-            "message": "Datos de ejemplo inicializados correctamente",
-            "profile": {
-                "name": profile.name,
-                "slug": profile.slug
-            },
-            "location": {
-                "nombre": default_location.nombre,
-                "id": default_location.id,
-                "tipo": default_location.tipo
-            },
-            "products_created": len(products_data)
+            "message": "Datos de prueba inicializados correctamente",
+            "summary": summary,
         }
     except Exception as e:
         db.rollback()

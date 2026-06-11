@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/table'
 import { apiClient } from '@/lib/apiClient'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
-import type { ProductIMEI, ProductWithStock } from '@/lib/types'
+import type { Location, ProductIMEI, ProductWithStock } from '@/lib/types'
 
 import { IMEIHistoryDialog } from './IMEIHistoryDialog'
 import { PrintButton } from './ProductLabel'
@@ -32,6 +32,8 @@ interface ProductIMEIRegistryDialogProps {
   onOpenChange: (open: boolean) => void
   product: ProductWithStock
   allowAdminActions?: boolean
+  locations?: Location[]
+  onUpdated?: () => Promise<void> | void
 }
 
 const formatDate = (value?: string) => {
@@ -55,7 +57,7 @@ const getStatusClassName = (record: ProductIMEI) => {
   return 'bg-emerald-600 text-white'
 }
 
-export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAdminActions = false }: ProductIMEIRegistryDialogProps) {
+export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAdminActions = false, locations = [], onUpdated }: ProductIMEIRegistryDialogProps) {
   const [imeiRecords, setImeiRecords] = useState<ProductIMEI[]>([])
   const [loading, setLoading] = useState(false)
   const [savingAdminAction, setSavingAdminAction] = useState(false)
@@ -143,6 +145,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
         reason,
       })
       await reloadImeiRecords()
+      await onUpdated?.()
       setAdminImei('')
       setAdminReason('')
       toast.success('IMEI agregado con historial administrativo')
@@ -180,6 +183,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
     try {
       await inventoryServiceInstance.adminCorrectIMEI(editingRecord.id, { new_imei: newImei, reason })
       await reloadImeiRecords()
+      await onUpdated?.()
       setEditingRecord(null)
       setEditedImei('')
       setEditReason('')
@@ -207,14 +211,27 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
   }, [imeiRecords, search])
 
   const stockLocationOptions = useMemo(() => {
+    if (canUseAdminActions && locations.length > 0) {
+      return locations
+        .filter(location => location.activo !== false)
+        .map(location => {
+          const stock = product.stock_items?.find(item => item.location_id === location.id)
+          return {
+            id: location.id,
+            name: location.nombre,
+            stock: stock?.cantidad_disponible ?? 0,
+          }
+        })
+    }
+
     return (product.stock_items || [])
-      .filter(item => item.location_id && item.cantidad_disponible > 0)
+      .filter(item => item.location_id)
       .map(item => ({
         id: item.location_id,
         name: item.location?.nombre || `Ubicación ${item.location_id}`,
         stock: item.cantidad_disponible,
       }))
-  }, [product.stock_items])
+  }, [canUseAdminActions, locations, product.stock_items])
 
   return (
     <>
