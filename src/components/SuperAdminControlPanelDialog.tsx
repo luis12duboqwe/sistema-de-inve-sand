@@ -174,6 +174,7 @@ export function SuperAdminControlPanelDialog({
   const paymentLinesTotal = paymentLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
   const selectedOrderTotal = Number(selectedOrder?.total || 0)
   const paymentDifference = selectedOrder ? paymentLinesTotal - selectedOrderTotal : 0
+  const summaryStatus = issues.length > 0 || alerts.length > 0 || pendingTransfers.length > 0 ? 'Requiere revisión' : 'Sin problemas detectados'
 
   const filteredProducts = useMemo(() => {
     const tokens = stockProductSearch.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -885,6 +886,26 @@ export function SuperAdminControlPanelDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="space-y-3">
+          <Card className="border border-border/70 bg-background/80 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold">Resumen operativo</h3>
+                  <Badge variant={summaryStatus === 'Sin problemas detectados' ? 'secondary' : 'destructive'}>{summaryStatus}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">Vista rápida de inconsistencias, alertas y acciones administrativas disponibles.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={issues.length > 0 ? 'destructive' : 'secondary'}>Inconsistencias {issues.length}</Badge>
+                <Badge variant={alerts.length > 0 ? 'destructive' : 'secondary'}>Alertas {alerts.length}</Badge>
+                <Badge variant={pendingTransfers.length > 0 ? 'destructive' : 'secondary'}>Transferencias pendientes {pendingTransfers.length}</Badge>
+                <Badge variant="secondary">Usuarios {adminUsers.length}</Badge>
+              </div>
+            </div>
+          </Card>
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
             <TabsTrigger value="diagnostics"><WarningCircle size={16} className="mr-1" />Diagnóstico</TabsTrigger>
@@ -1196,9 +1217,18 @@ export function SuperAdminControlPanelDialog({
               <Button variant="outline" onClick={() => exportCsv('historial_entidad_imeis.csv', entityHistory.imei_history as unknown as Array<Record<string, unknown>>)}>IMEI CSV</Button>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <Card className="p-3"><p className="font-medium mb-2">Auditoría</p>{entityHistory.audit_logs.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">#{item.id} · {item.action}</p>)}</Card>
-              <Card className="p-3"><p className="font-medium mb-2">Stock</p>{entityHistory.stock_history.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">{item.tipo_cambio} · {item.stock_anterior} a {item.stock_nuevo}</p>)}</Card>
-              <Card className="p-3"><p className="font-medium mb-2">IMEIs</p>{entityHistory.imei_history.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">{item.imei} · {item.event_type}</p>)}</Card>
+              <Card className="p-3">
+                <p className="font-medium mb-2">Auditoría</p>
+                {entityHistory.audit_logs.length === 0 ? <p className="text-xs text-muted-foreground">Sin eventos de auditoría para esta entidad.</p> : entityHistory.audit_logs.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">#{item.id} · {item.action}</p>)}
+              </Card>
+              <Card className="p-3">
+                <p className="font-medium mb-2">Stock</p>
+                {entityHistory.stock_history.length === 0 ? <p className="text-xs text-muted-foreground">Sin movimientos de stock registrados.</p> : entityHistory.stock_history.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">{item.tipo_cambio} · {item.stock_anterior} a {item.stock_nuevo}</p>)}
+              </Card>
+              <Card className="p-3">
+                <p className="font-medium mb-2">IMEIs</p>
+                {entityHistory.imei_history.length === 0 ? <p className="text-xs text-muted-foreground">Sin eventos de IMEI para esta entidad.</p> : entityHistory.imei_history.slice(0, 10).map(item => <p key={item.id} className="text-xs text-muted-foreground">{item.imei} · {item.event_type}</p>)}
+              </Card>
             </div>
           </TabsContent>
 
@@ -1229,9 +1259,12 @@ export function SuperAdminControlPanelDialog({
               <Button variant="outline" onClick={() => exportCsv('usuarios_super_admin.csv', adminUsers as unknown as Array<Record<string, unknown>>)}>CSV</Button>
             </div>
             <div className="space-y-2"><Label>Motivo para acción de usuario</Label><Input value={userReason} onChange={event => setUserReason(event.target.value)} /></div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {adminUsers.map(user => (
-                <Card key={user.id} className={`p-3 space-y-2 ${selectedUserId === String(user.id) ? 'ring-2 ring-primary' : ''}`}>
+            {adminUsers.length === 0 ? (
+              <Card className="p-4 text-sm text-muted-foreground">No se encontraron usuarios con los filtros actuales.</Card>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {adminUsers.map(user => (
+                  <Card key={user.id} className={`p-3 space-y-2 ${selectedUserId === String(user.id) ? 'ring-2 ring-primary' : ''}`}>
                   <button type="button" className="w-full text-left" onClick={() => setSelectedUserId(String(user.id))}>
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-medium">{user.full_name || user.username}</p>
@@ -1240,15 +1273,16 @@ export function SuperAdminControlPanelDialog({
                     <p className="text-xs text-muted-foreground">{user.username} · {user.role_name || 'Sin rol'} · {user.audit_action_count} acción(es)</p>
                     <p className="text-xs text-muted-foreground">Última acción: {user.last_action || 'Sin actividad'}</p>
                   </button>
-                  {selectedUserId === String(user.id) && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => confirmSetUserActive(!user.is_active)}>{user.is_active ? 'Bloquear' : 'Activar'}</Button>
-                      <Button variant="destructive" size="sm" onClick={confirmResetUserRole}>Resetear rol</Button>
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
+                    {selectedUserId === String(user.id) && (
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => confirmSetUserActive(!user.is_active)}>{user.is_active ? 'Bloquear' : 'Activar'}</Button>
+                        <Button variant="destructive" size="sm" onClick={confirmResetUserRole}>Resetear rol</Button>
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-4">

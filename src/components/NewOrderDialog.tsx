@@ -644,7 +644,6 @@ export function NewOrderDialog({
 
   const handleSubmit = async () => {
     const financials = getOrderFinancials()
-    const currentTotal = financials.total
     const paymentAmounts = {
       efectivo: parseFlexibleNumber(cashPaymentAmount) ?? 0,
       transferencia: parseFlexibleNumber(transferPaymentAmount) ?? 0,

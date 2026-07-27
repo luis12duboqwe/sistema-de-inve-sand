@@ -189,7 +189,7 @@ export function EditOrderDialog({
         }))
       )
     }
-  }, [open, order])
+  }, [open, order, products])
 
   useEffect(() => {
     if (!open) return

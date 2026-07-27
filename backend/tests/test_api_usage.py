@@ -146,6 +146,7 @@ class ApiUsageTests(unittest.TestCase):
             "moneda": "Lps",
             "garantia_meses": 0,
             "stock_inicial": stock,
+            "initial_location_id": type(self).location_id,
         }
 
         # V2.x: celulares son serializados y requieren IMEIs si stock > 0
