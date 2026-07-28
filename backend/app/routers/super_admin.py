@@ -9,7 +9,26 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import AuditLog, IMEIHistory, Location, Order, Product, ProductIMEI, Role, Stock, StockHistory, StockTransfer, User
+from app.models import (
+    AuditLog,
+    IMEIHistory,
+    Location,
+    Order,
+    OrderItem,
+    PhotoRequest,
+    PhotoRequestMediaItem,
+    PhysicalInventoryCountItem,
+    Product,
+    ProductIMEI,
+    PurchaseReceiptItem,
+    Return,
+    ReturnItem,
+    Role,
+    Stock,
+    StockHistory,
+    StockTransfer,
+    User,
+)
 from app.schemas.order import MetodoPagoEnum, PaymentBreakdownEntry
 from app.services.order_service import serialize_payment_breakdown
 from app.utils.audit import log_audit_event
@@ -80,6 +99,10 @@ class ProductCorrectionRequest(ReasonPayload):
     precio: Optional[float] = Field(None, ge=0)
     costo: Optional[float] = Field(None, ge=0)
     activo: Optional[bool] = None
+
+
+class ProductPurgeRequest(ReasonPayload):
+    pass
 
     @field_validator("sku", "nombre", "marca", "modelo", mode="before")
     @classmethod
@@ -727,6 +750,81 @@ def correct_order_payment(
     )
     db.commit()
     return {"ok": True, "order_id": order.id}
+
+
+@router.post("/products/{product_id}/purge")
+def purge_product_for_admin(
+    product_id: int,
+    payload: ProductPurgeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser_audited),
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    deleted_counts = {
+        "products": 0,
+        "imeis": 0,
+        "stock": 0,
+        "stock_history": 0,
+        "order_items": 0,
+        "orders": 0,
+        "transfers": 0,
+        "returns": 0,
+        "return_items": 0,
+        "photo_requests": 0,
+        "photo_request_media": 0,
+        "purchase_receipt_items": 0,
+        "physical_inventory_items": 0,
+    }
+
+    with db.begin():
+        order_ids = [row[0] for row in db.query(OrderItem.order_id).filter(OrderItem.product_id == product_id).distinct().all()]
+        deleted_counts["order_items"] = db.query(OrderItem).filter(OrderItem.product_id == product_id).delete(synchronize_session=False)
+
+        deleted_counts["return_items"] = db.query(ReturnItem).filter(ReturnItem.product_id == product_id).delete(synchronize_session=False)
+        return_ids = [row[0] for row in db.query(Return.id).filter(Return.order_id.in_(order_ids)).all()]
+        if return_ids:
+            db.query(ReturnItem).filter(ReturnItem.return_id.in_(return_ids)).delete(synchronize_session=False)
+            deleted_counts["returns"] = db.query(Return).filter(Return.order_id.in_(order_ids)).delete(synchronize_session=False)
+
+        deleted_counts["transfers"] = db.query(StockTransfer).filter(StockTransfer.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["stock_history"] = db.query(StockHistory).filter(StockHistory.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["imeis"] = db.query(ProductIMEI).filter(ProductIMEI.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["stock"] = db.query(Stock).filter(Stock.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["purchase_receipt_items"] = db.query(PurchaseReceiptItem).filter(PurchaseReceiptItem.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["physical_inventory_items"] = db.query(PhysicalInventoryCountItem).filter(PhysicalInventoryCountItem.product_id == product_id).delete(synchronize_session=False)
+
+        photo_request_ids = [row[0] for row in db.query(PhotoRequest.id).filter(PhotoRequest.product_id == product_id).all()]
+        if photo_request_ids:
+            deleted_counts["photo_request_media"] = db.query(PhotoRequestMediaItem).filter(PhotoRequestMediaItem.photo_request_id.in_(photo_request_ids)).delete(synchronize_session=False)
+            deleted_counts["photo_requests"] = db.query(PhotoRequest).filter(PhotoRequest.id.in_(photo_request_ids)).delete(synchronize_session=False)
+
+        for order_id in order_ids:
+            has_remaining_items = db.query(OrderItem.id).filter(OrderItem.order_id == order_id).first() is not None
+            if has_remaining_items:
+                continue
+            db.query(ReturnItem).join(Return).filter(Return.order_id == order_id).delete(synchronize_session=False)
+            db.query(Return).filter(Return.order_id == order_id).delete(synchronize_session=False)
+            db.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
+            deleted_counts["orders"] += 1
+
+        db.delete(product)
+        deleted_counts["products"] = 1
+
+        log_audit_event(
+            db,
+            action="super_admin.product.purge",
+            entity_type="product",
+            entity_id=product.id,
+            user=current_user,
+            before_data={"id": product.id, "sku": product.sku, "nombre": product.nombre},
+            after_data={"deleted": True},
+            metadata={"reason": payload.reason, "deleted_counts": deleted_counts},
+        )
+
+    return {"ok": True, "product_id": product_id, "deleted_counts": deleted_counts}
 
 
 @router.patch("/products/{product_id}")

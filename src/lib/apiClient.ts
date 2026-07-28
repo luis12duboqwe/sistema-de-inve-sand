@@ -915,6 +915,13 @@ class ApiClient {
     })
   }
 
+  async superAdminPurgeProduct(productId: number, payload: { reason: string }): Promise<{ ok: boolean; product_id: number; deleted_counts: Record<string, number> }> {
+    return this.request<{ ok: boolean; product_id: number; deleted_counts: Record<string, number> }>(`/super-admin/products/${productId}/purge`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   async superAdminSetUserActive(userId: number, payload: { is_active: boolean; reason: string }): Promise<{ ok: boolean; user_id: number; is_active: boolean }> {
     return this.request<{ ok: boolean; user_id: number; is_active: boolean }>(`/super-admin/users/${userId}/active`, {
       method: 'POST',

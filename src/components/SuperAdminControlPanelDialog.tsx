@@ -136,10 +136,13 @@ export function SuperAdminControlPanelDialog({
   const [catalogCost, setCatalogCost] = useState('0')
   const [catalogActive, setCatalogActive] = useState(true)
   const [catalogReason, setCatalogReason] = useState('')
+  const [purgeReason, setPurgeReason] = useState('')
+  const [purgeConfirmText, setPurgeConfirmText] = useState('')
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
 
   const [imeiProductSearch, setImeiProductSearch] = useState('')
   const [imeiRegistryProduct, setImeiRegistryProduct] = useState<ProductWithStock | null>(null)
+  const [imeiRegistryInitialLocationId, setImeiRegistryInitialLocationId] = useState<number | undefined>(undefined)
 
   const [auditLogs, setAuditLogs] = useState<SuperAdminAuditLogEntry[]>([])
   const [auditUsername, setAuditUsername] = useState('')
@@ -577,8 +580,9 @@ export function SuperAdminControlPanelDialog({
     setCatalogActive(product.activo !== false)
   }
 
-  const openImeiRegistry = (product: ProductWithStock) => {
+  const openImeiRegistry = (product: ProductWithStock, initialLocationId?: number) => {
     setImeiRegistryProduct(product)
+    setImeiRegistryInitialLocationId(initialLocationId)
     setImeiProductSearch(product.nombre)
   }
 
@@ -612,6 +616,44 @@ export function SuperAdminControlPanelDialog({
       await refreshPanelData()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Error al corregir producto')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handlePurgeProduct = async () => {
+    if (!catalogProductId) {
+      toast.error('Selecciona un producto')
+      return
+    }
+    if (!requireReason(purgeReason)) return
+    if (purgeConfirmText.trim().toUpperCase() !== 'ELIMINAR') {
+      toast.error('Escribe ELIMINAR para confirmar la purga completa')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const result = await apiClient.superAdminPurgeProduct(Number(catalogProductId), { reason: purgeReason })
+      const totalDeleted = Object.values(result.deleted_counts ?? {}).reduce((sum, value) => sum + Number(value || 0), 0)
+      toast.success(`Producto purgado correctamente. Registros eliminados: ${totalDeleted}`)
+      setCatalogProductId('')
+      setCatalogProductSearch('')
+      setCatalogSku('')
+      setCatalogName('')
+      setCatalogBrand('')
+      setCatalogModel('')
+      setCatalogColor('')
+      setCatalogCapacity('')
+      setCatalogPrice('0')
+      setCatalogCost('0')
+      setCatalogActive(true)
+      setCatalogReason('')
+      setPurgeReason('')
+      setPurgeConfirmText('')
+      await refreshPanelData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Error al purgar producto')
     } finally {
       setSubmitting(false)
     }
@@ -726,6 +768,18 @@ export function SuperAdminControlPanelDialog({
     })
   }
 
+  const confirmPurgeProduct = () => {
+    if (!catalogProductId || !requireReason(purgeReason)) return
+    requestConfirmation({
+      title: 'Purgar producto y todos sus registros',
+      description: `${selectedCatalogProduct?.nombre || 'Producto seleccionado'} será eliminado del catálogo y se borrarán sus IMEIs, stock, transferencias, órdenes vinculadas y demás referencias asociadas.`,
+      confirmLabel: 'Purgar producto',
+      dangerous: true,
+      requiredText: 'ELIMINAR',
+      run: handlePurgeProduct,
+    })
+  }
+
   const confirmSetUserActive = (isActive: boolean) => {
     if (!selectedUserId || !requireReason(userReason)) return
     requestConfirmation({
@@ -815,7 +869,7 @@ export function SuperAdminControlPanelDialog({
       toast.error('No se encontró el producto del diagnóstico')
       return
     }
-    openImeiRegistry(product)
+    openImeiRegistry(product, issue.location_id)
   }
 
   const investigateAlert = (alert: SuperAdminAlert) => {
@@ -1165,6 +1219,24 @@ export function SuperAdminControlPanelDialog({
                 </Button>
               )}
             </div>
+
+            <Card className="border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
+              <div className="space-y-3">
+                <div>
+                  <p className="font-semibold">Purga administrativa completa</p>
+                  <p className="text-xs text-red-700 dark:text-red-300">Elimina el producto del catálogo y limpia sus IMEIs, stock, transferencias, órdenes vinculadas y demás registros asociados.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Motivo de purga</Label>
+                  <Textarea value={purgeReason} onChange={event => setPurgeReason(event.target.value)} placeholder="Indica por qué se elimina este equipo" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Confirmación</Label>
+                  <Input value={purgeConfirmText} onChange={event => setPurgeConfirmText(event.target.value)} placeholder="Escribe ELIMINAR" />
+                </div>
+                <Button variant="destructive" onClick={confirmPurgeProduct} disabled={submitting}>Eliminar equipo y purgar registros</Button>
+              </div>
+            </Card>
           </TabsContent>
 
           <TabsContent value="audit" className="space-y-4">
@@ -1331,10 +1403,16 @@ export function SuperAdminControlPanelDialog({
       {imeiRegistryProduct && (
         <ProductIMEIRegistryDialog
           open={Boolean(imeiRegistryProduct)}
-          onOpenChange={open => !open && setImeiRegistryProduct(null)}
+          onOpenChange={open => {
+            if (!open) {
+              setImeiRegistryProduct(null)
+              setImeiRegistryInitialLocationId(undefined)
+            }
+          }}
           product={imeiRegistryProduct}
           allowAdminActions
           locations={activeLocations}
+          initialLocationId={imeiRegistryInitialLocationId}
           onUpdated={refreshPanelData}
         />
       )}

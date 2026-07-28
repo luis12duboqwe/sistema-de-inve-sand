@@ -635,7 +635,19 @@ export function NewOrderDialog({
         if (!next[method]) {
           if (method === 'efectivo') setCashPaymentAmount('')
           if (method === 'transferencia') setTransferPaymentAmount('')
-          if (method === 'tarjeta') setCardPaymentAmount('')
+          if (method === 'tarjeta') {
+            setCardPaymentAmount('')
+            setSelectedBankId(null)
+            setSelectedMonths(null)
+            setCashDownPayment('')
+            if (metodoPago === 'tarjeta' || metodoPago === 'financiamiento') {
+              setMetodoPago('efectivo')
+            }
+          }
+        } else if (method === 'tarjeta') {
+          if (metodoPago !== 'tarjeta' && metodoPago !== 'financiamiento') {
+            setMetodoPago('tarjeta')
+          }
         }
         return next
       })
@@ -1557,6 +1569,29 @@ export function NewOrderDialog({
                       <CreditCard className="w-4 h-4" />
                       {metodoPago === 'financiamiento' ? 'Opciones de Extrafinanciamiento' : 'Cobro con Tarjeta'}
                    </div>
+                 </div>
+
+                 <div className="space-y-1">
+                    <Label className="text-xs">Modalidad de cobro con tarjeta</Label>
+                    <Select
+                      value={metodoPago === 'financiamiento' ? 'financiamiento' : 'tarjeta'}
+                      onValueChange={(value) => {
+                        const next = value as 'tarjeta' | 'financiamiento'
+                        setMetodoPago(next)
+                        clearFieldError('metodoPago')
+                        if (next !== 'financiamiento') {
+                          setSelectedMonths(null)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Seleccionar modalidad" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="tarjeta">Tarjeta normal</SelectItem>
+                        <SelectItem value="financiamiento">Extrafinanciamiento</SelectItem>
+                      </SelectContent>
+                    </Select>
                  </div>
                  
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

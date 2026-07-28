@@ -33,6 +33,7 @@ interface ProductIMEIRegistryDialogProps {
   product: ProductWithStock
   allowAdminActions?: boolean
   locations?: Location[]
+  initialLocationId?: number
   onUpdated?: () => Promise<void> | void
 }
 
@@ -57,17 +58,19 @@ const getStatusClassName = (record: ProductIMEI) => {
   return 'bg-emerald-600 text-white'
 }
 
-export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAdminActions = false, locations = [], onUpdated }: ProductIMEIRegistryDialogProps) {
+export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAdminActions = false, locations = [], initialLocationId, onUpdated }: ProductIMEIRegistryDialogProps) {
   const [imeiRecords, setImeiRecords] = useState<ProductIMEI[]>([])
   const [loading, setLoading] = useState(false)
   const [savingAdminAction, setSavingAdminAction] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedImei, setSelectedImei] = useState<string | null>(null)
+  const [locationFilter, setLocationFilter] = useState<string>('all')
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [adminImei, setAdminImei] = useState('')
   const [adminReason, setAdminReason] = useState('')
   const [adminLocationId, setAdminLocationId] = useState<string>('')
   const [editingRecord, setEditingRecord] = useState<ProductIMEI | null>(null)
+  const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null)
   const [editedImei, setEditedImei] = useState('')
   const [editReason, setEditReason] = useState('')
   const isSerializedProduct = Boolean(product.is_serialized || product.categoria === 'celular')
@@ -89,8 +92,9 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
     if (open) {
       void loadImeiRecords()
       setSearch('')
+      setLocationFilter(initialLocationId ? String(initialLocationId) : 'all')
     }
-  }, [open, product.id])
+  }, [open, product.id, initialLocationId])
 
   useEffect(() => {
     const loadCurrentUser = async () => {
@@ -109,6 +113,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
       setAdminImei('')
       setAdminReason('')
       setEditingRecord(null)
+      setSelectedRecordId(null)
       setEditedImei('')
       setEditReason('')
     }
@@ -138,7 +143,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
 
     setSavingAdminAction(true)
     try {
-      await inventoryServiceInstance.adminAddMissingIMEI({
+      const createdRecord = await inventoryServiceInstance.adminAddMissingIMEI({
         product_id: product.id,
         location_id: locationId,
         imei,
@@ -146,6 +151,8 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
       })
       await reloadImeiRecords()
       await onUpdated?.()
+      setSelectedRecordId(createdRecord.id)
+      setSearch(createdRecord.imei)
       setAdminImei('')
       setAdminReason('')
       toast.success('IMEI agregado con historial administrativo')
@@ -158,6 +165,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
 
   const startEditRecord = (record: ProductIMEI) => {
     setEditingRecord(record)
+    setSelectedRecordId(record.id)
     setEditedImei(record.imei)
     setEditReason('')
   }
@@ -197,9 +205,15 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
 
   const filteredRecords = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return imeiRecords
+    const locationId = locationFilter === 'all' ? null : Number(locationFilter)
 
-    return imeiRecords.filter(record => {
+    const recordsByLocation = locationId
+      ? imeiRecords.filter(record => record.location_id === locationId)
+      : imeiRecords
+
+    if (!term) return recordsByLocation
+
+    return recordsByLocation.filter(record => {
       const status = getStatusLabel(record).toLowerCase()
       return (
         record.imei.toLowerCase().includes(term) ||
@@ -208,7 +222,16 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
         status.includes(term)
       )
     })
-  }, [imeiRecords, search])
+  }, [imeiRecords, locationFilter, search])
+
+  const selectedRecord = useMemo(
+    () => imeiRecords.find(record => record.id === selectedRecordId) || null,
+    [imeiRecords, selectedRecordId]
+  )
+
+  const canEditSelectedRecord = Boolean(
+    selectedRecord && canUseAdminActions && !selectedRecord.vendido && !selectedRecord.order_id && !selectedRecord.transfer_id
+  )
 
   const stockLocationOptions = useMemo(() => {
     if (canUseAdminActions && locations.length > 0) {
@@ -297,6 +320,23 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
                   </Button>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2 text-xs text-amber-900">
+                  <span>IMEI seleccionado:</span>
+                  <Badge variant="outline" className="border-amber-500 text-amber-950">
+                    {selectedRecord ? selectedRecord.imei : 'Ninguno'}
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => selectedRecord && startEditRecord(selectedRecord)}
+                    disabled={!canEditSelectedRecord || savingAdminAction}
+                  >
+                    <PencilSimple size={14} className="mr-1" /> Editar IMEI seleccionado
+                  </Button>
+                </div>
+
                 {editingRecord && (
                   <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto_auto] gap-2 border-t border-amber-200 pt-3">
                     <Input
@@ -318,11 +358,23 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
             )}
 
             <div className="space-y-2">
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por IMEI, ubicación, proveedor o estado..."
-              />
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[220px_1fr]">
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={locationFilter}
+                  onChange={(event) => setLocationFilter(event.target.value)}
+                >
+                  <option value="all">Todas las ubicaciones</option>
+                  {stockLocationOptions.map(option => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                  ))}
+                </select>
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar por IMEI, ubicación, proveedor o estado..."
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
                 Mostrando {filteredRecords.length} de {imeiRecords.length} registros.
               </p>
@@ -337,6 +389,7 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[56px]">Sel.</TableHead>
                       <TableHead>IMEI</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead>Ubicación</TableHead>
@@ -348,7 +401,22 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
                   </TableHeader>
                   <TableBody>
                     {filteredRecords.map(record => (
-                      <TableRow key={record.id}>
+                      <TableRow
+                        key={record.id}
+                        className={selectedRecordId === record.id ? 'bg-amber-50/60' : undefined}
+                        onClick={() => setSelectedRecordId(record.id)}
+                      >
+                        <TableCell>
+                          <input
+                            type="radio"
+                            name="imei-selected-record"
+                            checked={selectedRecordId === record.id}
+                            onChange={() => setSelectedRecordId(record.id)}
+                            aria-label={`Seleccionar IMEI ${record.imei}`}
+                            onClick={(event) => event.stopPropagation()}
+                            className="h-4 w-4"
+                          />
+                        </TableCell>
                         <TableCell className="font-mono">{record.imei}</TableCell>
                         <TableCell>
                           <Badge className={getStatusClassName(record)}>{getStatusLabel(record)}</Badge>
