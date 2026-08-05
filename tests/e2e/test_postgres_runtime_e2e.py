@@ -158,7 +158,7 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
             json={
                 "name": f"Ventas PG {uuid.uuid4().hex[:6]}",
                 "slug": f"ventas-pg-{uuid.uuid4().hex[:8]}",
-                "tipo": "tienda_fisica",
+                "tipo": "vendedor_humano",
                 "canales": ["tienda"],
                 "active": True,
             },
