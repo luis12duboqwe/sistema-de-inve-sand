@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, ghttt ]
+    branches: [ main, ghttt, 'codex/**' ]
   pull_request:
     branches: [ main ]
 
@@ -13,8 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
       - run: npm run lint
 
   test-frontend:
@@ -23,27 +24,55 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
       - run: npm run test:coverage
 
   test-backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_test
+          POSTGRES_USER: inventory_test
+          POSTGRES_PASSWORD: inventory_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_test -d inventory_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: 'true'
+      ENVIRONMENT: testing
+      DEBUG: 'true'
+      DATABASE_URL: postgresql+psycopg2://inventory_test:inventory_test_password@127.0.0.1:5432/inventory_test
+      ALLOWED_HOSTS: '*'
+      CORS_ORIGINS: http://testserver,http://127.0.0.1:8001
+      SENTRY_DISABLED: 'true'
+      ENABLE_AI_FEATURES: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install backend deps
         run: |
           cd backend
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-      - name: Run backend tests
+      - name: Run backend tests against PostgreSQL
         run: |
           cd backend
-          pytest --cov=app --cov-report=term-missing
+          pytest --cov=app --cov-report=term-missing -ra
 
   e2e-api-runtime:
     runs-on: ubuntu-latest
@@ -52,15 +81,62 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install runtime deps
         run: |
-          python -m pip install --upgrade pip
-          pip install requests pytest
           cd backend
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run API E2E tests
+          pip install -r requirements-dev.txt
+      - name: Run SQLite compatibility E2E tests
         run: |
           pytest -q tests/e2e/test_runtime_e2e.py tests/e2e/test_business_flows_e2e.py
+
+  e2e-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_e2e
+          POSTGRES_USER: inventory_e2e
+          POSTGRES_PASSWORD: inventory_e2e_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_e2e -d inventory_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql+psycopg2://inventory_e2e:inventory_e2e_password@127.0.0.1:5432/inventory_e2e
+      ENVIRONMENT: testing
+      DEBUG: 'true'
+      ALLOWED_HOSTS: '*'
+      CORS_ORIGINS: http://127.0.0.1
+      SENTRY_DISABLED: 'true'
+      ENABLE_AI_FEATURES: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install backend deps
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run real PostgreSQL E2E and concurrency test
+        run: pytest -q tests/e2e/test_postgres_runtime_e2e.py
 
   security-dependency-scan:
     runs-on: ubuntu-latest
@@ -68,20 +144,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Scan npm dependencies
         run: |
-          npm install
+          npm ci --legacy-peer-deps
           npm audit --audit-level=high
       - name: Scan python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pip-audit
           cd backend
-          pip install -r requirements.txt
           pip-audit -r requirements.txt
 
   security-container-scan:
