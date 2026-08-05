@@ -298,7 +298,7 @@ def health_check():
     """Liveness: confirma que el proceso responde; no controla despliegues."""
     db_healthy = check_db_connection()
     return {
-        "status": "alive",
+        "status": "healthy",
         "database": "connected" if db_healthy else "disconnected",
         "service": "inventory-api",
         "version": "2.0.0",
