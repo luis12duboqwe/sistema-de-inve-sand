@@ -19,6 +19,8 @@ tenacity==8.2.3
 websockets==13.0
 broadcaster==0.2.0
 prometheus-client==0.23.1
+requests==2.33.0
+httpx==0.27.2
 
 # Security pins verified by CI/container scanning
 jaraco.context==6.1.2
