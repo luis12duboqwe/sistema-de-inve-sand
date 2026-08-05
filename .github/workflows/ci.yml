@@ -93,7 +93,7 @@ jobs:
       - name: Build frontend image
         run: docker build -t inventory-frontend:ci -f Dockerfile.frontend .
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -101,7 +101,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
       - name: Trivy backend image scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: inventory-backend:ci
           format: table
@@ -109,7 +109,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
       - name: Trivy frontend image scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: inventory-frontend:ci
           format: table
