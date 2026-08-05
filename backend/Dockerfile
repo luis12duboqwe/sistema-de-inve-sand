@@ -11,7 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+RUN pip install --no-cache-dir --upgrade pip "setuptools>=83.0.0" "wheel>=0.46.2" \
     && pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.11-slim AS runtime
@@ -24,11 +24,12 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "setuptools>=78.1.1" "wheel>=0.46.2" "jaraco.context>=6.1.0"
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /install
 COPY . .
+
+RUN pip install --no-cache-dir "setuptools>=83.0.0" "wheel>=0.46.2"
 
 RUN addgroup --system app && adduser --system --ingroup app app \
     && mkdir -p /app/uploads /app/logs \
