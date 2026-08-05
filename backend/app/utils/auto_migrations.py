@@ -1,26 +1,28 @@
-"""
-Automatic database migrations on startup.
+"""Small fail-fast compatibility migrations executed during startup.
 
-Verifies and applies necessary schema updates without manual intervention.
+These migrations exist for installations created before the current models.
+Fresh development SQLite databases are created from SQLAlchemy metadata and do
+not need PostgreSQL-specific ALTER statements.
 """
 
 import logging
 
+from sqlalchemy import inspect, text
+
+from app.database import engine
+
+
 logger = logging.getLogger(__name__)
 
 
-def _apply_daily_close_migration():
-    """Agrega columnas de cierre de día a orders y crea tabla system_config."""
-    try:
-        from app.database import engine
-        from sqlalchemy import text, inspect
+def _apply_daily_close_migration() -> None:
+    inspector = inspect(engine)
 
-        inspector = inspect(engine)
-
-        with engine.connect() as conn:
-            # ── Tabla system_config ─────────────────────────────────────────
-            if "system_config" not in inspector.get_table_names():
-                conn.execute(text("""
+    with engine.begin() as conn:
+        if "system_config" not in inspector.get_table_names():
+            conn.execute(
+                text(
+                    """
                     CREATE TABLE IF NOT EXISTS system_config (
                         id SERIAL PRIMARY KEY,
                         key VARCHAR(100) UNIQUE NOT NULL,
@@ -29,64 +31,88 @@ def _apply_daily_close_migration():
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                         updated_by VARCHAR(100)
                     )
-                """))
-                conn.execute(text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_system_config_key ON system_config (key)"
-                ))
-                logger.info("Auto-migration: tabla system_config creada.")
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "idx_system_config_key ON system_config (key)"
+                )
+            )
+            logger.info("Auto-migration: tabla system_config creada")
 
-            # ── Columnas en orders ──────────────────────────────────────────
-            existing_cols = [c["name"] for c in inspector.get_columns("orders")]
+        existing_cols = {column["name"] for column in inspector.get_columns("orders")}
 
-            if "validada_at" not in existing_cols:
-                conn.execute(text(
-                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS validada_at TIMESTAMP WITH TIME ZONE"
-                ))
-                logger.info("Auto-migration: columna validada_at agregada a orders.")
+        if "validada_at" not in existing_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS "
+                    "validada_at TIMESTAMP WITH TIME ZONE"
+                )
+            )
+            logger.info("Auto-migration: columna validada_at agregada a orders")
 
-            if "validated_by" not in existing_cols:
-                conn.execute(text(
-                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS validated_by VARCHAR(100)"
-                ))
-                logger.info("Auto-migration: columna validated_by agregada a orders.")
-
-            conn.commit()
-
-    except Exception as e:
-        logger.warning("Auto-migration daily_close no crítica, continuando: %s", e)
+        if "validated_by" not in existing_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS "
+                    "validated_by VARCHAR(100)"
+                )
+            )
+            logger.info("Auto-migration: columna validated_by agregada a orders")
 
 
-def _apply_transfer_receiving_fields_migration():
-    """Agrega columnas de recepción parcial a stock_transfers si faltan."""
+def _apply_transfer_receiving_fields_migration() -> None:
+    inspector = inspect(engine)
+    existing_cols = {
+        column["name"] for column in inspector.get_columns("stock_transfers")
+    }
+
+    statements = {
+        "received_quantity": (
+            "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "
+            "received_quantity INTEGER"
+        ),
+        "missing_quantity": (
+            "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "
+            "missing_quantity INTEGER"
+        ),
+        "incident_notes": (
+            "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "
+            "incident_notes TEXT"
+        ),
+    }
+
+    with engine.begin() as conn:
+        for column, statement in statements.items():
+            if column not in existing_cols:
+                conn.execute(text(statement))
+                logger.info(
+                    "Auto-migration: columna %s agregada a stock_transfers",
+                    column,
+                )
+
+
+def run_auto_migrations() -> bool:
+    """Apply compatibility migrations and fail startup on any PostgreSQL error."""
+    if engine.dialect.name != "postgresql":
+        logger.info(
+            "Auto-migrations PostgreSQL omitidas para dialecto %s",
+            engine.dialect.name,
+        )
+        return True
+
+    logger.info("Ejecutando auto-migraciones de compatibilidad...")
     try:
-        from app.database import engine
-        from sqlalchemy import text
+        _apply_daily_close_migration()
+        _apply_transfer_receiving_fields_migration()
+    except Exception:
+        logger.exception(
+            "Fallo crítico aplicando migraciones; se cancela el arranque para "
+            "evitar operar con un esquema incompleto"
+        )
+        raise
 
-        with engine.connect() as conn:
-            conn.execute(text(
-                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS received_quantity INTEGER"
-            ))
-            conn.execute(text(
-                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS missing_quantity INTEGER"
-            ))
-            conn.execute(text(
-                "ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS incident_notes TEXT"
-            ))
-            conn.commit()
-
-        logger.info("Auto-migration: columnas de recepción parcial en stock_transfers verificadas.")
-    except Exception as e:
-        logger.warning("Auto-migration stock_transfers no crítica, continuando: %s", e)
-
-
-def run_auto_migrations():
-    """
-    Execute auto-migrations script if database exists.
-    Called during app startup.
-    """
-    logger.info("Ejecutando auto-migraciones al iniciar...")
-    _apply_daily_close_migration()
-    _apply_transfer_receiving_fields_migration()
-    logger.info("Auto-migraciones completadas.")
+    logger.info("Auto-migraciones completadas")
     return True
-
