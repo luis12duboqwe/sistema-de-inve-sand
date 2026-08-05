@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 import os
 
-from postgres_test_utils import create_postgres_test_engine, get_postgres_database_url
+from postgres_test_utils import create_postgres_test_engine
 
 
 os.environ["ENVIRONMENT"] = "testing"
@@ -12,9 +12,6 @@ os.environ["ALLOWED_HOSTS"] = "*"
 os.environ["CORS_ORIGINS"] = "http://testserver,http://127.0.0.1:8001"
 os.environ["ENABLE_AI_FEATURES"] = "true"
 os.environ["SENTRY_DISABLED"] = "true"
-os.environ.setdefault("DATABASE_URL", get_postgres_database_url())
-
-
 TEST_ENGINE = None
 TEST_SCHEMA = None
 cleanup_test_schema = lambda: None
