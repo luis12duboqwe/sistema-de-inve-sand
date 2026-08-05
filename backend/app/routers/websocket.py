@@ -9,7 +9,8 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, WebSocketException, status, Depends, Query
 from fastapi.websockets import WebSocket
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
