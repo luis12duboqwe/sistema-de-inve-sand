@@ -89,9 +89,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
-        run: docker build -t inventory-backend:ci ./backend
+        run: docker build --pull --no-cache -t inventory-backend:ci ./backend
       - name: Build frontend image
-        run: docker build -t inventory-frontend:ci -f Dockerfile.frontend .
+        run: docker build --pull --no-cache -t inventory-frontend:ci -f Dockerfile.frontend .
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
