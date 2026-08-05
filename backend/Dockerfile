@@ -1,22 +1,32 @@
 # Production-ready FastAPI image
-FROM python:3.11-slim AS base
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System deps for psycopg2 / uvicorn
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first for better caching
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir --upgrade -r requirements.txt
+    && pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-# Copy application code
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/install/bin:$PATH"
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /install
 COPY . .
 
 RUN addgroup --system app && adduser --system --ingroup app app \
