@@ -48,6 +48,7 @@ from app.auth import (
     get_current_user,
     get_current_user_optional,
 )
+from app.utils.rate_limiter import reset_all_limiters
 
 from app import models as _models  # noqa: F401
 
@@ -110,13 +111,20 @@ def setup_database(request):
     """Config global de pruebas.
 
     - Tests unitarios/integración con TestClient: DB PostgreSQL aislada + auth fake + reset por test.
-    - tests/test_api_usage.py: corre Uvicorn real y usa DB en archivo; NO aplicar overrides ni resets.
+    - tests/test_api_usage.py: corre Uvicorn real y usa su propio esquema PostgreSQL.
+    - Los limitadores globales se reinician entre tests para evitar contaminación
+      temporal sin desactivar la protección ni reducir su cobertura dedicada.
     """
     if not TEST_DB_AVAILABLE:
         pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
 
+    reset_all_limiters()
+
     if "tests/test_api_usage.py" in request.node.nodeid:
-        yield
+        try:
+            yield
+        finally:
+            reset_all_limiters()
         return
 
     previous_overrides = dict(app.dependency_overrides)
@@ -131,6 +139,7 @@ def setup_database(request):
         Base.metadata.drop_all(bind=TEST_ENGINE)
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
+        reset_all_limiters()
 
         if previous_check_db_connection is not None:
             main.check_db_connection = previous_check_db_connection
