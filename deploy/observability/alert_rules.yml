@@ -1,0 +1,48 @@
+groups:
+  - name: inventory-api-alerts
+    interval: 30s
+    rules:
+      - alert: InventoryApiDown
+        expr: up{job="inventory_backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Inventory API down"
+          description: "No se puede obtener métricas del backend por más de 1 minuto."
+
+      - alert: InventoryApiHighErrorRate
+        expr: |
+          (
+            sum(rate(inventory_api_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(inventory_api_requests_total[5m])), 0.001)
+          ) * 100 > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Alta tasa de errores 5xx"
+          description: "La tasa de errores 5xx supera 3% por más de 5 minutos."
+
+      - alert: InventoryApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(inventory_api_request_latency_seconds_bucket[5m])) by (le, path)) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Latencia P95 elevada"
+          description: "La latencia P95 supera 1.5s durante 10 minutos."
+
+      - alert: InventoryApiRateLimitSpike
+        expr: sum(increase(inventory_api_rate_limit_block_total[10m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Pico de bloqueos por rate limit"
+          description: "Se detectaron más de 50 bloqueos por rate limiting en 10 minutos."

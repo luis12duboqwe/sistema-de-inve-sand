@@ -17,6 +17,16 @@ if grep -Eq 'CHANGE_ME|GENERATE_WITH|midominio\.com|api\.example\.com|example\.c
   exit 1
 fi
 
+if grep -Eq '^CORS_ORIGINS=\*$' "$ENV_FILE"; then
+  echo "CORS_ORIGINS no puede ser '*' en producción" >&2
+  exit 1
+fi
+
+if grep -Eq '^ALLOWED_HOSTS=\*$' "$ENV_FILE"; then
+  echo "ALLOWED_HOSTS no puede ser '*' en producción" >&2
+  exit 1
+fi
+
 required=(
   POSTGRES_DB
   POSTGRES_USER
@@ -27,6 +37,7 @@ required=(
   CHANNEL_ENCRYPTION_KEY
   ALLOWED_HOSTS
   CORS_ORIGINS
+  GRAFANA_ADMIN_PASSWORD
 )
 
 for key in "${required[@]}"; do
@@ -35,6 +46,34 @@ for key in "${required[@]}"; do
     exit 1
   fi
 done
+
+secret_key="$(grep -E '^SECRET_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+if [ "${#secret_key}" -lt 32 ]; then
+  echo "SECRET_KEY debe tener al menos 32 caracteres" >&2
+  exit 1
+fi
+
+channel_key="$(grep -E '^CHANNEL_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
+if [ "${#channel_key}" -lt 32 ]; then
+  echo "CHANNEL_ENCRYPTION_KEY parece inválida o demasiado corta" >&2
+  exit 1
+fi
+
+grafana_pass="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2-)"
+if [ "${#grafana_pass}" -lt 12 ]; then
+  echo "GRAFANA_ADMIN_PASSWORD debe tener al menos 12 caracteres" >&2
+  exit 1
+fi
+
+if grep -Eq '^DATABASE_URL=sqlite' "$ENV_FILE"; then
+  echo "DATABASE_URL no puede usar SQLite en producción" >&2
+  exit 1
+fi
+
+if ! grep -Eq '^MAX_REQUEST_BODY_BYTES=[0-9]+$' "$ENV_FILE"; then
+  echo "MAX_REQUEST_BODY_BYTES debe estar definido como entero" >&2
+  exit 1
+fi
 
 if ! grep -Eq '^ENVIRONMENT=production$' "$ENV_FILE"; then
   echo "ENVIRONMENT debe ser production" >&2

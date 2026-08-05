@@ -17,6 +17,7 @@ aiofiles==23.2.1
 tenacity==8.2.3
 websockets==13.0
 broadcaster==0.2.0
+prometheus-client==0.23.1
 
 # Database - PostgreSQL (RECOMENDADO PARA PRODUCCIÓN)
 psycopg2-binary==2.9.9

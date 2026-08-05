@@ -2,10 +2,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
+from time import perf_counter
+import re
 
 from app.database import init_db, get_db, check_db_connection
 from app.auth import check_permission
@@ -42,17 +45,41 @@ from app.config import settings
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
 from app.utils.sentry_config import init_sentry
-from app.config_production import prod_settings
+from app.config_production import prod_settings, check_production_readiness
 from app.middleware.request_context import RequestContextMiddleware
 from app.utils.auto_migrations import run_auto_migrations
 from sqlalchemy.orm import Session
 from app.jobs.forecasting_job import start_forecasting_job
+from app.utils.runtime_metrics import RuntimeMetrics
+from app.utils.rate_limiter import get_api_general_limiter
+from app.utils.auth_security import extract_jwt_subject
+from app.utils.prometheus_metrics import (
+    RATE_LIMIT_BLOCK_TOTAL,
+    REQUEST_LATENCY_SECONDS,
+    REQUESTS_IN_FLIGHT,
+    REQUESTS_TOTAL,
+    render_prometheus_metrics,
+)
 
 # Configurar logging al inicio
 setup_logging()
 initialize_observability()
 init_sentry()  # ✅ Inicializar Sentry para monitoreo
 logger = logging.getLogger(__name__)
+runtime_metrics = RuntimeMetrics()
+
+HEALTH_PATHS = {
+    "/health",
+    "/api/health",
+    "/ready",
+    "/api/ready",
+    "/metrics",
+    "/api/metrics",
+    "/metrics/prometheus",
+    "/api/metrics/prometheus",
+}
+
+PATH_ID_PATTERN = re.compile(r"/\d+|/[0-9a-fA-F-]{16,}")
 
 
 @asynccontextmanager
@@ -125,6 +152,94 @@ if prod_settings.is_production():
             response.headers.setdefault(header, value)
         return response
 
+
+@app.middleware("http")
+async def protect_maintenance_mode(request: Request, call_next):
+    if prod_settings.MAINTENANCE_MODE and request.url.path not in HEALTH_PATHS:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": prod_settings.MAINTENANCE_MESSAGE,
+                "status": "maintenance",
+            },
+        )
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def limit_payload_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            length = int(content_length)
+            if length > prod_settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": "Payload demasiado grande",
+                        "max_bytes": prod_settings.MAX_REQUEST_BODY_BYTES,
+                    },
+                )
+        except ValueError:
+            logger.warning("Header Content-Length inválido")
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def collect_runtime_metrics(request: Request, call_next):
+    runtime_metrics.on_request_start()
+    REQUESTS_IN_FLIGHT.inc()
+    started = perf_counter()
+    response = None
+    raw_path = request.url.path
+    metrics_path = PATH_ID_PATTERN.sub("/{id}", raw_path)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        elapsed_ms = (perf_counter() - started) * 1000
+        status = response.status_code if response is not None else 500
+        runtime_metrics.on_request_end(elapsed_ms, status)
+        REQUESTS_TOTAL.labels(request.method, metrics_path, str(status)).inc()
+        REQUEST_LATENCY_SECONDS.labels(request.method, metrics_path).observe(elapsed_ms / 1000)
+        REQUESTS_IN_FLIGHT.dec()
+
+
+@app.middleware("http")
+async def enforce_general_rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path in HEALTH_PATHS or path.startswith("/uploads"):
+        return await call_next(request)
+
+    limiter = get_api_general_limiter()
+    client_ip = request.client.host if request.client else "unknown"
+    subject = extract_jwt_subject(request.headers.get("Authorization"))
+    key = f"user:{subject}" if subject else f"ip:{client_ip}"
+    scope = "user" if subject else "ip"
+
+    allowed, info = limiter.is_allowed(key)
+    if not allowed:
+        RATE_LIMIT_BLOCK_TOTAL.labels(scope).inc()
+        return JSONResponse(
+            status_code=429,
+            headers={
+                "X-RateLimit-Limit": str(info["limit"]),
+                "X-RateLimit-Remaining": str(info["remaining"]),
+                "Retry-After": str(info["reset_in_seconds"]),
+            },
+            content={
+                "detail": f"API rate limit excedido. Reintente en {info['reset_in_seconds']} segundos.",
+                "scope": scope,
+            },
+        )
+
+    response = await call_next(request)
+    response.headers.setdefault("X-RateLimit-Limit", str(info["limit"]))
+    response.headers.setdefault("X-RateLimit-Remaining", str(info["remaining"]))
+    return response
+
 app.include_router(auth_router.router)
 app.include_router(locations.router)
 app.include_router(sales_profiles.router)
@@ -167,20 +282,75 @@ def read_root():
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
 def health_check():
-    """Health check básico para monitoreo e infraestructura."""
+    """Health check completo para monitoreo, readiness y diagnóstico."""
+    db_healthy = check_db_connection()
+    readiness = check_production_readiness()
+
     return {
-        "status": "ok",
+        "status": "healthy" if db_healthy else "unhealthy",
+        "database": "connected" if db_healthy else "disconnected",
         "service": "inventory-api",
-        "version": "2.0.0"
+        "version": "2.0.0",
+        "environment": settings.environment,
+        "readiness": readiness,
     }
 
 
-@app.get("/api/health")
-def api_health_check():
-    """Alias legado/compatibilidad para health check bajo prefijo /api."""
-    return health_check()
+@app.get("/ready", tags=["Health"])
+@app.get("/api/ready", tags=["Health"])
+def readiness_check():
+    """Endpoint de readiness para infraestructura y despliegues."""
+    readiness = check_production_readiness()
+    status_code = 200 if readiness["ready"] else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if readiness["ready"] else "not_ready",
+            "ready": readiness["ready"],
+            "is_production": readiness["is_production"],
+            "warnings": readiness["warnings"],
+            "config": readiness["config"],
+        },
+    )
+
+
+@app.get("/metrics", tags=["Health"])
+@app.get("/api/metrics", tags=["Health"])
+def metrics_check():
+    """Métricas runtime para monitoreo operativo."""
+    snapshot = runtime_metrics.snapshot()
+    return {
+        "requests": {
+            "total": snapshot.total_requests,
+            "errors": snapshot.total_errors,
+            "in_flight": snapshot.in_flight,
+            "error_rate": round((snapshot.total_errors / snapshot.total_requests) * 100, 2)
+            if snapshot.total_requests
+            else 0.0,
+        },
+        "latency_ms": {
+            "avg": snapshot.avg_latency_ms,
+            "p95": snapshot.p95_latency_ms,
+            "p99": snapshot.p99_latency_ms,
+        },
+        "uptime_seconds": snapshot.uptime_seconds,
+    }
+
+
+@app.get("/metrics/prometheus", tags=["Health"])
+@app.get("/api/metrics/prometheus", tags=["Health"])
+def prometheus_metrics():
+    """Métricas en formato Prometheus/OpenMetrics."""
+    payload = render_prometheus_metrics()
+    return PlainTextResponse(
+        content=payload.decode("utf-8"),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
 
 @app.post("/api/init-data", tags=["Inicialización"], dependencies=[Depends(check_permission("settings:edit"))])
 def initialize_sample_data(db: Session = Depends(get_db)):
@@ -205,30 +375,3 @@ def initialize_sample_data(db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al inicializar datos: {str(e)}")
 
-@app.get("/api/health", tags=["Health"])
-def health_check():
-    """
-    Verifica el estado de salud de la API y la base de datos.
-    
-    Returns:
-        - status: Estado del servicio (healthy/unhealthy)
-        - database: Estado de la conexión a la base de datos
-        
-    Raises:
-        - 503: Si la base de datos no está disponible
-    """
-    db_healthy = check_db_connection()
-    
-    if not db_healthy:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "unhealthy",
-                "database": "disconnected"
-            }
-        )
-    
-    return {
-        "status": "healthy",
-        "database": "connected"
-    }

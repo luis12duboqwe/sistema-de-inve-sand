@@ -1,7 +1,7 @@
 import math
 from datetime import timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -24,9 +24,17 @@ from app.auth import (
     check_permission,
 )
 from app.config import settings
+from app.config_production import prod_settings
 from app.dependencies.rate_limiting import check_auth_rate_limit
+from app.utils.auth_security import LoginAttemptTracker
+from app.utils.prometheus_metrics import AUTH_LOGIN_EVENTS_TOTAL, RATE_LIMIT_BLOCK_TOTAL
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
+
+login_attempt_tracker = LoginAttemptTracker(
+    max_attempts=prod_settings.LOGIN_ATTEMPTS_LIMIT,
+    block_minutes=prod_settings.LOGIN_BLOCK_TIME,
+)
 
 SYSTEM_PERMISSIONS = [
     {"slug": "inventory:view", "description": "Ver inventario y stock", "module": "inventory"},
@@ -339,6 +347,7 @@ def register_user(
 
 @router.post("/token", response_model=Token)
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
     _rate_limit: dict = Depends(check_auth_rate_limit),
@@ -346,21 +355,45 @@ def login(
     """
     Login and get an access token.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    lock_key = f"{form_data.username.lower()}@{client_ip}"
+
+    blocked, retry_after = login_attempt_tracker.is_blocked(lock_key)
+    if blocked:
+        RATE_LIMIT_BLOCK_TOTAL.labels("auth_lockout").inc()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cuenta temporalmente bloqueada por intentos fallidos. Reintente en {retry_after} segundos.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     ensure_default_rbac(db)
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        AUTH_LOGIN_EVENTS_TOTAL.labels("failed").inc()
+        just_blocked, blocked_seconds = login_attempt_tracker.register_failure(lock_key)
+        if just_blocked:
+            RATE_LIMIT_BLOCK_TOTAL.labels("auth_lockout").inc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail=(
+                f"Incorrect username or password. Usuario bloqueado por {blocked_seconds} segundos."
+                if just_blocked
+                else "Incorrect username or password"
+            ),
             headers={"WWW-Authenticate": "Bearer"},
         )
     
     if not user.is_active:
+        AUTH_LOGIN_EVENTS_TOTAL.labels("failed_inactive").inc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inactive user",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    login_attempt_tracker.register_success(lock_key)
+    AUTH_LOGIN_EVENTS_TOTAL.labels("success").inc()
 
     user = ensure_superuser_has_role(db, user)
     

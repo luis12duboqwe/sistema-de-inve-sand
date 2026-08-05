@@ -73,6 +73,24 @@ import type { SalesForecast } from './aiForecasting'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000
+
+function getRequestTimeoutMs(): number {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+  const raw = env?.VITE_API_TIMEOUT_MS
+  const parsed = raw ? Number(raw) : DEFAULT_REQUEST_TIMEOUT_MS
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_REQUEST_TIMEOUT_MS
+  }
+  return parsed
+}
+
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 function normalizeApiUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) {
@@ -329,6 +347,7 @@ class ApiClient {
         
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
+          'X-Request-ID': createRequestId(),
           ...(options.headers as Record<string, string>),
         }
 
@@ -336,10 +355,20 @@ class ApiClient {
           headers['Authorization'] = `Bearer ${this.token}`
         }
 
-        const response = await fetch(url, {
-          ...options,
-          headers,
-        })
+        const controller = new AbortController()
+        const timeoutMs = getRequestTimeoutMs()
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+        let response: Response
+        try {
+          response = await fetch(url, {
+            ...options,
+            headers,
+            signal: options.signal ?? controller.signal,
+          })
+        } finally {
+          clearTimeout(timeoutId)
+        }
 
         if (response.status === 401) {
           this.logout()
@@ -359,6 +388,7 @@ class ApiClient {
 
         return response.json()
       } catch (error) {
+        const isTimeout = error instanceof DOMException && error.name === 'AbortError'
         lastError = error instanceof Error ? error : new Error('Unknown error')
         
         // Si es un error de red (Failed to fetch), reintentamos
@@ -388,6 +418,10 @@ class ApiClient {
             `Verifica que el servidor esté corriendo. ` +
             `Puedes iniciarlo desde la raíz del repositorio con: bash ./start-backend.sh`
           )
+        }
+
+        if (isTimeout) {
+          throw new Error('La API tardó demasiado en responder. Intenta nuevamente en unos segundos.')
         }
         
         throw lastError

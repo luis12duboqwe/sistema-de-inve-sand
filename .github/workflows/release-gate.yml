@@ -1,0 +1,81 @@
+name: Release Gate
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install frontend deps
+        run: npm install
+      - name: Frontend lint and build
+        run: |
+          npm run lint
+          npm run build
+      - name: Frontend tests
+        run: npm run test -- --run
+      - name: Install backend deps
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Backend and E2E tests
+        run: |
+          pytest -q tests/test_health_endpoints.py tests/e2e
+
+  security-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependency audit npm
+        run: |
+          npm install
+          npm audit --audit-level=high
+      - name: Dependency audit python
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          cd backend
+          pip install -r requirements.txt
+          pip-audit -r requirements.txt
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+  deploy-readiness-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare synthetic production env
+        run: |
+          APP_DOMAIN=inventory.example.org ./deploy/prepare-prod-env.sh ./deploy/.env.prod.ci
+          sed -i 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=test-key/' ./deploy/.env.prod.ci
+          sed -i 's/^ALERT_WEBHOOK_URL=.*/ALERT_WEBHOOK_URL=https:\/\/hooks.example.org/' ./deploy/.env.prod.ci
+          sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=StrongPassw0rd!/' ./deploy/.env.prod.ci
+      - name: Validate production config
+        run: |
+          ./deploy/validate-prod.sh ./deploy/.env.prod.ci
+          PROD_ENV_FILE=./deploy/.env.prod.ci docker compose --env-file ./deploy/.env.prod.ci -f ./deploy/docker-compose.prod.yml --profile backup --profile monitoring config --quiet

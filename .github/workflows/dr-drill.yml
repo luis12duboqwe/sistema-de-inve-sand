@@ -1,0 +1,30 @@
+name: DR Drill (Staging)
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  dr-drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required staging secrets
+        run: |
+          if [[ -z "${{ secrets.STAGING_SSH_HOST }}" || -z "${{ secrets.STAGING_SSH_USER }}" || -z "${{ secrets.STAGING_SSH_KEY }}" || -z "${{ secrets.STAGING_APP_PATH }}" || -z "${{ secrets.STAGING_BACKUP_FILE }}" ]]; then
+            echo "Faltan secretos de staging para ejecutar DR drill." >&2
+            exit 1
+          fi
+
+      - name: Run DR drill on staging host
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd ${{ secrets.STAGING_APP_PATH }}
+            chmod +x deploy/dr-drill.sh
+            ./deploy/dr-drill.sh deploy/.env.prod "${{ secrets.STAGING_BACKUP_FILE }}"

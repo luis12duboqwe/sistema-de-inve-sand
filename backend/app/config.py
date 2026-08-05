@@ -76,26 +76,31 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.database_url = (self.database_url or "").strip()
-
-        if not self.database_url:
-            raise ValueError(
-                "DATABASE_URL es obligatorio y debe apuntar a PostgreSQL. Ejemplo: postgresql+psycopg2://user:pass@host:5432/inventory_db"
-            )
-
-        if self.database_url.lower().startswith("sqlite"):
-            raise ValueError(
-                "SQLite ya no está soportado. Configura DATABASE_URL con PostgreSQL."
-            )
-
-        if not self.database_url.lower().startswith("postgresql"):
-            raise ValueError(
-                "Solo PostgreSQL está soportado. Usa un DATABASE_URL con prefijo 'postgresql'."
-            )
 
         # Normalize environment for consistent checks
         env_value = (self.environment or "development").strip().lower()
         self.environment = env_value
+
+        self.database_url = (self.database_url or "").strip()
+
+        if not self.database_url:
+            if env_value == "production":
+                raise ValueError(
+                    "DATABASE_URL es obligatorio en producción. Ejemplo: postgresql+psycopg2://user:pass@host:5432/inventory_db"
+                )
+            self.database_url = "sqlite:///./inventory.db"
+
+        database_url_lower = self.database_url.lower()
+
+        if env_value == "production":
+            if not database_url_lower.startswith("postgresql"):
+                raise ValueError(
+                    "Solo PostgreSQL está soportado en producción. Usa un DATABASE_URL con prefijo 'postgresql'."
+                )
+        elif not (database_url_lower.startswith("postgresql") or database_url_lower.startswith("sqlite")):
+            raise ValueError(
+                "DATABASE_URL debe usar PostgreSQL o SQLite."
+            )
 
         self.sentry_traces_sample_rate = self._normalize_rate(self.sentry_traces_sample_rate)
         self.sentry_profiles_sample_rate = self._normalize_rate(self.sentry_profiles_sample_rate)

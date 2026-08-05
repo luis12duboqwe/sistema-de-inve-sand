@@ -104,24 +104,6 @@ class ProductCorrectionRequest(ReasonPayload):
 class ProductPurgeRequest(ReasonPayload):
     pass
 
-    @field_validator("sku", "nombre", "marca", "modelo", mode="before")
-    @classmethod
-    def normalize_required_text(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        if not cleaned:
-            raise ValueError("El campo no puede quedar vacío")
-        return cleaned
-
-    @field_validator("color", "capacidad", mode="before")
-    @classmethod
-    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        return cleaned or None
-
 
 class StockImeiIssue(BaseModel):
     product_id: int

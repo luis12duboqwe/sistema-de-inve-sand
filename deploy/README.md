@@ -26,11 +26,38 @@ cd deploy
 ./validate-prod.sh
 ```
 
+## 2.1 Gate Final (recomendado)
+
+Ejecuta validación integral local antes de producción:
+
+```bash
+cd deploy
+./prod-gate.sh ./.env.prod
+```
+
+Este gate cubre:
+
+- validación de env y compose
+- lint/build/tests frontend
+- tests backend + E2E
+- auditoría de dependencias
+- escaneo de seguridad de contenedores
+
+Checklist de salida:
+
+- [GO_NO_GO_CHECKLIST.md](GO_NO_GO_CHECKLIST.md)
+
 ## 3. Levantar
 
 ```bash
 cd deploy
 docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup up -d --build
+```
+
+Para levantar observabilidad enterprise (Prometheus + Alertmanager + Grafana):
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup --profile monitoring up -d --build
 ```
 
 Servicios:
@@ -39,12 +66,17 @@ Servicios:
 - `backend`: FastAPI privado dentro de la red Docker.
 - `db`: PostgreSQL privado dentro de la red Docker.
 - `backup`: backup diario de PostgreSQL al volumen `backend_backups`.
+- `prometheus` (perfil `monitoring`): métricas y evaluación de alertas.
+- `alertmanager` (perfil `monitoring`): envío activo de alertas a webhook.
+- `grafana` (perfil `monitoring`): dashboards operativos.
 
 ## 4. Verificar
 
 ```bash
 curl -f http://localhost/health || true
 curl -f http://localhost/api/health
+curl -f http://localhost/api/ready
+curl -f http://localhost/api/metrics
 docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 ```
 
@@ -65,11 +97,70 @@ También puedes pasar una ruta de env explícita:
 
 El archivo queda en `deploy/backups/` junto con su checksum.
 
-## 6. Actualizar Versión
+## 6. Restaurar Backup (Recuperación)
+
+```bash
+cd deploy
+./restore-backup.sh ./.env.prod ./backups/manual_YYYYMMDD_HHMMSS.sql.gz --yes
+```
+
+Notas:
+
+- Si existe `*.sha256`, se valida antes de restaurar.
+- La restauración escribe sobre la BD objetivo; úsala en una ventana controlada.
+
+## 7. Monitoreo Operativo
+
+Health checks y métricas disponibles:
+
+- `/api/health`: estado general + readiness embebido
+- `/api/ready`: readiness de despliegue (200/503)
+- `/api/metrics`: métricas runtime (requests, latencia, errores)
+- `/api/metrics/prometheus`: formato Prometheus/OpenMetrics
+
+Chequeo integral rápido:
+
+```bash
+cd deploy
+./ops-healthcheck.sh ./.env.prod
+```
+
+## 8. Actualizar Versión
 
 ```bash
 git pull
 cd deploy
 ./validate-prod.sh
 docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup up -d --build
+```
+
+## 9. Simulacro DR (RTO/RPO)
+
+Ejecuta un drill de recuperación en PostgreSQL temporal y genera reporte JSON:
+
+```bash
+cd deploy
+./dr-drill.sh ./.env.prod ./backups/manual_YYYYMMDD_HHMMSS.sql.gz
+```
+
+Salida esperada:
+
+- `rto_seconds`: tiempo de recuperación medido.
+- `rpo_seconds`: antigüedad del backup restaurado.
+- `restored_counts`: conteos de tablas críticas tras restauración.
+
+También existe un workflow programado semanal en GitHub Actions: `.github/workflows/dr-drill.yml`.
+
+## 10. Lanzamiento en Un Solo Comando
+
+Flujo recomendado (validación, gate, despliegue y healthcheck):
+
+```bash
+./deploy/release-now.sh ./deploy/.env.prod
+```
+
+Opcional: desactivar stack de monitoreo en el lanzamiento:
+
+```bash
+USE_MONITORING=false ./deploy/release-now.sh ./deploy/.env.prod
 ```
