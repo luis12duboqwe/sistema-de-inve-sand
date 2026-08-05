@@ -1,9 +1,33 @@
 """Esquemas Pydantic para usuarios, roles y permisos (RBAC)."""
 
 from datetime import datetime
+import re
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+
+COMMON_PASSWORDS = {
+    "password",
+    "password123",
+    "admin123",
+    "123456789012",
+    "qwerty123456",
+}
+
+
+def _validate_secure_password(value: str) -> str:
+    if len(value) < 12:
+        raise ValueError("Password must be at least 12 characters long")
+    if value.lower() in COMMON_PASSWORDS:
+        raise ValueError("Password is too common")
+    if not re.search(r"[A-Za-z]", value):
+        raise ValueError("Password must contain at least one letter")
+    if not re.search(r"\d", value):
+        raise ValueError("Password must contain at least one number")
+    if not re.search(r"[^A-Za-z0-9]", value):
+        raise ValueError("Password must contain at least one symbol")
+    return value
 
 
 class PermissionBase(BaseModel):
@@ -55,13 +79,12 @@ class UserCreate(UserBase):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        if len(value) < 6:
-            raise ValueError("Password must be at least 6 characters long")
-        return value
+        return _validate_secure_password(value)
 
     @field_validator("username")
     @classmethod
     def validate_username(cls, value: str) -> str:
+        value = value.strip()
         if len(value) < 3:
             raise ValueError("Username must be at least 3 characters long")
         if not value.isalnum():
@@ -84,6 +107,25 @@ class UserUpdate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return _validate_secure_password(value)
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if not value.isalnum():
+            raise ValueError("Username must contain only alphanumeric characters")
+        return value
 
 
 class UserResponse(UserBase):
