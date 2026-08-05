@@ -24,7 +24,8 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "setuptools>=78.1.1" "wheel>=0.46.2" "jaraco.context>=6.1.0"
 
 COPY --from=builder /install /install
 COPY . .
