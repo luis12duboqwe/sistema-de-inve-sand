@@ -26,10 +26,11 @@ services:
       - ${PROD_ENV_FILE:-./.env.prod}
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      ENABLE_DESTRUCTIVE_PURGE: ${ENABLE_DESTRUCTIVE_PURGE:-false}
     expose:
       - "8000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -52,8 +53,6 @@ services:
         condition: service_healthy
     env_file:
       - ${PROD_ENV_FILE:-./.env.prod}
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     ports:
       - "${FRONTEND_PORT:-80}:80"
     networks:
@@ -72,15 +71,8 @@ services:
       - ${PROD_ENV_FILE:-./.env.prod}
     volumes:
       - backend_backups:/backups
-    command: >
-      sh -c 'mkdir -p /backups &&
-      while true; do
-        ts=$$(date +%Y%m%d_%H%M%S);
-        echo "[$$(date -Iseconds)] creando backup /backups/$${POSTGRES_DB}_$${ts}.sql.gz";
-        PGPASSWORD="$${POSTGRES_PASSWORD}" pg_dump -h db -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" | gzip > "/backups/$${POSTGRES_DB}_$${ts}.sql.gz";
-        find /backups -name "*.sql.gz" -mtime +$${BACKUP_RETENTION_DAYS:-30} -delete;
-        sleep $${BACKUP_INTERVAL_SECONDS:-86400};
-      done'
+      - ./backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
+    command: ["sh", "/usr/local/bin/backup-postgres.sh"]
     networks:
       - internal
 
@@ -98,7 +90,7 @@ services:
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
       backend:
         condition: service_healthy
@@ -120,7 +112,7 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --config.expand-env
     ports:
-      - "${ALERTMANAGER_PORT:-9093}:9093"
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
     networks:
       - internal
 
@@ -139,7 +131,7 @@ services:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     depends_on:
       prometheus:
         condition: service_started
