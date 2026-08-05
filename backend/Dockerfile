@@ -40,17 +40,30 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/* \
-    # El Python global de la imagen base incluye pip únicamente para instalar paquetes.
-    # La aplicación usa /opt/venv y no necesita un instalador en producción.
+    # El Python global de la imagen base trae herramientas de instalación que no
+    # intervienen en la ejecución. La aplicación utiliza únicamente /opt/venv.
     && rm -rf \
         /usr/local/lib/python3.11/site-packages/pip \
         /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.11/site-packages/setuptools \
+        /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
+        /usr/local/lib/python3.11/site-packages/_distutils_hack \
+        /usr/local/lib/python3.11/site-packages/pkg_resources \
+        /usr/local/lib/python3.11/site-packages/wheel \
+        /usr/local/lib/python3.11/site-packages/wheel-*.dist-info \
         /usr/local/bin/pip \
         /usr/local/bin/pip3 \
-        /usr/local/bin/pip3.11
+        /usr/local/bin/pip3.11 \
+        /usr/local/bin/wheel
 
 COPY --from=builder /opt/venv /opt/venv
 COPY . .
+
+# Fallar durante la construcción si el entorno virtual productivo quedó incompleto.
+RUN /opt/venv/bin/python -c \
+        "import fastapi, sqlalchemy, psycopg2, uvicorn; print('runtime imports ok')" \
+    && test ! -e /usr/local/lib/python3.11/site-packages/setuptools \
+    && test ! -e /usr/local/lib/python3.11/site-packages/pip
 
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
