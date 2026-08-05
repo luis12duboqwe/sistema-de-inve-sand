@@ -2,7 +2,8 @@
 FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
@@ -18,7 +19,15 @@ RUN python -m pip install --no-cache-dir --upgrade \
         pip \
         setuptools==83.0.0 \
         wheel==0.47.0 \
-    && python -m pip install --no-cache-dir -r requirements.txt
+    && python -m pip install --no-cache-dir -r requirements.txt \
+    # pip solo se necesita para construir el entorno. No debe viajar en la imagen final:
+    # sus dependencias vendorizadas amplían innecesariamente la superficie de ataque.
+    && rm -rf \
+        /opt/venv/lib/python3.11/site-packages/pip \
+        /opt/venv/lib/python3.11/site-packages/pip-*.dist-info \
+        /opt/venv/bin/pip \
+        /opt/venv/bin/pip3 \
+        /opt/venv/bin/pip3.11
 
 FROM python:3.11-slim AS runtime
 
@@ -31,9 +40,14 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m pip install --no-cache-dir --upgrade \
-        setuptools==83.0.0 \
-        wheel==0.47.0
+    # El Python global de la imagen base incluye pip únicamente para instalar paquetes.
+    # La aplicación usa /opt/venv y no necesita un instalador en producción.
+    && rm -rf \
+        /usr/local/lib/python3.11/site-packages/pip \
+        /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+        /usr/local/bin/pip \
+        /usr/local/bin/pip3 \
+        /usr/local/bin/pip3.11
 
 COPY --from=builder /opt/venv /opt/venv
 COPY . .
