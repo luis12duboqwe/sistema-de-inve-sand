@@ -1,7 +1,8 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
-import os
 
 from postgres_test_utils import create_postgres_test_engine
 
@@ -24,6 +25,13 @@ except Exception as exc:
     TEST_DB_AVAILABLE = False
     TEST_DB_ERROR = str(exc)
 
+if not TEST_DB_AVAILABLE and os.getenv("CI", "").strip().lower() == "true":
+    raise RuntimeError(
+        "PostgreSQL de pruebas no está disponible en CI. "
+        "El pipeline no puede continuar omitiendo la suite: "
+        f"{TEST_DB_ERROR}"
+    )
+
 import app.database as _db
 
 if TEST_DB_AVAILABLE and TEST_ENGINE is not None:
@@ -41,7 +49,6 @@ from app.auth import (
     get_current_user_optional,
 )
 
-# Asegura que los modelos estén registrados en Base.metadata
 from app import models as _models  # noqa: F401
 
 
@@ -64,19 +71,14 @@ def override_get_db():
 
 
 def _enable_test_overrides():
-    # DB de pruebas aislada en PostgreSQL
     app.dependency_overrides[get_db] = override_get_db
-
-    # Health check estable
     main.check_db_connection = lambda: True
 
-    # Autenticación: devolver siempre un usuario superusuario
     app.dependency_overrides[get_current_user] = _fake_user
     app.dependency_overrides[get_current_user_optional] = _fake_user
     app.dependency_overrides[get_current_active_user] = _fake_user
     app.dependency_overrides[get_current_superuser] = _fake_user
 
-    # Permisos: devolver usuario fake para cualquier permiso crítico usado en tests
     for perm_dep in [
         check_permission("inventory:create"),
         check_permission("inventory:edit"),
@@ -127,7 +129,6 @@ def setup_database(request):
         yield
     finally:
         Base.metadata.drop_all(bind=TEST_ENGINE)
-        # Restaurar overrides previos (ej: los que define tests/test_api_usage.py)
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
 
