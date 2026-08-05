@@ -90,12 +90,15 @@ def test_health_readiness_and_metrics_runtime():
         health = requests.get(f"{base_url}/api/health", timeout=5)
         assert health.status_code == 200
         payload = health.json()
+        assert payload["status"] == "alive"
         assert payload["database"] == "connected"
-        assert "readiness" in payload
 
         ready = requests.get(f"{base_url}/api/ready", timeout=5)
         assert ready.status_code == 200
-        assert ready.json()["ready"] is True
+        ready_payload = ready.json()
+        assert ready_payload["status"] == "ready"
+        assert ready_payload["ready"] is True
+        assert ready_payload["database"] == "connected"
 
         for _ in range(3):
             requests.get(f"{base_url}/api/health", timeout=5)
