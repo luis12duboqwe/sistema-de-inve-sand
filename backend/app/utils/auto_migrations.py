@@ -9,13 +9,15 @@ import logging
 
 from sqlalchemy import inspect, text
 
-from app.database import engine
+import app.database as database
 
 
 logger = logging.getLogger(__name__)
 
 
 def _apply_daily_close_migration() -> None:
+    """Apply fields used by daily-close validation to the active database."""
+    engine = database.engine
     inspector = inspect(engine)
 
     with engine.begin() as conn:
@@ -42,7 +44,9 @@ def _apply_daily_close_migration() -> None:
             )
             logger.info("Auto-migration: tabla system_config creada")
 
-        existing_cols = {column["name"] for column in inspector.get_columns("orders")}
+        existing_cols = {
+            column["name"] for column in inspect(conn).get_columns("orders")
+        }
 
         if "validada_at" not in existing_cols:
             conn.execute(
@@ -64,6 +68,7 @@ def _apply_daily_close_migration() -> None:
 
 
 def _apply_transfer_receiving_fields_migration() -> None:
+    engine = database.engine
     inspector = inspect(engine)
     existing_cols = {
         column["name"] for column in inspector.get_columns("stock_transfers")
@@ -96,6 +101,7 @@ def _apply_transfer_receiving_fields_migration() -> None:
 
 def run_auto_migrations() -> bool:
     """Apply compatibility migrations and fail startup on any PostgreSQL error."""
+    engine = database.engine
     if engine.dialect.name != "postgresql":
         logger.info(
             "Auto-migrations PostgreSQL omitidas para dialecto %s",
