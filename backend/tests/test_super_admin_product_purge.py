@@ -1,6 +1,13 @@
-from datetime import datetime, timezone
-
-from app.models import Location, Order, OrderItem, Product, ProductIMEI, Stock, StockHistory, StockTransfer
+from app.models import (
+    Location,
+    Order,
+    OrderItem,
+    Product,
+    ProductIMEI,
+    Stock,
+    StockHistory,
+    StockTransfer,
+)
 
 
 def test_super_admin_can_purge_product_and_related_records(client, db_session):
@@ -21,15 +28,26 @@ def test_super_admin_can_purge_product_and_related_records(client, db_session):
     )
     db_session.add(product)
     db_session.flush()
+    product_id = product.id
 
-    stock = Stock(product_id=product.id, location_id=location.id, cantidad_disponible=2, cantidad_reservada=1, cantidad_defectuosa=0)
+    stock = Stock(
+        product_id=product_id,
+        location_id=location.id,
+        cantidad_disponible=2,
+        cantidad_reservada=1,
+        cantidad_defectuosa=0,
+    )
     db_session.add(stock)
 
-    imei = ProductIMEI(product_id=product.id, location_id=location.id, imei="356000000000000")
+    imei = ProductIMEI(
+        product_id=product_id,
+        location_id=location.id,
+        imei="356000000000000",
+    )
     db_session.add(imei)
 
     stock_history = StockHistory(
-        product_id=product.id,
+        product_id=product_id,
         location_id=location.id,
         tipo_cambio="compra",
         cantidad=2,
@@ -51,11 +69,16 @@ def test_super_admin_can_purge_product_and_related_records(client, db_session):
     db_session.add(order)
     db_session.flush()
 
-    order_item = OrderItem(order_id=order.id, product_id=product.id, cantidad=1, precio_unitario=500)
+    order_item = OrderItem(
+        order_id=order.id,
+        product_id=product_id,
+        cantidad=1,
+        precio_unitario=500,
+    )
     db_session.add(order_item)
 
     transfer = StockTransfer(
-        product_id=product.id,
+        product_id=product_id,
         from_location_id=location.id,
         to_location_id=location.id,
         cantidad=1,
@@ -66,7 +89,7 @@ def test_super_admin_can_purge_product_and_related_records(client, db_session):
     db_session.commit()
 
     response = client.post(
-        f"/api/super-admin/products/{product.id}/purge",
+        f"/api/super-admin/products/{product_id}/purge",
         json={"reason": "Eliminación de prueba para purga total"},
     )
 
@@ -78,9 +101,29 @@ def test_super_admin_can_purge_product_and_related_records(client, db_session):
     assert payload["deleted_counts"]["stock"] == 1
 
     db_session.expire_all()
-    assert db_session.query(Product).filter(Product.id == product.id).count() == 0
-    assert db_session.query(ProductIMEI).filter(ProductIMEI.product_id == product.id).count() == 0
-    assert db_session.query(Stock).filter(Stock.product_id == product.id).count() == 0
-    assert db_session.query(StockHistory).filter(StockHistory.product_id == product.id).count() == 0
-    assert db_session.query(OrderItem).filter(OrderItem.product_id == product.id).count() == 0
-    assert db_session.query(StockTransfer).filter(StockTransfer.product_id == product.id).count() == 0
+    assert db_session.query(Product).filter(Product.id == product_id).count() == 0
+    assert (
+        db_session.query(ProductIMEI)
+        .filter(ProductIMEI.product_id == product_id)
+        .count()
+        == 0
+    )
+    assert db_session.query(Stock).filter(Stock.product_id == product_id).count() == 0
+    assert (
+        db_session.query(StockHistory)
+        .filter(StockHistory.product_id == product_id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(OrderItem)
+        .filter(OrderItem.product_id == product_id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(StockTransfer)
+        .filter(StockTransfer.product_id == product_id)
+        .count()
+        == 0
+    )

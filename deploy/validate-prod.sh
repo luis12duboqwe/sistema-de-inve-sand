@@ -35,6 +35,7 @@ required=(
   ENVIRONMENT
   SECRET_KEY
   CHANNEL_ENCRYPTION_KEY
+  SETUP_TOKEN
   ALLOWED_HOSTS
   CORS_ORIGINS
   GRAFANA_ADMIN_PASSWORD
@@ -47,22 +48,27 @@ for key in "${required[@]}"; do
   fi
 done
 
-secret_key="$(grep -E '^SECRET_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
-if [ "${#secret_key}" -lt 32 ]; then
-  echo "SECRET_KEY debe tener al menos 32 caracteres" >&2
-  exit 1
-fi
+validate_min_length() {
+  local key="$1"
+  local min_length="$2"
+  local value
+  value="$(grep -E "^${key}=" "$ENV_FILE" | cut -d'=' -f2-)"
+  if [ "${#value}" -lt "$min_length" ]; then
+    echo "$key debe tener al menos $min_length caracteres" >&2
+    exit 1
+  fi
+}
 
-channel_key="$(grep -E '^CHANNEL_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d'=' -f2-)"
-if [ "${#channel_key}" -lt 32 ]; then
-  echo "CHANNEL_ENCRYPTION_KEY parece inválida o demasiado corta" >&2
-  exit 1
-fi
+validate_min_length SECRET_KEY 32
+validate_min_length CHANNEL_ENCRYPTION_KEY 32
+validate_min_length SETUP_TOKEN 32
+validate_min_length GRAFANA_ADMIN_PASSWORD 12
 
-grafana_pass="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2-)"
-if [ "${#grafana_pass}" -lt 12 ]; then
-  echo "GRAFANA_ADMIN_PASSWORD debe tener al menos 12 caracteres" >&2
-  exit 1
+if grep -Eq '^ENABLE_DESTRUCTIVE_PURGE=true$' "$ENV_FILE"; then
+  if ! grep -Eq '^DESTRUCTIVE_OPERATION_TOKEN=.{32,}$' "$ENV_FILE"; then
+    echo "DESTRUCTIVE_OPERATION_TOKEN de al menos 32 caracteres es obligatorio cuando ENABLE_DESTRUCTIVE_PURGE=true" >&2
+    exit 1
+  fi
 fi
 
 if grep -Eq '^DATABASE_URL=sqlite' "$ENV_FILE"; then
@@ -72,6 +78,11 @@ fi
 
 if ! grep -Eq '^MAX_REQUEST_BODY_BYTES=[0-9]+$' "$ENV_FILE"; then
   echo "MAX_REQUEST_BODY_BYTES debe estar definido como entero" >&2
+  exit 1
+fi
+
+if ! grep -Eq '^MIN_BACKUP_BYTES=[0-9]+$' "$ENV_FILE"; then
+  echo "MIN_BACKUP_BYTES debe estar definido como entero" >&2
   exit 1
 fi
 

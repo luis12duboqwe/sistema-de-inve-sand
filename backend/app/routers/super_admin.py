@@ -745,6 +745,11 @@ def purge_product_for_admin(
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
+    product_before = {
+        "id": product.id,
+        "sku": product.sku,
+        "nombre": product.nombre,
+    }
     deleted_counts = {
         "products": 0,
         "imeis": 0,
@@ -761,7 +766,9 @@ def purge_product_for_admin(
         "physical_inventory_items": 0,
     }
 
-    with db.begin():
+    # La consulta inicial ya abre una transacción implícita en SQLAlchemy 2.x.
+    # Se reutiliza esa misma transacción y se confirma una sola vez al final.
+    try:
         order_ids = [row[0] for row in db.query(OrderItem.order_id).filter(OrderItem.product_id == product_id).distinct().all()]
         deleted_counts["order_items"] = db.query(OrderItem).filter(OrderItem.product_id == product_id).delete(synchronize_session=False)
 
@@ -787,8 +794,6 @@ def purge_product_for_admin(
             has_remaining_items = db.query(OrderItem.id).filter(OrderItem.order_id == order_id).first() is not None
             if has_remaining_items:
                 continue
-            db.query(ReturnItem).join(Return).filter(Return.order_id == order_id).delete(synchronize_session=False)
-            db.query(Return).filter(Return.order_id == order_id).delete(synchronize_session=False)
             db.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
             deleted_counts["orders"] += 1
 
@@ -799,12 +804,16 @@ def purge_product_for_admin(
             db,
             action="super_admin.product.purge",
             entity_type="product",
-            entity_id=product.id,
+            entity_id=product_id,
             user=current_user,
-            before_data={"id": product.id, "sku": product.sku, "nombre": product.nombre},
+            before_data=product_before,
             after_data={"deleted": True},
             metadata={"reason": payload.reason, "deleted_counts": deleted_counts},
         )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"ok": True, "product_id": product_id, "deleted_counts": deleted_counts}
 

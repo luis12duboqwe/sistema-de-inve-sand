@@ -1,7 +1,8 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
-import os
 
 from postgres_test_utils import create_postgres_test_engine
 
@@ -24,6 +25,13 @@ except Exception as exc:
     TEST_DB_AVAILABLE = False
     TEST_DB_ERROR = str(exc)
 
+if not TEST_DB_AVAILABLE and os.getenv("CI", "").strip().lower() == "true":
+    raise RuntimeError(
+        "PostgreSQL de pruebas no está disponible en CI. "
+        "El pipeline no puede continuar omitiendo la suite: "
+        f"{TEST_DB_ERROR}"
+    )
+
 import app.database as _db
 
 if TEST_DB_AVAILABLE and TEST_ENGINE is not None:
@@ -40,8 +48,8 @@ from app.auth import (
     get_current_user,
     get_current_user_optional,
 )
+from app.utils.rate_limiter import reset_all_limiters
 
-# Asegura que los modelos estén registrados en Base.metadata
 from app import models as _models  # noqa: F401
 
 
@@ -64,19 +72,14 @@ def override_get_db():
 
 
 def _enable_test_overrides():
-    # DB de pruebas aislada en PostgreSQL
     app.dependency_overrides[get_db] = override_get_db
-
-    # Health check estable
     main.check_db_connection = lambda: True
 
-    # Autenticación: devolver siempre un usuario superusuario
     app.dependency_overrides[get_current_user] = _fake_user
     app.dependency_overrides[get_current_user_optional] = _fake_user
     app.dependency_overrides[get_current_active_user] = _fake_user
     app.dependency_overrides[get_current_superuser] = _fake_user
 
-    # Permisos: devolver usuario fake para cualquier permiso crítico usado en tests
     for perm_dep in [
         check_permission("inventory:create"),
         check_permission("inventory:edit"),
@@ -108,13 +111,20 @@ def setup_database(request):
     """Config global de pruebas.
 
     - Tests unitarios/integración con TestClient: DB PostgreSQL aislada + auth fake + reset por test.
-    - tests/test_api_usage.py: corre Uvicorn real y usa DB en archivo; NO aplicar overrides ni resets.
+    - tests/test_api_usage.py: corre Uvicorn real y usa su propio esquema PostgreSQL.
+    - Los limitadores globales se reinician entre tests para evitar contaminación
+      temporal sin desactivar la protección ni reducir su cobertura dedicada.
     """
     if not TEST_DB_AVAILABLE:
         pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
 
+    reset_all_limiters()
+
     if "tests/test_api_usage.py" in request.node.nodeid:
-        yield
+        try:
+            yield
+        finally:
+            reset_all_limiters()
         return
 
     previous_overrides = dict(app.dependency_overrides)
@@ -127,9 +137,9 @@ def setup_database(request):
         yield
     finally:
         Base.metadata.drop_all(bind=TEST_ENGINE)
-        # Restaurar overrides previos (ej: los que define tests/test_api_usage.py)
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
+        reset_all_limiters()
 
         if previous_check_db_connection is not None:
             main.check_db_connection = previous_check_db_connection

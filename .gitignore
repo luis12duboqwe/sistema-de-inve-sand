@@ -54,7 +54,13 @@ logs/
 coverage/
 uploads/
 
-# Python virtual envs
+# Python generated files and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
 .venv/
 .venv-*/
 venv/

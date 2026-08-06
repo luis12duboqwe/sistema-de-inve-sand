@@ -55,6 +55,8 @@ POSTGRES_USER="${POSTGRES_USER:-inventory_admin}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(generate_hex 24)}"
 SECRET_KEY="${SECRET_KEY:-$(generate_hex 32)}"
 CHANNEL_ENCRYPTION_KEY="${CHANNEL_ENCRYPTION_KEY:-$(generate_fernet_key)}"
+SETUP_TOKEN="${SETUP_TOKEN:-$(generate_hex 32)}"
+DESTRUCTIVE_OPERATION_TOKEN="${DESTRUCTIVE_OPERATION_TOKEN:-$(generate_hex 32)}"
 
 set_env FRONTEND_PORT "${FRONTEND_PORT:-80}"
 set_env POSTGRES_DB "$POSTGRES_DB"
@@ -65,6 +67,9 @@ set_env ENVIRONMENT production
 set_env DEBUG false
 set_env SECRET_KEY "$SECRET_KEY"
 set_env CHANNEL_ENCRYPTION_KEY "$CHANNEL_ENCRYPTION_KEY"
+set_env SETUP_TOKEN "$SETUP_TOKEN"
+set_env DESTRUCTIVE_OPERATION_TOKEN "$DESTRUCTIVE_OPERATION_TOKEN"
+set_env ENABLE_DESTRUCTIVE_PURGE false
 set_env ALLOWED_HOSTS "$APP_DOMAIN,localhost,127.0.0.1"
 set_env CORS_ORIGINS "https://${APP_DOMAIN}"
 set_env VITE_API_BASE_URL /api
@@ -76,14 +81,17 @@ set_env ENABLE_AUTO_BACKUP true
 set_env BACKUP_DIR /app/backups
 set_env BACKUP_RETENTION_DAYS "${BACKUP_RETENTION_DAYS:-30}"
 set_env BACKUP_INTERVAL_SECONDS "${BACKUP_INTERVAL_SECONDS:-86400}"
+set_env MIN_BACKUP_BYTES "${MIN_BACKUP_BYTES:-1024}"
 
 chmod 600 "$ENV_FILE"
 
-cat <<EOF
+cat <<EOF2
 Archivo de producción preparado: $ENV_FILE
 
 Revisa estos valores antes de levantar:
   - APP_DOMAIN / ALLOWED_HOSTS: $APP_DOMAIN
+  - SETUP_TOKEN: úsalo sólo para crear el primer administrador
+  - ENABLE_DESTRUCTIVE_PURGE: debe permanecer en false
   - SENTRY_DSN: opcional, recomendado
   - OPENAI_API_KEY: requerido sólo si usarás IA
   - SMTP_*: requerido sólo si usarás email/recuperación
@@ -93,4 +101,4 @@ Siguiente paso:
   cd $DEPLOY_DIR
   ./validate-prod.sh
   docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup up -d --build
-EOF
+EOF2

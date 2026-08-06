@@ -1,58 +1,56 @@
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
-from fastapi.responses import PlainTextResponse
+import re
+from time import perf_counter
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-import logging
-from time import perf_counter
-import re
+from sqlalchemy.orm import Session
 
-from app.database import init_db, get_db, check_db_connection
 from app.auth import check_permission
+from app.config import settings
+from app.config_production import check_production_readiness, prod_settings
+from app.database import check_db_connection, get_db, init_db
+from app.jobs.forecasting_job import start_forecasting_job
+from app.middleware.production_guards import ProductionGuardMiddleware
+from app.middleware.request_context import RequestContextMiddleware
 from app.routers import (
+    ai_intelligence,
+    analytics,
+    auth_router,
     channel_integrations,
     channel_monitoring,
-    profiles,
-    products,
-    orders,
-    faq,
     customers,
-    reports,
-    auth_router,
-    stock_transfers,
-    suppliers,
-    stock_history,
-    locations,
-    sales_profiles,
-    returns,
-    imeis,
-    ai_intelligence,
-    financing,
-    public,
-    forecasting,
-    analytics,
-    photo_requests,
-    websocket,
     daily_close,
+    faq,
+    financing,
+    forecasting,
+    imeis,
+    locations,
     multistore_control,
+    orders,
+    photo_requests,
+    products,
+    profiles,
+    public,
+    reports,
+    returns,
+    sales_profiles,
+    stock_history,
+    stock_transfers,
     super_admin,
+    suppliers,
+    websocket,
 )
+from app.utils.auth_security import extract_jwt_subject
+from app.utils.auto_migrations import run_auto_migrations
 from app.utils.demo_seed import seed_demo_data
-from app.config import settings
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
-from app.utils.sentry_config import init_sentry
-from app.config_production import prod_settings, check_production_readiness
-from app.middleware.request_context import RequestContextMiddleware
-from app.utils.auto_migrations import run_auto_migrations
-from sqlalchemy.orm import Session
-from app.jobs.forecasting_job import start_forecasting_job
-from app.utils.runtime_metrics import RuntimeMetrics
-from app.utils.rate_limiter import get_api_general_limiter
-from app.utils.auth_security import extract_jwt_subject
 from app.utils.prometheus_metrics import (
     RATE_LIMIT_BLOCK_TOTAL,
     REQUEST_LATENCY_SECONDS,
@@ -60,11 +58,14 @@ from app.utils.prometheus_metrics import (
     REQUESTS_TOTAL,
     render_prometheus_metrics,
 )
+from app.utils.rate_limiter import get_api_general_limiter
+from app.utils.runtime_metrics import RuntimeMetrics
+from app.utils.sentry_config import init_sentry
 
-# Configurar logging al inicio
+
 setup_logging()
 initialize_observability()
-init_sentry()  # ✅ Inicializar Sentry para monitoreo
+init_sentry()
 logger = logging.getLogger(__name__)
 runtime_metrics = RuntimeMetrics()
 
@@ -84,12 +85,12 @@ PATH_ID_PATTERN = re.compile(r"/\d+|/[0-9a-fA-F-]{16,}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     logger.info("Starting up application...")
     init_db()
     app.state.forecast_cache = None
-    
-    # Run auto-migrations
+
+    # Las migraciones son parte del arranque. Un fallo debe detener el proceso
+    # para evitar operar con un esquema incompleto.
     run_auto_migrations()
 
     scheduler = None
@@ -106,9 +107,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Sistema de Inventario API",
-    description="API REST para gestión de inventario de celulares y accesorios con ubicaciones físicas y perfiles de venta",
+    description=(
+        "API REST para gestión de inventario de celulares y accesorios "
+        "con ubicaciones físicas y perfiles de venta"
+    ),
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
@@ -116,23 +120,27 @@ uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(ProductionGuardMiddleware)
 
-# Global Exception Handler
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # No capturar HTTPException (dejar que FastAPI lo maneje)
-    # Pero sí loguear errores inesperados
-    logger.error(f"Unhandled exception in {request.method} {request.url}: {exc}", exc_info=True)
+    logger.error(
+        "Unhandled exception in %s %s: %s",
+        request.method,
+        request.url,
+        exc,
+        exc_info=True,
+    )
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error. Please check logs for details."}
+        content={"detail": "Internal Server Error. Please check logs for details."},
     )
+
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    # Evitar "*" + credenciales (riesgo CORS). La API usa Authorization header,
-    # no cookies, así que no se requieren credenciales.
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,6 +153,7 @@ if prod_settings.is_production() and settings.allowed_hosts != ["*"]:
     )
 
 if prod_settings.is_production():
+
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):
         response = await call_next(request)
@@ -203,7 +212,9 @@ async def collect_runtime_metrics(request: Request, call_next):
         status = response.status_code if response is not None else 500
         runtime_metrics.on_request_end(elapsed_ms, status)
         REQUESTS_TOTAL.labels(request.method, metrics_path, str(status)).inc()
-        REQUEST_LATENCY_SECONDS.labels(request.method, metrics_path).observe(elapsed_ms / 1000)
+        REQUEST_LATENCY_SECONDS.labels(request.method, metrics_path).observe(
+            elapsed_ms / 1000
+        )
         REQUESTS_IN_FLIGHT.dec()
 
 
@@ -230,7 +241,10 @@ async def enforce_general_rate_limit(request: Request, call_next):
                 "Retry-After": str(info["reset_in_seconds"]),
             },
             content={
-                "detail": f"API rate limit excedido. Reintente en {info['reset_in_seconds']} segundos.",
+                "detail": (
+                    "API rate limit excedido. Reintente en "
+                    f"{info['reset_in_seconds']} segundos."
+                ),
                 "scope": scope,
             },
         )
@@ -239,6 +253,7 @@ async def enforce_general_rate_limit(request: Request, call_next):
     response.headers.setdefault("X-RateLimit-Limit", str(info["limit"]))
     response.headers.setdefault("X-RateLimit-Remaining", str(info["remaining"]))
     return response
+
 
 app.include_router(auth_router.router)
 app.include_router(locations.router)
@@ -267,53 +282,50 @@ app.include_router(daily_close.router)
 app.include_router(multistore_control.router)
 app.include_router(super_admin.router)
 
+
 @app.get("/")
 def read_root():
-    """
-    Root endpoint with API information.
-    
-    Returns:
-        Basic API information and documentation link
-    """
     return {
         "message": "Sistema de Inventario API",
         "version": "2.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
     }
 
 
 @app.get("/health", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 def health_check():
-    """Health check completo para monitoreo, readiness y diagnóstico."""
+    """Liveness: confirma que el proceso responde; no controla despliegues."""
     db_healthy = check_db_connection()
-    readiness = check_production_readiness()
-
     return {
-        "status": "healthy" if db_healthy else "unhealthy",
+        "status": "healthy",
         "database": "connected" if db_healthy else "disconnected",
         "service": "inventory-api",
         "version": "2.0.0",
         "environment": settings.environment,
-        "readiness": readiness,
     }
 
 
 @app.get("/ready", tags=["Health"])
 @app.get("/api/ready", tags=["Health"])
 def readiness_check():
-    """Endpoint de readiness para infraestructura y despliegues."""
-    readiness = check_production_readiness()
-    status_code = 200 if readiness["ready"] else 503
+    """Readiness real: requiere configuración válida y base disponible."""
+    db_healthy = check_db_connection()
+    config_readiness = check_production_readiness()
+    ready = bool(db_healthy and config_readiness["ready"])
+    warnings = list(config_readiness["warnings"])
+    if not db_healthy:
+        warnings.append("BASE DE DATOS: PostgreSQL no responde")
 
     return JSONResponse(
-        status_code=status_code,
+        status_code=200 if ready else 503,
         content={
-            "status": "ready" if readiness["ready"] else "not_ready",
-            "ready": readiness["ready"],
-            "is_production": readiness["is_production"],
-            "warnings": readiness["warnings"],
-            "config": readiness["config"],
+            "status": "ready" if ready else "not_ready",
+            "ready": ready,
+            "database": "connected" if db_healthy else "disconnected",
+            "is_production": config_readiness["is_production"],
+            "warnings": warnings,
+            "config": config_readiness["config"],
         },
     )
 
@@ -321,16 +333,17 @@ def readiness_check():
 @app.get("/metrics", tags=["Health"])
 @app.get("/api/metrics", tags=["Health"])
 def metrics_check():
-    """Métricas runtime para monitoreo operativo."""
     snapshot = runtime_metrics.snapshot()
     return {
         "requests": {
             "total": snapshot.total_requests,
             "errors": snapshot.total_errors,
             "in_flight": snapshot.in_flight,
-            "error_rate": round((snapshot.total_errors / snapshot.total_requests) * 100, 2)
-            if snapshot.total_requests
-            else 0.0,
+            "error_rate": (
+                round((snapshot.total_errors / snapshot.total_requests) * 100, 2)
+                if snapshot.total_requests
+                else 0.0
+            ),
         },
         "latency_ms": {
             "avg": snapshot.avg_latency_ms,
@@ -344,7 +357,6 @@ def metrics_check():
 @app.get("/metrics/prometheus", tags=["Health"])
 @app.get("/api/metrics/prometheus", tags=["Health"])
 def prometheus_metrics():
-    """Métricas en formato Prometheus/OpenMetrics."""
     payload = render_prometheus_metrics()
     return PlainTextResponse(
         content=payload.decode("utf-8"),
@@ -352,26 +364,28 @@ def prometheus_metrics():
     )
 
 
-@app.post("/api/init-data", tags=["Inicialización"], dependencies=[Depends(check_permission("settings:edit"))])
+@app.post(
+    "/api/init-data",
+    tags=["Inicialización"],
+    dependencies=[Depends(check_permission("settings:edit"))],
+)
 def initialize_sample_data(db: Session = Depends(get_db)):
-    """
-    Inicializa datos de ejemplo en la base de datos.
-    Bloqueado en producción para evitar datos no autorizados.
-    """
     if prod_settings.is_production():
         raise HTTPException(
             status_code=403,
-            detail="Endpoint deshabilitado en producción"
+            detail="Endpoint deshabilitado en producción",
         )
 
     try:
         summary = seed_demo_data(db, created_by="api-init-data")
-
         return {
             "message": "Datos de prueba inicializados correctamente",
             "summary": summary,
         }
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al inicializar datos: {str(e)}")
-
+        logger.exception("Error al inicializar datos de prueba")
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudieron inicializar los datos de prueba",
+        ) from exc
