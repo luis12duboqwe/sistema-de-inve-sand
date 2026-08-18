@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,13 @@ CRITICAL_METRICS: dict[str, dict[str, tuple[str, str]]] = {
 }
 
 
+def _normalized_decimal_text(value: Decimal) -> str:
+    normalized = value.normalize()
+    if normalized == normalized.to_integral():
+        return str(normalized.quantize(Decimal("1")))
+    return format(normalized, "f")
+
+
 def _json_scalar(value: Any) -> int | str | None:
     if value is None:
         return None
@@ -64,10 +71,19 @@ def _json_scalar(value: Any) -> int | str | None:
     if isinstance(value, int):
         return value
     if isinstance(value, Decimal):
-        return format(value, "f")
+        return _normalized_decimal_text(value)
     if isinstance(value, float):
-        return format(Decimal(str(value)), "f")
+        return _normalized_decimal_text(Decimal(str(value)))
     return str(value)
+
+
+def _metric_values_equal(before_value: Any, after_value: Any) -> bool:
+    if before_value == after_value:
+        return True
+    try:
+        return Decimal(str(before_value)) == Decimal(str(after_value))
+    except (InvalidOperation, ValueError, TypeError):
+        return str(before_value) == str(after_value)
 
 
 def _source_descriptor(engine: Engine) -> dict[str, str]:
@@ -202,7 +218,7 @@ def compare_snapshots(before: dict[str, Any], after: dict[str, Any]) -> dict[str
             if metric_name not in after_metrics:
                 mismatches.append(f"Falta métrica destino: {table_name}.{metric_name}")
                 continue
-            if str(before_value) != str(after_metrics[metric_name]):
+            if not _metric_values_equal(before_value, after_metrics[metric_name]):
                 mismatches.append(
                     f"Métrica distinta {table_name}.{metric_name}: antes={before_value} después={after_metrics[metric_name]}"
                 )
