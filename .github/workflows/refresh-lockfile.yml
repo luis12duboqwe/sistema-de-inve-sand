@@ -1,0 +1,52 @@
+name: Refresh Lockfile Security Fixes
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/finalize-production
+    paths:
+      - .github/workflows/refresh-lockfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/finalize-production
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refresh vulnerable transitive dependencies in lockfile only
+        run: npm audit fix --package-lock-only --legacy-peer-deps
+
+      - name: Verify nanoid is patched
+        shell: bash
+        run: |
+          version="$(node -p "require('./package-lock.json').packages['node_modules/nanoid'].version")"
+          echo "nanoid=$version"
+          if [ "$version" != "3.3.18" ]; then
+            echo "Expected nanoid 3.3.18 after lockfile refresh, got $version" >&2
+            exit 1
+          fi
+
+      - name: Commit refreshed lockfile
+        shell: bash
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: refresh vulnerable transitive npm lock entries"
+          git push origin HEAD:agent/finalize-production
