@@ -37,7 +37,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# La etiqueta slim puede recibir un digest que aún contenga paquetes base con
+# correcciones de seguridad pendientes. Actualizamos esos paquetes antes de
+# instalar dependencias runtime para que el artefacto final incorpore los fixes
+# publicados por Debian en el momento del build reproducible de CI/release.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/* \
     # El Python global de la imagen base trae herramientas de instalación que no
