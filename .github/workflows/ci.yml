@@ -17,6 +17,8 @@ jobs:
           cache: npm
       - run: npm ci --legacy-peer-deps
       - run: npm run lint
+      - name: Validate deploy shell scripts
+        run: find deploy -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -101,9 +103,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: inventory_e2e
-          POSTGRES_USER: inventory_e2e
-          POSTGRES_PASSWORD: inventory_e2e_password
+          POSTGRES_DB=inventory_e2e
+          POSTGRES_USER=inventory_e2e
+          POSTGRES_PASSWORD=inventory_e2e_password
         ports:
           - 5432:5432
         options: >-
