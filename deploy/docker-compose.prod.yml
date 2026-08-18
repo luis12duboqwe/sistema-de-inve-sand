@@ -76,6 +76,38 @@ services:
     networks:
       - internal
 
+  backup-offsite:
+    image: rclone/rclone:1.70.3
+    restart: unless-stopped
+    profiles:
+      - backup-offsite
+    depends_on:
+      - backup
+    env_file:
+      - ${PROD_ENV_FILE:-./.env.prod}
+    volumes:
+      - backend_backups:/backups:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$BACKUP_RCLONE_DESTINATION" ]; then
+          echo "BACKUP_RCLONE_DESTINATION es obligatorio para backup-offsite" >&2
+          exit 1
+        fi
+        interval="$${BACKUP_OFFSITE_INTERVAL_SECONDS:-3600}"
+        while true; do
+          echo "[$$(date -Iseconds)] replicando backups a $$BACKUP_RCLONE_DESTINATION"
+          rclone copy /backups "$$BACKUP_RCLONE_DESTINATION" \
+            --include "*.sql.gz" \
+            --include "*.sql.gz.sha256" \
+            --checksum \
+            --transfers 4 \
+            --checkers 8
+          sleep "$$interval"
+        done
+    networks:
+      - internal
+
   prometheus:
     image: prom/prometheus:v2.54.1
     restart: unless-stopped
