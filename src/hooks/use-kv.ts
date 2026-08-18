@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getKV } from '@/lib/kvStorage'
+import { normalizeRuntimeWrite, resolveRuntimeDefault } from '@/lib/runtimePolicy'
 
 /**
  * Tipo para la función de actualización que puede recibir un valor o una función
@@ -7,32 +8,35 @@ import { getKV } from '@/lib/kvStorage'
 type SetStateAction<T> = T | ((prevValue: T) => T)
 
 /**
- * Hook personalizado que reemplaza useKV de @github/spark/hooks
- * Usa nuestra capa de abstracción kvStorage con fallback a localStorage
- * Soporta el mismo patrón que useState: acepta valores directos o funciones de actualización
+ * Hook personalizado que reemplaza useKV de @github/spark/hooks.
+ * Usa nuestra capa de abstracción kvStorage sobre localStorage y soporta el mismo
+ * patrón que useState: acepta valores directos o funciones de actualización.
+ *
+ * En producción `settings_use_api` se resuelve como `true` desde el primer render.
+ * Esto evita una ventana transitoria en modo local antes de que termine la lectura KV.
  */
 export function useKV<T>(
-  key: string, 
+  key: string,
   defaultValue: T
 ): [T, (value: SetStateAction<T>) => void] {
-  const [value, setValue] = useState<T>(defaultValue)
+  const runtimeDefault = resolveRuntimeDefault(key, defaultValue)
+  const [value, setValue] = useState<T>(runtimeDefault)
   const [isInitialized, setIsInitialized] = useState(false)
-  const valueRef = useRef<T>(defaultValue)
+  const valueRef = useRef<T>(runtimeDefault)
 
-  // Actualizar ref cuando value cambia
   useEffect(() => {
     valueRef.current = value
   }, [value])
 
-  // Cargar valor inicial
   useEffect(() => {
     const loadValue = async () => {
       try {
         const kv = getKV()
         const storedValue = await kv.get<T>(key)
         if (storedValue !== undefined) {
-          setValue(storedValue)
-          valueRef.current = storedValue
+          const runtimeValue = normalizeRuntimeWrite(key, storedValue)
+          setValue(runtimeValue)
+          valueRef.current = runtimeValue
         }
         setIsInitialized(true)
       } catch (error) {
@@ -41,19 +45,17 @@ export function useKV<T>(
       }
     }
 
-    loadValue()
+    void loadValue()
   }, [key])
 
-  // Función para actualizar el valor (acepta valor directo o función)
-  // No depende de 'value' para evitar loops infinitos
   const updateValue = useCallback(
     async (newValue: SetStateAction<T>) => {
       try {
-        // Si es una función, ejecutarla con el valor actual desde ref
-        const valueToSet = typeof newValue === 'function' 
+        const requestedValue = typeof newValue === 'function'
           ? (newValue as (prevValue: T) => T)(valueRef.current)
           : newValue
-        
+        const valueToSet = normalizeRuntimeWrite(key, requestedValue)
+
         const kv = getKV()
         await kv.set(key, valueToSet)
         setValue(valueToSet)
@@ -66,7 +68,6 @@ export function useKV<T>(
     [key]
   )
 
-  // Escuchar cambios en localStorage (para sincronización entre tabs)
   useEffect(() => {
     if (!isInitialized) return
 
@@ -76,7 +77,9 @@ export function useKV<T>(
           const kv = getKV()
           const newValue = await kv.get<T>(key)
           if (newValue !== undefined) {
-            setValue(newValue)
+            const runtimeValue = normalizeRuntimeWrite(key, newValue)
+            setValue(runtimeValue)
+            valueRef.current = runtimeValue
           }
         } catch (error) {
           console.error(`Error syncing KV key "${key}":`, error)
