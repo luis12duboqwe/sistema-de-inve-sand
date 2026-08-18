@@ -103,9 +103,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB=inventory_e2e
-          POSTGRES_USER=inventory_e2e
-          POSTGRES_PASSWORD=inventory_e2e_password
+          POSTGRES_DB: inventory_e2e
+          POSTGRES_USER: inventory_e2e
+          POSTGRES_PASSWORD: inventory_e2e_password
         ports:
           - 5432:5432
         options: >-
