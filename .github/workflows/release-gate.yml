@@ -3,6 +3,8 @@ name: Release Gate
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -111,7 +113,14 @@ jobs:
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=StrongPassw0rd!/' ./deploy/.env.prod.ci
           sed -i 's/^SETUP_TOKEN=.*/SETUP_TOKEN=StrongSetupTokenForReleaseGate123456/' ./deploy/.env.prod.ci
           sed -i 's/^DESTRUCTIVE_OPERATION_TOKEN=.*/DESTRUCTIVE_OPERATION_TOKEN=StrongDestructiveTokenForGate123/' ./deploy/.env.prod.ci
+          sed -i 's|^BACKUP_RCLONE_DESTINATION=.*|BACKUP_RCLONE_DESTINATION=offsite:inventory-ci|' ./deploy/.env.prod.ci
       - name: Validate production config
         run: |
           ./deploy/validate-prod.sh ./deploy/.env.prod.ci
-          PROD_ENV_FILE=./deploy/.env.prod.ci docker compose --env-file ./deploy/.env.prod.ci -f ./deploy/docker-compose.prod.yml --profile backup --profile monitoring config --quiet
+          PROD_ENV_FILE=./deploy/.env.prod.ci docker compose \
+            --env-file ./deploy/.env.prod.ci \
+            -f ./deploy/docker-compose.prod.yml \
+            --profile backup \
+            --profile backup-offsite \
+            --profile monitoring \
+            config --quiet

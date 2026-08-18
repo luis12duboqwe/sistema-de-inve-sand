@@ -2,6 +2,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from postgres_test_utils import create_postgres_test_engine
@@ -106,6 +107,14 @@ def _fake_user():
     return _FakeUser()
 
 
+def _drop_schema_migration_ledger():
+    """Remove the raw migration ledger so every test starts from a clean schema."""
+    if TEST_ENGINE is None:
+        return
+    with TEST_ENGINE.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS schema_migrations"))
+
+
 @pytest.fixture(autouse=True)
 def setup_database(request):
     """Config global de pruebas.
@@ -114,6 +123,8 @@ def setup_database(request):
     - tests/test_api_usage.py: corre Uvicorn real y usa su propio esquema PostgreSQL.
     - Los limitadores globales se reinician entre tests para evitar contaminación
       temporal sin desactivar la protección ni reducir su cobertura dedicada.
+    - La tabla raw ``schema_migrations`` se elimina entre tests porque no forma
+      parte de ``Base.metadata`` y, de otro modo, conservaría estado entre casos.
     """
     if not TEST_DB_AVAILABLE:
         pytest.skip(f"PostgreSQL de pruebas no disponible: {TEST_DB_ERROR}")
@@ -131,12 +142,14 @@ def setup_database(request):
     previous_check_db_connection = getattr(main, "check_db_connection", None)
 
     _enable_test_overrides()
+    _drop_schema_migration_ledger()
     Base.metadata.drop_all(bind=TEST_ENGINE)
     Base.metadata.create_all(bind=TEST_ENGINE)
     try:
         yield
     finally:
         Base.metadata.drop_all(bind=TEST_ENGINE)
+        _drop_schema_migration_ledger()
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
         reset_all_limiters()

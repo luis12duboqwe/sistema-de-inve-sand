@@ -1,10 +1,13 @@
-"""Small fail-fast compatibility migrations executed during startup.
+"""Versioned fail-fast compatibility migrations executed during startup.
 
-These migrations exist for installations created before the current models.
-Fresh development SQLite databases are created from SQLAlchemy metadata and do
-not need PostgreSQL-specific ALTER statements.
+Fresh databases are created from SQLAlchemy metadata first. Existing installations
+may still require ALTER statements because ``create_all`` does not add columns to
+existing tables. This module applies those compatibility changes exactly once,
+records them in ``schema_migrations`` and validates the critical schema before the
+application starts serving traffic.
 """
 
+from collections.abc import Callable
 import logging
 
 from sqlalchemy import inspect, text
@@ -13,6 +16,8 @@ import app.database as database
 
 
 logger = logging.getLogger(__name__)
+
+MIGRATION_TABLE = "schema_migrations"
 
 
 def _apply_daily_close_migration() -> None:
@@ -69,9 +74,8 @@ def _apply_daily_close_migration() -> None:
 
 def _apply_transfer_receiving_fields_migration() -> None:
     engine = database.engine
-    inspector = inspect(engine)
     existing_cols = {
-        column["name"] for column in inspector.get_columns("stock_transfers")
+        column["name"] for column in inspect(engine).get_columns("stock_transfers")
     }
 
     statements = {
@@ -99,26 +103,100 @@ def _apply_transfer_receiving_fields_migration() -> None:
                 )
 
 
+MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
+    ("20260805_01_daily_close_validation", _apply_daily_close_migration),
+    ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
+)
+
+
+def _ensure_migration_table() -> None:
+    with database.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {MIGRATION_TABLE} (
+                    id VARCHAR(100) PRIMARY KEY,
+                    applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+
+
+def _get_applied_migrations() -> set[str]:
+    with database.engine.connect() as conn:
+        rows = conn.execute(text(f"SELECT id FROM {MIGRATION_TABLE}"))
+        return {str(row[0]) for row in rows}
+
+
+def _mark_migration_applied(migration_id: str) -> None:
+    with database.engine.begin() as conn:
+        conn.execute(
+            text(
+                f"INSERT INTO {MIGRATION_TABLE} (id) VALUES (:migration_id) "
+                "ON CONFLICT (id) DO NOTHING"
+            ),
+            {"migration_id": migration_id},
+        )
+
+
+def _validate_critical_schema() -> None:
+    inspector = inspect(database.engine)
+    table_names = set(inspector.get_table_names())
+    required_tables = {"orders", "stock_transfers", "system_config", MIGRATION_TABLE}
+    missing_tables = sorted(required_tables - table_names)
+    if missing_tables:
+        raise RuntimeError(
+            "Esquema incompleto: faltan tablas críticas: " + ", ".join(missing_tables)
+        )
+
+    required_columns = {
+        "orders": {"validada_at", "validated_by"},
+        "stock_transfers": {"received_quantity", "missing_quantity", "incident_notes"},
+    }
+    missing_columns: list[str] = []
+    for table, required in required_columns.items():
+        existing = {column["name"] for column in inspector.get_columns(table)}
+        for column in sorted(required - existing):
+            missing_columns.append(f"{table}.{column}")
+
+    if missing_columns:
+        raise RuntimeError(
+            "Esquema incompleto: faltan columnas críticas: " + ", ".join(missing_columns)
+        )
+
+
 def run_auto_migrations() -> bool:
-    """Apply compatibility migrations and fail startup on any PostgreSQL error."""
+    """Apply pending compatibility migrations and fail startup on schema errors."""
     engine = database.engine
     if engine.dialect.name != "postgresql":
         logger.info(
-            "Auto-migrations PostgreSQL omitidas para dialecto %s",
+            "Migraciones PostgreSQL versionadas omitidas para dialecto %s",
             engine.dialect.name,
         )
         return True
 
-    logger.info("Ejecutando auto-migraciones de compatibilidad...")
+    logger.info("Ejecutando migraciones versionadas de compatibilidad...")
     try:
-        _apply_daily_close_migration()
-        _apply_transfer_receiving_fields_migration()
+        _ensure_migration_table()
+        applied = _get_applied_migrations()
+
+        for migration_id, migration in MIGRATIONS:
+            if migration_id in applied:
+                logger.debug("Migración %s ya aplicada", migration_id)
+                continue
+
+            logger.info("Aplicando migración %s", migration_id)
+            migration()
+            _mark_migration_applied(migration_id)
+
+        _validate_critical_schema()
     except Exception:
         logger.exception(
-            "Fallo crítico aplicando migraciones; se cancela el arranque para "
-            "evitar operar con un esquema incompleto"
+            "Fallo crítico aplicando/verificando migraciones; se cancela el "
+            "arranque para evitar operar con un esquema incompleto"
         )
         raise
 
-    logger.info("Auto-migraciones completadas")
+    logger.info("Migraciones versionadas completadas y esquema validado")
     return True

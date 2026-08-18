@@ -82,6 +82,11 @@ set_env BACKUP_DIR /app/backups
 set_env BACKUP_RETENTION_DAYS "${BACKUP_RETENTION_DAYS:-30}"
 set_env BACKUP_INTERVAL_SECONDS "${BACKUP_INTERVAL_SECONDS:-86400}"
 set_env MIN_BACKUP_BYTES "${MIN_BACKUP_BYTES:-1024}"
+set_env REQUIRE_OFFSITE_BACKUP "${REQUIRE_OFFSITE_BACKUP:-true}"
+set_env BACKUP_OFFSITE_INTERVAL_SECONDS "${BACKUP_OFFSITE_INTERVAL_SECONDS:-3600}"
+if [ -n "${BACKUP_RCLONE_DESTINATION:-}" ]; then
+  set_env BACKUP_RCLONE_DESTINATION "$BACKUP_RCLONE_DESTINATION"
+fi
 
 chmod 600 "$ENV_FILE"
 
@@ -92,6 +97,8 @@ Revisa estos valores antes de levantar:
   - APP_DOMAIN / ALLOWED_HOSTS: $APP_DOMAIN
   - SETUP_TOKEN: úsalo sólo para crear el primer administrador
   - ENABLE_DESTRUCTIVE_PURGE: debe permanecer en false
+  - BACKUP_RCLONE_DESTINATION: configura un destino fuera de este servidor
+  - RCLONE_CONFIG_*: configura credenciales del remote sólo en .env.prod/secret manager
   - SENTRY_DSN: opcional, recomendado
   - OPENAI_API_KEY: requerido sólo si usarás IA
   - SMTP_*: requerido sólo si usarás email/recuperación
@@ -100,5 +107,5 @@ Revisa estos valores antes de levantar:
 Siguiente paso:
   cd $DEPLOY_DIR
   ./validate-prod.sh
-  docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup up -d --build
+  docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup --profile backup-offsite up -d --build
 EOF2

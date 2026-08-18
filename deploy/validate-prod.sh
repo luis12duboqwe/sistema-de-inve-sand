@@ -39,6 +39,8 @@ required=(
   ALLOWED_HOSTS
   CORS_ORIGINS
   GRAFANA_ADMIN_PASSWORD
+  REQUIRE_OFFSITE_BACKUP
+  BACKUP_OFFSITE_INTERVAL_SECONDS
 )
 
 for key in "${required[@]}"; do
@@ -86,6 +88,11 @@ if ! grep -Eq '^MIN_BACKUP_BYTES=[0-9]+$' "$ENV_FILE"; then
   exit 1
 fi
 
+if ! grep -Eq '^BACKUP_OFFSITE_INTERVAL_SECONDS=[0-9]+$' "$ENV_FILE"; then
+  echo "BACKUP_OFFSITE_INTERVAL_SECONDS debe estar definido como entero" >&2
+  exit 1
+fi
+
 if ! grep -Eq '^ENVIRONMENT=production$' "$ENV_FILE"; then
   echo "ENVIRONMENT debe ser production" >&2
   exit 1
@@ -96,9 +103,27 @@ if grep -Eq '^DEBUG=true$' "$ENV_FILE"; then
   exit 1
 fi
 
-PROD_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet
+if ! grep -Eq '^REQUIRE_OFFSITE_BACKUP=(true|false)$' "$ENV_FILE"; then
+  echo "REQUIRE_OFFSITE_BACKUP debe ser true o false" >&2
+  exit 1
+fi
+
+if grep -Eq '^REQUIRE_OFFSITE_BACKUP=true$' "$ENV_FILE"; then
+  if ! grep -Eq '^BACKUP_RCLONE_DESTINATION=[^[:space:]:]+:.+' "$ENV_FILE"; then
+    echo "BACKUP_RCLONE_DESTINATION debe apuntar a un remote rclone fuera del host (ej: offsite:bucket/inventory)" >&2
+    exit 1
+  fi
+fi
+
+PROD_ENV_FILE="$ENV_FILE" docker compose \
+  --env-file "$ENV_FILE" \
+  -f "$COMPOSE_FILE" \
+  --profile backup \
+  --profile backup-offsite \
+  --profile monitoring \
+  config --quiet
 
 echo "Validación de producción OK."
 echo "Levanta con:"
 echo "  cd $DEPLOY_DIR"
-echo "  docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup up -d --build"
+echo "  docker compose --env-file .env.prod -f docker-compose.prod.yml --profile backup --profile backup-offsite up -d --build"
