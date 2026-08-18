@@ -17,6 +17,8 @@ jobs:
           cache: npm
       - run: npm ci --legacy-peer-deps
       - run: npm run lint
+      - name: Validate deploy shell scripts
+        run: find deploy -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 
   test-frontend:
     runs-on: ubuntu-latest

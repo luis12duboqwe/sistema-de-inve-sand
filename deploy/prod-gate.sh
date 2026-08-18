@@ -13,6 +13,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+read_env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2- || true)"
+  value="${value%$'\r'}"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+  printf '%s' "$value"
+}
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "Falta $ENV_FILE" >&2
   exit 1
@@ -21,8 +33,19 @@ fi
 echo "[1/9] Validando configuración de producción"
 "$DEPLOY_DIR/validate-prod.sh" "$ENV_FILE"
 
-echo "[2/9] Verificando docker compose (backup + monitoring)"
-PROD_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.prod.yml" --profile backup --profile monitoring config --quiet
+REQUIRE_OFFSITE_BACKUP="$(read_env_value REQUIRE_OFFSITE_BACKUP)"
+REQUIRE_OFFSITE_BACKUP="${REQUIRE_OFFSITE_BACKUP,,}"
+COMPOSE_PROFILES=(--profile backup --profile monitoring)
+if [ "$REQUIRE_OFFSITE_BACKUP" = "true" ]; then
+  COMPOSE_PROFILES+=(--profile backup-offsite)
+fi
+
+echo "[2/9] Verificando docker compose (backup + monitoring${REQUIRE_OFFSITE_BACKUP:+ + política off-site})"
+PROD_ENV_FILE="$ENV_FILE" docker compose \
+  --env-file "$ENV_FILE" \
+  -f "$DEPLOY_DIR/docker-compose.prod.yml" \
+  "${COMPOSE_PROFILES[@]}" \
+  config --quiet
 
 echo "[3/9] Lint frontend"
 cd "$ROOT_DIR"
