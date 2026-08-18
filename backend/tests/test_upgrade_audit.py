@@ -145,3 +145,18 @@ def test_compare_detects_lost_rows_and_critical_total_changes(tmp_path):
     assert report["compatible"] is False
     assert any("product_imeis" in mismatch for mismatch in report["mismatches"])
     assert any("stock.available_total" in mismatch for mismatch in report["mismatches"])
+
+
+def test_snapshot_supports_real_postgresql_test_engine(db_session):
+    engine = db_session.get_bind()
+    assert engine.dialect.name == "postgresql"
+
+    snapshot = build_snapshot(engine)
+
+    assert snapshot["health"] == {"check": "connectivity", "ok": True, "result": "ok"}
+    assert snapshot["source"]["dialect"] == "postgresql"
+    assert "products" in snapshot["tables"]
+    assert "stock" in snapshot["tables"]
+    assert "orders" in snapshot["tables"]
+    assert "password" not in snapshot["source"]
+    assert "host" not in snapshot["source"]
