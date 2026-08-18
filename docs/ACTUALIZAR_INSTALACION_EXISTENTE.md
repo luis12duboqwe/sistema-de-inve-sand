@@ -59,7 +59,37 @@ La importación sigue aceptando también los backups antiguos que sólo contení
 
 > Importante: un backup del navegador preserva los datos locales, pero no significa que ya estén cargados en PostgreSQL. La migración/cutover a producción debe verificarse antes de retirar la instalación local.
 
-## 3. Migrar `inventory.db` a PostgreSQL
+## 3. Crear una huella de datos antes y después
+
+`backend/upgrade_audit.py` es una herramienta **de solo lectura**. No modifica filas ni ejecuta migraciones. Su JSON contiene únicamente conteos, nombres de columnas y totales agregados; no exporta nombres de clientes, teléfonos, IMEIs, usernames, correos ni hashes de contraseña.
+
+Antes de actualizar la instalación SQLite:
+
+```bash
+cd backend
+python upgrade_audit.py snapshot --sqlite inventory.db --output upgrade-before.json
+```
+
+Después de actualizar el SQLite existente:
+
+```bash
+python upgrade_audit.py snapshot --sqlite inventory.db --output upgrade-after-sqlite.json
+python upgrade_audit.py compare upgrade-before.json upgrade-after-sqlite.json --output upgrade-compare-sqlite.json
+```
+
+El comando `compare` termina con código `0` únicamente cuando los datos del origen siguen representados sin diferencias. Las tablas nuevas del software actualizado están permitidas y aparecen como advertencia, no como pérdida de datos.
+
+La comparación valida todas las tablas que existían en el origen y además revisa métricas críticas cuando sus columnas existen:
+
+- productos activos;
+- stock disponible, reservado y defectuoso;
+- importe total de órdenes;
+- cantidad total de items vendidos;
+- IMEIs vendidos/no vendidos;
+- usuarios activos y superusuarios;
+- cantidades enviadas, recibidas y faltantes en transferencias.
+
+## 4. Migrar `inventory.db` a PostgreSQL
 
 Cuando se prepare el servidor definitivo, usar:
 
@@ -79,22 +109,33 @@ El migrador actual:
 - permite `--truncate` sólo como acción explícita cuando el operador confirmó que el destino puede reemplazarse;
 - repara las secuencias PostgreSQL después de copiar IDs históricos.
 
-## 4. Orden recomendado para una actualización real
+Después de migrar, crear la huella PostgreSQL y compararla con la huella original:
+
+```bash
+python upgrade_audit.py snapshot --database-url "$DATABASE_URL" --output upgrade-after-postgres.json
+python upgrade_audit.py compare upgrade-before.json upgrade-after-postgres.json --output upgrade-compare-postgres.json
+```
+
+**No cambiar la operación diaria a PostgreSQL si el reporte devuelve `compatible: false`.** El SQLite original sigue siendo la fuente de rollback hasta resolver cualquier diferencia.
+
+## 5. Orden recomendado para una actualización real
 
 1. Detener temporalmente el uso del sistema para evitar datos nuevos durante el corte.
 2. Conservar la instalación actual intacta.
 3. Exportar el backup completo del navegador si alguna vez se utilizó modo local.
-4. Verificar/custodiar `backend/inventory.db` y sus backups.
-5. Actualizar el código.
-6. Arrancar primero contra la instalación local existente y comprobar que las migraciones terminan correctamente.
-7. Verificar conteos básicos antes/después: productos, stock, órdenes, IMEIs y usuarios.
-8. Preparar PostgreSQL del servidor.
-9. Migrar SQLite→PostgreSQL si SQLite contiene los datos operativos.
-10. Verificar los mismos conteos y operaciones críticas en PostgreSQL.
-11. Sólo entonces cambiar la operación diaria al servidor nuevo.
-12. Mantener el backup SQLite y el JSON del navegador durante el período de verificación/rollback.
+4. Crear `upgrade-before.json` desde `inventory.db`.
+5. Verificar/custodiar `backend/inventory.db` y sus backups.
+6. Actualizar el código.
+7. Arrancar primero contra la instalación local existente y comprobar que las migraciones terminan correctamente.
+8. Crear `upgrade-after-sqlite.json` y exigir comparación compatible con `upgrade-before.json`.
+9. Preparar PostgreSQL del servidor.
+10. Migrar SQLite→PostgreSQL si SQLite contiene los datos operativos.
+11. Crear `upgrade-after-postgres.json` y exigir comparación compatible con `upgrade-before.json`.
+12. Ejecutar las operaciones críticas: login, permisos, inventario, venta/IMEI, transferencia y cierre diario.
+13. Sólo entonces cambiar la operación diaria al servidor nuevo.
+14. Mantener el backup SQLite, los reportes de auditoría y el JSON del navegador durante el período de verificación/rollback.
 
-## 5. Criterio de compatibilidad
+## 6. Criterio de compatibilidad
 
 Una versión nueva no se considera apta para esta instalación si requiere borrar la base, reiniciar inventario o descartar información histórica.
 
@@ -104,14 +145,15 @@ Antes del release estable deben pasar, como mínimo:
 - prueba de actualización de un SQLite legado conservando filas existentes;
 - prueba de creación de backup SQLite antes de migrar;
 - prueba de exportación/restauración completa de KV del navegador;
+- prueba de snapshot agregado sin PII y comparación automática antes/después;
 - CI, E2E y escaneos de seguridad existentes.
 
-## 6. Rollback
+## 7. Rollback
 
 Si una actualización local falla:
 
 1. detener el backend nuevo;
-2. conservar el archivo fallido para diagnóstico;
+2. conservar el archivo fallido y los reportes `upgrade-*.json` para diagnóstico;
 3. restaurar la copia `inventory.pre-migration-*.db` como `inventory.db`;
 4. volver al código anterior;
 5. no continuar la migración a producción hasta identificar la causa.
