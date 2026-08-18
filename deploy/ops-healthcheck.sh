@@ -6,6 +6,8 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${1:-$DEPLOY_DIR/.env.prod}"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
 MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-30}"
+BACKUP_READY_TIMEOUT_SECONDS="${BACKUP_READY_TIMEOUT_SECONDS:-600}"
+BACKUP_READY_POLL_SECONDS="${BACKUP_READY_POLL_SECONDS:-5}"
 
 read_env_value() {
   local key="$1"
@@ -21,6 +23,11 @@ read_env_value() {
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Falta $ENV_FILE" >&2
+  exit 1
+fi
+
+if ! [[ "$BACKUP_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || ! [[ "$BACKUP_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BACKUP_READY_TIMEOUT_SECONDS debe ser >= 0 y BACKUP_READY_POLL_SECONDS debe ser > 0" >&2
   exit 1
 fi
 
@@ -54,23 +61,34 @@ echo "health: $(cat /tmp/inventory_health.json)"
 echo "ready: $(cat /tmp/inventory_ready.json)"
 echo "metrics: $(cat /tmp/inventory_metrics.json)"
 
-echo "[3/4] Verificando backup automático más reciente en el volumen Docker..."
-latest_backup="$(
-  PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
-    'ls -1t /backups/*.sql.gz 2>/dev/null | head -n1 || true'
-)"
-latest_backup="${latest_backup%$'\r'}"
+echo "[3/4] Esperando un backup automático completo y verificable en el volumen Docker..."
+latest_backup=""
+waited_seconds=0
 
-if [ -z "$latest_backup" ]; then
-  echo "El volumen backend_backups no contiene backups automáticos" >&2
-  exit 1
-fi
+while true; do
+  latest_backup="$(
+    PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
+      'ls -1t /backups/*.sql.gz 2>/dev/null | head -n1 || true'
+  )"
+  latest_backup="${latest_backup%$'\r'}"
 
-if ! PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
-  'test -f "$1.sha256" && sha256sum -c "$1.sha256"' sh "$latest_backup"; then
-  echo "Checksum inválido o ausente para $latest_backup" >&2
-  exit 1
-fi
+  if [ -n "$latest_backup" ] && \
+     PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
+       'test -f "$1.sha256" && sha256sum -c "$1.sha256" >/dev/null' sh "$latest_backup"; then
+    break
+  fi
+
+  if [ "$waited_seconds" -ge "$BACKUP_READY_TIMEOUT_SECONDS" ]; then
+    echo "No apareció un backup completo con checksum válido dentro del tiempo permitido (${BACKUP_READY_TIMEOUT_SECONDS}s)" >&2
+    exit 1
+  fi
+
+  sleep "$BACKUP_READY_POLL_SECONDS"
+  waited_seconds="$((waited_seconds + BACKUP_READY_POLL_SECONDS))"
+done
+
+PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
+  'sha256sum -c "$1.sha256"' sh "$latest_backup"
 
 latest_mtime="$(
   PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup sh -c \
