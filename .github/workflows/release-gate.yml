@@ -8,8 +8,27 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+  issues: read
+
 jobs:
+  release-provenance-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify stable release provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PREREQUISITE_ISSUE: '38'
+        run: |
+          chmod +x ./deploy/verify-release-tag.sh
+          ./deploy/verify-release-tag.sh
+
   quality-gate:
+    needs: release-provenance-gate
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -72,6 +91,7 @@ jobs:
           pytest -q tests/e2e/test_postgres_runtime_e2e.py
 
   security-gate:
+    needs: release-provenance-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,6 +122,7 @@ jobs:
           ignore-unfixed: true
 
   deploy-readiness-gate:
+    needs: release-provenance-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
