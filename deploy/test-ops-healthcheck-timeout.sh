@@ -60,6 +60,30 @@ printf '{"ok":true}\n'
 EOF
 chmod +x "$TMP_DIR/bin/curl"
 
+# Un timeout remoto de cero no tiene semántica segura con coreutils `timeout`
+# (0 desactiva el límite), por eso debe rechazarse antes de ejecutar Docker.
+set +e
+zero_output="$(
+  PATH="$TMP_DIR/bin:$PATH" \
+  OFFSITE_READY_TIMEOUT_SECONDS=0 \
+  OFFSITE_READY_POLL_SECONDS=1 \
+  BACKUP_READY_TIMEOUT_SECONDS=1 \
+  BACKUP_READY_POLL_SECONDS=1 \
+  bash "$DEPLOY_DIR/ops-healthcheck.sh" "$TMP_DIR/.env.prod" 2>&1
+)"
+zero_status=$?
+set -e
+
+if [ "$zero_status" -eq 0 ]; then
+  echo "El healthcheck aceptó OFFSITE_READY_TIMEOUT_SECONDS=0" >&2
+  exit 1
+fi
+if ! grep -Fq 'OFFSITE_READY_TIMEOUT_SECONDS y los intervalos de polling deben ser > 0' <<<"$zero_output"; then
+  echo "No se reportó correctamente el timeout remoto inválido" >&2
+  printf '%s\n' "$zero_output" >&2
+  exit 1
+fi
+
 start_epoch="$(date +%s)"
 set +e
 output="$(
