@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 
-from upgrade_audit import _sqlite_engine, build_snapshot, compare_snapshots
+from upgrade_audit import (
+    _load_or_create_fingerprint_key,
+    _sqlite_engine,
+    build_snapshot,
+    compare_snapshots,
+)
 
 
 TEST_KEY = b"upgrade-audit-test-key-32-bytes!!"
@@ -181,6 +186,18 @@ def test_compare_requires_same_private_fingerprint_key(tmp_path):
 
     with pytest.raises(ValueError, match="misma clave"):
         compare_snapshots(_snapshot(before_path, TEST_KEY), _snapshot(after_path, OTHER_TEST_KEY))
+
+
+def test_new_fingerprint_key_notices_use_stderr_only(tmp_path, capsys):
+    key_path = tmp_path / ".upgrade-audit.key"
+
+    key = _load_or_create_fingerprint_key(key_path)
+    captured = capsys.readouterr()
+
+    assert len(key) == 32
+    assert captured.out == ""
+    assert "Clave privada" in captured.err
+    assert key_path.exists()
 
 
 def test_snapshot_supports_real_postgresql_test_engine(db_session):
