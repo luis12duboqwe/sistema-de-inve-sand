@@ -30,9 +30,9 @@ fi
 
 if ! [[ "$BACKUP_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || \
    ! [[ "$BACKUP_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
-   ! [[ "$OFFSITE_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || \
+   ! [[ "$OFFSITE_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
    ! [[ "$OFFSITE_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "Los timeouts deben ser >= 0 y los intervalos de polling deben ser > 0" >&2
+  echo "BACKUP_READY_TIMEOUT_SECONDS debe ser >= 0; OFFSITE_READY_TIMEOUT_SECONDS y los intervalos de polling deben ser > 0" >&2
   exit 1
 fi
 
