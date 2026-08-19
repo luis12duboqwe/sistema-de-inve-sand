@@ -5,26 +5,61 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: dr-drill-staging
+  cancel-in-progress: false
+
 jobs:
   dr-drill:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+      STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+      STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+      STAGING_SSH_FINGERPRINT: ${{ secrets.STAGING_SSH_FINGERPRINT }}
+      STAGING_APP_PATH: ${{ secrets.STAGING_APP_PATH }}
+      STAGING_BACKUP_FILE: ${{ secrets.STAGING_BACKUP_FILE }}
     steps:
-      - uses: actions/checkout@v4
-
       - name: Verify required staging secrets
+        shell: bash
         run: |
-          if [[ -z "${{ secrets.STAGING_SSH_HOST }}" || -z "${{ secrets.STAGING_SSH_USER }}" || -z "${{ secrets.STAGING_SSH_KEY }}" || -z "${{ secrets.STAGING_APP_PATH }}" || -z "${{ secrets.STAGING_BACKUP_FILE }}" ]]; then
-            echo "Faltan secretos de staging para ejecutar DR drill." >&2
-            exit 1
-          fi
+          set -euo pipefail
+          required=(
+            STAGING_SSH_HOST
+            STAGING_SSH_USER
+            STAGING_SSH_KEY
+            STAGING_SSH_FINGERPRINT
+            STAGING_APP_PATH
+            STAGING_BACKUP_FILE
+          )
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Falta secreto requerido: $name" >&2
+              exit 1
+            fi
+          done
 
       - name: Run DR drill on staging host
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          STAGING_APP_PATH: ${{ secrets.STAGING_APP_PATH }}
+          STAGING_BACKUP_FILE: ${{ secrets.STAGING_BACKUP_FILE }}
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
+          fingerprint: ${{ secrets.STAGING_SSH_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 20m
+          script_stop: true
+          envs: STAGING_APP_PATH,STAGING_BACKUP_FILE
           script: |
-            cd ${{ secrets.STAGING_APP_PATH }}
+            set -eu
+            cd "$STAGING_APP_PATH"
+            test -f deploy/dr-drill.sh
             chmod +x deploy/dr-drill.sh
-            ./deploy/dr-drill.sh deploy/.env.prod "${{ secrets.STAGING_BACKUP_FILE }}"
+            ./deploy/dr-drill.sh deploy/.env.prod "$STAGING_BACKUP_FILE"
