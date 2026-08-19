@@ -19,6 +19,14 @@ case "$backup_name" in
     ;;
 esac
 
+# --files-from-raw es un formato por líneas. Rechazamos nombres multilínea para
+# que un nombre nunca pueda convertirse en varias entradas de la lista literal.
+line_count="$(printf '%s\n' "$backup_name" | wc -l | tr -d '[:space:]')"
+if [ "$line_count" -ne 1 ]; then
+  echo "Nombre de backup inválido" >&2
+  exit 2
+fi
+
 if [ -z "$destination" ]; then
   echo "BACKUP_RCLONE_DESTINATION es obligatorio" >&2
   exit 2
@@ -32,23 +40,23 @@ if [ ! -f "$backup_file" ] || [ ! -f "$checksum_file" ]; then
   exit 1
 fi
 
-# El healthcheck no espera al siguiente ciclo horario del servicio de réplica:
-# fuerza la copia inmediata únicamente del backup seleccionado y su sidecar.
-"$rclone_bin" copy "$local_dir" "$destination" \
-  --include "$backup_name" \
-  --include "${backup_name}.sha256" \
-  --checksum \
-  --transfers 2 \
-  --checkers 2 \
-  --quiet
+# `--files-from-raw -` lee nombres literales desde stdin. A diferencia de
+# `--include`, caracteres como *, ?, [ o ] no se interpretan como patrones.
+printf '%s\n%s\n' "$backup_name" "${backup_name}.sha256" | \
+  "$rclone_bin" copy "$local_dir" "$destination" \
+    --files-from-raw - \
+    --checksum \
+    --transfers 2 \
+    --checkers 2 \
+    --quiet
 
 # Verifica el contenido descargándolo. `--download` evita que un backend sin
 # hash común con el filesystem local degrade la comprobación a sólo tamaño.
 # `--one-way` permite otros backups históricos en el destino remoto.
-"$rclone_bin" check "$local_dir" "$destination" \
-  --include "$backup_name" \
-  --include "${backup_name}.sha256" \
-  --one-way \
-  --download \
-  --checkers 1 \
-  --quiet
+printf '%s\n%s\n' "$backup_name" "${backup_name}.sha256" | \
+  "$rclone_bin" check "$local_dir" "$destination" \
+    --files-from-raw - \
+    --one-way \
+    --download \
+    --checkers 1 \
+    --quiet
