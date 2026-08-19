@@ -87,6 +87,7 @@ services:
       - ${PROD_ENV_FILE:-./.env.prod}
     volumes:
       - backend_backups:/backups:ro
+      - ./verify-offsite-backup.sh:/usr/local/bin/verify-offsite-backup.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
