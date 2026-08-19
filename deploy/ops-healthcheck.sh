@@ -8,6 +8,8 @@ COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
 MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-30}"
 BACKUP_READY_TIMEOUT_SECONDS="${BACKUP_READY_TIMEOUT_SECONDS:-600}"
 BACKUP_READY_POLL_SECONDS="${BACKUP_READY_POLL_SECONDS:-5}"
+OFFSITE_READY_TIMEOUT_SECONDS="${OFFSITE_READY_TIMEOUT_SECONDS:-600}"
+OFFSITE_READY_POLL_SECONDS="${OFFSITE_READY_POLL_SECONDS:-5}"
 
 read_env_value() {
   local key="$1"
@@ -26,8 +28,11 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if ! [[ "$BACKUP_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || ! [[ "$BACKUP_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "BACKUP_READY_TIMEOUT_SECONDS debe ser >= 0 y BACKUP_READY_POLL_SECONDS debe ser > 0" >&2
+if ! [[ "$BACKUP_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || \
+   ! [[ "$BACKUP_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
+   ! [[ "$OFFSITE_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || \
+   ! [[ "$OFFSITE_READY_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Los timeouts deben ser >= 0 y los intervalos de polling deben ser > 0" >&2
   exit 1
 fi
 
@@ -108,7 +113,24 @@ fi
 
 echo "[4/4] Verificando política off-site..."
 if [ "$REQUIRE_OFFSITE_BACKUP" = "true" ]; then
-  echo "backup-offsite está running. La existencia remota debe confirmarse en el destino configurado durante el cierre del Issue #38."
+  backup_name="${latest_backup##*/}"
+  offsite_waited_seconds=0
+
+  while true; do
+    if PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup-offsite \
+       sh /usr/local/bin/verify-offsite-backup.sh "$backup_name" >/dev/null 2>&1; then
+      echo "Backup off-site verificado: $backup_name y su checksum coinciden con la copia local."
+      break
+    fi
+
+    if [ "$offsite_waited_seconds" -ge "$OFFSITE_READY_TIMEOUT_SECONDS" ]; then
+      echo "El backup local existe, pero no pudo sincronizarse/verificarse off-site dentro de ${OFFSITE_READY_TIMEOUT_SECONDS}s" >&2
+      exit 1
+    fi
+
+    sleep "$OFFSITE_READY_POLL_SECONDS"
+    offsite_waited_seconds="$((offsite_waited_seconds + OFFSITE_READY_POLL_SECONDS))"
+  done
 else
   echo "REQUIRE_OFFSITE_BACKUP no está activo."
 fi
