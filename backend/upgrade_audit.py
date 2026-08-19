@@ -23,6 +23,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import sys
 from typing import Any
 
 from sqlalchemy import MetaData, create_engine, func, inspect, select, text
@@ -378,8 +379,11 @@ def _load_or_create_fingerprint_key(path: Path) -> bytes:
         os.chmod(path, 0o600)
     except OSError:
         pass
-    print(f"Clave privada de fingerprint creada: {path}")
-    print("Conserva este archivo para generar todos los snapshots del mismo corte; no lo subas a Git.")
+    print(f"Clave privada de fingerprint creada: {path}", file=sys.stderr)
+    print(
+        "Conserva este archivo para generar todos los snapshots del mismo corte; no lo subas a Git.",
+        file=sys.stderr,
+    )
     return key
 
 
