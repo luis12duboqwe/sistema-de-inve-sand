@@ -7,7 +7,9 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$TMP_DIR/backups" "$TMP_DIR/bin"
-backup_name="inventory_20260818_120000.sql.gz"
+# Intencionalmente contiene metacaracteres de filtros rclone. Debe tratarse
+# como un nombre literal, nunca como patrón.
+backup_name='inventory[1]*?_20260818_120000.sql.gz'
 printf 'database-backup' > "$TMP_DIR/backups/$backup_name"
 printf 'fake checksum  %s\n' "$backup_name" > "$TMP_DIR/backups/${backup_name}.sha256"
 
@@ -17,6 +19,8 @@ set -euo pipefail
 {
   printf '%s\n' '---CALL---'
   printf '%s\n' "$@"
+  printf '%s\n' '---STDIN---'
+  cat
 } >> "$RCLONE_ARGS_FILE"
 if [ "${FAKE_RCLONE_FAIL_COMMAND:-}" = "${1:-}" ]; then
   exit "${FAKE_RCLONE_EXIT:-7}"
@@ -41,12 +45,18 @@ grep -Fxq 'copy' "$TMP_DIR/rclone-args"
 grep -Fxq 'check' "$TMP_DIR/rclone-args"
 grep -Fxq "$TMP_DIR/backups" "$TMP_DIR/rclone-args"
 grep -Fxq 'offsite:bucket/inventory' "$TMP_DIR/rclone-args"
+grep -Fxq -- '--files-from-raw' "$TMP_DIR/rclone-args"
+grep -Fxq -- '-' "$TMP_DIR/rclone-args"
 grep -Fxq "$backup_name" "$TMP_DIR/rclone-args"
 grep -Fxq "${backup_name}.sha256" "$TMP_DIR/rclone-args"
 grep -Fxq -- '--checksum' "$TMP_DIR/rclone-args"
 grep -Fxq -- '--one-way' "$TMP_DIR/rclone-args"
 grep -Fxq -- '--download' "$TMP_DIR/rclone-args"
 grep -Fxq -- '--quiet' "$TMP_DIR/rclone-args"
+if grep -Fxq -- '--include' "$TMP_DIR/rclone-args"; then
+  echo "El verificador volvió a usar filtros de patrón para nombres exactos" >&2
+  exit 1
+fi
 
 rm "$TMP_DIR/backups/${backup_name}.sha256"
 if run_check >/dev/null 2>&1; then
@@ -81,6 +91,17 @@ if BACKUP_CHECK_LOCAL_DIR="$TMP_DIR/backups" \
    RCLONE_ARGS_FILE="$TMP_DIR/rclone-args" \
    sh "$DEPLOY_DIR/verify-offsite-backup.sh" '../escape.sql.gz' >/dev/null 2>&1; then
   echo "El verificador aceptó un nombre de archivo inseguro" >&2
+  exit 1
+fi
+
+multiline_name="inventory_bad
+second.sql.gz"
+if BACKUP_CHECK_LOCAL_DIR="$TMP_DIR/backups" \
+   BACKUP_RCLONE_DESTINATION="offsite:bucket/inventory" \
+   RCLONE_BIN="$TMP_DIR/bin/rclone" \
+   RCLONE_ARGS_FILE="$TMP_DIR/rclone-args" \
+   sh "$DEPLOY_DIR/verify-offsite-backup.sh" "$multiline_name" >/dev/null 2>&1; then
+  echo "El verificador aceptó un nombre multilínea" >&2
   exit 1
 fi
 
