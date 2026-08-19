@@ -1,10 +1,14 @@
 import json
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine, text
 
 from upgrade_audit import _sqlite_engine, build_snapshot, compare_snapshots
 
+
+TEST_KEY = b"upgrade-audit-test-key-32-bytes!!"
+OTHER_TEST_KEY = b"another-upgrade-audit-key-32bytes!"
 
 SCHEMA = """
 CREATE TABLE products (
@@ -52,13 +56,17 @@ CREATE TABLE stock_transfers (
 """
 
 
-def _seed_database(path: Path, *, extra_table: bool = False) -> None:
+def _seed_database(path: Path, *, extra_table: bool = False, legacy_column: bool = False) -> None:
     engine = create_engine(f"sqlite:///{path}")
     with engine.begin() as conn:
         for statement in SCHEMA.split(";"):
             if statement.strip():
                 conn.execute(text(statement))
-        conn.execute(text("INSERT INTO products VALUES (1, 'PHONE-1', 1), (2, 'PHONE-2', 0)"))
+        if legacy_column:
+            conn.execute(text("ALTER TABLE products ADD COLUMN legacy_note TEXT"))
+        conn.execute(text("INSERT INTO products (id, sku, activo) VALUES (1, 'PHONE-1', 1), (2, 'PHONE-2', 0)"))
+        if legacy_column:
+            conn.execute(text("UPDATE products SET legacy_note='historical-value' WHERE id=1"))
         conn.execute(text("INSERT INTO stock VALUES (1, 1, 5, 2, 1), (2, 2, 3, 0, 0)"))
         conn.execute(text("INSERT INTO orders VALUES (1, 'Persona Privada', 1250.50)"))
         conn.execute(text("INSERT INTO order_items VALUES (1, 1, 1, 2)"))
@@ -70,15 +78,19 @@ def _seed_database(path: Path, *, extra_table: bool = False) -> None:
     engine.dispose()
 
 
-def test_snapshot_contains_counts_and_aggregates_without_row_level_data(tmp_path):
+def _snapshot(path: Path, key: bytes = TEST_KEY):
+    engine = _sqlite_engine(path)
+    try:
+        return build_snapshot(engine, key)
+    finally:
+        engine.dispose()
+
+
+def test_snapshot_contains_counts_aggregates_and_fingerprints_without_row_level_data(tmp_path):
     database_path = tmp_path / "inventory.db"
     _seed_database(database_path)
 
-    engine = _sqlite_engine(database_path)
-    try:
-        snapshot = build_snapshot(engine)
-    finally:
-        engine.dispose()
+    snapshot = _snapshot(database_path)
 
     assert snapshot["health"]["ok"] is True
     assert snapshot["tables"]["products"]["rows"] == 2
@@ -91,30 +103,24 @@ def test_snapshot_contains_counts_and_aggregates_without_row_level_data(tmp_path
     assert snapshot["critical"]["product_imeis"]["unsold_rows"] == 1
     assert snapshot["critical"]["users"]["active_rows"] == 1
     assert snapshot["critical"]["users"]["superuser_rows"] == 1
+    assert len(snapshot["tables"]["users"]["fingerprints"]["hashed_password"]) == 64
+    assert snapshot["fingerprint"]["key_id"]
 
     serialized = json.dumps(snapshot)
     assert "Persona Privada" not in serialized
     assert "SECRET-IMEI" not in serialized
     assert "private-user" not in serialized
     assert "SECRET-HASH" not in serialized
+    assert TEST_KEY.hex() not in serialized
 
 
-def test_compare_allows_new_empty_schema_tables_but_requires_source_data_counts(tmp_path):
+def test_compare_allows_new_schema_tables_but_requires_source_data_counts(tmp_path):
     before_path = tmp_path / "before.db"
     after_path = tmp_path / "after.db"
     _seed_database(before_path)
     _seed_database(after_path, extra_table=True)
 
-    before_engine = _sqlite_engine(before_path)
-    after_engine = _sqlite_engine(after_path)
-    try:
-        before = build_snapshot(before_engine)
-        after = build_snapshot(after_engine)
-    finally:
-        before_engine.dispose()
-        after_engine.dispose()
-
-    report = compare_snapshots(before, after)
+    report = compare_snapshots(_snapshot(before_path), _snapshot(after_path))
     assert report["compatible"] is True
     assert report["mismatches"] == []
     assert any("future_feature" in warning for warning in report["warnings"])
@@ -132,26 +138,56 @@ def test_compare_detects_lost_rows_and_critical_total_changes(tmp_path):
         conn.execute(text("UPDATE stock SET cantidad_disponible = 1 WHERE id = 1"))
     engine.dispose()
 
-    before_engine = _sqlite_engine(before_path)
-    after_engine = _sqlite_engine(after_path)
-    try:
-        before = build_snapshot(before_engine)
-        after = build_snapshot(after_engine)
-    finally:
-        before_engine.dispose()
-        after_engine.dispose()
-
-    report = compare_snapshots(before, after)
+    report = compare_snapshots(_snapshot(before_path), _snapshot(after_path))
     assert report["compatible"] is False
     assert any("product_imeis" in mismatch for mismatch in report["mismatches"])
     assert any("stock.available_total" in mismatch for mismatch in report["mismatches"])
+
+
+def test_compare_detects_content_corruption_even_when_counts_and_aggregates_match(tmp_path):
+    before_path = tmp_path / "before.db"
+    after_path = tmp_path / "after.db"
+    _seed_database(before_path)
+    _seed_database(after_path)
+
+    engine = create_engine(f"sqlite:///{after_path}")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE users SET hashed_password='CORRUPTED-HASH' WHERE id=1"))
+        conn.execute(text("UPDATE orders SET customer_name='Otro Nombre' WHERE id=1"))
+    engine.dispose()
+
+    report = compare_snapshots(_snapshot(before_path), _snapshot(after_path))
+    assert report["compatible"] is False
+    assert "Contenido distinto: users.hashed_password" in report["mismatches"]
+    assert "Contenido distinto: orders.customer_name" in report["mismatches"]
+
+
+def test_compare_rejects_loss_of_legacy_source_column(tmp_path):
+    before_path = tmp_path / "before.db"
+    after_path = tmp_path / "after.db"
+    _seed_database(before_path, legacy_column=True)
+    _seed_database(after_path)
+
+    report = compare_snapshots(_snapshot(before_path), _snapshot(after_path))
+    assert report["compatible"] is False
+    assert "Falta columna destino con datos históricos: products.legacy_note" in report["mismatches"]
+
+
+def test_compare_requires_same_private_fingerprint_key(tmp_path):
+    before_path = tmp_path / "before.db"
+    after_path = tmp_path / "after.db"
+    _seed_database(before_path)
+    _seed_database(after_path)
+
+    with pytest.raises(ValueError, match="misma clave"):
+        compare_snapshots(_snapshot(before_path, TEST_KEY), _snapshot(after_path, OTHER_TEST_KEY))
 
 
 def test_snapshot_supports_real_postgresql_test_engine(db_session):
     engine = db_session.get_bind()
     assert engine.dialect.name == "postgresql"
 
-    snapshot = build_snapshot(engine)
+    snapshot = build_snapshot(engine, TEST_KEY)
 
     assert snapshot["health"] == {"check": "connectivity", "ok": True, "result": "ok"}
     assert snapshot["source"]["dialect"] == "postgresql"
