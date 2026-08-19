@@ -113,23 +113,45 @@ fi
 
 echo "[4/4] Verificando política off-site..."
 if [ "$REQUIRE_OFFSITE_BACKUP" = "true" ]; then
+  if ! command -v timeout >/dev/null 2>&1; then
+    echo "Falta el comando 'timeout'; no se puede acotar de forma segura la verificación off-site" >&2
+    exit 1
+  fi
+
   backup_name="${latest_backup##*/}"
-  offsite_waited_seconds=0
+  offsite_deadline="$(( $(date +%s) + OFFSITE_READY_TIMEOUT_SECONDS ))"
 
   while true; do
-    if PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backup-offsite \
+    now_epoch="$(date +%s)"
+    remaining_seconds="$((offsite_deadline - now_epoch))"
+    if [ "$remaining_seconds" -le 0 ]; then
+      echo "El backup local existe, pero no pudo sincronizarse/verificarse off-site dentro de ${OFFSITE_READY_TIMEOUT_SECONDS}s" >&2
+      exit 1
+    fi
+
+    # El deadline envuelve la llamada real. Si rclone/docker se queda colgado,
+    # `timeout` termina el intento al agotar el tiempo restante del presupuesto.
+    if PROD_ENV_FILE="$ENV_FILE" timeout --foreground "${remaining_seconds}s" \
+       "${COMPOSE[@]}" exec -T backup-offsite \
        sh /usr/local/bin/verify-offsite-backup.sh "$backup_name" >/dev/null 2>&1; then
       echo "Backup off-site verificado: $backup_name y su checksum coinciden con la copia local."
       break
     fi
 
-    if [ "$offsite_waited_seconds" -ge "$OFFSITE_READY_TIMEOUT_SECONDS" ]; then
+    now_epoch="$(date +%s)"
+    remaining_seconds="$((offsite_deadline - now_epoch))"
+    if [ "$remaining_seconds" -le 0 ]; then
       echo "El backup local existe, pero no pudo sincronizarse/verificarse off-site dentro de ${OFFSITE_READY_TIMEOUT_SECONDS}s" >&2
       exit 1
     fi
 
-    sleep "$OFFSITE_READY_POLL_SECONDS"
-    offsite_waited_seconds="$((offsite_waited_seconds + OFFSITE_READY_POLL_SECONDS))"
+    sleep_seconds="$OFFSITE_READY_POLL_SECONDS"
+    if [ "$sleep_seconds" -gt "$remaining_seconds" ]; then
+      sleep_seconds="$remaining_seconds"
+    fi
+    if [ "$sleep_seconds" -gt 0 ]; then
+      sleep "$sleep_seconds"
+    fi
   done
 else
   echo "REQUIRE_OFFSITE_BACKUP no está activo."
