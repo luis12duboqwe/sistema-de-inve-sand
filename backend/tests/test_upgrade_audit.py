@@ -196,3 +196,50 @@ def test_snapshot_supports_real_postgresql_test_engine(db_session):
     assert "orders" in snapshot["tables"]
     assert "password" not in snapshot["source"]
     assert "host" not in snapshot["source"]
+
+
+def test_content_fingerprints_match_between_sqlite_and_real_postgresql(tmp_path, db_session):
+    sqlite_path = tmp_path / "cross-engine.db"
+    sqlite_engine = create_engine(f"sqlite:///{sqlite_path}")
+    with sqlite_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE upgrade_audit_cross_engine ("
+                "id INTEGER PRIMARY KEY, active BOOLEAN NOT NULL, "
+                "amount NUMERIC(10, 2) NOT NULL, note TEXT)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO upgrade_audit_cross_engine (id, active, amount, note) "
+                "VALUES (1, 1, 1250.50, 'same-value'), (2, 0, 9, NULL)"
+            )
+        )
+
+    postgres_engine = db_session.get_bind()
+    with postgres_engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS upgrade_audit_cross_engine"))
+        conn.execute(
+            text(
+                "CREATE TABLE upgrade_audit_cross_engine ("
+                "id INTEGER PRIMARY KEY, active BOOLEAN NOT NULL, "
+                "amount NUMERIC(10, 2) NOT NULL, note TEXT)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO upgrade_audit_cross_engine (id, active, amount, note) "
+                "VALUES (1, TRUE, 1250.50, 'same-value'), (2, FALSE, 9, NULL)"
+            )
+        )
+
+    try:
+        before = build_snapshot(sqlite_engine, TEST_KEY)
+        after = build_snapshot(postgres_engine, TEST_KEY)
+        report = compare_snapshots(before, after)
+        assert report["compatible"] is True
+        assert report["mismatches"] == []
+    finally:
+        sqlite_engine.dispose()
+        with postgres_engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS upgrade_audit_cross_engine"))
