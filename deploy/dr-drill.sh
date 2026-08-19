@@ -190,15 +190,6 @@ if [ "${restored_counts[schema_migrations]}" -lt 1 ]; then
   fail "schema_migrations está vacío; el backup no representa una instalación migrada"
 fi
 
-counts_json=""
-for table in "${critical_tables[@]}"; do
-  if [ -n "$counts_json" ]; then
-    counts_json+=","
-  fi
-  counts_json+="\n    \"${table}\": ${restored_counts[$table]}"
-done
-counts_json+="\n  "
-
 backup_basename="$(basename "$BACKUP_FILE")"
 backup_basename_json="$(json_escape "$backup_basename")"
 timestamp="$(date -Iseconds)"
@@ -213,7 +204,16 @@ cat > "$tmp_report" <<JSON
   "backup_bytes": ${backup_bytes},
   "rto_seconds": ${rto_seconds},
   "rpo_seconds": ${rpo_seconds},
-  "restored_counts": {${counts_json}}
+  "restored_counts": {
+    "products": ${restored_counts[products]},
+    "stock": ${restored_counts[stock]},
+    "orders": ${restored_counts[orders]},
+    "stock_transfers": ${restored_counts[stock_transfers]},
+    "returns": ${restored_counts[returns]},
+    "product_imeis": ${restored_counts[product_imeis]},
+    "users": ${restored_counts[users]},
+    "schema_migrations": ${restored_counts[schema_migrations]}
+  }
 }
 JSON
 chmod 600 "$tmp_report"
