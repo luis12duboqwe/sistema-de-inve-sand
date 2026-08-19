@@ -25,6 +25,8 @@ jobs:
         run: bash deploy/test-ops-healthcheck-timeout.sh
       - name: Test DR drill hardening
         run: bash deploy/test-dr-drill.sh
+      - name: Test stable release tag guard
+        run: bash deploy/test-release-tag-guard.sh
 
   test-frontend:
     runs-on: ubuntu-latest
