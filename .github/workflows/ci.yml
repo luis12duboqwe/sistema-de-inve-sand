@@ -23,6 +23,8 @@ jobs:
         run: bash deploy/test-verify-offsite-backup.sh
       - name: Test off-site healthcheck deadline
         run: bash deploy/test-ops-healthcheck-timeout.sh
+      - name: Test DR drill hardening
+        run: bash deploy/test-dr-drill.sh
 
   test-frontend:
     runs-on: ubuntu-latest
