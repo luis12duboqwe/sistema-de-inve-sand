@@ -19,6 +19,8 @@ jobs:
       - run: npm run lint
       - name: Validate deploy shell scripts
         run: find deploy -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Test off-site backup verifier
+        run: bash deploy/test-verify-offsite-backup.sh
 
   test-frontend:
     runs-on: ubuntu-latest
