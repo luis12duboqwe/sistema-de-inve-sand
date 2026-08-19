@@ -54,6 +54,12 @@ logs/
 coverage/
 uploads/
 
+# Upgrade verification artifacts (local/private)
+.upgrade-audit.key
+upgrade-*.json
+backend/.upgrade-audit.key
+backend/upgrade-*.json
+
 # Python generated files and virtual environments
 __pycache__/
 *.py[cod]
