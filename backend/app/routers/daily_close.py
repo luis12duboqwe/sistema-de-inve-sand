@@ -1,15 +1,16 @@
-"""Router de Cierre de Día - Validación de ventas por el administrador.
+"""Router de Cierre de Día - conciliación administrativa de ventas.
 
-Flujo:
-  1. Admin configura un código de validación en ajustes.
-  2. Al final del día, admin abre el panel de cierre de día.
-  3. Ve todas las órdenes en estado 'completada' que aún no han sido validadas.
-  4. Ingresa el código y aprueba → las órdenes pasan a estado 'validada'.
-  5. Se registra en StockHistory la confirmación de la salida del producto.
+Flujo canónico:
+  1. Una orden operativa pasa a ``completada`` cuando la venta realmente ocurre.
+  2. ``completed_at`` conserva ese momento para reportes y caja.
+  3. El cierre de día lista ventas ``completada`` aún no conciliadas.
+  4. El responsable ingresa el código y las seleccionadas pasan a ``validada``.
+  5. La validación se registra en la bitácora de auditoría; StockHistory queda
+     reservado exclusivamente para movimientos reales de inventario.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, List, cast
 
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission, get_current_active_user
 from app.database import get_db
-from app.models import Order, Product, StockHistory, SystemConfig, User
+from app.models import Order, SystemConfig, User
 from app.schemas.daily_close import (
     DailyCloseConfigRequest,
     DailyCloseConfigResponse,
@@ -26,6 +27,7 @@ from app.schemas.daily_close import (
     DailyCloseValidateRequest,
     DailyCloseValidateResponse,
 )
+from app.utils.audit import log_audit_event
 from app.utils.daily_close_code import (
     DAILY_CLOSE_CODE_KEY,
     get_daily_close_code_hash,
@@ -33,14 +35,15 @@ from app.utils.daily_close_code import (
     verify_daily_close_code,
 )
 from app.utils.location_access import get_accessible_location_ids, require_location_access
+from app.utils.order_integrity import effective_sale_at
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/daily-close", tags=["Cierre de Día"])
 
+
 def _get_stored_code(db: Session) -> SystemConfig | None:
-    result = db.query(SystemConfig).filter(SystemConfig.key == DAILY_CLOSE_CODE_KEY).first()
-    return result
+    return db.query(SystemConfig).filter(SystemConfig.key == DAILY_CLOSE_CODE_KEY).first()
 
 
 def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
@@ -54,7 +57,7 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
     source_location_id = cast(int | None, getattr(order, "source_location_id", None))
     source_location = getattr(order, "source_location", None)
     source_location_name = cast(str | None, getattr(source_location, "nombre", None))
-    created_at = cast(datetime, getattr(order, "created_at"))
+    sale_at = effective_sale_at(order) or cast(datetime, getattr(order, "created_at"))
     items = cast(list[Any], getattr(order, "items", []))
 
     items_parts: list[str] = []
@@ -63,8 +66,7 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
         product_id = cast(int, getattr(item, "product_id"))
         product_name = cast(str, getattr(product, "nombre")) if product is not None else f"Producto #{product_id}"
         cantidad = cast(int, getattr(item, "cantidad"))
-        name = product_name
-        items_parts.append(f"{name} x{cantidad}")
+        items_parts.append(f"{product_name} x{cantidad}")
 
     return DailyCloseOrderSummary(
         id=order_id,
@@ -76,13 +78,13 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
         estado=estado,
         source_location_id=source_location_id,
         source_location_name=source_location_name,
-        created_at=created_at,
+        # Se mantiene el nombre del campo por compatibilidad del frontend, pero su
+        # semántica para el cierre es la fecha efectiva de la venta.
+        created_at=sale_at,
         items_count=len(items),
         items_summary=", ".join(items_parts) if items_parts else "Sin items",
     )
 
-
-# ─────────────────────────── CONFIGURACIÓN ────────────────────────────────────
 
 @router.get(
     "/config",
@@ -91,9 +93,8 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
 )
 def get_config(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001
 ):
-    """Indica si el código de validación ya está configurado."""
     stored = _get_stored_code(db)
     stored_value = cast(str | None, getattr(stored, "value", None))
     if stored is not None and bool(stored_value):
@@ -118,16 +119,12 @@ def set_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Configura o actualiza el código de validación para el cierre de día.
-    Solo los administradores (con permiso settings:edit) pueden hacerlo.
-    """
     if payload.new_code != payload.confirm_code:
         raise HTTPException(status_code=400, detail="Los códigos no coinciden.")
 
     stored = _get_stored_code(db)
     stored_value = cast(str | None, getattr(stored, "value", None))
 
-    # Si ya existe un código, el admin debe proveer el anterior
     if stored is not None and bool(stored_value):
         if not payload.current_code:
             raise HTTPException(
@@ -157,21 +154,16 @@ def set_config(
     return DailyCloseConfigResponse(configured=True, mensaje="Código de validación actualizado exitosamente.")
 
 
-# ─────────────────────────── CONSULTA PENDIENTES ──────────────────────────────
-
 @router.get(
     "/pending",
     response_model=List[DailyCloseOrderSummary],
-    summary="Órdenes completadas pendientes de validación",
+    summary="Ventas completadas pendientes de conciliación",
 )
 def get_pending_orders(
     location_id: int | None = Query(None, gt=0, description="Filtrar por ubicación"),
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:view")),
 ):
-    """Retorna todas las órdenes en estado 'completada' que todavía
-    no han sido validadas (validada_at IS NULL).
-    """
     query = db.query(Order).filter(
         Order.estado == "completada",
         Order.validada_at == None,  # noqa: E711
@@ -183,31 +175,22 @@ def get_pending_orders(
     elif accessible_location_ids is not None:
         query = query.filter(Order.source_location_id.in_(accessible_location_ids))
 
-    orders = query.order_by(Order.created_at.asc()).all()
-    return [_build_order_summary(o) for o in orders]
+    # completed_at puede ser NULL solo en datos legacy previos a la migración.
+    orders = query.order_by(Order.completed_at.asc(), Order.created_at.asc()).all()
+    return [_build_order_summary(order) for order in orders]
 
-
-# ─────────────────────────── VALIDAR CIERRE ───────────────────────────────────
 
 @router.post(
     "/validate",
     response_model=DailyCloseValidateResponse,
-    summary="Validar ventas del día (solo admin)",
-    dependencies=[Depends(check_permission("orders:edit"))],
+    summary="Conciliar ventas del cierre de día",
+    dependencies=[Depends(check_permission("cash_closes:manage"))],
 )
 def validate_daily_close(
     payload: DailyCloseValidateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("orders:edit")),
+    current_user: User = Depends(check_permission("cash_closes:manage")),
 ):
-    """El admin ingresa el código de validación y aprueba las órdenes seleccionadas.
-
-    Al validar:
-    - Las órdenes pasan a estado 'validada'.
-    - Se registra validada_at y validated_by.
-    - Se agrega una entrada en StockHistory confirmando la salida del equipo.
-    """
-    # 1. Verificar que el código esté configurado
     stored = _get_stored_code(db)
     stored_value = get_daily_close_code_hash(db)
     if stored is None or not stored_value:
@@ -216,7 +199,6 @@ def validate_daily_close(
             detail="El código de validación no está configurado. Configúrelo en Ajustes.",
         )
 
-    # 2. Verificar el código ingresado
     if not verify_daily_close_code(stored_value, payload.validation_code):
         logger.warning(
             "Intento fallido de validación de cierre de día por usuario %s",
@@ -226,83 +208,75 @@ def validate_daily_close(
 
     validated_ids: List[int] = []
     total_ventas = 0.0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     username = cast(str, getattr(current_user, "username", "sistema"))
 
     if payload.location_id:
-        require_location_access(db, current_user, payload.location_id, "can_edit")
+        require_location_access(db, current_user, payload.location_id, "can_close_cash")
 
     try:
         for order_id in payload.order_ids:
-            order = db.query(Order).filter(Order.id == order_id).first()
+            order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
             if not order:
                 logger.warning("Orden %s no encontrada, se omite en validación", order_id)
                 continue
 
-            order_obj = cast(Any, order)
-            order_source_location_id = cast(int | None, getattr(order_obj, "source_location_id", None))
+            order_source_location_id = cast(int | None, getattr(order, "source_location_id", None))
             if payload.location_id and order_source_location_id != payload.location_id:
                 raise HTTPException(
                     status_code=400,
                     detail=f"La orden #{order_id} no pertenece a la ubicación seleccionada",
                 )
             if order_source_location_id:
-                require_location_access(db, current_user, order_source_location_id, "can_edit")
+                require_location_access(db, current_user, order_source_location_id, "can_close_cash")
 
-            order_estado = cast(str, getattr(order_obj, "estado"))
-
-            if order_estado != "completada":
+            if order.estado != "completada":
                 logger.warning(
-                    "Orden %s tiene estado '%s', se omite (solo se validan 'completada')",
+                    "Orden %s tiene estado '%s', se omite (solo se concilian ventas completadas)",
                     order_id,
-                    order_estado,
+                    order.estado,
                 )
                 continue
 
-            if getattr(order_obj, "validada_at", None) is not None:
-                # Ya fue validada anteriormente, no duplicar
+            if order.validada_at is not None:
                 continue
 
-            # Actualizar estado de la orden
-            setattr(order_obj, "estado", "validada")
-            setattr(order_obj, "validada_at", now)
-            setattr(order_obj, "validated_by", username)
-            order_total = cast(Decimal, getattr(order_obj, "total"))
-            total_ventas += float(order_total)
-            validated_ids.append(cast(int, getattr(order_obj, "id")))
+            before = {
+                "estado": order.estado,
+                "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+                "validada_at": None,
+            }
+            if order.completed_at is None:
+                # Legacy conservador: no inventamos una hora distinta; mantenemos el
+                # mejor dato histórico disponible.
+                order.completed_at = order.created_at or now
+            order.estado = "validada"
+            order.validada_at = now
+            order.validated_by = username
+            total_ventas += float(order.total)
+            validated_ids.append(int(order.id))
 
-            # Registrar en StockHistory la confirmación de salida
-            order_items = cast(list[Any], getattr(order_obj, "items", []))
-            for item in order_items:
-                if cast(bool, getattr(item, "es_regalo_promocion", False)):
-                    continue  # No se cobra ni descuenta en inventario
-
-                item_product_id = cast(int, getattr(item, "product_id"))
-                product = db.query(Product).filter(Product.id == item_product_id).first()
-                if not product:
-                    continue
-
-                item_cantidad = cast(int, getattr(item, "cantidad"))
-                order_ref_id = cast(int, getattr(order_obj, "id"))
-
-                history_entry = StockHistory(
-                    product_id=item_product_id,
-                    location_id=order_source_location_id,
-                    tipo_cambio="VENTA_VALIDADA",
-                    cantidad=item_cantidad,
-                    stock_anterior=0,   # Ya fue descontado al crear la orden
-                    stock_nuevo=0,
-                    referencia_id=order_ref_id,
-                    referencia_tipo="order_validated",
-                    notas=payload.notas or f"Validado en cierre de día por {username}",
-                    usuario=username,
-                )
-                db.add(history_entry)
+            log_audit_event(
+                db,
+                action="order.daily_close_validate",
+                entity_type="order",
+                entity_id=order.id,
+                location_id=order_source_location_id,
+                user=current_user,
+                before_data=before,
+                after_data={
+                    "estado": order.estado,
+                    "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+                    "validada_at": order.validada_at.isoformat(),
+                    "validated_by": username,
+                },
+                metadata={"notes": payload.notas},
+            )
 
         db.commit()
 
         logger.info(
-            "Cierre de día: %d órdenes validadas por %s. Total: %.2f",
+            "Cierre de día: %d órdenes conciliadas por %s. Total: %.2f",
             len(validated_ids),
             username,
             total_ventas,
@@ -313,15 +287,18 @@ def validate_daily_close(
             validated_orders=validated_ids,
             total_ventas=total_ventas,
             mensaje=(
-                f"✅ {len(validated_ids)} orden(es) validada(s) exitosamente. "
-                f"Total ventas confirmadas: {total_ventas:,.2f}"
+                f"✅ {len(validated_ids)} venta(s) conciliada(s) exitosamente. "
+                f"Total confirmado: {total_ventas:,.2f}"
             ),
         )
 
     except HTTPException:
         db.rollback()
         raise
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        logger.exception("Error al validar cierre de día: %s", e)
-        raise HTTPException(status_code=500, detail=f"Error al validar cierre de día: {str(e)}")
+        logger.exception("Error al validar cierre de día")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al validar el cierre de día. Intente nuevamente o contacte al administrador.",
+        ) from exc
