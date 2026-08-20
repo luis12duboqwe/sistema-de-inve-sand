@@ -143,7 +143,12 @@ def _guard_order(session: Session, order: Any) -> None:
     new_status = getattr(order, "estado", None)
 
     if new_status in FINAL_SALE_STATUSES and getattr(order, "completed_at", None) is None:
-        order.completed_at = datetime.now(UTC)
+        # For normal API flows, finalization happens after the row already exists and
+        # created_at is available. For controlled imports/tests that insert historical
+        # rows already final, preserve their explicit legacy timestamp instead of
+        # rewriting all historical revenue into "now".
+        inherited_timestamp = getattr(order, "validada_at", None) or getattr(order, "created_at", None)
+        order.completed_at = inherited_timestamp or datetime.now(UTC)
 
     if status_history.has_changes() and new_status == "cancelada" and old_status in FINAL_SALE_STATUSES:
         if getattr(order, "id", None) is not None:
