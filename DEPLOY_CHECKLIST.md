@@ -86,4 +86,14 @@ Si el release introduce un problema:
 
 ## Regla de release
 
-El tag estable se crea **después** de fusionar el PR validado a `main`. No etiquetes directamente una rama de trabajo.
+No crees un tag estable `v*` únicamente porque un PR ya fue fusionado.
+
+Antes de etiquetar deben cumplirse **todos** estos puntos:
+
+1. El Issue #38 de requisitos de release está cerrado con infraestructura y datos reales verificados.
+2. Existe un **Tag ruleset** activo para `v*` con creación, actualización y eliminación restringidas.
+3. `Release Gate` fue ejecutado manualmente y está verde sobre el commit aprobado.
+4. El commit que vas a etiquetar coincide exactamente con el HEAD aprobado de `main`.
+5. El tag se crea desde ese commit de `main`, nunca desde una rama de trabajo ni desde un commit histórico.
+
+El workflow disparado por el tag es una comprobación adicional, no sustituye estas condiciones previas. Mientras #38 siga abierto, **no crear tags `v*`**.
