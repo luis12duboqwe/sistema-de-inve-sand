@@ -1,4 +1,38 @@
+from app.models import Location, Order
+
 from .helpers import seed_location_and_sales_profile, seed_product
+
+
+def _order_payload(sales_profile, location, product, *, phone: str = "99999999", payment=None):
+    payload = {
+        "sales_profile_slug": sales_profile.slug,
+        "source_location_id": location.id,
+        "canal": "whatsapp",
+        "customer_name": "Cliente Test",
+        "customer_phone": phone,
+        "metodo_pago": "efectivo",
+        "items": [
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "imeis": ["111111111111111"],
+                "precio_unitario": 1000,
+            }
+        ],
+    }
+    if payment is not None:
+        payload["payment_breakdown"] = payment
+    return payload
+
+
+def _complete_order(client, order_id: int):
+    response = client.put(
+        f"/api/orders/{order_id}/status",
+        json={"estado": "completada"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["estado"] == "completada"
+    return response.json()
 
 
 def test_health_ok(client):
@@ -26,140 +60,126 @@ def test_order_create_and_cancel_restores_stock(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     product = seed_product(client, location.id)
 
-    order_payload = {
-        "sales_profile_slug": sales_profile.slug,
-        "source_location_id": location.id,
-        "canal": "whatsapp",
-        "customer_name": "Cliente Test",
-        "customer_phone": "99999999",
-        "metodo_pago": "efectivo",
-        "items": [
-            {
-                "product_id": product["id"],
-                "cantidad": 1,
-                "imeis": ["111111111111111"],
-                "precio_unitario": 1000,
-            }
-        ],
-    }
-
-    create_res = client.post("/api/orders", json=order_payload)
+    create_res = client.post("/api/orders", json=_order_payload(sales_profile, location, product))
     assert create_res.status_code == 201, create_res.text
     order = create_res.json()
     assert order["estado"] == "pendiente"
 
-    # Stock debe quedar en 0 tras la venta
     list_after_sale = client.get("/api/products?per_page=50").json()["items"]
     sold_product = next(p for p in list_after_sale if p["id"] == product["id"])
     assert sold_product["stock_disponible"] == 0
 
     cancel_res = client.post(f"/api/orders/{order['id']}/cancel?reason=test")
     assert cancel_res.status_code == 200, cancel_res.text
-    cancelled = cancel_res.json()
-    assert cancelled["estado"] == "cancelada"
+    assert cancel_res.json()["estado"] == "cancelada"
 
     list_after_cancel = client.get("/api/products?per_page=50").json()["items"]
     restored_product = next(p for p in list_after_cancel if p["id"] == product["id"])
     assert restored_product["stock_disponible"] == 1
 
 
+def test_pending_order_cannot_be_returned(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    create_res = client.post(
+        "/api/orders",
+        json=_order_payload(sales_profile, location, product, phone="70000001"),
+    )
+    assert create_res.status_code == 201, create_res.text
+
+    return_res = client.post(
+        "/api/returns",
+        json={
+            "order_id": create_res.json()["id"],
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": "111111111111111",
+                }
+            ],
+        },
+    )
+    assert return_res.status_code == 400
+    assert "después de completar" in return_res.json().get("detail", "")
+
+
 def test_returns_reject_over_return_and_invalid_imei(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     product = seed_product(client, location.id)
 
-    order_payload = {
-        "sales_profile_slug": sales_profile.slug,
-        "source_location_id": location.id,
-        "canal": "whatsapp",
-        "customer_name": "Cliente Test",
-        "customer_phone": "88888888",
-        "metodo_pago": "efectivo",
-        "items": [
-            {
-                "product_id": product["id"],
-                "cantidad": 1,
-                "imeis": ["111111111111111"],
-                "precio_unitario": 1000,
-            }
-        ],
-    }
-
-    create_res = client.post("/api/orders", json=order_payload)
+    create_res = client.post(
+        "/api/orders",
+        json=_order_payload(sales_profile, location, product, phone="88888888"),
+    )
     assert create_res.status_code == 201, create_res.text
     order = create_res.json()
+    _complete_order(client, order["id"])
 
-    # Over-return (quantity > purchased)
-    return_payload = {
-        "order_id": order["id"],
-        "items": [
-            {
-                "product_id": product["id"],
-                "quantity": 2,
-                "condition": "nuevo",
-                "action": "refund",
-                "imei": "111111111111111",
-            }
-        ],
-    }
-    over_res = client.post("/api/returns", json=return_payload)
+    over_res = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 2,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": "111111111111111",
+                }
+            ],
+        },
+    )
     assert over_res.status_code == 400
 
-    # Wrong IMEI (not in order)
-    return_payload_bad_imei = {
-        "order_id": order["id"],
-        "items": [
-            {
-                "product_id": product["id"],
-                "quantity": 1,
-                "condition": "nuevo",
-                "action": "refund",
-                "imei": "999999999999999",
-            }
-        ],
-    }
-    bad_imei_res = client.post("/api/returns", json=return_payload_bad_imei)
+    bad_imei_res = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": "999999999999999",
+                }
+            ],
+        },
+    )
     assert bad_imei_res.status_code == 400
 
 
-def test_return_accepts_valid_imei_and_restocks(client, db_session):
+def test_return_accepts_finalized_sale_and_restocks(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     product = seed_product(client, location.id)
 
-    order_payload = {
-        "sales_profile_slug": sales_profile.slug,
-        "source_location_id": location.id,
-        "canal": "whatsapp",
-        "customer_name": "Cliente Test",
-        "customer_phone": "77777777",
-        "metodo_pago": "efectivo",
-        "items": [
-            {
-                "product_id": product["id"],
-                "cantidad": 1,
-                "imeis": ["111111111111111"],
-                "precio_unitario": 1000,
-            }
-        ],
-    }
-
-    create_res = client.post("/api/orders", json=order_payload)
+    create_res = client.post(
+        "/api/orders",
+        json=_order_payload(sales_profile, location, product, phone="77777777"),
+    )
     assert create_res.status_code == 201, create_res.text
     order = create_res.json()
+    _complete_order(client, order["id"])
 
-    return_payload = {
-        "order_id": order["id"],
-        "items": [
-            {
-                "product_id": product["id"],
-                "quantity": 1,
-                "condition": "nuevo",
-                "action": "refund",
-                "imei": "111111111111111",
-            }
-        ],
-    }
-
-    ret_res = client.post("/api/returns", json=return_payload)
+    ret_res = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": "111111111111111",
+                }
+            ],
+        },
+    )
     assert ret_res.status_code == 201, ret_res.text
 
     product_after_return = client.get("/api/products?per_page=50").json()["items"]
@@ -170,19 +190,125 @@ def test_return_accepts_valid_imei_and_restocks(client, db_session):
     assert "111111111111111" in imeis_available
 
 
-def test_stock_transfer_confirm_moves_stock(client, db_session):
-    # Origen y destino
-    location_from, _ = seed_location_and_sales_profile(db_session)
-    # Crear ubicación destino
-    from app.models import Location
+def test_sale_with_return_cannot_be_cancelled_or_double_restocked(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    created = client.post(
+        "/api/orders",
+        json=_order_payload(sales_profile, location, product, phone="70000002"),
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    _complete_order(client, order_id)
 
+    returned = client.post(
+        "/api/returns",
+        json={
+            "order_id": order_id,
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": "111111111111111",
+                }
+            ],
+        },
+    )
+    assert returned.status_code == 201, returned.text
+
+    cancel = client.post(f"/api/orders/{order_id}/cancel?reason=should-not-double-restock")
+    assert cancel.status_code == 409, cancel.text
+
+    products = client.get("/api/products?per_page=50").json()["items"]
+    restored = next(p for p in products if p["id"] == product["id"])
+    assert restored["stock_disponible"] == 1
+
+    order = db_session.query(Order).filter(Order.id == order_id).first()
+    assert order is not None
+    assert order.estado == "completada"
+
+
+def test_completing_sale_sets_real_completion_timestamp(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    created = client.post(
+        "/api/orders",
+        json=_order_payload(sales_profile, location, product, phone="70000003"),
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+
+    _complete_order(client, order_id)
+    db_session.expire_all()
+    stored = db_session.query(Order).filter(Order.id == order_id).first()
+    assert stored is not None
+    assert stored.completed_at is not None
+    assert stored.validada_at is None
+
+
+def test_backend_rejects_mixed_payment_breakdown_that_does_not_match_total(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    payload = _order_payload(
+        sales_profile,
+        location,
+        product,
+        phone="70000004",
+        payment=[
+            {"method": "efectivo", "amount": 600},
+            {"method": "tarjeta", "amount": 300},
+        ],
+    )
+    response = client.post("/api/orders", json=payload)
+    assert response.status_code == 400, response.text
+    assert "desglose de pagos" in response.json().get("detail", "")
+
+    db_session.expire_all()
+    assert db_session.query(Order).filter(Order.customer_phone == "70000004").count() == 0
+
+
+def test_backend_accepts_balanced_mixed_payment_breakdown(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    payload = _order_payload(
+        sales_profile,
+        location,
+        product,
+        phone="70000005",
+        payment=[
+            {"method": "efectivo", "amount": 600},
+            {"method": "tarjeta", "amount": 400},
+        ],
+    )
+    response = client.post("/api/orders", json=payload)
+    assert response.status_code == 201, response.text
+
+
+def test_serialized_product_rejects_numeric_only_stock_adjustment(client, db_session):
+    location, _ = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    response = client.post(
+        f"/api/products/{product['id']}/stock/location/{location.id}?cantidad=2"
+    )
+    assert response.status_code == 409, response.text
+    assert "serializados" in response.json().get("detail", "")
+
+
+def test_stock_history_is_read_only(client):
+    response = client.post("/api/stock-history/", json={})
+    assert response.status_code == 405, response.text
+
+
+def test_stock_transfer_confirm_moves_stock(client, db_session):
+    location_from, _ = seed_location_and_sales_profile(db_session)
     location_to = Location(nombre="Bodega Test", tipo="bodega", direccion="", telefono=None, activo=True)
     db_session.add(location_to)
     db_session.commit()
     db_session.refresh(location_to)
 
     product = seed_product(client, location_from.id)
-
     transfer_payload = {
         "product_id": product["id"],
         "from_location_id": location_from.id,
@@ -197,25 +323,20 @@ def test_stock_transfer_confirm_moves_stock(client, db_session):
     transfer = create_transfer_res.json()
     assert transfer["estado"] == "pendiente"
 
-    # Al reservar, el stock libre en origen debe quedar en 0
     product_after_reserve = client.get("/api/products?per_page=50").json()["items"]
     reserved = next(p for p in product_after_reserve if p["id"] == product["id"])
     assert reserved["stock_disponible"] == 0
 
-    confirm_payload = {
-        "confirmed_by": "tester",
-        "scanned_imeis": ["111111111111111"],
-    }
-    confirm_res = client.post(f"/api/stock-transfers/{transfer['id']}/confirm", json=confirm_payload)
+    confirm_res = client.post(
+        f"/api/stock-transfers/{transfer['id']}/confirm",
+        json={"confirmed_by": "tester", "scanned_imeis": ["111111111111111"]},
+    )
     assert confirm_res.status_code == 200, confirm_res.text
-    confirmed = confirm_res.json()
-    assert confirmed["estado"] == "confirmada"
+    assert confirm_res.json()["estado"] == "confirmada"
 
     product_after_confirm = client.get("/api/products?per_page=50").json()["items"]
     moved = next(p for p in product_after_confirm if p["id"] == product["id"])
     assert moved["stock_disponible"] == 1
-
-    # Validar stock_items por ubicación
     stock_items = moved.get("stock_items") or []
     origin_entry = next(s for s in stock_items if s["location_id"] == location_from.id)
     dest_entry = next(s for s in stock_items if s["location_id"] == location_to.id)
@@ -226,14 +347,10 @@ def test_stock_transfer_confirm_moves_stock(client, db_session):
 
 def test_pending_transfer_blocks_sale_until_cancelled(client, db_session):
     location_from, sales_profile = seed_location_and_sales_profile(db_session)
-
-    from app.models import Location
-
     location_to = Location(nombre="Bodega Destino", tipo="bodega", direccion="", telefono=None, activo=True)
     db_session.add(location_to)
     db_session.commit()
     db_session.refresh(location_to)
-
     product = seed_product(client, location_from.id)
 
     transfer_payload = {
@@ -244,52 +361,27 @@ def test_pending_transfer_blocks_sale_until_cancelled(client, db_session):
         "imeis": ["111111111111111"],
         "created_by": "tester",
     }
-
     create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
     assert create_transfer_res.status_code == 201, create_transfer_res.text
     transfer = create_transfer_res.json()
-    assert transfer["estado"] == "pendiente"
 
-    order_payload = {
-        "sales_profile_slug": sales_profile.slug,
-        "source_location_id": location_from.id,
-        "canal": "whatsapp",
-        "customer_name": "Cliente Conflicto",
-        "customer_phone": "66666666",
-        "metodo_pago": "efectivo",
-        "items": [
-            {
-                "product_id": product["id"],
-                "cantidad": 1,
-                "imeis": ["111111111111111"],
-                "precio_unitario": 1000,
-            }
-        ],
-    }
-
-    # Mientras la transferencia está pendiente, el stock está reservado y la venta debe fallar
+    order_payload = _order_payload(sales_profile, location_from, product, phone="66666666")
     sale_res = client.post("/api/orders", json=order_payload)
     assert sale_res.status_code == 409, sale_res.text
 
-    # Cancelar la transferencia debe liberar la reserva
     cancel_res = client.delete(f"/api/stock-transfers/{transfer['id']}")
     assert cancel_res.status_code == 204, cancel_res.text
 
-    # Ahora la venta debe permitirse
     sale_res_2 = client.post("/api/orders", json=order_payload)
     assert sale_res_2.status_code == 201, sale_res_2.text
 
 
 def test_pending_transfer_blocks_sale_until_rejected(client, db_session):
     location_from, sales_profile = seed_location_and_sales_profile(db_session)
-
-    from app.models import Location
-
     location_to = Location(nombre="Bodega Destino 2", tipo="bodega", direccion="", telefono=None, activo=True)
     db_session.add(location_to)
     db_session.commit()
     db_session.refresh(location_to)
-
     product = seed_product(client, location_from.id)
 
     transfer_payload = {
@@ -300,34 +392,18 @@ def test_pending_transfer_blocks_sale_until_rejected(client, db_session):
         "imeis": ["111111111111111"],
         "created_by": "tester",
     }
-
     create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
     assert create_transfer_res.status_code == 201, create_transfer_res.text
     transfer = create_transfer_res.json()
-    assert transfer["estado"] == "pendiente"
 
-    order_payload = {
-        "sales_profile_slug": sales_profile.slug,
-        "source_location_id": location_from.id,
-        "canal": "whatsapp",
-        "customer_name": "Cliente Rechazo",
-        "customer_phone": "55555555",
-        "metodo_pago": "efectivo",
-        "items": [
-            {
-                "product_id": product["id"],
-                "cantidad": 1,
-                "imeis": ["111111111111111"],
-                "precio_unitario": 1000,
-            }
-        ],
-    }
-
+    order_payload = _order_payload(sales_profile, location_from, product, phone="55555555")
     sale_res = client.post("/api/orders", json=order_payload)
     assert sale_res.status_code == 409, sale_res.text
 
-    reject_payload = {"rejection_reason": "test"}
-    reject_res = client.post(f"/api/stock-transfers/{transfer['id']}/reject", json=reject_payload)
+    reject_res = client.post(
+        f"/api/stock-transfers/{transfer['id']}/reject",
+        json={"rejection_reason": "test"},
+    )
     assert reject_res.status_code == 200, reject_res.text
     assert reject_res.json()["estado"] == "rechazada"
 
@@ -336,15 +412,11 @@ def test_pending_transfer_blocks_sale_until_rejected(client, db_session):
 
 
 def test_confirm_transfer_requires_reserved_stock_and_moves_imeis(client, db_session):
-    # Origen y destino
-    location_from, sales_profile = seed_location_and_sales_profile(db_session)
-    from app.models import Location, Stock
-
+    location_from, _ = seed_location_and_sales_profile(db_session)
     location_to = Location(nombre="Bodega Confirm", tipo="bodega", direccion="", telefono=None, activo=True)
     db_session.add(location_to)
     db_session.commit()
     db_session.refresh(location_to)
-
     product = seed_product(client, location_from.id)
 
     transfer_payload = {
@@ -355,30 +427,17 @@ def test_confirm_transfer_requires_reserved_stock_and_moves_imeis(client, db_ses
         "imeis": ["111111111111111"],
         "created_by": "tester",
     }
-
     create_transfer_res = client.post("/api/stock-transfers", json=transfer_payload)
     assert create_transfer_res.status_code == 201, create_transfer_res.text
     transfer = create_transfer_res.json()
-    assert transfer["estado"] == "pendiente"
 
-    # Confirmación exitosa con IMEI escaneado
-    confirm_payload = {
-        "confirmed_by": "tester",
-        "scanned_imeis": ["111111111111111"],
-    }
-    confirm_res = client.post(f"/api/stock-transfers/{transfer['id']}/confirm", json=confirm_payload)
+    confirm_res = client.post(
+        f"/api/stock-transfers/{transfer['id']}/confirm",
+        json={"confirmed_by": "tester", "scanned_imeis": ["111111111111111"]},
+    )
     assert confirm_res.status_code == 200, confirm_res.text
     assert confirm_res.json()["estado"] == "confirmada"
 
-    # Crear una nueva transferencia para provocar conflicto de reserva faltante
-    transfer_payload_conflict = {
-        "product_id": product["id"],
-        "from_location_id": location_from.id,
-        "to_location_id": location_to.id,
-        "cantidad": 1,
-        "imeis": ["111111111111111"],
-        "created_by": "tester",
-    }
-    create_transfer_conflict = client.post("/api/stock-transfers", json=transfer_payload_conflict)
+    create_transfer_conflict = client.post("/api/stock-transfers", json=transfer_payload)
     assert create_transfer_conflict.status_code == 409
     assert "Stock insuficiente" in create_transfer_conflict.json().get("detail", "")
