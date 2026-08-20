@@ -5,6 +5,7 @@ from app.models import Order, Return, ReturnItem, ProductIMEI, IMEIHistory, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
 from datetime import UTC, datetime
+import logging
 
 from app.auth import check_permission
 from app.services.stock_transaction_helper import PreparedReturnItem, StockTransactionHelper
@@ -13,10 +14,16 @@ from app.utils.order_validators import validate_location_exists
 from app.utils.stock_manager import StockManager
 
 
+logger = logging.getLogger(__name__)
+FINAL_RETURNABLE_ORDER_STATUSES = {"completada", "validada"}
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
+
 router = APIRouter(prefix="/api/returns", tags=["returns"])
+
 
 @router.get("", response_model=PaginatedResponse[ReturnResponse])
 def list_returns(
@@ -39,25 +46,34 @@ def list_returns(
         pages=1
     )
 
+
 @router.post("", response_model=ReturnResponse, status_code=201)
 def create_return(
-    return_data: ReturnCreate, 
+    return_data: ReturnCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit"))
 ):
     """
-    Crea una devolución parcial o total de una orden.
-    Maneja el reingreso al stock y la actualización de IMEIs.
+    Crea una devolución parcial o total de una venta ya finalizada.
+
+    Una orden pendiente o por entregar todavía puede cambiar/cancelarse y, por tanto,
+    nunca debe reingresar stock por el flujo de devoluciones. Solo las ventas que ya
+    alcanzaron un estado final son elegibles.
     """
-    # 1. Validar Orden
     order = db.query(Order).filter(Order.id == return_data.order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-    
-    if order.estado == "cancelada":
-        raise HTTPException(status_code=400, detail="No se pueden hacer devoluciones de órdenes canceladas")
 
-    # 2. Validar ubicación de origen de la orden (activa)
+    if order.estado not in FINAL_RETURNABLE_ORDER_STATUSES:
+        if order.estado == "cancelada":
+            detail = "No se pueden hacer devoluciones de órdenes canceladas"
+        else:
+            detail = (
+                "La devolución solo puede procesarse después de completar la venta. "
+                "Para una orden pendiente o por entregar, edítela o cancélela en lugar de devolverla."
+            )
+        raise HTTPException(status_code=400, detail=detail)
+
     source_location = validate_location_exists(db, order.source_location_id)
     require_location_access(db, current_user, source_location.id, "can_edit")
 
@@ -67,10 +83,10 @@ def create_return(
         order_id=return_data.order_id,
         reason=return_data.reason,
         created_by=user_name,
-        status="completed" # Por ahora procesamos inmediatamente
+        status="completed"
     )
     db.add(new_return)
-    db.flush() # Obtener ID
+    db.flush()
 
     stock_helper = StockTransactionHelper(db)
     stock_manager = stock_helper.stock_manager
@@ -106,7 +122,6 @@ def create_return(
             )
 
         if prepared.imeis_to_release:
-            # Para warranty_exchange registra como 'garantia_entrada' en lugar de 'devolucion'
             effective_event = (
                 "garantia_entrada" if prepared.action == "warranty_exchange" else "devolucion"
             )
@@ -117,10 +132,8 @@ def create_return(
                 action=prepared.action,
                 user_id=user_name,
             )
-            # Actualizar el event_type al más específico para garantías
             if effective_event == "garantia_entrada":
                 for imei_rec in prepared.imeis_to_release:
-                    # La entrada más reciente de historial es la que se acaba de crear
                     last_history = (
                         db.query(IMEIHistory)
                         .filter(
@@ -138,7 +151,6 @@ def create_return(
                             f"(Orden #{order.id}) - Condición: {prepared.condition}"
                         )
 
-        # Procesar equipo de reemplazo en cambios por garantía
         if prepared.action == "warranty_exchange" and prepared.replacement_imei_record:
             stock_manager.process_warranty_replacement_imei(
                 replacement_imei_record=prepared.replacement_imei_record,
@@ -151,6 +163,10 @@ def create_return(
         db.commit()
         db.refresh(new_return)
         return new_return
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Error al procesar devolución de la orden %s", return_data.order_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al procesar la devolución. Intente nuevamente o contacte al administrador."
+        )
