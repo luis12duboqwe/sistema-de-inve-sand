@@ -102,9 +102,33 @@ def _apply_transfer_receiving_fields_migration() -> None:
     _add_column_if_missing("stock_transfers", "incident_notes", "TEXT")
 
 
+def _apply_order_completion_timestamp_migration() -> None:
+    """Track the real sale-finalization time without losing order creation time."""
+    _add_column_if_missing(
+        "orders",
+        "completed_at",
+        _column_type("TIMESTAMP WITH TIME ZONE", "DATETIME"),
+    )
+    with database.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE orders "
+                "SET completed_at = COALESCE(validada_at, created_at) "
+                "WHERE completed_at IS NULL AND estado IN ('completada', 'validada')"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_order_completed_at "
+                "ON orders (completed_at)"
+            )
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
+    ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
 )
 
 
@@ -187,7 +211,7 @@ def _validate_critical_schema() -> None:
         )
 
     required_columns = {
-        "orders": {"validada_at", "validated_by"},
+        "orders": {"validada_at", "validated_by", "completed_at"},
         "stock_transfers": {"received_quantity", "missing_quantity", "incident_notes"},
     }
     missing_columns: list[str] = []
