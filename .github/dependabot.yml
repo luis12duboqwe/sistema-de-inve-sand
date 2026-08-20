@@ -7,6 +7,8 @@ updates:
     open-pull-requests-limit: 5
     groups:
       compatible-updates:
+        patterns:
+          - "*"
         update-types:
           - "minor"
           - "patch"
