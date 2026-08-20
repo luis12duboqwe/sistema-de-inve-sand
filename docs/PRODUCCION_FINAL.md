@@ -1,6 +1,6 @@
 # Producción Final — Runbook Canónico
 
-Última revisión: 2026-08-18.
+Última revisión: 2026-08-20.
 
 Este documento es la fuente canónica para desplegar, verificar y recuperar el sistema. Si otra guía histórica contradice este archivo, prevalece este runbook.
 
@@ -15,6 +15,7 @@ Este documento es la fuente canónica para desplegar, verificar y recuperar el s
 7. Backups deben existir tanto en el host como fuera del host.
 8. Una migración fallida detiene el backend.
 9. Un release requiere CI verde y restauración verificada.
+10. No se crea un tag estable `v*` mientras el Issue #38 siga abierto o falte el ruleset de tags requerido.
 
 ## 2. Preparar el entorno
 
@@ -180,11 +181,13 @@ PR a `main` ejecuta `.github/workflows/ci.yml` con:
 - auditoría de dependencias;
 - Trivy sobre código e imágenes según el workflow vigente.
 
-Antes de etiquetar una versión ejecuta `Release Gate` manualmente o mediante el tag `v*`. El release gate repite calidad, seguridad y validación sintética del entorno productivo, incluyendo los perfiles de backup local/off-site.
+Antes de etiquetar una versión estable, ejecuta `Release Gate` **manualmente** sobre el `main` aprobado y exige resultado verde. Después de cumplir todos los requisitos de release, el tag `v*` puede disparar el gate nuevamente como comprobación adicional.
 
-## 10. Protección de `main`
+No uses la ejecución disparada por un tag como única protección de procedencia: un tag sobre un commit histórico ejecuta el workflow versionado que exista en ese commit. Por eso, antes de crear el tag debes verificar que el SHA objetivo coincide exactamente con el HEAD aprobado de `main`, que el Issue #38 ya está cerrado y que el ruleset de tags está activo.
 
-Configuración requerida en GitHub:
+## 10. Protección de `main` y tags estables
+
+Configuración requerida para `main` en GitHub:
 
 - Require a pull request before merging.
 - Require status checks to pass before merging.
@@ -194,6 +197,18 @@ Configuración requerida en GitHub:
 - Aplicar también a administradores si se desea máxima disciplina.
 
 Los nombres exactos de checks deben seleccionarse después de observar los checks reales del PR final para no configurar nombres obsoletos.
+
+Configuración requerida para releases estables:
+
+- Crear en **Settings → Rules → Rulesets** un **Tag ruleset** activo.
+- Aplicarlo al patrón `v*`.
+- Activar **Restrict creations**.
+- Activar **Restrict updates**.
+- Activar **Restrict deletions**.
+- Mantener el bypass lo más limitado posible.
+- No usar el bypass hasta que el Issue #38 esté cerrado y el SHA a etiquetar coincida con el HEAD aprobado de `main`.
+
+La protección de tags debe vivir a nivel del repositorio. No se considera suficiente un control definido únicamente dentro de `.github/workflows/release-gate.yml`.
 
 ## 11. Rollback
 
@@ -214,11 +229,14 @@ Nunca uses SQLite/localStorage como mecanismo de rollback productivo.
 El proyecto puede marcarse como release productivo cuando:
 
 - CI está verde;
-- Release Gate está verde;
+- Release Gate manual está verde sobre el `main` aprobado;
 - protección de `main` está activa;
+- Tag ruleset de `v*` está activo con creación/actualización/eliminación restringidas;
+- el Issue #38 está cerrado con los datos e infraestructura reales verificados;
 - `.env.prod` real pasa validación;
 - backup local existe y su checksum valida;
-- copia off-site está confirmada;
+- copia off-site está confirmada por contenido;
 - restauración de staging termina correctamente;
 - dominio/HTTPS funcionan;
-- login, venta, stock/IMEI, transferencia y permisos pasan smoke test.
+- login, venta, stock/IMEI, transferencia y permisos pasan smoke test;
+- cualquier tag estable se crea únicamente sobre el HEAD aprobado de `main` después de cumplir todos los puntos anteriores.
