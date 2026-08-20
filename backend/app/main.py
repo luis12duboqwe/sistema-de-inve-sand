@@ -16,6 +16,7 @@ from app.config import settings
 from app.config_production import check_production_readiness, prod_settings
 from app.database import check_db_connection, get_db, init_db
 from app.jobs.forecasting_job import start_forecasting_job
+from app.middleware.business_integrity import BusinessIntegrityMiddleware
 from app.middleware.production_guards import ProductionGuardMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 from app.routers import (
@@ -51,6 +52,7 @@ from app.utils.auto_migrations import run_auto_migrations
 from app.utils.demo_seed import seed_demo_data
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
+from app.utils.order_integrity import install_order_integrity_guards
 from app.utils.prometheus_metrics import (
     RATE_LIMIT_BLOCK_TOTAL,
     REQUEST_LATENCY_SECONDS,
@@ -66,6 +68,7 @@ from app.utils.sentry_config import init_sentry
 setup_logging()
 initialize_observability()
 init_sentry()
+install_order_integrity_guards()
 logger = logging.getLogger(__name__)
 runtime_metrics = RuntimeMetrics()
 
@@ -121,6 +124,7 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(ProductionGuardMiddleware)
+app.add_middleware(BusinessIntegrityMiddleware)
 
 
 @app.exception_handler(Exception)
