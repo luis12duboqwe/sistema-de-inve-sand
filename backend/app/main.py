@@ -31,9 +31,9 @@ from app.routers import (
     financing,
     forecasting,
     imeis,
+    integrity_overrides,
     locations,
     multistore_control,
-    order_state_integrity,
     orders,
     photo_requests,
     products,
@@ -128,12 +128,35 @@ app.add_middleware(ProductionGuardMiddleware)
 app.add_middleware(BusinessIntegrityMiddleware)
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Never expose raw internal exception strings through a handled HTTP 500."""
+    if exc.status_code == 500:
+        logger.error(
+            "Internal HTTP error in %s %s; detail redacted from client",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Error interno del servidor. Consulte los logs con el ID de solicitud."
+            },
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(
         "Unhandled exception in %s %s: %s",
         request.method,
-        request.url,
+        request.url.path,
         exc,
         exc_info=True,
     )
@@ -265,8 +288,9 @@ app.include_router(locations.router)
 app.include_router(sales_profiles.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
-# Register the canonical state-machine endpoint before the legacy orders router.
-app.include_router(order_state_integrity.router)
+# Canonical replacements are registered first; importing integrity_overrides also
+# removes only the corresponding legacy path/method definitions from OpenAPI/runtime.
+app.include_router(integrity_overrides.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
 app.include_router(customers.router)
