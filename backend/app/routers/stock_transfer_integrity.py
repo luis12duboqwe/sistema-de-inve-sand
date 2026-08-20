@@ -14,9 +14,8 @@ from app.routers.stock_transfers import _serialize_transfer
 from app.schemas import StockTransferReject, StockTransferResponse
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
-from app.utils.order_validators import validate_location_exists
+from app.utils.order_validators import validate_location_exists, validate_product_exists
 from app.utils.stock_manager import StockManager, StockValidationError
-from app.utils.validators import validate_product_exists
 
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock-transfers"])
