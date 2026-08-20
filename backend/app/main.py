@@ -33,6 +33,7 @@ from app.routers import (
     imeis,
     locations,
     multistore_control,
+    order_state_integrity,
     orders,
     photo_requests,
     products,
@@ -264,6 +265,8 @@ app.include_router(locations.router)
 app.include_router(sales_profiles.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
+# Register the canonical state-machine endpoint before the legacy orders router.
+app.include_router(order_state_integrity.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
 app.include_router(customers.router)
