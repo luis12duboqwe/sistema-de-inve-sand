@@ -41,6 +41,7 @@ def _strip_route(router: APIRouter, path: str, method: str) -> None:
 
 _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (orders.router, "/api/orders/{order_id}/status", "PUT"),
+    (orders.router, "/api/orders/{order_id}", "PUT"),
     (orders.router, "/api/orders/{order_id}/cancel", "POST"),
     (reports.router, "/api/reports/dashboard", "GET"),
     (reports.router, "/api/reports/sales", "GET"),
