@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import Order
@@ -183,13 +184,17 @@ def test_legacy_canceled_order_with_refund_is_excluded_from_sales_reports(
         customer_name="Cliente Legacy Cancelado",
     )
 
-    # Simula datos de una instalación antigua donde era posible devolver primero y
-    # cancelar después. No ejecutamos la cancelación actual porque esa ruta ya lo bloquea.
+    # Simula directamente el estado persistido de una instalación antigua donde era
+    # posible devolver primero y cancelar después. El SQL directo es intencional: el
+    # ORM actual debe seguir rechazando esa transición mediante el guard de integridad.
     order_row = db_session.query(Order).filter(Order.id == order["id"]).one()
-    order_row.estado = "cancelada"
-    db_session.commit()
-
     sale_day = (order_row.completed_at or order_row.created_at).date().isoformat()
+    db_session.execute(
+        text("UPDATE orders SET estado = :estado WHERE id = :order_id"),
+        {"estado": "cancelada", "order_id": order["id"]},
+    )
+    db_session.commit()
+    db_session.expire_all()
 
     sales_response = client.get(
         f"/api/reports/sales?date_from={sale_day}&date_to={sale_day}"
