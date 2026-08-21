@@ -19,6 +19,7 @@ from app.routers import (
     order_state_integrity,
     orders,
     reports,
+    reports_final_integrity,
     reports_integrity,
     stock_transfer_integrity,
     stock_transfers,
@@ -48,6 +49,9 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (reports.router, "/api/reports/sales-summary-by-location", "GET"),
     (reports.router, "/api/reports/top-products-by-location/{location_id}", "GET"),
     (reports.router, "/api/reports/bank-transfer-reconciliation", "GET"),
+    (reports_integrity.router, "/api/reports/dashboard", "GET"),
+    (reports_integrity.router, "/api/reports/sales", "GET"),
+    (reports_integrity.router, "/api/reports/top-products-by-location/{location_id}", "GET"),
     (multistore_control.router, "/api/multistore-control/location-daily-closes", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}/reject", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}", "DELETE"),
@@ -70,6 +74,7 @@ for _router, _path, _method in _SHADOWED_ROUTES:
 router = APIRouter()
 router.include_router(order_state_integrity.router)
 router.include_router(reports_integrity.router)
+router.include_router(reports_final_integrity.router)
 router.include_router(multistore_integrity.router)
 router.include_router(stock_transfer_integrity.router)
 router.include_router(channel_integrity.router)
