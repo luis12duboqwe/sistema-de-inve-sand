@@ -129,3 +129,66 @@ def test_analytics_forecast_filters_by_confidence(client, db_session):
     low_conf = client.post("/api/analytics/forecast", json=low_conf_payload).json()
 
     assert len(high_conf["forecasts"]) <= len(low_conf["forecasts"])
+
+
+def test_sales_report_allocates_refund_once_across_duplicate_product_lines(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id, stock_inicial=3, is_serialized=False)
+
+    order_payload = {
+        "sales_profile_slug": sales_profile.slug,
+        "source_location_id": location.id,
+        "canal": "tienda",
+        "customer_name": "Cliente Duplicado",
+        "customer_phone": "71111111",
+        "metodo_pago": "efectivo",
+        "items": [
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "precio_unitario": 100,
+            },
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "precio_unitario": 300,
+            },
+        ],
+    }
+    created = client.post("/api/orders", json=order_payload)
+    assert created.status_code == 201, created.text
+    order = created.json()
+
+    completed = client.put(
+        f"/api/orders/{order['id']}/status",
+        json={"estado": "completada"},
+    )
+    assert completed.status_code == 200, completed.text
+
+    returned = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "reason": "Devolución parcial",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                }
+            ],
+        },
+    )
+    assert returned.status_code == 201, returned.text
+
+    report_response = client.get("/api/reports/sales")
+    assert report_response.status_code == 200, report_response.text
+    report = report_response.json()
+
+    # Base histórica: 1x100 + 1x300 = 400. Una unidad devuelta se asigna
+    # al promedio ponderado de 200; nunca se multiplica por las dos líneas.
+    assert report["total_revenue"] == 200
+    top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
+    assert top["units_sold"] == 1
+    assert top["total_revenue"] == 200
