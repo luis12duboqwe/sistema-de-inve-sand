@@ -61,6 +61,10 @@ def _validate_refund_paid_quantities(db: Session, order: Order, return_data: Ret
     Physical return validation still considers every sold/gift unit so stock can be
     reconciled. Monetary ``refund`` actions are separately capped to quantities that
     were actually paid for; prior refunds consume that paid allowance.
+
+    ``create_return`` locks the parent order row before invoking this check, so two
+    concurrent refund requests for the same order cannot both consume the same last
+    paid allowance before either transaction commits.
     """
     paid_quantities: dict[int, int] = {}
     for item in order.items or []:
@@ -162,7 +166,15 @@ def create_return(
     nunca debe reingresar stock por el flujo de devoluciones. Solo las ventas que ya
     alcanzaron un estado final son elegibles.
     """
-    order = db.query(Order).filter(Order.id == return_data.order_id).first()
+    # The order is the shared allowance row for every return on a sale. Lock it before
+    # reading previous returns so two concurrent requests cannot both validate against
+    # the same pre-refund state and then restore/refund the same paid unit twice.
+    order = (
+        db.query(Order)
+        .filter(Order.id == return_data.order_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
 
