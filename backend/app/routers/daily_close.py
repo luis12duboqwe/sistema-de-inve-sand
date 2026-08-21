@@ -215,7 +215,10 @@ def validate_daily_close(
         require_location_access(db, current_user, payload.location_id, "can_close_cash")
 
     try:
-        for order_id in payload.order_ids:
+        # PostgreSQL row locks must be acquired deterministically. Sorting and
+        # deduplicating prevents overlapping close requests such as [1, 2] and [2, 1]
+        # from taking the same Order locks in opposite order and deadlocking.
+        for order_id in sorted(set(payload.order_ids)):
             order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
             if not order:
                 logger.warning("Orden %s no encontrada, se omite en validación", order_id)
