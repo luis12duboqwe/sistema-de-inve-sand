@@ -76,7 +76,8 @@ def _refund_allocations(
     Sales reports are keyed by the order's effective completion/finalization time.
     Refunds therefore follow that same originating sale period. This prevents a
     later refund from creating negative units/revenue in a period where the sale
-    itself is intentionally outside the report scope.
+    itself is intentionally outside the report scope. Canceled orders are excluded
+    too, matching the canonical sale query for upgraded databases with legacy rows.
     """
     basis = _sale_item_basis_subquery(db)
     sale_at = effective_sale_column(Order)
@@ -97,7 +98,10 @@ def _refund_allocations(
             & (basis.c.product_id == ReturnItem.product_id),
         )
         .join(Product, Product.id == ReturnItem.product_id)
-        .filter(ReturnItem.action == "refund")
+        .filter(
+            ReturnItem.action == "refund",
+            Order.estado.in_(FINAL_SALE_STATUSES),
+        )
     )
     if start_dt is not None:
         query = query.filter(sale_at >= start_dt)
