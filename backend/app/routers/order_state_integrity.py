@@ -5,8 +5,8 @@ validation. These handlers are registered before it and establish one explicit
 state machine plus serialized order mutations:
 
 pending/for-delivery -> completed -> validated by /api/daily-close/validate.
-Cancellation and completion both lock the Order row before touching Stock so all
-competing operations use the same Order -> Stock lock order.
+Cancellation, completion and detail edits lock the Order row before touching Stock
+so all competing operations use the same Order -> Stock lock order.
 """
 
 from __future__ import annotations
@@ -26,8 +26,9 @@ from app.routers.orders import (
     _finalize_order_stock,
     _serialize_order,
     cancel_order as _legacy_cancel_order,
+    update_order as _legacy_update_order,
 )
-from app.schemas import OrderResponse, OrderStatusUpdate
+from app.schemas import OrderResponse, OrderStatusUpdate, OrderUpdate
 from app.services.order_service import resolve_user_label
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
@@ -45,7 +46,7 @@ def update_order_status_canonical(
     current_user: User = Depends(check_permission("orders:edit")),
 ):
     # Status transitions may later lock Stock while finalizing a sale. Lock Order
-    # first so completion, cancellation and returns all use one global lock order.
+    # first so completion, cancellation, returns and edits all use one lock order.
     order = (
         db.query(Order)
         .filter(Order.id == order_id)
@@ -87,8 +88,6 @@ def update_order_status_canonical(
             detail="Una venta finalizada no puede volver a un estado operativo. Use devolución o cancelación auditada.",
         )
 
-    # Evitar saltos hacia atrás después de preparar la entrega. Volver a pendiente
-    # debe hacerse editando/cancelando la orden, no reabriendo el estado contable.
     if previous == "por_entregar" and target == "pendiente":
         raise HTTPException(status_code=409, detail="Una orden por entregar no puede volver a pendiente")
 
@@ -128,6 +127,37 @@ def update_order_status_canonical(
         ) from exc
 
 
+@router.put("/{order_id}", response_model=OrderResponse)
+def update_order_canonical(
+    order_id: int,
+    updates: OrderUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit")),
+):
+    """Serialize order detail edits with cancellation/completion before stock changes."""
+    # The legacy edit implementation contains the mature item/IMEI/payment logic but
+    # historically read Order without a row lock and then locked Stock. Acquiring the
+    # parent lock first prevents Stock->Order / Order->Stock deadlocks and stale edits
+    # that resume after a concurrent cancellation.
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+    # Reuse the existing handler on the same Session while this transaction still
+    # owns the Order lock. It revalidates status/location and performs stock changes.
+    return _legacy_update_order(
+        order_id=order_id,
+        updates=updates,
+        db=db,
+        current_user=current_user,
+    )
+
+
 @router.post("/{order_id}/cancel", response_model=OrderResponse)
 def cancel_order_canonical(
     order_id: int,
@@ -136,9 +166,6 @@ def cancel_order_canonical(
     current_user: User = Depends(check_permission("orders:edit")),
 ):
     """Serialize cancellation with returns using a single Order -> Stock lock order."""
-    # Returns lock this exact parent row before reading refund allowance and then
-    # lock stock. Cancellation must acquire locks in the same order to avoid the
-    # PostgreSQL Order->Stock / Stock->Order deadlock cycle.
     order = (
         db.query(Order)
         .filter(Order.id == order_id)
@@ -151,8 +178,6 @@ def cancel_order_canonical(
     if order.source_location_id:
         require_location_access(db, current_user, order.source_location_id, "can_edit")
 
-    # A refund and a cancellation both restore inventory. Once a return exists,
-    # cancellation would become a second restoration path and is therefore blocked.
     existing_return = db.query(Return.id).filter(Return.order_id == order_id).first()
     if existing_return is not None:
         raise HTTPException(
@@ -163,8 +188,6 @@ def cancel_order_canonical(
             ),
         )
 
-    # Reuse the mature stock/IMEI/trade-in reconciliation while this transaction
-    # still owns the Order row lock. Its subsequent queries run on the same Session.
     return _legacy_cancel_order(
         order_id=order_id,
         reason=reason,
