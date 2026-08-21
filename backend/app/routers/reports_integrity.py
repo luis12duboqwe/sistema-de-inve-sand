@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth import check_permission
 from app.database import get_db
 from app.models import Location, Order, OrderItem, Product, Return, ReturnItem, Stock, User
-from app.schemas import DashboardStats, InventoryAlert, SalesReport, TopProduct
+from app.schemas import DashboardStats, SalesReport, TopProduct
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_integrity import effective_sale_at, effective_sale_column
 from app.utils.order_queries import resolve_sales_profile_for_query
@@ -26,16 +26,101 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 FINAL_SALE_STATUSES = ["completada", "validada"]
 
 
-def _scope_orders(query, accessible_location_ids: Optional[list[int]]):
-    if accessible_location_ids is not None:
-        query = query.filter(Order.source_location_id.in_(accessible_location_ids))
-    return query
-
-
 def _scope_stock(query, accessible_location_ids: Optional[list[int]]):
     if accessible_location_ids is not None:
         query = query.filter(Stock.location_id.in_(accessible_location_ids))
     return query
+
+
+def _sale_item_basis_subquery(db: Session):
+    """One paid financial basis row per order/product.
+
+    A historical order may contain multiple OrderItem rows for the same product.
+    Refunds only identify order + product, not a specific sale line, so joining a
+    ReturnItem directly to OrderItem would multiply the refund. Consolidating the
+    paid lines first lets us allocate returned units against the actual weighted
+    historical revenue/cost without inventing a line-level choice.
+    """
+    return (
+        db.query(
+            OrderItem.order_id.label("order_id"),
+            OrderItem.product_id.label("product_id"),
+            func.sum(OrderItem.cantidad).label("sold_quantity"),
+            func.sum(OrderItem.cantidad * OrderItem.precio_unitario).label("sold_revenue"),
+            func.sum(
+                OrderItem.cantidad * func.coalesce(OrderItem.costo_unitario, 0)
+            ).label("sold_cost"),
+        )
+        .filter(OrderItem.es_regalo_promocion == False)  # noqa: E712
+        .group_by(OrderItem.order_id, OrderItem.product_id)
+        .subquery()
+    )
+
+
+def _refund_allocations(
+    db: Session,
+    start_dt: datetime | None,
+    end_dt: datetime | None,
+    *,
+    sales_profile_id: int | None = None,
+    location_ids: list[int] | None = None,
+    product_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return one accounting allocation per ReturnItem, never per sale line."""
+    basis = _sale_item_basis_subquery(db)
+    query = (
+        db.query(
+            ReturnItem,
+            Order,
+            Product,
+            basis.c.sold_quantity,
+            basis.c.sold_revenue,
+            basis.c.sold_cost,
+        )
+        .join(Return, Return.id == ReturnItem.return_id)
+        .join(Order, Order.id == Return.order_id)
+        .join(
+            basis,
+            (basis.c.order_id == Order.id)
+            & (basis.c.product_id == ReturnItem.product_id),
+        )
+        .join(Product, Product.id == ReturnItem.product_id)
+        .filter(ReturnItem.action == "refund")
+    )
+    if start_dt is not None:
+        query = query.filter(Return.created_at >= start_dt)
+    if end_dt is not None:
+        query = query.filter(Return.created_at <= end_dt)
+    if sales_profile_id is not None:
+        query = query.filter(Order.sales_profile_id == sales_profile_id)
+    if location_ids is not None:
+        query = query.filter(Order.source_location_id.in_(location_ids))
+    if product_id is not None:
+        query = query.filter(ReturnItem.product_id == product_id)
+
+    allocations: list[dict[str, Any]] = []
+    for returned, order, product, sold_quantity, sold_revenue, sold_cost in query.all():
+        basis_quantity = int(sold_quantity or 0)
+        returned_quantity = int(returned.quantity or 0)
+        if basis_quantity <= 0 or returned_quantity <= 0:
+            continue
+
+        unit_revenue = Decimal(sold_revenue or 0) / basis_quantity
+        unit_cost = Decimal(sold_cost or 0) / basis_quantity
+        allocations.append(
+            {
+                "return_item_id": returned.id,
+                "order_id": order.id,
+                "product_id": returned.product_id,
+                "product_name": product.nombre,
+                "product_category": product.categoria,
+                "location_id": order.source_location_id,
+                "quantity": returned_quantity,
+                "revenue": unit_revenue * returned_quantity,
+                "cost": unit_cost * returned_quantity,
+            }
+        )
+    return allocations
 
 
 def _refund_totals(
@@ -48,35 +133,20 @@ def _refund_totals(
     product_id: int | None = None,
 ) -> tuple[Decimal, Decimal, int]:
     """Return (refunded revenue, reversed historical cost, refunded units)."""
-    query = (
-        db.query(ReturnItem, OrderItem)
-        .join(Return, Return.id == ReturnItem.return_id)
-        .join(Order, Order.id == Return.order_id)
-        .join(
-            OrderItem,
-            (OrderItem.order_id == Order.id) & (OrderItem.product_id == ReturnItem.product_id),
-        )
-        .filter(
-            Return.created_at >= start_dt,
-            Return.created_at <= end_dt,
-            ReturnItem.action == "refund",
-        )
-    )
-    if sales_profile_id is not None:
-        query = query.filter(Order.sales_profile_id == sales_profile_id)
-    if location_ids is not None:
-        query = query.filter(Order.source_location_id.in_(location_ids))
-    if product_id is not None:
-        query = query.filter(ReturnItem.product_id == product_id)
-
     revenue = Decimal("0.00")
     cost = Decimal("0.00")
     units = 0
-    for return_item, order_item in query.all():
-        quantity = int(return_item.quantity or 0)
-        revenue += Decimal(order_item.precio_unitario or 0) * quantity
-        cost += Decimal(order_item.costo_unitario or 0) * quantity
-        units += quantity
+    for allocation in _refund_allocations(
+        db,
+        start_dt,
+        end_dt,
+        sales_profile_id=sales_profile_id,
+        location_ids=location_ids,
+        product_id=product_id,
+    ):
+        revenue += Decimal(allocation["revenue"])
+        cost += Decimal(allocation["cost"])
+        units += int(allocation["quantity"])
     return revenue, cost, units
 
 
@@ -101,7 +171,11 @@ def _scoped_sales_query(
     return query
 
 
-def _resolve_report_scope(db: Session, current_user: User, location_id: int | None) -> tuple[list[int] | None, int | None]:
+def _resolve_report_scope(
+    db: Session,
+    current_user: User,
+    location_id: int | None,
+) -> tuple[list[int] | None, int | None]:
     accessible = get_accessible_location_ids(db, current_user, "can_view")
     if location_id is not None:
         location = validate_location_exists(db, location_id)
@@ -117,7 +191,7 @@ def get_dashboard_stats_integrity(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("reports:view")),
 ):
-    location_ids, scoped_location_id = _resolve_report_scope(db, current_user, location_id)
+    location_ids, _ = _resolve_report_scope(db, current_user, location_id)
     sales_profile = resolve_sales_profile_for_query(db, sales_profile_slug, require_active=True)
     sales_profile_id = sales_profile.id if sales_profile else None
 
@@ -128,15 +202,20 @@ def get_dashboard_stats_integrity(
             .filter(Stock.location_id.in_(location_ids))
             .distinct()
         )
-    active_products = product_query.filter(Product.activo == True).count()
+    active_products = product_query.filter(Product.activo == True).count()  # noqa: E712
     total_products = product_query.count()
 
-    stock_query = db.query(Stock).join(Product).filter(Product.activo == True)
+    stock_query = db.query(Stock).join(Product).filter(Product.activo == True)  # noqa: E712
     stock_query = _scope_stock(stock_query, location_ids)
     unit_value = func.coalesce(func.nullif(Product.costo, 0), Product.precio)
     stock_stats = stock_query.with_entities(
         func.sum(case((Stock.cantidad_disponible == 0, 1), else_=0)).label("out_of_stock"),
-        func.sum(case((((Stock.cantidad_disponible > 0) & (Stock.cantidad_disponible < 10)), 1), else_=0)).label("low_stock"),
+        func.sum(
+            case(
+                (((Stock.cantidad_disponible > 0) & (Stock.cantidad_disponible < 10)), 1),
+                else_=0,
+            )
+        ).label("low_stock"),
         func.sum(Stock.cantidad_disponible * unit_value).label("inventory_value"),
     ).first()
 
@@ -194,12 +273,7 @@ def get_dashboard_stats_integrity(
     historical_cost = Decimal("0.00")
     if month_orders:
         month_order_ids = [order.id for order in month_orders]
-        rows = (
-            db.query(OrderItem)
-            .filter(OrderItem.order_id.in_(month_order_ids))
-            .all()
-        )
-        for item in rows:
+        for item in db.query(OrderItem).filter(OrderItem.order_id.in_(month_order_ids)).all():
             historical_cost += Decimal(item.costo_unitario or 0) * int(item.cantidad or 0)
     net_cost_month = max(Decimal("0.00"), historical_cost - refund_cost_month)
 
@@ -286,7 +360,9 @@ def get_sales_report_integrity(
     net_revenue = gross_revenue - refunded_revenue
     total_orders = len(orders)
 
-    product_stats: dict[int, dict[str, Any]] = defaultdict(lambda: {"name": "", "units": 0, "revenue": Decimal("0.00")})
+    product_stats: dict[int, dict[str, Any]] = defaultdict(
+        lambda: {"name": "", "units": 0, "revenue": Decimal("0.00")}
+    )
     if orders:
         order_ids = [order.id for order in orders]
         for item in db.query(OrderItem).filter(OrderItem.order_id.in_(order_ids)).all():
@@ -298,26 +374,23 @@ def get_sales_report_integrity(
             entry["units"] += int(item.cantidad or 0)
             entry["revenue"] += Decimal(item.precio_unitario or 0) * int(item.cantidad or 0)
 
-    refund_query = (
-        db.query(ReturnItem, OrderItem, Product)
-        .join(Return, Return.id == ReturnItem.return_id)
-        .join(Order, Order.id == Return.order_id)
-        .join(OrderItem, (OrderItem.order_id == Order.id) & (OrderItem.product_id == ReturnItem.product_id))
-        .join(Product, Product.id == ReturnItem.product_id)
-        .filter(Return.created_at >= start_dt, Return.created_at <= end_dt, ReturnItem.action == "refund")
-    )
-    if location_ids is not None:
-        refund_query = refund_query.filter(Order.source_location_id.in_(location_ids))
-    if sales_profile_id is not None:
-        refund_query = refund_query.filter(Order.sales_profile_id == sales_profile_id)
-    for returned, sold_item, product in refund_query.all():
-        entry = product_stats[returned.product_id]
-        entry["name"] = product.nombre
-        qty = int(returned.quantity or 0)
-        entry["units"] -= qty
-        entry["revenue"] -= Decimal(sold_item.precio_unitario or 0) * qty
+    for allocation in _refund_allocations(
+        db,
+        start_dt,
+        end_dt,
+        sales_profile_id=sales_profile_id,
+        location_ids=location_ids,
+    ):
+        entry = product_stats[int(allocation["product_id"])]
+        entry["name"] = allocation["product_name"]
+        entry["units"] -= int(allocation["quantity"])
+        entry["revenue"] -= Decimal(allocation["revenue"])
 
-    ranked = sorted(product_stats.items(), key=lambda pair: pair[1]["revenue"], reverse=True)[:top_limit]
+    ranked = sorted(
+        product_stats.items(),
+        key=lambda pair: pair[1]["revenue"],
+        reverse=True,
+    )[:top_limit]
     top_products = [
         TopProduct(
             product_id=product_id,
@@ -348,7 +421,12 @@ def get_sales_summary_by_location_integrity(
     accessible = get_accessible_location_ids(db, current_user, "can_view")
     start_dt = datetime.combine(start_date, datetime.min.time()) if start_date else None
     end_dt = datetime.combine(end_date, datetime.max.time()) if end_date else None
-    orders = _scoped_sales_query(db, start_dt=start_dt, end_dt=end_dt, location_ids=accessible).all()
+    orders = _scoped_sales_query(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        location_ids=accessible,
+    ).all()
 
     stats: dict[int, dict[str, Any]] = {}
     for order in orders:
@@ -358,42 +436,55 @@ def get_sales_summary_by_location_integrity(
         location = order.source_location
         entry = stats.setdefault(
             location_id,
-            {"name": location.nombre if location else f"Ubicación #{location_id}", "orders": 0, "units": 0, "revenue": Decimal("0.00")},
+            {
+                "name": location.nombre if location else f"Ubicación #{location_id}",
+                "orders": 0,
+                "units": 0,
+                "revenue": Decimal("0.00"),
+            },
         )
         entry["orders"] += 1
         entry["revenue"] += Decimal(order.total or 0)
-        entry["units"] += sum(int(item.cantidad or 0) for item in order.items if not item.es_regalo_promocion)
+        entry["units"] += sum(
+            int(item.cantidad or 0)
+            for item in order.items
+            if not item.es_regalo_promocion
+        )
 
-    refund_query = db.query(ReturnItem, OrderItem, Order).join(Return, Return.id == ReturnItem.return_id).join(Order, Order.id == Return.order_id).join(
-        OrderItem, (OrderItem.order_id == Order.id) & (OrderItem.product_id == ReturnItem.product_id)
-    ).filter(ReturnItem.action == "refund")
-    if start_dt is not None:
-        refund_query = refund_query.filter(Return.created_at >= start_dt)
-    if end_dt is not None:
-        refund_query = refund_query.filter(Return.created_at <= end_dt)
-    if accessible is not None:
-        refund_query = refund_query.filter(Order.source_location_id.in_(accessible))
-    for returned, sold_item, order in refund_query.all():
-        location_id = int(order.source_location_id or 0)
+    for allocation in _refund_allocations(
+        db,
+        start_dt,
+        end_dt,
+        location_ids=accessible,
+    ):
+        location_id = int(allocation["location_id"] or 0)
+        if not location_id:
+            continue
         if location_id not in stats:
-            location = order.source_location
-            stats[location_id] = {"name": location.nombre if location else f"Ubicación #{location_id}", "orders": 0, "units": 0, "revenue": Decimal("0.00")}
-        qty = int(returned.quantity or 0)
-        stats[location_id]["units"] -= qty
-        stats[location_id]["revenue"] -= Decimal(sold_item.precio_unitario or 0) * qty
+            location = db.query(Location).filter(Location.id == location_id).first()
+            stats[location_id] = {
+                "name": location.nombre if location else f"Ubicación #{location_id}",
+                "orders": 0,
+                "units": 0,
+                "revenue": Decimal("0.00"),
+            }
+        stats[location_id]["units"] -= int(allocation["quantity"])
+        stats[location_id]["revenue"] -= Decimal(allocation["revenue"])
 
     rows = []
     for location_id, data in stats.items():
         orders_count = int(data["orders"])
         revenue = Decimal(data["revenue"])
-        rows.append({
-            "location_id": location_id,
-            "location_nombre": data["name"],
-            "total_ordenes": orders_count,
-            "total_unidades_vendidas": int(data["units"]),
-            "total_ingresos": float(revenue),
-            "ticket_promedio": float(revenue / orders_count) if orders_count else 0.0,
-        })
+        rows.append(
+            {
+                "location_id": location_id,
+                "location_nombre": data["name"],
+                "total_ordenes": orders_count,
+                "total_unidades_vendidas": int(data["units"]),
+                "total_ingresos": float(revenue),
+                "ticket_promedio": float(revenue / orders_count) if orders_count else 0.0,
+            }
+        )
     rows.sort(key=lambda row: row["total_ingresos"], reverse=True)
     return rows
 
@@ -411,9 +502,21 @@ def get_top_products_by_location_integrity(
     require_location_access(db, current_user, location_id, "can_view")
     start_dt = datetime.combine(start_date, datetime.min.time()) if start_date else None
     end_dt = datetime.combine(end_date, datetime.max.time()) if end_date else None
-    orders = _scoped_sales_query(db, start_dt=start_dt, end_dt=end_dt, location_ids=[location_id]).all()
+    orders = _scoped_sales_query(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        location_ids=[location_id],
+    ).all()
 
-    stats: dict[int, dict[str, Any]] = defaultdict(lambda: {"name": "", "category": "", "units": 0, "revenue": Decimal("0.00")})
+    stats: dict[int, dict[str, Any]] = defaultdict(
+        lambda: {
+            "name": "",
+            "category": "",
+            "units": 0,
+            "revenue": Decimal("0.00"),
+        }
+    )
     if orders:
         order_ids = [order.id for order in orders]
         for item in db.query(OrderItem).filter(OrderItem.order_id.in_(order_ids)).all():
@@ -426,22 +529,24 @@ def get_top_products_by_location_integrity(
             entry["units"] += int(item.cantidad or 0)
             entry["revenue"] += Decimal(item.precio_unitario or 0) * int(item.cantidad or 0)
 
-    refund_query = db.query(ReturnItem, OrderItem, Product).join(Return, Return.id == ReturnItem.return_id).join(Order, Order.id == Return.order_id).join(
-        OrderItem, (OrderItem.order_id == Order.id) & (OrderItem.product_id == ReturnItem.product_id)
-    ).join(Product, Product.id == ReturnItem.product_id).filter(Order.source_location_id == location_id, ReturnItem.action == "refund")
-    if start_dt:
-        refund_query = refund_query.filter(Return.created_at >= start_dt)
-    if end_dt:
-        refund_query = refund_query.filter(Return.created_at <= end_dt)
-    for returned, sold_item, product in refund_query.all():
-        entry = stats[product.id]
-        entry["name"] = product.nombre
-        entry["category"] = product.categoria
-        qty = int(returned.quantity or 0)
-        entry["units"] -= qty
-        entry["revenue"] -= Decimal(sold_item.precio_unitario or 0) * qty
+    for allocation in _refund_allocations(
+        db,
+        start_dt,
+        end_dt,
+        location_ids=[location_id],
+    ):
+        product_id = int(allocation["product_id"])
+        entry = stats[product_id]
+        entry["name"] = allocation["product_name"]
+        entry["category"] = allocation["product_category"]
+        entry["units"] -= int(allocation["quantity"])
+        entry["revenue"] -= Decimal(allocation["revenue"])
 
-    ranked = sorted(stats.items(), key=lambda pair: (pair[1]["units"], pair[1]["revenue"]), reverse=True)[:limit]
+    ranked = sorted(
+        stats.items(),
+        key=lambda pair: (pair[1]["units"], pair[1]["revenue"]),
+        reverse=True,
+    )[:limit]
     return [
         {
             "product_id": product_id,
@@ -461,16 +566,22 @@ def _transfer_components(order: Order) -> list[dict[str, Any]]:
         except (TypeError, json.JSONDecodeError):
             parsed = []
         if isinstance(parsed, list):
-            components = [item for item in parsed if isinstance(item, dict) and item.get("method") == "transferencia"]
+            components = [
+                item
+                for item in parsed
+                if isinstance(item, dict) and item.get("method") == "transferencia"
+            ]
             if components:
                 return components
     if order.metodo_pago == "transferencia":
-        return [{
-            "method": "transferencia",
-            "amount": str(order.total or 0),
-            "bank_name": order.transfer_bank_name,
-            "reference": order.transfer_reference,
-        }]
+        return [
+            {
+                "method": "transferencia",
+                "amount": str(order.total or 0),
+                "bank_name": order.transfer_bank_name,
+                "reference": order.transfer_reference,
+            }
+        ]
     return []
 
 
@@ -486,35 +597,48 @@ def get_bank_transfer_reconciliation_integrity(
     location_ids, _ = _resolve_report_scope(db, current_user, location_id)
     start_dt = datetime.combine(start_date, datetime.min.time()) if start_date else None
     end_dt = datetime.combine(end_date, datetime.max.time()) if end_date else None
-    orders = _scoped_sales_query(db, start_dt=start_dt, end_dt=end_dt, location_ids=location_ids).all()
+    orders = _scoped_sales_query(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        location_ids=location_ids,
+    ).all()
 
     items: list[dict[str, Any]] = []
     total = Decimal("0.00")
     wanted_bank = bank_name.strip().lower() if bank_name else None
     for order in orders:
         for component in _transfer_components(order):
-            component_bank = str(component.get("bank_name") or order.transfer_bank_name or "").strip()
+            component_bank = str(
+                component.get("bank_name") or order.transfer_bank_name or ""
+            ).strip()
             if wanted_bank and wanted_bank not in component_bank.lower():
                 continue
             amount = Decimal(str(component.get("amount") or 0))
             total += amount
             location = order.source_location
-            items.append({
-                "order_id": order.id,
-                # Campo histórico conservado para clientes existentes; ahora representa
-                # la fecha efectiva de la venta.
-                "created_at": effective_sale_at(order),
-                "customer_name": order.customer_name,
-                "customer_phone": order.customer_phone,
-                "location_id": order.source_location_id,
-                "location_nombre": location.nombre if location else None,
-                "bank_name": component_bank or None,
-                "reference": component.get("reference") or order.transfer_reference,
-                "total": float(amount),
-                "estado": order.estado,
-                "validated_by": order.validated_by,
-                "validada_at": order.validada_at,
-            })
+            items.append(
+                {
+                    "order_id": order.id,
+                    # Campo histórico conservado para clientes existentes; ahora
+                    # representa la fecha efectiva de la venta.
+                    "created_at": effective_sale_at(order),
+                    "customer_name": order.customer_name,
+                    "customer_phone": order.customer_phone,
+                    "location_id": order.source_location_id,
+                    "location_nombre": location.nombre if location else None,
+                    "bank_name": component_bank or None,
+                    "reference": component.get("reference") or order.transfer_reference,
+                    "total": float(amount),
+                    "estado": order.estado,
+                    "validated_by": order.validated_by,
+                    "validada_at": order.validada_at,
+                }
+            )
 
     items.sort(key=lambda item: item["created_at"] or datetime.min, reverse=True)
-    return {"total_amount": float(total), "total_orders": len({item["order_id"] for item in items}), "items": items}
+    return {
+        "total_amount": float(total),
+        "total_orders": len({item["order_id"] for item in items}),
+        "items": items,
+    }
