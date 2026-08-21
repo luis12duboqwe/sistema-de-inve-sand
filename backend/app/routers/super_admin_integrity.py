@@ -15,6 +15,7 @@ from app.routers import super_admin as legacy_super_admin
 from app.routers.order_state_integrity import cancel_order_canonical
 from app.routers.super_admin import ReasonPayload, StockAdjustmentRequest, get_current_superuser_audited
 from app.utils.audit import log_audit_event
+from app.utils.order_validators import validate_location_exists
 
 
 router = APIRouter(prefix="/api/super-admin", tags=["super_admin"])
@@ -67,6 +68,10 @@ def adjust_stock_integrity(
     product = db.query(Product).filter(Product.id == payload.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    # Validate the target before creating a Stock row so a bad location produces an
+    # actionable 404 rather than a database foreign-key error/500 during flush.
+    validate_location_exists(db, payload.location_id)
 
     stock = db.query(Stock).filter(
         Stock.product_id == payload.product_id,
