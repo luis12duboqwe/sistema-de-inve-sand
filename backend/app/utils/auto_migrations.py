@@ -103,20 +103,44 @@ def _apply_transfer_receiving_fields_migration() -> None:
 
 
 def _apply_order_completion_timestamp_migration() -> None:
-    """Track the real sale-finalization time without losing order creation time."""
+    """Track sale finalization time while preserving the oldest supported schemas.
+
+    Some legacy databases predate ``created_at`` and ``validada_at``. We only
+    backfill from timestamps that actually exist; when none exist, leaving
+    ``completed_at`` NULL is safer than inventing a historical sale date.
+    """
     _add_column_if_missing(
         "orders",
         "completed_at",
         _column_type("TIMESTAMP WITH TIME ZONE", "DATETIME"),
     )
+
+    order_columns = {
+        item["name"] for item in inspect(database.engine).get_columns("orders")
+    }
+    backfill_expression: str | None = None
+    if "validada_at" in order_columns and "created_at" in order_columns:
+        backfill_expression = "COALESCE(validada_at, created_at)"
+    elif "validada_at" in order_columns:
+        backfill_expression = "validada_at"
+    elif "created_at" in order_columns:
+        backfill_expression = "created_at"
+
     with database.engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE orders "
-                "SET completed_at = COALESCE(validada_at, created_at) "
-                "WHERE completed_at IS NULL AND estado IN ('completada', 'validada')"
+        if backfill_expression:
+            conn.execute(
+                text(
+                    "UPDATE orders "
+                    f"SET completed_at = {backfill_expression} "
+                    "WHERE completed_at IS NULL AND estado IN ('completada', 'validada')"
+                )
             )
-        )
+        else:
+            logger.warning(
+                "Auto-migration: orders no tiene timestamps históricos para "
+                "backfill de completed_at; se conservan valores NULL"
+            )
+
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS idx_order_completed_at "
