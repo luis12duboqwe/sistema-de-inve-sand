@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from .helpers import seed_location_and_sales_profile, seed_product
 
 
@@ -194,10 +196,10 @@ def test_sales_report_allocates_refund_once_across_duplicate_product_lines(clien
 
     # Base histórica: 1x100 + 1x300 = 400. Una unidad devuelta se asigna
     # al promedio ponderado de 200; nunca se multiplica por las dos líneas.
-    assert report["total_revenue"] == 200
+    assert Decimal(str(report["total_revenue"])) == Decimal("200.00")
     top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
     assert top["units_sold"] == 1
-    assert top["total_revenue"] == 200
+    assert Decimal(str(top["total_revenue"])) == Decimal("200.00")
 
     # La segunda unidad también debe poder devolverse: el límite es la cantidad
     # total vendida del producto en la orden, no la cantidad de una sola línea.
@@ -221,10 +223,10 @@ def test_sales_report_allocates_refund_once_across_duplicate_product_lines(clien
     final_report_response = client.get("/api/reports/sales")
     assert final_report_response.status_code == 200, final_report_response.text
     final_report = final_report_response.json()
-    assert final_report["total_revenue"] == 0
+    assert Decimal(str(final_report["total_revenue"])) == Decimal("0.00")
     final_top = next(item for item in final_report["top_products"] if item["product_id"] == product["id"])
     assert final_top["units_sold"] == 0
-    assert final_top["total_revenue"] == 0
+    assert Decimal(str(final_top["total_revenue"])) == Decimal("0.00")
 
 
 def test_serialized_return_requires_one_item_per_imei(client, db_session):
