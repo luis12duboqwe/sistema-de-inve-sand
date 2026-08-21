@@ -1,9 +1,11 @@
 name: One-shot sale completion UI cleanup
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/final-business-integrity-hardening
+      - main
+    types:
+      - synchronize
     paths:
       - .github/workflows/one-shot-sale-completion-ui.yml
 
@@ -12,6 +14,7 @@ permissions:
 
 jobs:
   patch-app:
+    if: github.event.pull_request.head.ref == 'fix/final-business-integrity-hardening'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
