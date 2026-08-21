@@ -28,6 +28,9 @@ class Order(Base):
     notes = Column(Text, nullable=True)
     delivery_date = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    # Momento real en el que la orden se convirtió por primera vez en una venta final.
+    # Los reportes financieros deben preferir este timestamp frente a created_at.
+    completed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     # Validación de cierre de día (admin)
     validada_at = Column(DateTime(timezone=True), nullable=True, index=True)
     validated_by = Column(String(100), nullable=True)
@@ -42,6 +45,7 @@ class Order(Base):
         Index("idx_order_sales_profile_estado", "sales_profile_id", "estado"),
         Index("idx_order_source_location", "source_location_id"),
         Index("idx_order_delivery_date", "delivery_date"),
+        Index("idx_order_completed_at", "completed_at"),
         Index(
             "uq_orders_transfer_reference_normalized_not_null",
             "transfer_reference_normalized",

@@ -16,6 +16,7 @@ from app.config import settings
 from app.config_production import check_production_readiness, prod_settings
 from app.database import check_db_connection, get_db, init_db
 from app.jobs.forecasting_job import start_forecasting_job
+from app.middleware.business_integrity import BusinessIntegrityMiddleware
 from app.middleware.production_guards import ProductionGuardMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 from app.routers import (
@@ -30,6 +31,7 @@ from app.routers import (
     financing,
     forecasting,
     imeis,
+    integrity_overrides,
     locations,
     multistore_control,
     orders,
@@ -51,6 +53,7 @@ from app.utils.auto_migrations import run_auto_migrations
 from app.utils.demo_seed import seed_demo_data
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
+from app.utils.order_integrity import install_order_integrity_guards
 from app.utils.prometheus_metrics import (
     RATE_LIMIT_BLOCK_TOTAL,
     REQUEST_LATENCY_SECONDS,
@@ -66,6 +69,7 @@ from app.utils.sentry_config import init_sentry
 setup_logging()
 initialize_observability()
 init_sentry()
+install_order_integrity_guards()
 logger = logging.getLogger(__name__)
 runtime_metrics = RuntimeMetrics()
 
@@ -121,6 +125,30 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(ProductionGuardMiddleware)
+app.add_middleware(BusinessIntegrityMiddleware)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Never expose raw internal exception strings through a handled HTTP 500."""
+    if exc.status_code == 500:
+        logger.error(
+            "Internal HTTP error in %s %s; detail redacted from client",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Error interno del servidor. Consulte los logs con el ID de solicitud."
+            },
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
 
 
 @app.exception_handler(Exception)
@@ -128,7 +156,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(
         "Unhandled exception in %s %s: %s",
         request.method,
-        request.url,
+        request.url.path,
         exc,
         exc_info=True,
     )
@@ -260,6 +288,9 @@ app.include_router(locations.router)
 app.include_router(sales_profiles.router)
 app.include_router(profiles.router)
 app.include_router(products.router)
+# Canonical replacements are registered first; importing integrity_overrides also
+# removes only the corresponding legacy path/method definitions from OpenAPI/runtime.
+app.include_router(integrity_overrides.router)
 app.include_router(orders.router)
 app.include_router(faq.router, prefix="/api/faq", tags=["FAQ"])
 app.include_router(customers.router)

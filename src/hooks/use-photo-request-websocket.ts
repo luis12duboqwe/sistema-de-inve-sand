@@ -1,12 +1,8 @@
 /**
  * WebSocket hook for real-time photo request updates.
- * 
- * Usage:
- * ```tsx
- * const { connected, lastEvent } = usePhotoRequestWebSocket(authToken, (event) => {
- *   // Refetch list or update local state
- * })
- * ```
+ *
+ * The JWT is sent as a WebSocket subprotocol value instead of a query parameter,
+ * keeping bearer credentials out of reverse-proxy/access URLs.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
@@ -43,7 +39,7 @@ export function usePhotoRequestWebSocket(
 
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectCountRef = useRef(0)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const connect = useCallback(() => {
     if (!authToken) {
@@ -53,9 +49,9 @@ export function usePhotoRequestWebSocket(
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${protocol}//${window.location.host}/ws/photo-requests?token=${encodeURIComponent(authToken)}`
+      const wsUrl = `${protocol}//${window.location.host}/ws/photo-requests`
 
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(wsUrl, ['access_token', authToken])
 
       ws.onopen = () => {
         setConnected(true)
@@ -73,18 +69,14 @@ export function usePhotoRequestWebSocket(
         }
       }
 
-      ws.onerror = (event) => {
-        console.error('WebSocket error:', event)
+      ws.onerror = () => {
         setError('WebSocket connection error')
       }
 
       ws.onclose = () => {
         setConnected(false)
-
-        // Attempt reconnection
         if (autoReconnect && reconnectCountRef.current < maxReconnectAttempts) {
           reconnectCountRef.current += 1
-          
           reconnectTimeoutRef.current = setTimeout(() => {
             connect()
           }, reconnectDelay)
@@ -102,6 +94,7 @@ export function usePhotoRequestWebSocket(
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
     }
     if (wsRef.current) {
       wsRef.current.close()

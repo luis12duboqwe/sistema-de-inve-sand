@@ -36,8 +36,9 @@ def seed_product(
     stock_inicial: int = 1,
     imei_values: Optional[List[str]] = None,
     is_serialized: bool = True,
+    categoria: str = "celular",
 ) -> dict[str, Any]:
-    """Crea un producto de prueba permitiendo ajustar stock e IMEIs."""
+    """Crea un producto de prueba permitiendo ajustar stock, categoría e IMEIs."""
 
     if is_serialized:
         imei_list = imei_values or ["111111111111111"]
@@ -53,7 +54,7 @@ def seed_product(
     payload = {
         "sku": "TEST-DEVICE-001",
         "nombre": "Telefono Test",
-        "categoria": "celular",
+        "categoria": categoria,
         "marca": "MarcaX",
         "modelo": "ModeloY",
         "condicion": "nuevo",

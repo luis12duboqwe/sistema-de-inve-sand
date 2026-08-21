@@ -1,34 +1,56 @@
-"""
-WebSocket router for real-time photo request updates.
+"""Authenticated WebSocket routes for real-time updates.
 
-Endpoints:
-- ws://localhost:8000/ws/photo-requests - Real-time photo request updates
+JWTs are transported through the WebSocket subprotocol handshake rather than the
+URL query string so reverse-proxy/access logs do not capture bearer credentials.
 """
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, WebSocketException, status, Depends, Query
+
+from fastapi import APIRouter, Depends, WebSocketException, status
 from fastapi.websockets import WebSocket
 import jwt
 from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
-from app.database import get_db
 from app.config import settings
+from app.database import get_db
 from app.models import User
 from app.utils.websocket_manager import get_connection_manager
 
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
-
 manager = get_connection_manager()
+WS_AUTH_PROTOCOL = "access_token"
 
 
-async def get_user_from_ws(websocket: WebSocket, token: Optional[str], db: Session) -> User:
-    """Authenticate WebSocket connection with JWT token."""
-    if not token:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Token required")
-    
+def _extract_subprotocol_token(websocket: WebSocket) -> str:
+    raw = websocket.headers.get("sec-websocket-protocol", "")
+    protocols = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(protocols) < 2 or protocols[0] != WS_AUTH_PROTOCOL:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Authenticated WebSocket subprotocol required",
+        )
+    return protocols[1]
+
+
+def _user_has_permission(user: User, permission_slug: str) -> bool:
+    if bool(user.is_superuser):
+        return True
+    if not user.role:
+        return False
+    return any(permission.slug == permission_slug for permission in (user.role.permissions or []))
+
+
+async def get_user_from_ws(
+    websocket: WebSocket,
+    db: Session,
+    *,
+    required_permission: Optional[str] = None,
+) -> User:
+    token = _extract_subprotocol_token(websocket)
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: Optional[str] = payload.get("sub")
@@ -37,69 +59,49 @@ async def get_user_from_ws(websocket: WebSocket, token: Optional[str], db: Sessi
         user = db.query(User).filter(User.username == username).first()
         if not user:
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="User not found")
+        if not user.is_active:
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Inactive user")
+        if required_permission and not _user_has_permission(user, required_permission):
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Permission denied")
         return user
-    except JWTError as e:
-        logger.warning(f"WebSocket auth failed: {e}")
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+    except JWTError as exc:
+        logger.warning("WebSocket authentication failed")
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token") from exc
 
 
 @router.websocket("/photo-requests")
 async def websocket_photo_requests(
     websocket: WebSocket,
-    token: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """
-    WebSocket endpoint for real-time photo request updates.
-    
-    Query params:
-    - token: JWT authentication token
-    
-    Events sent:
-    - photo_request.created: New request created
-    - photo_request.claimed: Request claimed by agent
-    - photo_request.media_uploaded: Photo uploaded
-    - photo_request.status_changed: Status changed
-    - photo_request.assigned: Assigned to agent
-    
-    Example client:
-    ```js
-    const ws = new WebSocket(`ws://localhost:8000/ws/photo-requests?token=${token}`)
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      console.log(`${data.event} for request ${data.photo_request_id}`)
-    }
-    ```
-    """
-    
+    """Real-time photo-request events for authorized active staff."""
     try:
-        # Authenticate
-        current_user = await get_user_from_ws(websocket, token, db)
-        await manager.connect(websocket, namespace="photo-requests")
-        
-        logger.info(f"User {current_user.id} connected to photo-requests WebSocket")
-        
-        # Keep connection alive and listen for client messages
+        current_user = await get_user_from_ws(
+            websocket,
+            db,
+            required_permission="photo_requests:list",
+        )
+        await manager.connect(
+            websocket,
+            namespace="photo-requests",
+            subprotocol=WS_AUTH_PROTOCOL,
+        )
+        logger.info("User %s connected to photo-requests WebSocket", current_user.id)
+
         while True:
             try:
-                data = await websocket.receive_text()
-                logger.debug(f"Received from {current_user.id}: {data}")
-                
-                # Echo back as confirmation (optional)
-                # await websocket.send_text(f"Received: {data}")
-                
-            except Exception as e:
-                logger.warning(f"WebSocket receive error: {e}")
+                await websocket.receive_text()
+            except Exception:
                 break
-    
-    except WebSocketException as e:
-        logger.error(f"WebSocket auth error: {e}")
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
-    
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await manager.disconnect(websocket, namespace="photo-requests")
-    
+
+    except WebSocketException as exc:
+        logger.warning("Photo-request WebSocket rejected: %s", exc.reason)
+        try:
+            await websocket.close(code=exc.code, reason=exc.reason)
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Unexpected photo-request WebSocket error")
     finally:
         await manager.disconnect(websocket, namespace="photo-requests")
 
@@ -107,29 +109,27 @@ async def websocket_photo_requests(
 @router.websocket("/admin")
 async def websocket_admin(
     websocket: WebSocket,
-    token: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """WebSocket endpoint for admin dashboard real-time updates."""
+    """Real-time Super Admin events."""
     try:
-        current_user = await get_user_from_ws(websocket, token, db)
-        
-        # Check admin permission
+        current_user = await get_user_from_ws(websocket, db)
         if not bool(current_user.is_superuser):
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Admin access required")
-        
-        await manager.connect(websocket, namespace="admin")
-        logger.info(f"Admin {current_user.id} connected")
-        
+
+        await manager.connect(websocket, namespace="admin", subprotocol=WS_AUTH_PROTOCOL)
+        logger.info("Admin %s connected to WebSocket", current_user.id)
         while True:
             try:
-                data = await websocket.receive_text()
-                logger.debug(f"Admin {current_user.id}: {data}")
-            except Exception as e:
-                logger.warning(f"Admin WebSocket error: {e}")
+                await websocket.receive_text()
+            except Exception:
                 break
-    
-    except WebSocketException as e:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
+    except WebSocketException as exc:
+        try:
+            await websocket.close(code=exc.code, reason=exc.reason)
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Unexpected admin WebSocket error")
     finally:
         await manager.disconnect(websocket, namespace="admin")

@@ -102,9 +102,57 @@ def _apply_transfer_receiving_fields_migration() -> None:
     _add_column_if_missing("stock_transfers", "incident_notes", "TEXT")
 
 
+def _apply_order_completion_timestamp_migration() -> None:
+    """Track sale finalization time while preserving the oldest supported schemas.
+
+    Some legacy databases predate ``created_at`` and ``validada_at``. We only
+    backfill from timestamps that actually exist; when none exist, leaving
+    ``completed_at`` NULL is safer than inventing a historical sale date.
+    """
+    _add_column_if_missing(
+        "orders",
+        "completed_at",
+        _column_type("TIMESTAMP WITH TIME ZONE", "DATETIME"),
+    )
+
+    order_columns = {
+        item["name"] for item in inspect(database.engine).get_columns("orders")
+    }
+    backfill_expression: str | None = None
+    if "validada_at" in order_columns and "created_at" in order_columns:
+        backfill_expression = "COALESCE(validada_at, created_at)"
+    elif "validada_at" in order_columns:
+        backfill_expression = "validada_at"
+    elif "created_at" in order_columns:
+        backfill_expression = "created_at"
+
+    with database.engine.begin() as conn:
+        if backfill_expression:
+            conn.execute(
+                text(
+                    "UPDATE orders "
+                    f"SET completed_at = {backfill_expression} "
+                    "WHERE completed_at IS NULL AND estado IN ('completada', 'validada')"
+                )
+            )
+        else:
+            logger.warning(
+                "Auto-migration: orders no tiene timestamps históricos para "
+                "backfill de completed_at; se conservan valores NULL"
+            )
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_order_completed_at "
+                "ON orders (completed_at)"
+            )
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
+    ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
 )
 
 
@@ -187,7 +235,7 @@ def _validate_critical_schema() -> None:
         )
 
     required_columns = {
-        "orders": {"validada_at", "validated_by"},
+        "orders": {"validada_at", "validated_by", "completed_at"},
         "stock_transfers": {"received_quantity", "missing_quantity", "incident_notes"},
     }
     missing_columns: list[str] = []
