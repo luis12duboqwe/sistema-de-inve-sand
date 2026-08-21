@@ -19,6 +19,7 @@ _PRODUCT_STOCK_PATHS = (
 )
 _PRODUCT_DELETE_PATH = re.compile(r"^/api/products/(?P<product_id>\d+)$")
 _META_WEBHOOK_PATH = re.compile(r"^/api/channels/(whatsapp|messenger|instagram)/webhook$")
+_PHOTO_REQUEST_CREATE_PATH = "/api/photo-requests/create"
 
 
 class BusinessIntegrityMiddleware(BaseHTTPMiddleware):
@@ -86,7 +87,7 @@ class BusinessIntegrityMiddleware(BaseHTTPMiddleware):
             # Service-originated photo requests must fail closed in production when
             # the shared integration token was never configured. Authenticated staff
             # requests continue to the normal router permission checks.
-            if request.method == "POST" and path == "/api/photo-requests":
+            if request.method == "POST" and path == _PHOTO_REQUEST_CREATE_PATH:
                 has_user_auth = bool(request.headers.get("Authorization"))
                 if not has_user_auth and not (prod_settings.N8N_AUTH_TOKEN or "").strip():
                     return JSONResponse(
