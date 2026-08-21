@@ -101,6 +101,14 @@ def effective_sale_column(Order: Any):
 
 
 def _validate_transfer_integrity(session: Session, order: Any, entries: Iterable[dict[str, Any]]) -> None:
+    """Validate transfer metadata without making legacy rows impossible to load.
+
+    Modern API order creation already requires bank/reference data. At this lower
+    transaction boundary we additionally protect integrations and direct ORM callers
+    whenever they supply transfer metadata or a payment-breakdown transfer component.
+    Historical rows that only say ``metodo_pago=transferencia`` are preserved so an
+    upgrade cannot fail merely because older versions never stored those fields.
+    """
     from app.models import Order
 
     transfer_entries = [entry for entry in entries if entry.get("method") == "transferencia"]
@@ -110,8 +118,21 @@ def _validate_transfer_integrity(session: Session, order: Any, entries: Iterable
         return
 
     entry = transfer_entries[0] if transfer_entries else {}
-    bank_name = (getattr(order, "transfer_bank_name", None) or entry.get("bank_name") or "").strip()
-    reference = (getattr(order, "transfer_reference", None) or entry.get("reference") or "").strip()
+    bank_name = str(getattr(order, "transfer_bank_name", None) or entry.get("bank_name") or "").strip()
+    reference = str(getattr(order, "transfer_reference", None) or entry.get("reference") or "").strip()
+    existing_normalized = normalize_transfer_reference(
+        getattr(order, "transfer_reference_normalized", None)
+    )
+
+    has_explicit_transfer_metadata = bool(
+        transfer_entries or bank_name or reference or existing_normalized
+    )
+    if not has_explicit_transfer_metadata:
+        # Compatibility path for historical/demo rows created before transfer
+        # reconciliation metadata existed. New API orders never rely on this path.
+        order.transfer_reference_normalized = None
+        return
+
     if not bank_name:
         raise HTTPException(status_code=400, detail="Debe indicar el banco cuando hay pago por transferencia")
     if not reference:
