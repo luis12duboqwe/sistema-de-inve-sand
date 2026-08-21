@@ -23,16 +23,29 @@ export function ValidationCodeDialog({
   onConfirm,
 }: ValidationCodeDialogProps) {
   const [code, setCode] = useState('')
+  const isLegacySaleCompletionPrompt = title === 'Validar venta'
 
   useEffect(() => {
-    if (open) setCode('')
-  }, [open])
+    if (!open) return
+
+    // Compatibilidad con App.tsx durante la transición del flujo: completar una
+    // venta ya no es lo mismo que validar el cierre diario. La llamada antigua se
+    // resuelve sin pedir código y el Cierre de Día conserva su diálogo independiente.
+    if (isLegacySaleCompletionPrompt) {
+      onConfirm('')
+      return
+    }
+
+    setCode('')
+  }, [open, isLegacySaleCompletionPrompt, onConfirm])
 
   const submit = () => {
     const trimmed = code.trim()
     if (!trimmed) return
     onConfirm(trimmed)
   }
+
+  if (isLegacySaleCompletionPrompt) return null
 
   return (
     <Dialog open={open} onOpenChange={isOpen => !isOpen && onCancel()}>
