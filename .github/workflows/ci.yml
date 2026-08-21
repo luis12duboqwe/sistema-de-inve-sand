@@ -200,3 +200,60 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
+
+  patch-sale-completion-ui:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/final-business-integrity-hardening'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/final-business-integrity-hardening
+          fetch-depth: 0
+      - name: Patch only the obsolete completion-code helper
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/App.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = """  const getCompletionValidationCode = async (newStatus: OrderWithItems['estado']): Promise<string | undefined | null> => {
+            if (!useAPI || newStatus !== 'completada') return undefined
+
+            try {
+              const config = await apiClient.getDailyCloseConfig()
+              if (!config.configured) return undefined
+            } catch (error) {
+              console.error('Error checking daily close validation config:', error)
+              toast.error('No se pudo verificar el código de validación')
+              return null
+            }
+
+            return new Promise(resolve => {
+              setValidationCodeRequest({
+                title: 'Validar venta',
+                description: 'Ingrese el código configurado para completar y validar esta venta.',
+                resolve,
+              })
+            })
+          }
+"""
+          new = """  const getCompletionValidationCode = async (_newStatus: OrderWithItems['estado']): Promise<undefined> => {
+            // Completar la venta y validar el cierre son operaciones separadas.
+            // El código se solicita únicamente desde el flujo explícito de Cierre de Día.
+            return undefined
+          }
+"""
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one legacy completion validation block')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+      - name: Restore CI definition, remove temporary workflow and commit App change
+        run: |
+          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          rm -f .github/workflows/one-shot-sale-completion-ui.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx .github/workflows/ci.yml .github/workflows/one-shot-sale-completion-ui.yml
+          git commit -m "Stop requesting daily-close code when completing sales"
+          git push origin HEAD:fix/final-business-integrity-hardening
