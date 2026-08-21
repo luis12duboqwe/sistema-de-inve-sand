@@ -80,7 +80,7 @@ def validate_payment_breakdown_total(raw: Any, expected_total: Any) -> None:
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="El total de la orden no es válido") from exc
     actual = payment_breakdown_total(entries)
-    if abs(actual - expected) > Decimal("0.01"):
+    if actual != expected:
         raise HTTPException(
             status_code=400,
             detail=(
