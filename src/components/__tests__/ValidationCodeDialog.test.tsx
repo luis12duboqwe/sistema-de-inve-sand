@@ -45,4 +45,44 @@ describe('ValidationCodeDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
     expect(onConfirm).toHaveBeenCalledWith('1234')
   })
+
+  it('preserves an entered code when an inline callback changes on rerender', async () => {
+    const firstConfirm = vi.fn()
+    const secondConfirm = vi.fn()
+    const user = userEvent.setup()
+
+    const { rerender } = render(
+      <ValidationCodeDialog
+        open
+        title="Confirmar transferencia"
+        description="Ingrese el código autorizado"
+        confirmLabel="Validar"
+        onCancel={vi.fn()}
+        onConfirm={firstConfirm}
+      />
+    )
+
+    const input = screen.getByLabelText('Código de validación')
+    await user.type(input, '12')
+    expect(input).toHaveValue('12')
+
+    rerender(
+      <ValidationCodeDialog
+        open
+        title="Confirmar transferencia"
+        description="Ingrese el código autorizado"
+        confirmLabel="Validar"
+        onCancel={vi.fn()}
+        onConfirm={secondConfirm}
+      />
+    )
+
+    expect(screen.getByLabelText('Código de validación')).toHaveValue('12')
+    await user.type(screen.getByLabelText('Código de validación'), '34')
+    await user.click(screen.getByRole('button', { name: 'Validar' }))
+
+    expect(firstConfirm).not.toHaveBeenCalled()
+    expect(secondConfirm).toHaveBeenCalledTimes(1)
+    expect(secondConfirm).toHaveBeenCalledWith('1234')
+  })
 })
