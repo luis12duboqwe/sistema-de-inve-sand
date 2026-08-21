@@ -57,6 +57,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
         "POST",
     ),
     (super_admin.router, "/api/super-admin/stock/adjust", "POST"),
+    (super_admin.router, "/api/super-admin/orders/{order_id}/cancel", "POST"),
     (super_admin.router, "/api/super-admin/audit-logs/{audit_id}/revert", "POST"),
     (ai_intelligence.router, "/api/ai/business-insights", "POST"),
 )
