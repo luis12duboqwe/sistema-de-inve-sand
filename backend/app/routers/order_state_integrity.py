@@ -2,11 +2,11 @@
 
 The legacy orders router historically mixed sale completion with daily-close
 validation. These handlers are registered before it and establish one explicit
-state machine plus a serialized cancellation path:
+state machine plus serialized order mutations:
 
 pending/for-delivery -> completed -> validated by /api/daily-close/validate.
-Cancellation locks the order before any stock row and refuses orders that already
-have a return, keeping cancellation and refund reconciliation mutually exclusive.
+Cancellation and completion both lock the Order row before touching Stock so all
+competing operations use the same Order -> Stock lock order.
 """
 
 from __future__ import annotations
@@ -44,7 +44,14 @@ def update_order_status_canonical(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit")),
 ):
-    order = db.query(Order).filter(Order.id == order_id).first()
+    # Status transitions may later lock Stock while finalizing a sale. Lock Order
+    # first so completion, cancellation and returns all use one global lock order.
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
 
