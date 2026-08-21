@@ -1,25 +1,32 @@
-"""Canonical order state transition endpoint.
+"""Canonical order state transition endpoints.
 
 The legacy orders router historically mixed sale completion with daily-close
-validation. This endpoint is registered before it and establishes one explicit
-state machine:
+validation. These handlers are registered before it and establish one explicit
+state machine plus a serialized cancellation path:
 
 pending/for-delivery -> completed -> validated by /api/daily-close/validate.
-Cancellation remains a dedicated operation because it must restore inventory.
+Cancellation locks the order before any stock row and refuses orders that already
+have a return, keeping cancellation and refund reconciliation mutually exclusive.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import Order, User
-from app.routers.orders import FINAL_ORDER_STATUSES, _finalize_order_stock, _serialize_order
+from app.models import Order, Return, User
+from app.routers.orders import (
+    FINAL_ORDER_STATUSES,
+    _finalize_order_stock,
+    _serialize_order,
+    cancel_order as _legacy_cancel_order,
+)
 from app.schemas import OrderResponse, OrderStatusUpdate
 from app.services.order_service import resolve_user_label
 from app.utils.audit import log_audit_event
@@ -112,3 +119,48 @@ def update_order_status_canonical(
             status_code=500,
             detail="Error interno al actualizar el estado de la orden. Intente nuevamente o contacte al administrador.",
         ) from exc
+
+
+@router.post("/{order_id}/cancel", response_model=OrderResponse)
+def cancel_order_canonical(
+    order_id: int,
+    reason: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("orders:edit")),
+):
+    """Serialize cancellation with returns using a single Order -> Stock lock order."""
+    # Returns lock this exact parent row before reading refund allowance and then
+    # lock stock. Cancellation must acquire locks in the same order to avoid the
+    # PostgreSQL Order->Stock / Stock->Order deadlock cycle.
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
+
+    if order.source_location_id:
+        require_location_access(db, current_user, order.source_location_id, "can_edit")
+
+    # A refund and a cancellation both restore inventory. Once a return exists,
+    # cancellation would become a second restoration path and is therefore blocked.
+    existing_return = db.query(Return.id).filter(Return.order_id == order_id).first()
+    if existing_return is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede cancelar una venta que ya tiene devoluciones. "
+                "Use el flujo de devoluciones/ajustes auditados para cualquier corrección adicional."
+            ),
+        )
+
+    # Reuse the mature stock/IMEI/trade-in reconciliation while this transaction
+    # still owns the Order row lock. Its subsequent queries run on the same Session.
+    return _legacy_cancel_order(
+        order_id=order_id,
+        reason=reason,
+        db=db,
+        current_user=current_user,
+    )
