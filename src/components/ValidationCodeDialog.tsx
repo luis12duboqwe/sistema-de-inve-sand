@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,20 +23,33 @@ export function ValidationCodeDialog({
   onConfirm,
 }: ValidationCodeDialogProps) {
   const [code, setCode] = useState('')
+  const wasOpenRef = useRef(false)
+  const legacyResolvedRef = useRef(false)
   const isLegacySaleCompletionPrompt = title === 'Validar venta'
 
   useEffect(() => {
-    if (!open) return
+    const justOpened = open && !wasOpenRef.current
+    wasOpenRef.current = open
 
-    // Compatibilidad con App.tsx durante la transición del flujo: completar una
-    // venta ya no es lo mismo que validar el cierre diario. La llamada antigua se
-    // resuelve sin pedir código y el Cierre de Día conserva su diálogo independiente.
-    if (isLegacySaleCompletionPrompt) {
-      onConfirm('')
+    if (!open) {
+      legacyResolvedRef.current = false
       return
     }
 
-    setCode('')
+    // Compatibilidad con App.tsx durante la transición del flujo: completar una
+    // venta ya no es lo mismo que validar el cierre diario. La llamada antigua se
+    // resuelve una sola vez sin pedir código y el Cierre de Día conserva su diálogo.
+    if (isLegacySaleCompletionPrompt) {
+      if (!legacyResolvedRef.current) {
+        legacyResolvedRef.current = true
+        onConfirm('')
+      }
+      return
+    }
+
+    // Reiniciar sólo al abrir de verdad. Los padres usan callbacks inline; un
+    // re-render no debe borrar un código que el operador ya está escribiendo.
+    if (justOpened) setCode('')
   }, [open, isLegacySaleCompletionPrompt, onConfirm])
 
   const submit = () => {
