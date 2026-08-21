@@ -5,6 +5,7 @@ from app.models import Order, Return, ReturnItem, ProductIMEI, IMEIHistory, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
 from datetime import UTC, datetime
+from types import SimpleNamespace
 import logging
 
 from app.auth import check_permission
@@ -20,6 +21,57 @@ FINAL_RETURNABLE_ORDER_STATUSES = {"completada", "validada"}
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _aggregate_order_for_return_validation(order: Order) -> SimpleNamespace:
+    """Build a read-only validation view with one quantity total per product.
+
+    Historical/API orders may contain multiple OrderItem rows for the same product
+    (for example, when unit prices differ). The stock helper validates returns by
+    product, so feeding it only the last matching line would incorrectly cap the
+    returnable quantity at that single line instead of the total quantity sold.
+    """
+    grouped: dict[int, SimpleNamespace] = {}
+    for item in order.items or []:
+        product_id = getattr(item, "product_id", None)
+        if product_id is None:
+            continue
+        product_key = int(product_id)
+        quantity = int(getattr(item, "cantidad", 0) or 0)
+        existing = grouped.get(product_key)
+        if existing is None:
+            grouped[product_key] = SimpleNamespace(
+                product_id=product_key,
+                cantidad=quantity,
+                product=getattr(item, "product", None),
+            )
+        else:
+            existing.cantidad += quantity
+
+    return SimpleNamespace(
+        id=order.id,
+        estado=order.estado,
+        items=list(grouped.values()),
+    )
+
+
+def _validate_serialized_return_quantities(order: Order, return_data: ReturnCreate) -> None:
+    """Keep stock quantity and IMEI release one-to-one for serialized products."""
+    products = {
+        int(item.product_id): item.product
+        for item in (order.items or [])
+        if getattr(item, "product_id", None) is not None
+    }
+    for item in return_data.items:
+        product = products.get(int(item.product_id))
+        if product and bool(getattr(product, "is_serialized", False)) and int(item.quantity or 0) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Los productos serializados deben devolverse una unidad por ítem, "
+                    "indicando el IMEI correspondiente a cada unidad."
+                ),
+            )
 
 
 router = APIRouter(prefix="/api/returns", tags=["returns"])
@@ -76,6 +128,7 @@ def create_return(
 
     source_location = validate_location_exists(db, order.source_location_id)
     require_location_access(db, current_user, source_location.id, "can_edit")
+    _validate_serialized_return_quantities(order, return_data)
 
     user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
 
@@ -91,8 +144,9 @@ def create_return(
     stock_helper = StockTransactionHelper(db)
     stock_manager = stock_helper.stock_manager
 
+    validation_order = _aggregate_order_for_return_validation(order)
     prepared_items: List[PreparedReturnItem] = stock_helper.prepare_return_items(
-        order=order,
+        order=validation_order,  # type: ignore[arg-type] - intentionally read-only validation view
         items_payload=return_data.items,
     )
 
