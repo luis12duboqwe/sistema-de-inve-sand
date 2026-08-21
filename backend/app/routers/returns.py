@@ -55,6 +55,56 @@ def _aggregate_order_for_return_validation(order: Order) -> SimpleNamespace:
     )
 
 
+def _validate_refund_paid_quantities(db: Session, order: Order, return_data: ReturnCreate) -> None:
+    """Never grant a cash refund for promotional/gift quantities.
+
+    Physical return validation still considers every sold/gift unit so stock can be
+    reconciled. Monetary ``refund`` actions are separately capped to quantities that
+    were actually paid for; prior refunds consume that paid allowance.
+    """
+    paid_quantities: dict[int, int] = {}
+    for item in order.items or []:
+        if bool(getattr(item, "es_regalo_promocion", False)):
+            continue
+        product_id = getattr(item, "product_id", None)
+        if product_id is None:
+            continue
+        key = int(product_id)
+        paid_quantities[key] = paid_quantities.get(key, 0) + int(getattr(item, "cantidad", 0) or 0)
+
+    previous_refund_quantities: dict[int, int] = {}
+    previous_refunds = (
+        db.query(ReturnItem)
+        .join(Return, ReturnItem.return_id == Return.id)
+        .filter(Return.order_id == order.id, ReturnItem.action == "refund")
+        .all()
+    )
+    for item in previous_refunds:
+        key = int(item.product_id)
+        previous_refund_quantities[key] = previous_refund_quantities.get(key, 0) + int(item.quantity or 0)
+
+    requested_refund_quantities: dict[int, int] = {}
+    for item in return_data.items:
+        action = item.action.value if hasattr(item.action, "value") else str(item.action)
+        if action != "refund":
+            continue
+        key = int(item.product_id)
+        requested_refund_quantities[key] = requested_refund_quantities.get(key, 0) + int(item.quantity or 0)
+
+    for product_id, requested in requested_refund_quantities.items():
+        paid = paid_quantities.get(product_id, 0)
+        already_refunded = previous_refund_quantities.get(product_id, 0)
+        if already_refunded + requested > paid:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"La cantidad a reembolsar del producto {product_id} excede las unidades pagadas. "
+                    "Las unidades entregadas como regalo/promoción pueden devolverse físicamente, "
+                    "pero no generan reembolso en efectivo."
+                ),
+            )
+
+
 def _validate_serialized_return_quantities(order: Order, return_data: ReturnCreate) -> None:
     """Keep stock quantity and IMEI release one-to-one for serialized products."""
     products = {
@@ -128,6 +178,7 @@ def create_return(
 
     source_location = validate_location_exists(db, order.source_location_id)
     require_location_access(db, current_user, source_location.id, "can_edit")
+    _validate_refund_paid_quantities(db, order, return_data)
     _validate_serialized_return_quantities(order, return_data)
 
     user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
