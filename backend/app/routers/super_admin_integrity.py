@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AuditLog, Product, ProductIMEI, Stock, StockHistory, User
 from app.routers import super_admin as legacy_super_admin
+from app.routers.order_state_integrity import cancel_order_canonical
 from app.routers.super_admin import ReasonPayload, StockAdjustmentRequest, get_current_superuser_audited
 from app.utils.audit import log_audit_event
 
@@ -119,6 +120,22 @@ def adjust_stock_integrity(
     db.commit()
     db.refresh(stock)
     return legacy_super_admin._serialize_stock(stock)
+
+
+@router.post("/orders/{order_id}/cancel")
+def super_admin_cancel_order_integrity(
+    order_id: int,
+    payload: ReasonPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser_audited),
+):
+    """Use the same locked, return-aware cancellation path as ordinary operators."""
+    return cancel_order_canonical(
+        order_id=order_id,
+        reason=f"SUPER ADMIN: {payload.reason}",
+        db=db,
+        current_user=current_user,
+    )
 
 
 def _loads_json_object(raw: str | None) -> dict[str, Any] | None:
