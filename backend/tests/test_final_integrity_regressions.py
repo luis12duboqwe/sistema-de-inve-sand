@@ -2,6 +2,7 @@ import threading
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Order, SystemConfig
@@ -130,6 +131,11 @@ def test_daily_close_overlapping_reversed_ids_do_not_deadlock(client, db_session
     def worker(ids: list[int]) -> None:
         session: Session = SessionLocal()
         try:
+            # The regression must never be able to hang CI indefinitely. PostgreSQL
+            # will turn an unexpected lock wait into a prompt test failure.
+            if session.get_bind().dialect.name == "postgresql":
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.execute(text("SET LOCAL statement_timeout = '10s'"))
             payload = DailyCloseValidateRequest(
                 validation_code=validation_code,
                 order_ids=ids,
@@ -153,8 +159,8 @@ def test_daily_close_overlapping_reversed_ids_do_not_deadlock(client, db_session
             session.close()
 
     threads = [
-        threading.Thread(target=worker, args=([order_ids[0], order_ids[1]],)),
-        threading.Thread(target=worker, args=([order_ids[1], order_ids[0]],)),
+        threading.Thread(target=worker, args=([order_ids[0], order_ids[1]],), daemon=True),
+        threading.Thread(target=worker, args=([order_ids[1], order_ids[0]],), daemon=True),
     ]
     for thread in threads:
         thread.start()
