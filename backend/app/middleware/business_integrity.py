@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import re
 
+import jwt
+from jwt import PyJWTError as JWTError
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.config import settings
 from app.config_production import prod_settings
 from app.database import SessionLocal
-from app.models import Product, StockHistory
+from app.models import Product, StockHistory, User
 
 
 _PRODUCT_STOCK_PATHS = (
@@ -20,6 +23,34 @@ _PRODUCT_STOCK_PATHS = (
 _PRODUCT_DELETE_PATH = re.compile(r"^/api/products/(?P<product_id>\d+)$")
 _META_WEBHOOK_PATH = re.compile(r"^/api/channels/(whatsapp|messenger|instagram)/webhook$")
 _PHOTO_REQUEST_CREATE_PATH = "/api/photo-requests/create"
+
+
+def _has_active_bearer_user(request: Request) -> bool:
+    """Validate the Bearer JWT and active user before treating it as staff auth."""
+    authorization = (request.headers.get("Authorization") or "").strip()
+    if not authorization.lower().startswith("bearer "):
+        return False
+
+    token = authorization[7:].strip()
+    if not token:
+        return False
+
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    except JWTError:
+        return False
+
+    username = payload.get("sub")
+    if not username:
+        return False
+
+    with SessionLocal() as db:
+        user = (
+            db.query(User.id)
+            .filter(User.username == str(username), User.is_active == True)
+            .first()
+        )
+    return user is not None
 
 
 class BusinessIntegrityMiddleware(BaseHTTPMiddleware):
@@ -85,11 +116,11 @@ class BusinessIntegrityMiddleware(BaseHTTPMiddleware):
 
         if prod_settings.is_production():
             # Service-originated photo requests must fail closed in production when
-            # the shared integration token was never configured. Authenticated staff
-            # requests continue to the normal router permission checks.
+            # the shared integration token was never configured. Only a verified,
+            # active JWT user may bypass that missing-service-token guard.
             if request.method == "POST" and path == _PHOTO_REQUEST_CREATE_PATH:
-                has_user_auth = bool(request.headers.get("Authorization"))
-                if not has_user_auth and not (prod_settings.N8N_AUTH_TOKEN or "").strip():
+                has_verified_user = _has_active_bearer_user(request)
+                if not has_verified_user and not (prod_settings.N8N_AUTH_TOKEN or "").strip():
                     return JSONResponse(
                         status_code=503,
                         content={
