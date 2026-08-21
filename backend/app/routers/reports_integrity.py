@@ -1,4 +1,9 @@
-"""Canonical financial reports based on finalization time and net refunds."""
+"""Canonical financial reports based on finalization time and net refunds.
+
+Refunds are attributed to the effective sale period of their originating order so
+sales-style reports cannot subtract revenue or units from a period that contains no
+corresponding sale.
+"""
 
 from __future__ import annotations
 
@@ -66,8 +71,15 @@ def _refund_allocations(
     location_ids: list[int] | None = None,
     product_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Return one accounting allocation per ReturnItem, never per sale line."""
+    """Return one accounting allocation per ReturnItem, scoped by sale period.
+
+    Sales reports are keyed by the order's effective completion/finalization time.
+    Refunds therefore follow that same originating sale period. This prevents a
+    later refund from creating negative units/revenue in a period where the sale
+    itself is intentionally outside the report scope.
+    """
     basis = _sale_item_basis_subquery(db)
+    sale_at = effective_sale_column(Order)
     query = (
         db.query(
             ReturnItem,
@@ -88,9 +100,9 @@ def _refund_allocations(
         .filter(ReturnItem.action == "refund")
     )
     if start_dt is not None:
-        query = query.filter(Return.created_at >= start_dt)
+        query = query.filter(sale_at >= start_dt)
     if end_dt is not None:
-        query = query.filter(Return.created_at <= end_dt)
+        query = query.filter(sale_at <= end_dt)
     if sales_profile_id is not None:
         query = query.filter(Order.sales_profile_id == sales_profile_id)
     if location_ids is not None:
