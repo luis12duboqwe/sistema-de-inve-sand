@@ -133,7 +133,13 @@ def test_analytics_forecast_filters_by_confidence(client, db_session):
 
 def test_sales_report_allocates_refund_once_across_duplicate_product_lines(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
-    product = seed_product(client, location.id, stock_inicial=3, is_serialized=False)
+    product = seed_product(
+        client,
+        location.id,
+        stock_inicial=3,
+        is_serialized=False,
+        categoria="accesorio",
+    )
 
     order_payload = {
         "sales_profile_slug": sales_profile.slug,
