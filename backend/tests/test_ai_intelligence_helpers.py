@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from app.services.ai_intelligence_helpers import (
     build_fallback_recommendations,
@@ -21,18 +21,17 @@ def test_safe_float_and_optional_datetime_normalization():
     assert aware.tzinfo == UTC
     assert isoformat_optional(aware) == aware.isoformat()
 
-    offset_dt = datetime(2026, 8, 23, 6, 30, tzinfo=UTC) + timedelta(hours=6)
-    normalized = ensure_aware_utc(offset_dt)
-    assert normalized is not None
-    assert normalized.tzinfo == UTC
+    honduras_time = datetime(2026, 8, 23, 6, 30, tzinfo=timezone(-timedelta(hours=6)))
+    normalized = ensure_aware_utc(honduras_time)
+    assert normalized == datetime(2026, 8, 23, 12, 30, tzinfo=UTC)
 
 
-def test_parse_ai_business_response_accepts_clean_or_embedded_object_and_rejects_invalid_payloads():
+def test_parse_ai_business_response_preserves_historical_json_semantics():
     assert parse_ai_business_response('{"summary":"ok"}') == {"summary": "ok"}
     assert parse_ai_business_response('texto antes {"summary":"ok"} texto después') == {"summary": "ok"}
+    assert parse_ai_business_response("[1, 2, 3]") == [1, 2, 3]
     assert parse_ai_business_response("") == {}
     assert parse_ai_business_response("no json here") == {}
-    assert parse_ai_business_response("[1, 2, 3]") == {}
 
 
 def test_fallback_recommendations_cover_stock_slow_mover_and_top_seller():
