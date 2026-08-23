@@ -1,4 +1,9 @@
-"""Canonical rejection/cancellation paths for stock transfers."""
+"""Canonical transition paths for stock transfers.
+
+All pending-transfer mutations lock StockTransfer before touching Stock. Keeping the
+same Transfer -> Stock lock order across confirmation, rejection and cancellation
+prevents PostgreSQL deadlocks and stale-state overwrites between competing actions.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +15,11 @@ from sqlalchemy.orm import Session
 from app.auth import check_permission
 from app.database import get_db
 from app.models import ProductIMEI, Stock, StockTransfer, User
-from app.routers.stock_transfers import _serialize_transfer
-from app.schemas import StockTransferReject, StockTransferResponse
+from app.routers.stock_transfers import (
+    _serialize_transfer,
+    confirm_transfer as _legacy_confirm_transfer,
+)
+from app.schemas import StockTransferConfirm, StockTransferReject, StockTransferResponse
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
 from app.utils.order_validators import validate_location_exists, validate_product_exists
@@ -64,6 +72,27 @@ def _release_transfer_reservation(
     if reserved_imeis:
         manager.release_reserved_imeis(reserved_imeis)
     return source_stock
+
+
+@router.post("/{transfer_id}/confirm", response_model=StockTransferResponse)
+def confirm_transfer_integrity(
+    transfer_id: int,
+    confirm_data: StockTransferConfirm,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_permission("inventory:edit")),
+):
+    """Confirm using the mature handler while retaining a Transfer-first row lock."""
+    # Confirmation historically locked Stock first and updated StockTransfer later,
+    # while reject/cancel use Transfer -> Stock. Acquire the transfer lock here and
+    # keep the same transaction open while delegating to the mature reconciliation
+    # implementation so every competing transition now follows one lock order.
+    _load_pending_transfer(db, transfer_id)
+    return _legacy_confirm_transfer(
+        transfer_id=transfer_id,
+        confirm_data=confirm_data,
+        db=db,
+        current_user=current_user,
+    )
 
 
 @router.post("/{transfer_id}/reject", response_model=StockTransferResponse)
