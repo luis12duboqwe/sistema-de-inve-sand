@@ -25,6 +25,10 @@ The goal is to improve maintainability and test confidence while preserving the 
 - Do not change stock, refund, cancellation, transfer, daily-close, or IMEI semantics unless a concrete regression is found and covered by a focused test.
 - Prefer small extraction refactors with preserved public behavior over large rewrites.
 
+## Deliberately deferred debt
+
+The repository still contains canonical/legacy shadow layers around some orders, reports, transfers, and Super Admin routes. They are not being removed wholesale in this pass. Consolidation should happen only after endpoint-contract equivalence and PostgreSQL concurrency behavior are demonstrated with focused tests; deleting these layers now would create more release risk than value.
+
 ## Acceptance
 
 - Frontend lint/tests/build green.
