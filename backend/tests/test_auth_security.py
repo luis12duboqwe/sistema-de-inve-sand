@@ -72,7 +72,7 @@ def test_extract_jwt_subject_rejects_missing_malformed_or_invalid_headers():
 def test_extract_jwt_subject_rejects_wrong_signature_and_empty_subject():
     wrong_signature = jwt.encode(
         {"sub": "someone"},
-        "different-secret",
+        "different-secret-for-jwt-regression-test-32-bytes-plus",
         algorithm=settings.algorithm,
     )
     empty_subject = jwt.encode(
