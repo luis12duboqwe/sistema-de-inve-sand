@@ -131,18 +131,25 @@ def test_daily_close_overlapping_reversed_ids_do_not_deadlock(client, db_session
     def worker(ids: list[int]) -> None:
         session: Session = SessionLocal()
         try:
-            # The regression must never be able to hang CI indefinitely. PostgreSQL
-            # will turn an unexpected lock wait into a prompt test failure.
-            if session.get_bind().dialect.name == "postgresql":
-                session.execute(text("SET LOCAL lock_timeout = '5s'"))
-                session.execute(text("SET LOCAL statement_timeout = '10s'"))
             payload = DailyCloseValidateRequest(
                 validation_code=validation_code,
                 order_ids=ids,
                 location_id=location.id,
                 notas="Prueba de orden de locks",
             )
-            barrier.wait()
+
+            # Synchronize before either worker checks out a DB connection. The test
+            # engine can intentionally use a very small connection pool; taking a
+            # connection before the barrier would make the test deadlock on the pool
+            # rather than exercise the application's Order-row locking behavior.
+            barrier.wait(timeout=5)
+
+            # The regression must never be able to hang CI indefinitely. PostgreSQL
+            # will turn an unexpected row-lock wait into a prompt test failure.
+            if session.get_bind().dialect.name == "postgresql":
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.execute(text("SET LOCAL statement_timeout = '10s'"))
+
             response = validate_daily_close(
                 payload,
                 db=session,
