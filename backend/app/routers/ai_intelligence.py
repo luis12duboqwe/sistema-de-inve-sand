@@ -58,6 +58,13 @@ from app.schemas import (
     TrainingQueueItemResponse,
 )
 from app.services.forecasting_service import generate_sales_forecasts
+from app.services.ai_intelligence_helpers import (
+    build_fallback_recommendations as _build_fallback_recommendations,
+    ensure_aware_utc as _ensure_aware,
+    isoformat_optional as _isoformat,
+    parse_ai_business_response as _parse_ai_business_response,
+    safe_float as _safe_float,
+)
 from app.services.openai_service import get_openai_service
 from app.services.order_service import OrderService
 from app.config_production import prod_settings
@@ -399,99 +406,6 @@ def _compose_ai_messages(
     messages.append({"role": "user", "content": user_message})
     return messages
 
-
-def _safe_float(value: Any) -> float:
-    if value is None:
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _isoformat(dt: Optional[datetime]) -> Optional[str]:
-    if not dt:
-        return None
-    return dt.isoformat()
-
-
-def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
-    if not dt:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
-
-
-def _parse_ai_business_response(raw_text: str) -> Dict[str, Any]:
-    if not raw_text:
-        return {}
-    try:
-        return json.loads(raw_text)
-    except json.JSONDecodeError:
-        start = raw_text.find("{")
-        end = raw_text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(raw_text[start : end + 1])
-            except json.JSONDecodeError:
-                return {}
-    return {}
-
-
-def _build_fallback_recommendations(metrics: Dict[str, Any]) -> List[BusinessInsightRecommendation]:
-    recommendations: List[BusinessInsightRecommendation] = []
-    stock_alerts: List[Dict[str, Any]] = metrics.get("stock_alerts") or []
-    slow_movers: List[Dict[str, Any]] = metrics.get("slow_movers") or []
-    top_sellers: List[Dict[str, Any]] = metrics.get("top_sellers") or []
-
-    if stock_alerts:
-        alert = stock_alerts[0]
-        recommendations.append(
-            BusinessInsightRecommendation(
-                title="Reponer stock crítico",
-                action=f"Reordena {alert.get('product_name')} para cubrir al menos 2 semanas de demanda.",
-                impact=f"Stock restante: {alert.get('stock_available')} uds | Proyección {round(_safe_float(alert.get('days_until_stockout')), 1)} días",
-                category="inventario",
-                priority="alta",
-            )
-        )
-
-    if slow_movers:
-        slow = slow_movers[0]
-        recommendations.append(
-            BusinessInsightRecommendation(
-                title="Liquidar inventario lento",
-                action=f"Aplica bundle o descuento táctico para {slow.get('product_name')} y libera capital inmovilizado.",
-                impact=f"{slow.get('stock_available')} uds sin rotación hace {slow.get('days_without_sales')} días",
-                category="ventas",
-                priority="media",
-            )
-        )
-
-    if top_sellers:
-        top = top_sellers[0]
-        recommendations.append(
-            BusinessInsightRecommendation(
-                title="Potenciar producto estrella",
-                action=f"Garantiza stock y campañas de upsell para {top.get('product_name')}.",
-                impact=f"Ingresos últimos {round(_safe_float(top.get('revenue')), 2)} | Margen {round(_safe_float(top.get('gross_profit')), 2)}",
-                category="crecimiento",
-                priority="media",
-            )
-        )
-
-    if not recommendations:
-        recommendations.append(
-            BusinessInsightRecommendation(
-                title="Revisar estrategia",
-                action="Sin datos suficientes: valida captura de ventas e inventario antes de generar insights.",
-                category="operaciones",
-                priority="media",
-            )
-        )
-
-    return recommendations[:5]
 
 
 openai_service = get_openai_service()
