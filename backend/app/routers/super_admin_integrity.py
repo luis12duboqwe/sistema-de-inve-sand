@@ -166,7 +166,15 @@ def revert_audit_change_integrity(
 
     if audit.action == "super_admin.stock.adjust":
         before = _loads_json_object(audit.before_data)
-        stock = db.query(Stock).filter(Stock.id == audit.entity_id).first()
+        # Sales/transfers also serialize inventory through the Stock row. Lock the
+        # row before counting IMEIs and keep it for the delegated revert so the
+        # validated serialized state cannot change between validation and write.
+        stock = (
+            db.query(Stock)
+            .filter(Stock.id == audit.entity_id)
+            .with_for_update()
+            .first()
+        )
         if before is None or stock is None:
             raise HTTPException(status_code=400, detail="La corrección previa no puede revertirse de forma segura")
         product = db.query(Product).filter(Product.id == stock.product_id).first()
