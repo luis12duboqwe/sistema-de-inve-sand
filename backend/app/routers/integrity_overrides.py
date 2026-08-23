@@ -53,6 +53,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (reports_integrity.router, "/api/reports/sales", "GET"),
     (reports_integrity.router, "/api/reports/top-products-by-location/{location_id}", "GET"),
     (multistore_control.router, "/api/multistore-control/location-daily-closes", "POST"),
+    (stock_transfers.router, "/api/stock-transfers/{transfer_id}/confirm", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}/reject", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}", "DELETE"),
     (channel_integrations.router, "/api/channels/health", "GET"),
