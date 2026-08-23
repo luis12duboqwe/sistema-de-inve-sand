@@ -81,9 +81,10 @@ def test_payment_breakdown_rejects_exact_one_cent_difference(client, db_session)
 
 def test_daily_close_overlapping_reversed_ids_do_not_deadlock(client, db_session) -> None:
     location, sales_profile = seed_location_and_sales_profile(db_session)
+    location_id = int(location.id)
     product = seed_product(
         client,
-        location.id,
+        location_id,
         stock_inicial=2,
         is_serialized=False,
         categoria="accesorio",
@@ -131,17 +132,18 @@ def test_daily_close_overlapping_reversed_ids_do_not_deadlock(client, db_session
     def worker(ids: list[int]) -> None:
         session: Session = SessionLocal()
         try:
+            # Use only primitive values inside worker threads. SQLAlchemy expires ORM
+            # instances on commit; dereferencing a shared fixture object here would
+            # refresh it through the parent Session concurrently and test the fixture
+            # rather than the application's row-lock ordering.
             payload = DailyCloseValidateRequest(
                 validation_code=validation_code,
                 order_ids=ids,
-                location_id=location.id,
+                location_id=location_id,
                 notas="Prueba de orden de locks",
             )
 
-            # Synchronize before either worker checks out a DB connection. The test
-            # engine can intentionally use a very small connection pool; taking a
-            # connection before the barrier would make the test deadlock on the pool
-            # rather than exercise the application's Order-row locking behavior.
+            # Synchronize before either worker checks out a DB connection.
             barrier.wait(timeout=5)
 
             # The regression must never be able to hang CI indefinitely. PostgreSQL
