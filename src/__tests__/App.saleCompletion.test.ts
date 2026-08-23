@@ -1,9 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const appPath = fileURLToPath(new URL('../App.tsx', import.meta.url))
-const appSource = readFileSync(appPath, 'utf8')
+const appSource = readFileSync(join(process.cwd(), 'src', 'App.tsx'), 'utf8')
 
 describe('sale completion state-machine separation', () => {
   it('never requests the daily-close validation code while completing an order', () => {
