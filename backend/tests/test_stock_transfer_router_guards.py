@@ -2,13 +2,12 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import Location, Product, Stock, StockTransfer, User
-from app.routers.stock_transfers import (
-    cancel_transfer,
-    confirm_transfer,
-    get_transfer,
-    list_transfers,
-    reject_transfer,
+from app.routers.stock_transfer_integrity import (
+    cancel_transfer_integrity,
+    confirm_transfer_integrity,
+    reject_transfer_integrity,
 )
+from app.routers.stock_transfers import get_transfer, list_transfers
 from app.schemas import StockTransferConfirm, StockTransferReject
 
 
@@ -79,7 +78,7 @@ def test_list_transfers_rejects_unknown_state(db_session):
     assert "Estado de transferencia inválido" in exc_info.value.detail
 
 
-def test_transfer_lookup_and_state_actions_return_404_for_missing_transfer(db_session):
+def test_transfer_lookup_and_canonical_state_actions_return_404_for_missing_transfer(db_session):
     actor = _superuser()
 
     with pytest.raises(HTTPException) as get_exc:
@@ -87,11 +86,11 @@ def test_transfer_lookup_and_state_actions_return_404_for_missing_transfer(db_se
     assert get_exc.value.status_code == 404
 
     with pytest.raises(HTTPException) as confirm_exc:
-        confirm_transfer(999999, StockTransferConfirm(), db=db_session, current_user=actor)
+        confirm_transfer_integrity(999999, StockTransferConfirm(), db=db_session, current_user=actor)
     assert confirm_exc.value.status_code == 404
 
     with pytest.raises(HTTPException) as reject_exc:
-        reject_transfer(
+        reject_transfer_integrity(
             999999,
             StockTransferReject(rejection_reason="Transferencia inexistente"),
             db=db_session,
@@ -100,29 +99,34 @@ def test_transfer_lookup_and_state_actions_return_404_for_missing_transfer(db_se
     assert reject_exc.value.status_code == 404
 
     with pytest.raises(HTTPException) as cancel_exc:
-        cancel_transfer(999999, db=db_session, current_user=actor)
+        cancel_transfer_integrity(999999, db=db_session, current_user=actor)
     assert cancel_exc.value.status_code == 404
 
 
-def test_confirm_transfer_rejects_non_pending_state(db_session):
+def test_canonical_confirm_rejects_non_pending_state(db_session):
     _, _, _, _, transfer = _seed_pending_transfer(db_session)
     transfer.estado = "confirmada"
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        confirm_transfer(transfer.id, StockTransferConfirm(), db=db_session, current_user=_superuser())
+        confirm_transfer_integrity(
+            transfer.id,
+            StockTransferConfirm(),
+            db=db_session,
+            current_user=_superuser(),
+        )
 
     assert exc_info.value.status_code == 400
-    assert "Solo se pueden confirmar transferencias pendientes" in exc_info.value.detail
+    assert "Solo se puede operar una transferencia pendiente" in exc_info.value.detail
 
 
-def test_reject_transfer_rejects_non_pending_state(db_session):
+def test_canonical_reject_refuses_non_pending_state(db_session):
     _, _, _, _, transfer = _seed_pending_transfer(db_session)
     transfer.estado = "cancelada"
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        reject_transfer(
+        reject_transfer_integrity(
             transfer.id,
             StockTransferReject(rejection_reason="Ya no aplica"),
             db=db_session,
@@ -130,14 +134,26 @@ def test_reject_transfer_rejects_non_pending_state(db_session):
         )
 
     assert exc_info.value.status_code == 400
-    assert "Solo se pueden rechazar transferencias pendientes" in exc_info.value.detail
+    assert "Solo se puede operar una transferencia pendiente" in exc_info.value.detail
 
 
-def test_confirm_transfer_rejects_received_quantity_above_transfer(db_session):
+def test_canonical_cancel_refuses_non_pending_state(db_session):
+    _, _, _, _, transfer = _seed_pending_transfer(db_session)
+    transfer.estado = "rechazada"
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        cancel_transfer_integrity(transfer.id, db=db_session, current_user=_superuser())
+
+    assert exc_info.value.status_code == 400
+    assert "Solo se puede operar una transferencia pendiente" in exc_info.value.detail
+
+
+def test_canonical_confirm_rejects_received_quantity_above_transfer(db_session):
     _, _, _, _, transfer = _seed_pending_transfer(db_session, quantity=5, reserved=5)
 
     with pytest.raises(HTTPException) as exc_info:
-        confirm_transfer(
+        confirm_transfer_integrity(
             transfer.id,
             StockTransferConfirm(received_quantity=6, incident_notes="Conteo de recepción"),
             db=db_session,
@@ -148,11 +164,11 @@ def test_confirm_transfer_rejects_received_quantity_above_transfer(db_session):
     assert "cantidad recibida debe estar entre 0 y la cantidad transferida" in exc_info.value.detail
 
 
-def test_partial_reception_requires_incident_notes(db_session):
+def test_canonical_partial_reception_requires_incident_notes(db_session):
     _, _, _, _, transfer = _seed_pending_transfer(db_session, quantity=5, reserved=5)
 
     with pytest.raises(HTTPException) as exc_info:
-        confirm_transfer(
+        confirm_transfer_integrity(
             transfer.id,
             StockTransferConfirm(received_quantity=4),
             db=db_session,
@@ -163,11 +179,11 @@ def test_partial_reception_requires_incident_notes(db_session):
     assert "notas de incidencia" in exc_info.value.detail
 
 
-def test_confirm_transfer_fails_closed_when_reserved_stock_is_incomplete(db_session):
+def test_canonical_confirm_fails_closed_when_reserved_stock_is_incomplete(db_session):
     _, _, _, _, transfer = _seed_pending_transfer(db_session, quantity=5, reserved=4)
 
     with pytest.raises(HTTPException) as exc_info:
-        confirm_transfer(
+        confirm_transfer_integrity(
             transfer.id,
             StockTransferConfirm(received_quantity=5),
             db=db_session,
