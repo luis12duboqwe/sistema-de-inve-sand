@@ -12,14 +12,15 @@ describe('sale completion state-machine separation', () => {
     expect(appSource).not.toContain('Ingrese el código configurado para completar y validar esta venta.')
   })
 
-  it('keeps both single and bulk completion on the ordinary status endpoint', () => {
-    const directStatusUpdates = appSource.match(/updateOrderStatus\(orderId, newStatus\)/g) ?? []
-    expect(directStatusUpdates.length).toBeGreaterThanOrEqual(2)
+  it('routes both single and bulk status transitions through the credential-free helper', () => {
+    const safeStatusUpdates = appSource.match(/updateOrderStatusWithoutDailyClose\(service, orderId, newStatus\)/g) ?? []
+    expect(safeStatusUpdates).toHaveLength(2)
+    expect(appSource).not.toMatch(/service\.updateOrderStatus\(orderId, newStatus,/) 
   })
 
   it('keeps daily-close validation as an explicit separate action', () => {
     expect(appSource).toContain('<DailyCloseDialog')
     expect(appSource).toContain('onValidated={() =>')
-    expect(appSource).toContain("title=\"Cierre de Día — Validar Ventas\"")
+    expect(appSource).toContain('setShowDailyCloseDialog(true)')
   })
 })
