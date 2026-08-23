@@ -207,11 +207,11 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <CheckCircle size={22} className="text-emerald-500" weight="fill" />
-            Cierre de Día — Validar Ventas
+            Cierre de Día — Validación de Ventas
           </DialogTitle>
           <DialogDescription>
-            Revise las ventas completadas del día, ingrese el código de validación y confirme.
-            Solo las ventas validadas quedan registradas como definitivas en el historial.
+            Completar una venta registra la operación. Este cierre es un control separado: revise las ventas
+            completadas del día, ingrese el código de validación y confirme el cierre.
           </DialogDescription>
         </DialogHeader>
 

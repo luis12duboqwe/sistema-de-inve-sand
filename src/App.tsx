@@ -61,7 +61,6 @@ import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
 import { DailyCloseDialog } from '@/components/DailyCloseDialog'
 import { MultiStoreControlDialog } from '@/components/MultiStoreControlDialog'
-import { ValidationCodeDialog } from '@/components/ValidationCodeDialog'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useInitializeData } from '@/hooks/use-initialize-data'
 import { useHealthCheck } from '@/hooks/use-health-check'
@@ -72,6 +71,8 @@ import { exportProductsToCSV, exportOrdersToCSV } from '@/lib/exportUtils'
 import { generateOrderPDF } from '@/lib/pdfExport'
 import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUtils'
 import { inventoryServiceFactory, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
+import { updateOrderStatusWithoutDailyClose } from '@/lib/orderStatusActions'
+import { buildMultiStoreViewModel, hasAppPermission } from '@/lib/appViewModel'
 import { motion } from 'framer-motion'
 import PublicCatalog from '@/components/PublicCatalog'
 
@@ -145,11 +146,6 @@ function MainApp() {
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set())
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [bulkActionMode, setBulkActionMode] = useState(false)
-  const [validationCodeRequest, setValidationCodeRequest] = useState<{
-    title: string
-    description: string
-    resolve: (code: string | null) => void
-  } | null>(null)
   
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null)
@@ -312,11 +308,7 @@ function MainApp() {
     false
   )
 
-  const hasPermission = (slug: string): boolean => {
-    if (!useAPI) return true
-    if (currentUser?.is_superuser) return true
-    return currentUser?.role?.permissions?.some(permission => permission.slug === slug) ?? false
-  }
+  const hasPermission = (slug: string): boolean => hasAppPermission(Boolean(useAPI), currentUser, slug)
 
   const canViewSettings = hasPermission('settings:view')
   const canEditSettings = hasPermission('settings:edit')
@@ -343,46 +335,17 @@ function MainApp() {
   const canValidateDailyClose = !useAPI || canEditOrders
   const canAccessAIOps = hasPermission('ai:manage')
   const canAccessMultiStoreControl = isSuperUser || canViewInventory || canCountInventory || canAdjustInventory || canManagePurchases || canManageCashCloses || canManageLocationAccess || canViewAudit || canViewReports
-  const activeLocations = useMemo(() => (locations ?? []).filter(location => location.activo), [locations])
-  const productsWithLocationTracking = useMemo(
-    () => (products ?? []).filter(product => (product.stock_items?.length ?? 0) > 0),
-    [products]
+  const {
+    activeLocations,
+    productsWithLocationTracking,
+    totalTrackedUnits,
+    outOfStockProducts,
+    locatedOrders,
+    locationSnapshots,
+  } = useMemo(
+    () => buildMultiStoreViewModel(locations ?? [], products ?? [], orders ?? []),
+    [locations, products, orders]
   )
-  const totalTrackedUnits = useMemo(
-    () => (products ?? []).reduce((total, product) => total + Number(product.stock_disponible || 0), 0),
-    [products]
-  )
-  const outOfStockProducts = useMemo(
-    () => (products ?? []).filter(product => Number(product.stock_disponible || 0) <= 0).length,
-    [products]
-  )
-  const locatedOrders = useMemo(
-    () => (orders ?? []).filter(order => order.source_location_id).length,
-    [orders]
-  )
-  const locationSnapshots = useMemo(() => {
-    return activeLocations
-      .map(location => {
-        const productsAtLocation = (products ?? []).filter(product =>
-          product.stock_items?.some(stockItem => stockItem.location_id === location.id && Number(stockItem.cantidad_disponible || 0) > 0)
-        )
-
-        const unitsAtLocation = (products ?? []).reduce((total, product) => {
-          const stockItem = product.stock_items?.find(item => item.location_id === location.id)
-          return total + Number(stockItem?.cantidad_disponible || 0)
-        }, 0)
-
-        return {
-          id: location.id,
-          nombre: location.nombre,
-          tipo: location.tipo,
-          productsAtLocation: productsAtLocation.length,
-          unitsAtLocation,
-        }
-      })
-      .sort((a, b) => b.unitsAtLocation - a.unitsAtLocation)
-      .slice(0, 4)
-  }, [activeLocations, products])
 
   const openMultiStoreSection = (tab: string) => {
     setMultiStoreInitialTab(tab)
@@ -511,37 +474,13 @@ function MainApp() {
     }
   }
 
-  const getCompletionValidationCode = async (newStatus: OrderWithItems['estado']): Promise<string | undefined | null> => {
-    if (!useAPI || newStatus !== 'completada') return undefined
-
-    try {
-      const config = await apiClient.getDailyCloseConfig()
-      if (!config.configured) return undefined
-    } catch (error) {
-      console.error('Error checking daily close validation config:', error)
-      toast.error('No se pudo verificar el código de validación')
-      return null
-    }
-
-    return new Promise(resolve => {
-      setValidationCodeRequest({
-        title: 'Validar venta',
-        description: 'Ingrese el código configurado para completar y validar esta venta.',
-        resolve,
-      })
-    })
-  }
-
   const handleBulkUpdateOrderStatus = async (newStatus: OrderWithItems['estado']) => {
     if (selectedOrders.size === 0) return
     
     try {
-      const validationCode = await getCompletionValidationCode(newStatus)
-      if (validationCode === null) return
-
       if (useAPI) {
         for (const orderId of selectedOrders) {
-          await service.updateOrderStatus(orderId, newStatus, validationCode)
+          await updateOrderStatusWithoutDailyClose(service, orderId, newStatus)
         }
         const refreshed = await inventoryServiceInstance.getOrders()
         setOrders(refreshed)
@@ -2079,10 +2018,7 @@ function MainApp() {
                     <OrderCard
                       order={order}
                       onStatusChange={canEditOrders ? async (orderId, newStatus) => {
-                        const validationCode = await getCompletionValidationCode(newStatus)
-                        if (validationCode === null) return
-
-                        const updated = await service.updateOrderStatus(orderId, newStatus, validationCode)
+                        const updated = await updateOrderStatusWithoutDailyClose(service, orderId, newStatus)
                         setOrders((current: OrderWithItems[]) => (current ?? []).map(o => o.id === updated.id ? updated : o))
                         toast.success('Estado de orden actualizado')
                         
@@ -2660,23 +2596,6 @@ function MainApp() {
           setProducts(updatedProducts)
         }}
       />
-
-      {validationCodeRequest && (
-        <ValidationCodeDialog
-          open={Boolean(validationCodeRequest)}
-          title={validationCodeRequest.title}
-          description={validationCodeRequest.description}
-          confirmLabel="Validar"
-          onCancel={() => {
-            validationCodeRequest.resolve(null)
-            setValidationCodeRequest(null)
-          }}
-          onConfirm={code => {
-            validationCodeRequest.resolve(code)
-            setValidationCodeRequest(null)
-          }}
-        />
-      )}
 
       <KeyboardShortcutsDialog
         open={showKeyboardDialog}
