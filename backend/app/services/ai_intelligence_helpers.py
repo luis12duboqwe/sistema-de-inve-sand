@@ -28,19 +28,18 @@ def ensure_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(UTC)
 
 
-def parse_ai_business_response(raw_text: str) -> Dict[str, Any]:
+def parse_ai_business_response(raw_text: str) -> Any:
+    """Preserve the router's historical JSON parsing semantics exactly."""
     if not raw_text:
         return {}
     try:
-        parsed = json.loads(raw_text)
-        return parsed if isinstance(parsed, dict) else {}
+        return json.loads(raw_text)
     except json.JSONDecodeError:
         start = raw_text.find("{")
         end = raw_text.rfind("}")
         if start != -1 and end != -1 and end > start:
             try:
-                parsed = json.loads(raw_text[start : end + 1])
-                return parsed if isinstance(parsed, dict) else {}
+                return json.loads(raw_text[start : end + 1])
             except json.JSONDecodeError:
                 return {}
     return {}
