@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from .helpers import seed_location_and_sales_profile, seed_product
 
 
@@ -129,3 +131,157 @@ def test_analytics_forecast_filters_by_confidence(client, db_session):
     low_conf = client.post("/api/analytics/forecast", json=low_conf_payload).json()
 
     assert len(high_conf["forecasts"]) <= len(low_conf["forecasts"])
+
+
+def test_sales_report_allocates_refund_once_across_duplicate_product_lines(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(
+        client,
+        location.id,
+        stock_inicial=3,
+        is_serialized=False,
+        categoria="accesorio",
+    )
+
+    order_payload = {
+        "sales_profile_slug": sales_profile.slug,
+        "source_location_id": location.id,
+        "canal": "tienda",
+        "customer_name": "Cliente Duplicado",
+        "customer_phone": "71111111",
+        "metodo_pago": "efectivo",
+        "items": [
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "precio_unitario": 100,
+            },
+            {
+                "product_id": product["id"],
+                "cantidad": 1,
+                "precio_unitario": 300,
+            },
+        ],
+    }
+    created = client.post("/api/orders", json=order_payload)
+    assert created.status_code == 201, created.text
+    order = created.json()
+
+    completed = client.put(
+        f"/api/orders/{order['id']}/status",
+        json={"estado": "completada"},
+    )
+    assert completed.status_code == 200, completed.text
+
+    returned = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "reason": "Devolución parcial",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                }
+            ],
+        },
+    )
+    assert returned.status_code == 201, returned.text
+
+    report_response = client.get("/api/reports/sales")
+    assert report_response.status_code == 200, report_response.text
+    report = report_response.json()
+
+    # Base histórica: 1x100 + 1x300 = 400. Una unidad devuelta se asigna
+    # al promedio ponderado de 200; nunca se multiplica por las dos líneas.
+    assert Decimal(str(report["total_revenue"])) == Decimal("200.00")
+    top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
+    assert top["units_sold"] == 1
+    assert Decimal(str(top["total_revenue"])) == Decimal("200.00")
+
+    # La segunda unidad también debe poder devolverse: el límite es la cantidad
+    # total vendida del producto en la orden, no la cantidad de una sola línea.
+    second_return = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "reason": "Devolución restante",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 1,
+                    "condition": "nuevo",
+                    "action": "refund",
+                }
+            ],
+        },
+    )
+    assert second_return.status_code == 201, second_return.text
+
+    final_report_response = client.get("/api/reports/sales")
+    assert final_report_response.status_code == 200, final_report_response.text
+    final_report = final_report_response.json()
+    assert Decimal(str(final_report["total_revenue"])) == Decimal("0.00")
+    final_top = next(item for item in final_report["top_products"] if item["product_id"] == product["id"])
+    assert final_top["units_sold"] == 0
+    assert Decimal(str(final_top["total_revenue"])) == Decimal("0.00")
+
+
+def test_serialized_return_requires_one_item_per_imei(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    imeis = ["444444444444444", "555555555555555"]
+    product = seed_product(
+        client,
+        location.id,
+        stock_inicial=2,
+        imei_values=imeis,
+    )
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "sales_profile_slug": sales_profile.slug,
+            "source_location_id": location.id,
+            "canal": "tienda",
+            "customer_name": "Cliente Serializado",
+            "customer_phone": "72222222",
+            "metodo_pago": "efectivo",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "cantidad": 2,
+                    "imeis": imeis,
+                    "precio_unitario": 1000,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order = created.json()
+
+    completed = client.put(
+        f"/api/orders/{order['id']}/status",
+        json={"estado": "completada"},
+    )
+    assert completed.status_code == 200, completed.text
+
+    invalid_return = client.post(
+        "/api/returns",
+        json={
+            "order_id": order["id"],
+            "reason": "Intento de devolución serializada agrupada",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "quantity": 2,
+                    "condition": "nuevo",
+                    "action": "refund",
+                    "imei": imeis[0],
+                }
+            ],
+        },
+    )
+    assert invalid_return.status_code == 400, invalid_return.text
+    assert "una unidad por ítem" in invalid_return.json()["detail"]
