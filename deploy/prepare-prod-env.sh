@@ -20,9 +20,13 @@ PY
 }
 
 generate_fernet_key() {
+  # Fernet keys are URL-safe base64 encodings of exactly 32 random bytes. Use
+  # only Python's standard library so a clean Docker host does not need the
+  # backend's `cryptography` package installed just to prepare its environment.
   python3 - <<'PY'
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
+import base64
+import secrets
+print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
 PY
 }
 
