@@ -234,3 +234,24 @@ def test_super_admin_can_be_demoted_when_another_active_super_admin_remains(db_s
     db_session.refresh(backup)
     assert backup.is_active is True
     assert backup.is_superuser is True
+
+
+def test_generic_admin_update_can_deactivate_super_admin_only_when_backup_remains(db_session):
+    super_admin_role, _ = _roles(db_session)
+    actor = _user("generic-deactivate-actor", is_superuser=True, role_id=super_admin_role.id)
+    target = _user("generic-deactivate-target", is_superuser=True, role_id=super_admin_role.id)
+    db_session.add_all([actor, target])
+    db_session.commit()
+
+    updated = update_user_admin_integrity(
+        target.id,
+        UserUpdate(is_active=False),
+        current_user=actor,
+        db=db_session,
+    )
+
+    assert updated.is_active is False
+    assert updated.is_superuser is True
+    db_session.refresh(actor)
+    assert actor.is_active is True
+    assert actor.is_superuser is True
