@@ -6,7 +6,7 @@ Sistema de inventario y ventas para operación multi-tienda, con frontend React/
 
 **Estado actual: candidato a producción.**
 
-La base funcional y el endurecimiento principal fueron integrados hasta el PR #36. La fase final consolida la política API-only de producción, migraciones versionadas, recuperación off-site, documentación y gates de release.
+La base funcional y el endurecimiento técnico principal ya están integrados en `main`: política API-only, integridad de ventas e inventario, permisos por ubicación, migraciones versionadas, recuperación off-site preparada y gates automáticos de seguridad/CI. La fase pendiente antes del release es principalmente operativa y requiere infraestructura, secretos y verificaciones reales de producción.
 
 No debe considerarse un release productivo hasta que:
 
