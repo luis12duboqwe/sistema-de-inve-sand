@@ -37,6 +37,13 @@ for key in POSTGRES_PASSWORD SECRET_KEY SETUP_TOKEN DESTRUCTIVE_OPERATION_TOKEN 
   esac
 done
 
+# Simula una instalación existente con contraseña manual y URL codificada. Una
+# segunda preparación no debe reconstruir ni dañar el DATABASE_URL operativo.
+MANUAL_DB_PASSWORD='manual@password/with:special'
+CUSTOM_DATABASE_URL='postgresql+psycopg2://inventory_admin:manual%40password%2Fwith%3Aspecial@db:5432/inventory'
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${MANUAL_DB_PASSWORD}|" "$ENV_FILE"
+sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${CUSTOM_DATABASE_URL}|" "$ENV_FILE"
+
 POSTGRES_PASSWORD_BEFORE="$(env_value POSTGRES_PASSWORD)"
 DATABASE_URL_BEFORE="$(env_value DATABASE_URL)"
 SECRET_KEY_BEFORE="$(env_value SECRET_KEY)"
@@ -47,11 +54,13 @@ GRAFANA_PASSWORD_BEFORE="$(env_value GRAFANA_ADMIN_PASSWORD)"
 ALLOWED_HOSTS_BEFORE="$(env_value ALLOWED_HOSTS)"
 CORS_BEFORE="$(env_value CORS_ORIGINS)"
 
-# Una segunda ejecución sin overrides debe ser idempotente: no rota secretos ni dominio.
+# Una segunda ejecución sin overrides debe ser idempotente: no rota secretos,
+# dominio ni una URL de base de datos personalizada.
 bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 
 [ "$(env_value POSTGRES_PASSWORD)" = "$POSTGRES_PASSWORD_BEFORE" ]
 [ "$(env_value DATABASE_URL)" = "$DATABASE_URL_BEFORE" ]
+[ "$(env_value DATABASE_URL)" = "$CUSTOM_DATABASE_URL" ]
 [ "$(env_value SECRET_KEY)" = "$SECRET_KEY_BEFORE" ]
 [ "$(env_value CHANNEL_ENCRYPTION_KEY)" = "$CHANNEL_KEY_BEFORE" ]
 [ "$(env_value SETUP_TOKEN)" = "$SETUP_TOKEN_BEFORE" ]
@@ -68,6 +77,7 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 
 [ "$(env_value GRAFANA_ADMIN_PASSWORD)" = "$ROTATED_GRAFANA" ]
 [ "$(env_value POSTGRES_PASSWORD)" = "$POSTGRES_PASSWORD_BEFORE" ]
+[ "$(env_value DATABASE_URL)" = "$CUSTOM_DATABASE_URL" ]
 [ "$(env_value SECRET_KEY)" = "$SECRET_KEY_BEFORE" ]
 [ "$(env_value CHANNEL_ENCRYPTION_KEY)" = "$CHANNEL_KEY_BEFORE" ]
 [ "$(env_value SETUP_TOKEN)" = "$SETUP_TOKEN_BEFORE" ]
