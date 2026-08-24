@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException
@@ -11,6 +11,44 @@ from app.models import Bank, FinancingOption
 
 
 FINANCING_METHODS = {"tarjeta", "financiamiento"}
+
+
+def _parse_positive_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=f"{field_name} no es válido")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} no es válido")
+    if not parsed.is_finite() or parsed <= 0 or parsed != parsed.to_integral_value():
+        raise HTTPException(status_code=400, detail=f"{field_name} no es válido")
+    return int(parsed)
+
+
+def _parse_financing_months(value: Any) -> int:
+    if value in (None, "", 0, "0"):
+        return 0
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail="El plazo de financiamiento no es válido")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="El plazo de financiamiento no es válido")
+    if not parsed.is_finite() or parsed < 0 or parsed != parsed.to_integral_value():
+        raise HTTPException(status_code=400, detail="El plazo de financiamiento no es válido")
+    return int(parsed)
+
+
+def _parse_down_payment(value: Any, total_after_tradeins: Decimal) -> Decimal:
+    try:
+        down_payment = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="La prima no es válida")
+    if not down_payment.is_finite() or down_payment < 0:
+        raise HTTPException(status_code=400, detail="La prima no puede ser negativa")
+    if down_payment > total_after_tradeins:
+        raise HTTPException(status_code=400, detail="La prima no puede exceder el total a pagar")
+    return down_payment
 
 
 def compute_financing_from_payload(
@@ -33,25 +71,23 @@ def compute_financing_from_payload(
             detail="Datos de financiamiento solo válidos para pago con Tarjeta o Financiamiento"
         )
 
-    bank_id = financing_data.get("bank_id")
-    months = financing_data.get("months")
-    down_payment = Decimal(str(financing_data.get("down_payment", 0)))
-
-    if not bank_id:
+    bank_id_raw = financing_data.get("bank_id")
+    if bank_id_raw in (None, ""):
         raise HTTPException(status_code=400, detail="Falta seleccionar el banco")
+    bank_id = _parse_positive_int(bank_id_raw, "El banco")
+    months = _parse_financing_months(financing_data.get("months"))
+    down_payment = _parse_down_payment(financing_data.get("down_payment", 0), total_after_tradeins)
 
     bank = db.query(Bank).filter(Bank.id == bank_id).first()
     if not bank:
         raise HTTPException(status_code=404, detail="Banco no encontrado")
 
     amount_to_finance = total_after_tradeins - down_payment
-    if amount_to_finance < 0:
-        amount_to_finance = Decimal("0.00")
 
     rate = Decimal("0.00")
     monthly_payment = Decimal("0.00")
 
-    if months and months > 0:
+    if months > 0:
         option = db.query(FinancingOption).filter(
             FinancingOption.bank_id == bank_id,
             FinancingOption.months == months,
@@ -77,7 +113,7 @@ def compute_financing_from_payload(
     financing_details_json = json.dumps({
         "bank_id": bank_id,
         "bank_name": bank.name,
-        "months": months or 0,
+        "months": months,
         "rate": float(rate),
         "surcharge": float(surcharge_amount),
         "monthly_payment": float(monthly_payment),
