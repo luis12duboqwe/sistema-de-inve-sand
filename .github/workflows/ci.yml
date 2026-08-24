@@ -24,6 +24,8 @@ jobs:
         run: find deploy -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
       - name: Test production env bootstrap
         run: bash deploy/test-prepare-prod-env.sh
+      - name: Test VPS installer DB credential preservation
+        run: bash deploy/vps/test-install-vps-db-preservation.sh
       - name: Test off-site backup verifier
         run: bash deploy/test-verify-offsite-backup.sh
       - name: Test off-site healthcheck deadline

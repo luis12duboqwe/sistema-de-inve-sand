@@ -21,10 +21,13 @@ Opciones utiles:
 ```bash
 sudo bash deploy/vps/install-vps.sh --domain invjear.com --skip-ssl
 sudo bash deploy/vps/install-vps.sh --domain invjear.com --with-sample-data
-sudo bash deploy/vps/install-vps.sh --domain invjear.com --force-env
 ```
 
-Si el DNS todavia no apunta al VPS, usa primero `--skip-ssl` y luego ejecuta de nuevo sin `--skip-ssl` cuando el dominio resuelva correctamente.
+Las reejecuciones normales son conservadoras: si ya existe `backend/.env`, el instalador conserva las credenciales PostgreSQL y toda la configuracion existente, y verifica despues que ese entorno pueda conectarse. No ejecuta `ALTER ROLE` ni genera otra contraseña de base de datos.
+
+`--force-env` se conserva solamente por compatibilidad con el bootstrap inicial. Si `backend/.env` ya existe, el instalador lo rechaza antes de modificar PostgreSQL o el entorno, porque reescribir ese archivo tambien descartaria `SECRET_KEY`, `CHANNEL_ENCRYPTION_KEY` y configuraciones de integraciones. Las rotaciones de secretos o credenciales de una instalacion existente deben hacerse mediante un procedimiento dedicado que preserve/migre esos valores.
+
+Si el DNS todavia no apunta al VPS, usa primero `--skip-ssl` y luego ejecuta de nuevo sin `--skip-ssl` cuando el dominio resuelva correctamente. Esa segunda ejecucion conserva el `backend/.env` y la contraseña PostgreSQL existentes.
 
 ## Instalacion manual
 
