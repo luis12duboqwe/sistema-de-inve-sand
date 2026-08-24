@@ -150,6 +150,26 @@ def test_create_bank_stores_trimmed_name_and_unique_key(db_session):
     assert stored.name_normalized == "banco nuevo"
 
 
+def test_create_bank_allows_casefold_key_to_expand_beyond_255(db_session):
+    # U+0130 casefolds to two code points ("i" + combining dot), so this
+    # display name is valid under the 255-char schema cap while its key is 256.
+    display_name = "İ" * 128
+    normalized_key = display_name.casefold()
+    assert len(display_name) == 128
+    assert len(normalized_key) == 256
+
+    response = create_bank(
+        BankCreate(name=display_name, active=True, normal_card_rate=0),
+        db=db_session,
+        current_user=_actor(),
+    )
+
+    stored = db_session.get(Bank, response.id)
+    assert stored is not None
+    assert stored.name == display_name
+    assert stored.name_normalized == normalized_key
+
+
 def test_update_bank_still_persists_valid_changes(db_session):
     bank = _bank("Banco Inicial")
     db_session.add(bank)
