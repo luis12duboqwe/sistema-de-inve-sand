@@ -44,9 +44,8 @@ def _claim_message(
 
     now = datetime.now(UTC)
     try:
-        # Only ordinary dedupe/processing rows expire automatically. A pending or
-        # ambiguous delivery must stay durable so a late provider retry cannot
-        # accidentally rerun AI/business side effects.
+        # Pending/ambiguous rows are intentionally durable. Expiring them could
+        # replay AI/business side effects when a provider sends a late retry.
         db.query(ProcessedMessage).filter(
             ProcessedMessage.expires_at <= now,
             or_(
@@ -79,9 +78,8 @@ def _claim_message(
 
             state = str(existing.delivery_status or "").strip().lower()
             if state == "pending_delivery" and existing.reply_text:
-                # Only a confirmed send failure is automatically retryable. A
-                # stale `delivering` row is intentionally not replayed because the
-                # external send may have succeeded just before a local crash.
+                # Only a confirmed send failure is auto-retryable. An ambiguous
+                # `delivering` row might already have been accepted by Meta.
                 existing.delivery_status = "delivering"
                 existing.processed_at = now
                 existing.expires_at = now + timedelta(seconds=_PENDING_DELIVERY_TTL_SECONDS)
@@ -112,6 +110,9 @@ def _release_processing_claim(
         return
 
     if claim_state == "database":
+        # A failed SQLAlchemy flush/commit leaves the Session unusable until a
+        # rollback. Roll back first so the claim deletion itself can succeed.
+        db.rollback()
         try:
             db.query(ProcessedMessage).filter(
                 ProcessedMessage.message_id == message_id,
@@ -139,8 +140,8 @@ def _retain_claim_for_manual_recovery(
     if claim_state != "database" or not message_id:
         return
 
+    db.rollback()
     try:
-        db.rollback()
         claim = (
             db.query(ProcessedMessage)
             .filter(ProcessedMessage.message_id == message_id)
@@ -148,11 +149,10 @@ def _retain_claim_for_manual_recovery(
             .first()
         )
         if claim:
+            now = datetime.now(UTC)
             claim.delivery_status = "manual_recovery"
-            claim.processed_at = datetime.now(UTC)
-            # Kept from automatic expiry by _claim_message; this timestamp remains
-            # useful to monitoring/cleanup tooling as the recovery deadline marker.
-            claim.expires_at = datetime.now(UTC) + timedelta(seconds=_PENDING_DELIVERY_TTL_SECONDS)
+            claim.processed_at = now
+            claim.expires_at = now + timedelta(seconds=_PENDING_DELIVERY_TTL_SECONDS)
             db.commit()
             return
         db.rollback()
@@ -169,11 +169,7 @@ def _store_reply_for_delivery(
     sales_profile_slug: str,
     reply_text: str,
 ) -> None:
-    """Persist the generated reply before contacting Meta.
-
-    Once this commit succeeds, provider retries can resend the cached reply without
-    invoking AI/customer-memory side effects a second time.
-    """
+    """Persist the generated reply before contacting Meta."""
     if claim_state != "database" or not message_id:
         return
 
@@ -207,6 +203,9 @@ def _mark_delivery_failed(
         return
 
     if claim_state in {"database", "retry_delivery"}:
+        # Context resolution can itself fail through SQLAlchemy. Recover the
+        # Session before querying the durable cached reply.
+        db.rollback()
         try:
             claim = (
                 db.query(ProcessedMessage)
@@ -227,8 +226,8 @@ def _mark_delivery_failed(
             logger.exception("Could not mark webhook reply pending for retry %s", message_id)
         return
 
-    # With no persistent cache we cannot prove that rerunning AI is side-effect
-    # safe. Keep the in-memory dedupe marker instead of deliberately replaying it.
+    # With no persistent cache we cannot prove that replaying AI is safe. Keep
+    # the in-memory marker instead of deliberately duplicating internal effects.
     if claim_state == "memory":
         logger.error(
             "Webhook reply delivery failed while persistent dedupe was unavailable; "
@@ -246,6 +245,7 @@ def _mark_delivered(
     if claim_state not in {"database", "retry_delivery"} or not message_id:
         return
 
+    db.rollback()
     try:
         claim = (
             db.query(ProcessedMessage)
@@ -264,8 +264,8 @@ def _mark_delivered(
         db.rollback()
     except Exception:
         db.rollback()
-        # Meta already accepted the message. The row remains `delivering`, which
-        # is deliberately non-retryable automatically to prevent duplicate sends.
+        # Meta may already have accepted the message. Leave `delivering` as an
+        # ambiguous, non-auto-retryable state rather than risk a duplicate reply.
         logger.exception("Could not mark webhook reply delivered %s", message_id)
 
 
@@ -308,7 +308,6 @@ def _cached_delivery_context(
     profile = None
     if claim.sales_profile_id:
         profile = db.query(SalesProfile).filter(SalesProfile.id == claim.sales_profile_id).first()
-
     if profile:
         return claim, str(profile.slug), legacy_channels._extract_channel_integration(profile, event.channel)
 
@@ -331,9 +330,8 @@ async def _retry_cached_delivery(
             integration_config,
         )
     except Exception:
-        # `_claim_message` has already changed pending_delivery -> delivering. Any
-        # failure resolving context or sending must return it to pending_delivery
-        # while the cached reply still exists.
+        # `_claim_message` already moved pending_delivery -> delivering. Any
+        # context/send failure must restore the cached reply to pending_delivery.
         _mark_delivery_failed(
             request,
             db,
@@ -436,8 +434,6 @@ async def _handle_channel_webhook_integrity(
                     claim_state=claim_state,
                 )
             elif not ai_completed:
-                # Before AI/business side effects finish, it is safe to release the
-                # claim and let the provider retry the complete operation.
                 _release_processing_claim(
                     request,
                     db,
@@ -445,9 +441,6 @@ async def _handle_channel_webhook_integrity(
                     claim_state=claim_state,
                 )
             else:
-                # AI/business side effects already completed, but the reply could
-                # not be durably cached. Never release this claim: automatic replay
-                # could duplicate memory/log/order-adjacent effects.
                 _retain_claim_for_manual_recovery(
                     db,
                     message_id=event.external_message_id,
@@ -470,11 +463,7 @@ async def _handle_channel_webhook_integrity(
         "processed": processed,
         "failed": failed,
     }
-
     if failed:
-        # Meta should retry failed deliveries. Already-delivered events remain
-        # deduplicated; pending replies are resent from the durable cache. A rare
-        # post-AI persistence failure is quarantined rather than replayed.
         return JSONResponse(status_code=502, content=response)
     return response
 
