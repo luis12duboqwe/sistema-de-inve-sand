@@ -1,9 +1,11 @@
 from app.database import SessionLocal
 from app.models import Bank, FinancingOption
+from app.utils.bank_names import bank_name_hash, normalize_bank_name
+
 
 def populate():
     db = SessionLocal()
-    
+
     # Sample Banks
     banks_data = [
         {"name": "BAC Credomatic", "options": [
@@ -21,35 +23,40 @@ def populate():
         {"name": "Promerica", "options": [
             {"months": 12, "rate": 0.10},
             {"months": 24, "rate": 0.20},
-        ]}
+        ]},
     ]
-    
+
     print("Populating banks...")
-    for b_data in banks_data:
-        # Check if bank exists
-        try:
-            bank = db.query(Bank).filter(Bank.name == b_data["name"]).first()
+    try:
+        for b_data in banks_data:
+            name = normalize_bank_name(b_data["name"])
+            identity_hash = bank_name_hash(name)
+            bank = db.query(Bank).filter(Bank.name_key_hash == identity_hash).first()
             if not bank:
-                bank = Bank(name=b_data["name"], active=True)
+                bank = Bank(name=name, active=True)
                 db.add(bank)
                 db.flush()
                 print(f"Created bank: {bank.name}")
-                
+
                 for opt in b_data["options"]:
                     option = FinancingOption(
                         bank_id=bank.id,
                         months=opt["months"],
                         rate=opt["rate"],
-                        active=True
+                        active=True,
                     )
                     db.add(option)
             else:
                 print(f"Bank {bank.name} already exists")
-        except Exception as e:
-            print(f"Error processing {b_data['name']}: {e}")
-            
-    db.commit()
-    print("Done!")
+
+        db.commit()
+        print("Done!")
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
 
 if __name__ == "__main__":
     populate()

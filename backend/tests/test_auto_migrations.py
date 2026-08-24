@@ -1,7 +1,10 @@
+import pytest
 from sqlalchemy import create_engine, inspect, text
 
 import app.database as database
 from app.utils.auto_migrations import MIGRATIONS, run_auto_migrations
+from app.utils.bank_names import bank_name_hash, bank_name_key
+from postgres_test_utils import create_postgres_test_engine
 
 
 def _recorded_migration_ids(engine) -> set[str]:
@@ -33,6 +36,21 @@ def _assert_critical_upgrade_columns(engine) -> None:
         }
         assert {"delivery_status", "reply_text"}.issubset(processed_columns)
 
+    if "banks" in table_names:
+        bank_columns = {
+            column["name"] for column in inspector.get_columns("banks")
+        }
+        assert {"name_normalized", "name_key_hash"}.issubset(bank_columns)
+        bank_indexes = inspector.get_indexes("banks")
+        assert any(
+            index.get("name") == "ix_banks_name_key_hash" and index.get("unique")
+            for index in bank_indexes
+        )
+        assert not any(
+            index.get("name") == "ix_banks_name_normalized" and index.get("unique")
+            for index in bank_indexes
+        )
+
 
 def test_versioned_auto_migrations_are_recorded_and_idempotent(db_session, monkeypatch):
     # test_api_usage.py levanta un servidor real con un engine/esquema temporal.
@@ -49,6 +67,64 @@ def test_versioned_auto_migrations_are_recorded_and_idempotent(db_session, monke
     expected_ids = {migration_id for migration_id, _ in MIGRATIONS}
     assert expected_ids.issubset(_recorded_migration_ids(test_engine))
     _assert_critical_upgrade_columns(test_engine)
+
+
+def test_postgres_bank_name_migration_handles_multi_kilobyte_canonical_key(monkeypatch):
+    engine, _, cleanup = create_postgres_test_engine("bank_name_digest_migration")
+    display_name = "ﷺ" * 255
+    normalized_key = bank_name_key(display_name)
+    normalized_hash = bank_name_hash(display_name)
+    assert len(display_name) == 255
+    assert len(normalized_key.encode("utf-8")) > 8000
+    assert len(normalized_hash) == 64
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE orders (id SERIAL PRIMARY KEY, estado VARCHAR(50), total NUMERIC)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE stock_transfers (id SERIAL PRIMARY KEY, cantidad INTEGER, estado VARCHAR(50))"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE banks (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) UNIQUE NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    normal_card_rate NUMERIC NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("INSERT INTO banks (name) VALUES (:name)"),
+            {"name": display_name},
+        )
+
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        assert run_auto_migrations() is True
+        with engine.connect() as conn:
+            migrated = conn.execute(
+                text("SELECT name, name_normalized, name_key_hash FROM banks")
+            ).one()
+
+        assert tuple(migrated) == (display_name, normalized_key, normalized_hash)
+        name_column = next(
+            column
+            for column in inspect(engine).get_columns("banks")
+            if column["name"] == "name_normalized"
+        )
+        assert "TEXT" in str(name_column["type"]).upper()
+        _assert_critical_upgrade_columns(engine)
+    finally:
+        cleanup()
 
 
 def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypatch):
@@ -96,6 +172,18 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
         )
         conn.execute(
             text(
+                """
+                CREATE TABLE banks (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR UNIQUE NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT 1,
+                    normal_card_rate NUMERIC NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
                 "INSERT INTO orders (id, estado, total) "
                 "VALUES (41, 'completada', 12500)"
             )
@@ -111,6 +199,13 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
                 "INSERT INTO processed_messages (id, message_id, channel, expires_at) "
                 "VALUES (3, 'legacy-message', 'whatsapp', '2030-01-01 00:00:00')"
             )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO banks (id, name, active, normal_card_rate) "
+                "VALUES (5, :name, 1, 0)"
+            ),
+            {"name": "\tBanco Legacy\n"},
         )
 
     monkeypatch.setattr(database, "engine", test_engine)
@@ -137,10 +232,20 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
                 "FROM processed_messages WHERE id = 3"
             )
         ).one()
+        bank = conn.execute(
+            text(
+                "SELECT name, name_normalized, name_key_hash FROM banks WHERE id = 5"
+            )
+        ).one()
 
     assert tuple(order) == (41, "completada", 12500)
     assert tuple(transfer) == (7, 3, "pendiente")
     assert tuple(processed) == ("legacy-message", "whatsapp", None, None)
+    assert tuple(bank) == (
+        "\tBanco Legacy\n",
+        "banco legacy",
+        bank_name_hash("Banco Legacy"),
+    )
 
     # La primera migración sobre un SQLite real crea una copia consistente antes
     # de tocar el esquema. La segunda ejecución no genera backups redundantes.
@@ -156,10 +261,15 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
         backup_processed_columns = {
             column["name"] for column in backup_inspector.get_columns("processed_messages")
         }
+        backup_bank_columns = {
+            column["name"] for column in backup_inspector.get_columns("banks")
+        }
         assert "validada_at" not in backup_order_columns
         assert "validated_by" not in backup_order_columns
         assert "delivery_status" not in backup_processed_columns
         assert "reply_text" not in backup_processed_columns
+        assert "name_normalized" not in backup_bank_columns
+        assert "name_key_hash" not in backup_bank_columns
 
         with backup_engine.connect() as conn:
             backed_up_order = conn.execute(
@@ -168,8 +278,57 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
             backed_up_message = conn.execute(
                 text("SELECT message_id, channel FROM processed_messages WHERE id = 3")
             ).one()
+            backed_up_bank = conn.execute(
+                text("SELECT name FROM banks WHERE id = 5")
+            ).one()
         assert tuple(backed_up_order) == (41, "completada", 12500)
         assert tuple(backed_up_message) == ("legacy-message", "whatsapp")
+        assert tuple(backed_up_bank) == ("\tBanco Legacy\n",)
     finally:
         backup_engine.dispose()
+        test_engine.dispose()
+
+
+def test_bank_name_migration_fails_closed_on_logical_duplicates(tmp_path, monkeypatch):
+    db_path = tmp_path / "duplicates.db"
+    test_engine = create_engine(f"sqlite:///{db_path}")
+
+    with test_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE orders (id INTEGER PRIMARY KEY, estado VARCHAR(50), total NUMERIC)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE stock_transfers (id INTEGER PRIMARY KEY, cantidad INTEGER, estado VARCHAR(50))"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE banks (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR UNIQUE NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT 1,
+                    normal_card_rate NUMERIC NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        conn.execute(text("INSERT INTO banks (id, name) VALUES (1, 'BAC')"))
+        conn.execute(
+            text("INSERT INTO banks (id, name) VALUES (2, :name)"),
+            {"name": "\tbac\n"},
+        )
+
+    monkeypatch.setattr(database, "engine", test_engine)
+
+    try:
+        with pytest.raises(RuntimeError, match="Bancos duplicados después de normalizar"):
+            run_auto_migrations()
+
+        applied = _recorded_migration_ids(test_engine)
+        assert "20260824_02_bank_name_normalized_uniqueness" not in applied
+    finally:
         test_engine.dispose()

@@ -21,6 +21,7 @@ import sqlite3
 from sqlalchemy import inspect, text
 
 import app.database as database
+from app.utils.bank_names import bank_name_hash, bank_name_key
 
 
 logger = logging.getLogger(__name__)
@@ -168,11 +169,97 @@ def _apply_processed_message_delivery_state_migration() -> None:
         )
 
 
+def _apply_bank_name_normalization_migration() -> None:
+    """Backfill canonical bank identities without guessing how to merge duplicates."""
+    if "banks" not in inspect(database.engine).get_table_names():
+        return
+
+    _add_column_if_missing("banks", "name_normalized", "TEXT")
+    _add_column_if_missing("banks", "name_key_hash", "VARCHAR(64)")
+
+    # A pre-release version briefly indexed the full normalized text. Drop that
+    # index before any potentially multi-KB Unicode expansion is backfilled.
+    with database.engine.begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS ix_banks_name_normalized"))
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text("ALTER TABLE banks ALTER COLUMN name_normalized TYPE TEXT")
+            )
+
+    seen_keys: dict[str, tuple[int, str]] = {}
+    seen_hashes: dict[str, tuple[str, int, str]] = {}
+    with database.engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, name FROM banks ORDER BY id")).mappings().all()
+        normalized_rows: list[tuple[int, str, str]] = []
+        for row in rows:
+            bank_id = int(row["id"])
+            raw_name = str(row["name"] or "")
+            try:
+                normalized_key = bank_name_key(raw_name)
+                normalized_hash = bank_name_hash(raw_name)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Banco existente ID {bank_id} tiene un nombre inválido; "
+                    "corrígelo antes de continuar la migración"
+                ) from exc
+
+            previous = seen_keys.get(normalized_key)
+            if previous is not None:
+                previous_id, previous_name = previous
+                raise RuntimeError(
+                    "Bancos duplicados después de normalizar: "
+                    f"ID {previous_id} '{previous_name}' e ID {bank_id} '{raw_name}'. "
+                    "Unifica esos registros antes de continuar la migración."
+                )
+
+            hash_previous = seen_hashes.get(normalized_hash)
+            if hash_previous is not None and hash_previous[0] != normalized_key:
+                _, previous_id, previous_name = hash_previous
+                raise RuntimeError(
+                    "Colisión de identidad bancaria detectada: "
+                    f"ID {previous_id} '{previous_name}' e ID {bank_id} '{raw_name}'. "
+                    "No se puede continuar de forma segura."
+                )
+
+            seen_keys[normalized_key] = (bank_id, raw_name)
+            seen_hashes[normalized_hash] = (normalized_key, bank_id, raw_name)
+            normalized_rows.append((bank_id, normalized_key, normalized_hash))
+
+        for bank_id, normalized_key, normalized_hash in normalized_rows:
+            conn.execute(
+                text(
+                    "UPDATE banks SET name_normalized = :normalized_key, "
+                    "name_key_hash = :normalized_hash WHERE id = :bank_id"
+                ),
+                {
+                    "normalized_key": normalized_key,
+                    "normalized_hash": normalized_hash,
+                    "bank_id": bank_id,
+                },
+            )
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_banks_name_key_hash "
+                "ON banks (name_key_hash)"
+            )
+        )
+
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text("ALTER TABLE banks ALTER COLUMN name_normalized SET NOT NULL")
+            )
+            conn.execute(
+                text("ALTER TABLE banks ALTER COLUMN name_key_hash SET NOT NULL")
+            )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
     ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
+    ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
 )
 
 
@@ -260,6 +347,8 @@ def _validate_critical_schema() -> None:
     }
     if "processed_messages" in table_names:
         required_columns["processed_messages"] = {"delivery_status", "reply_text"}
+    if "banks" in table_names:
+        required_columns["banks"] = {"name_normalized", "name_key_hash"}
 
     missing_columns: list[str] = []
     for table, required in required_columns.items():
@@ -271,6 +360,28 @@ def _validate_critical_schema() -> None:
         raise RuntimeError(
             "Esquema incompleto: faltan columnas críticas: " + ", ".join(missing_columns)
         )
+
+    if "banks" in table_names:
+        with database.engine.connect() as conn:
+            null_count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM banks WHERE name_normalized IS NULL "
+                    "OR name_key_hash IS NULL"
+                )
+            ).scalar_one()
+        if int(null_count) != 0:
+            raise RuntimeError("Esquema incompleto: existen bancos sin identidad normalizada")
+
+        bank_indexes = inspect(database.engine).get_indexes("banks")
+        has_unique_hash_index = any(
+            index.get("unique")
+            and index.get("name") == "ix_banks_name_key_hash"
+            for index in bank_indexes
+        )
+        if not has_unique_hash_index:
+            raise RuntimeError(
+                "Esquema incompleto: falta índice único ix_banks_name_key_hash"
+            )
 
 
 def run_auto_migrations() -> bool:
