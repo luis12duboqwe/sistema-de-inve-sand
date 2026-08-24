@@ -137,6 +137,9 @@ def update_location(
         db.commit()
         db.refresh(db_location)
         return db_location
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception:
         db.rollback()
         logger.exception("Error al actualizar ubicación %s", location_id)
