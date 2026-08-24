@@ -1,7 +1,8 @@
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from app.database import Base
+from app.utils.bank_names import bank_name_key, normalize_bank_name
 
 
 class Bank(Base):
@@ -11,10 +12,17 @@ class Bank(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
+    name_normalized = Column(String(255), nullable=False, unique=True, index=True)
     active = Column(Boolean, default=True, nullable=False)
     normal_card_rate = Column(Numeric(5, 4), default=0.0, nullable=False)
 
     financing_options = relationship("FinancingOption", back_populates="bank", cascade="all, delete-orphan")
+
+    @validates("name")
+    def _canonicalize_name(self, _key: str, value: str) -> str:
+        normalized = normalize_bank_name(value)
+        self.name_normalized = bank_name_key(normalized)
+        return normalized
 
 
 class FinancingOption(Base):
