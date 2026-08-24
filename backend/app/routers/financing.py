@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
@@ -15,23 +14,16 @@ from app.schemas import (
 
 from app.auth import check_permission
 from app.models import User
+from app.utils.bank_names import bank_name_key, normalize_bank_name
 
 router = APIRouter(prefix="/api/financing", tags=["financing"])
 
 
-def _normalize_bank_name(name: str) -> str:
-    normalized = name.strip()
-    if len(normalized) < 2:
-        raise HTTPException(
-            status_code=400,
-            detail="El nombre del banco debe tener al menos 2 caracteres",
-        )
-    return normalized
-
-
-def _bank_name_matches(name: str):
-    """Match canonical bank names while tolerating legacy outer whitespace."""
-    return func.lower(func.trim(Bank.name)) == name.lower()
+def _require_valid_bank_name(name: str) -> str:
+    try:
+        return normalize_bank_name(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/banks", response_model=List[BankResponse])
@@ -52,8 +44,9 @@ def create_bank(
     current_user: User = Depends(check_permission("settings:edit")),
 ):
     """Crea un nuevo banco"""
-    normalized_name = _normalize_bank_name(bank.name)
-    existing = db.query(Bank).filter(_bank_name_matches(normalized_name)).first()
+    normalized_name = _require_valid_bank_name(bank.name)
+    normalized_key = bank_name_key(normalized_name)
+    existing = db.query(Bank).filter(Bank.name_normalized == normalized_key).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"El banco '{normalized_name}' ya existe")
 
@@ -98,9 +91,10 @@ def update_bank(
 
     normalized_name = None
     if bank_update.name is not None:
-        normalized_name = _normalize_bank_name(bank_update.name)
+        normalized_name = _require_valid_bank_name(bank_update.name)
+        normalized_key = bank_name_key(normalized_name)
         existing = db.query(Bank).filter(
-            _bank_name_matches(normalized_name),
+            Bank.name_normalized == normalized_key,
             Bank.id != bank_id,
         ).first()
         if existing:
