@@ -75,19 +75,25 @@ replace_database_url_password() {
 import sys
 from urllib.parse import quote, urlsplit, urlunsplit
 
-parsed = urlsplit(sys.argv[1])
+value = sys.argv[1]
+parsed = urlsplit(value)
 if parsed.password != "CHANGE_ME_STRONG_PASSWORD":
     raise SystemExit("DATABASE_URL no contiene el placeholder de contraseña esperado")
-if parsed.username is None or parsed.hostname is None:
-    raise SystemExit("DATABASE_URL no contiene usuario/host válidos")
 
-username = quote(parsed.username, safe="")
+# Preserve the original authority byte-for-byte except for the password. Rebuilding
+# it from parsed.username/hostname can double-encode an already percent-encoded
+# username or normalize IPv6/host syntax unexpectedly.
+if "@" not in parsed.netloc:
+    raise SystemExit("DATABASE_URL no contiene credenciales de usuario")
+userinfo, hostinfo = parsed.netloc.rsplit("@", 1)
+username_raw, separator, password_raw = userinfo.partition(":")
+if not separator or not username_raw or not hostinfo:
+    raise SystemExit("DATABASE_URL no contiene usuario/host válidos")
+if password_raw != "CHANGE_ME_STRONG_PASSWORD":
+    raise SystemExit("DATABASE_URL no contiene el placeholder de contraseña esperado")
+
 password = quote(sys.argv[2], safe="")
-hostname = parsed.hostname
-if ":" in hostname and not hostname.startswith("["):
-    hostname = f"[{hostname}]"
-port = f":{parsed.port}" if parsed.port is not None else ""
-netloc = f"{username}:{password}@{hostname}{port}"
+netloc = f"{username_raw}:{password}@{hostinfo}"
 print(urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)))
 PY
 }
