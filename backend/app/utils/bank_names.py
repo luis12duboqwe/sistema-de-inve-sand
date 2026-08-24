@@ -15,11 +15,12 @@ def normalize_bank_name(name: str) -> str:
 def bank_name_key(name: str) -> str:
     """Return the stable Unicode-aware logical identity for a bank name."""
     display_name = normalize_bank_name(name)
-    # Compatibility normalization must happen before folding so characters that
-    # normalize into uppercase letters are folded too. Normalize once more after
-    # folding to keep any newly introduced combining sequence canonical.
-    compatibility_normalized = unicodedata.normalize("NFKC", display_name)
-    return unicodedata.normalize("NFKC", compatibility_normalized.casefold())
+    # Compatibility normalization can itself introduce edge whitespace. Strip
+    # after each normalization pass so compatibility-equivalent spellings cannot
+    # diverge merely because one form materializes that whitespace later.
+    compatibility_normalized = unicodedata.normalize("NFKC", display_name).strip()
+    folded = compatibility_normalized.casefold()
+    return unicodedata.normalize("NFKC", folded).strip()
 
 
 def bank_name_hash(name: str) -> str:
