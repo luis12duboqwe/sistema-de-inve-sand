@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship, validates
 
 from app.database import Base
@@ -12,7 +12,9 @@ class Bank(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
-    name_normalized = Column(String(255), nullable=False, unique=True, index=True)
+    # Unicode casefold() can expand a valid display name beyond its original
+    # character count, so the canonical key must not inherit the 255-char UI cap.
+    name_normalized = Column(Text, nullable=False, unique=True, index=True)
     active = Column(Boolean, default=True, nullable=False)
     normal_card_rate = Column(Numeric(5, 4), default=0.0, nullable=False)
 
