@@ -39,7 +39,7 @@ def test_self_update_cannot_change_username_role_or_active_flag(db_session):
 
     response = update_user_me(
         UserUpdate(
-            username="escalated-user",
+            username="escalateduser",
             role_id=super_admin_role.id,
             is_active=False,
             full_name="Nombre permitido",
