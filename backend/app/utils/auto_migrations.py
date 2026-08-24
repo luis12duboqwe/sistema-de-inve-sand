@@ -259,7 +259,7 @@ MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
     ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
-    ("20260824_02_bank_name_normalized_uniqueness", _apply_bank_name_normalization_migration),
+    ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
 )
 
 
