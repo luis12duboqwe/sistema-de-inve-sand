@@ -34,8 +34,8 @@ Opciones:
   --with-sample-data        Ejecuta init_db.py --with-data
   --skip-ssl                No ejecuta Certbot ni configura HTTPS final
   --skip-node-setup         No instala Node.js desde NodeSource
-  --force-env               Reescribe backend/.env si ya existe
-    --self-test               Valida el instalador sin instalar paquetes ni tocar /etc
+  --force-env               Regenera backend/.env y rota la contraseña PostgreSQL
+  --self-test               Valida el instalador sin instalar paquetes ni tocar /etc
   -h, --help                Muestra esta ayuda
 
 Ejemplo despues de clonar:
@@ -241,9 +241,20 @@ create_user_and_dirs() {
     chown -R "$APP_USER:$APP_GROUP" "$APP_DIR" "$BACKUP_DIR"
 }
 
+should_preserve_existing_db_credentials() {
+    local env_file="$APP_DIR/backend/.env"
+    [[ -f "$env_file" && "$FORCE_ENV" != "true" ]]
+}
+
 configure_postgres() {
     log "Configurando PostgreSQL"
     systemctl enable --now postgresql
+
+    if should_preserve_existing_db_credentials; then
+        echo "Ya existe $APP_DIR/backend/.env; se conservan las credenciales PostgreSQL existentes."
+        echo "Usa --force-env sólo para una rotación intencional y coordinada de la contraseña."
+        return 0
+    fi
 
     DB_PASSWORD="$(random_password)"
     sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
@@ -277,7 +288,7 @@ engine = create_engine(settings.database_url)
 with engine.connect() as connection:
     connection.execute(text('SELECT 1'))
 PY"; then
-            fail "El .env existente no conecta a PostgreSQL. Reejecuta con --force-env para regenerar DATABASE_URL y password."
+            fail "El .env existente no conecta a PostgreSQL. Reejecuta con --force-env sólo si deseas rotar de forma coordinada DATABASE_URL y password."
         fi
         return 0
     fi
@@ -659,4 +670,6 @@ Comandos utiles:
 EOF
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
