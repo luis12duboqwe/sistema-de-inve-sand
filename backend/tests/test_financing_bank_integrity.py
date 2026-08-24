@@ -1,9 +1,15 @@
+import threading
+
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.database import Base
 from app.models import Bank, User
 from app.routers.financing import create_bank, update_bank
 from app.schemas import BankCreate, BankUpdate
+from postgres_test_utils import create_postgres_test_engine
 
 
 def _actor() -> User:
@@ -90,13 +96,13 @@ def test_update_bank_rejects_case_insensitive_trimmed_duplicate(db_session):
     assert second.name == "Banco Dos"
 
 
-def test_bank_name_matching_tolerates_legacy_outer_whitespace(db_session):
-    db_session.add(_bank("  Banco Legacy  "))
+def test_bank_name_normalization_handles_tabs_and_newlines(db_session):
+    db_session.add(_bank("Banco Legacy"))
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
         create_bank(
-            BankCreate(name="banco legacy", active=True, normal_card_rate=0),
+            BankCreate(name="\tBANCO LEGACY\n", active=True, normal_card_rate=0),
             db=db_session,
             current_user=_actor(),
         )
@@ -130,7 +136,7 @@ def test_create_and_update_reject_blank_normalized_names(db_session):
     assert bank.name == "Banco Inicial"
 
 
-def test_create_bank_stores_trimmed_name(db_session):
+def test_create_bank_stores_trimmed_name_and_unique_key(db_session):
     response = create_bank(
         BankCreate(name="  Banco Nuevo  ", active=True, normal_card_rate=0),
         db=db_session,
@@ -141,6 +147,7 @@ def test_create_bank_stores_trimmed_name(db_session):
     stored = db_session.get(Bank, response.id)
     assert stored is not None
     assert stored.name == "Banco Nuevo"
+    assert stored.name_normalized == "banco nuevo"
 
 
 def test_update_bank_still_persists_valid_changes(db_session):
@@ -159,4 +166,49 @@ def test_update_bank_still_persists_valid_changes(db_session):
     assert response.active is False
     db_session.refresh(bank)
     assert bank.name == "Banco Actualizado"
+    assert bank.name_normalized == "banco actualizado"
     assert bank.active is False
+
+
+def test_database_unique_key_blocks_concurrent_case_variants():
+    engine, _, cleanup = create_postgres_test_engine("bank_name_uniqueness")
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    barrier = threading.Barrier(2)
+    results: list[str] = []
+    results_lock = threading.Lock()
+
+    def worker(name: str) -> None:
+        session: Session = SessionLocal()
+        try:
+            session.add(_bank(name))
+            barrier.wait()
+            session.commit()
+            result = "ok"
+        except IntegrityError:
+            session.rollback()
+            result = "duplicate"
+        finally:
+            session.close()
+
+        with results_lock:
+            results.append(result)
+
+    first = threading.Thread(target=worker, args=("BAC",))
+    second = threading.Thread(target=worker, args=("  bac  ",))
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    try:
+        assert sorted(results) == ["duplicate", "ok"]
+        check_session: Session = SessionLocal()
+        try:
+            rows = check_session.query(Bank).all()
+            assert len(rows) == 1
+            assert rows[0].name_normalized == "bac"
+        finally:
+            check_session.close()
+    finally:
+        cleanup()
