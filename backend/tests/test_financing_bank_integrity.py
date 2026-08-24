@@ -9,6 +9,7 @@ from app.database import Base
 from app.models import Bank, User
 from app.routers.financing import create_bank, update_bank
 from app.schemas import BankCreate, BankUpdate
+from app.utils.bank_names import bank_name_key
 from postgres_test_utils import create_postgres_test_engine
 
 
@@ -111,6 +112,26 @@ def test_bank_name_normalization_handles_tabs_and_newlines(db_session):
     assert db_session.query(Bank).count() == 1
 
 
+def test_bank_name_normalization_rejects_canonically_equivalent_duplicate(db_session):
+    composed = "Café Financiero"
+    decomposed = "Cafe\u0301 Financiero"
+    assert composed != decomposed
+    assert bank_name_key(composed) == bank_name_key(decomposed)
+
+    db_session.add(_bank(composed))
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_bank(
+            BankCreate(name=decomposed, active=True, normal_card_rate=0),
+            db=db_session,
+            current_user=_actor(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert db_session.query(Bank).count() == 1
+
+
 def test_create_and_update_reject_blank_normalized_names(db_session):
     bank = _bank("Banco Inicial")
     db_session.add(bank)
@@ -154,7 +175,7 @@ def test_create_bank_allows_casefold_key_to_expand_beyond_255(db_session):
     # U+0130 casefolds to two code points ("i" + combining dot), so this
     # display name is valid under the 255-char schema cap while its key is 256.
     display_name = "İ" * 128
-    normalized_key = display_name.casefold()
+    normalized_key = bank_name_key(display_name)
     assert len(display_name) == 128
     assert len(normalized_key) == 256
 
