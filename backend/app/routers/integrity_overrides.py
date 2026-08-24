@@ -12,6 +12,8 @@ from fastapi import APIRouter
 from app.routers import (
     ai_business_integrity,
     ai_intelligence,
+    auth_admin_integrity,
+    auth_router,
     channel_integrations,
     channel_integrity,
     multistore_control,
@@ -41,6 +43,8 @@ def _strip_route(router: APIRouter, path: str, method: str) -> None:
 
 
 _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
+    (auth_router.router, "/api/auth/users/{user_id}/role", "PUT"),
+    (auth_router.router, "/api/auth/users/{user_id}", "PUT"),
     (orders.router, "/api/orders/{order_id}/status", "PUT"),
     (orders.router, "/api/orders/{order_id}", "PUT"),
     (orders.router, "/api/orders/{order_id}/cancel", "POST"),
@@ -73,6 +77,7 @@ for _router, _path, _method in _SHADOWED_ROUTES:
 
 
 router = APIRouter()
+router.include_router(auth_admin_integrity.router)
 router.include_router(order_state_integrity.router)
 router.include_router(reports_integrity.router)
 router.include_router(reports_final_integrity.router)
