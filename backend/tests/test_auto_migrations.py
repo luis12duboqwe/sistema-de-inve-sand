@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, inspect, text
 
 import app.database as database
 from app.utils.auto_migrations import MIGRATIONS, run_auto_migrations
+from postgres_test_utils import create_postgres_test_engine
 
 
 def _recorded_migration_ids(engine) -> set[str]:
@@ -61,6 +62,61 @@ def test_versioned_auto_migrations_are_recorded_and_idempotent(db_session, monke
     expected_ids = {migration_id for migration_id, _ in MIGRATIONS}
     assert expected_ids.issubset(_recorded_migration_ids(test_engine))
     _assert_critical_upgrade_columns(test_engine)
+
+
+def test_postgres_bank_name_migration_preserves_expanded_casefold_key(monkeypatch):
+    engine, _, cleanup = create_postgres_test_engine("bank_name_casefold_migration")
+    display_name = "İ" * 128
+    normalized_key = display_name.casefold()
+    assert len(display_name) == 128
+    assert len(normalized_key) == 256
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE orders (id SERIAL PRIMARY KEY, estado VARCHAR(50), total NUMERIC)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE stock_transfers (id SERIAL PRIMARY KEY, cantidad INTEGER, estado VARCHAR(50))"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE banks (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) UNIQUE NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    normal_card_rate NUMERIC NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("INSERT INTO banks (name) VALUES (:name)"),
+            {"name": display_name},
+        )
+
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        assert run_auto_migrations() is True
+        with engine.connect() as conn:
+            migrated = conn.execute(
+                text("SELECT name, name_normalized FROM banks")
+            ).one()
+
+        assert tuple(migrated) == (display_name, normalized_key)
+        name_column = next(
+            column
+            for column in inspect(engine).get_columns("banks")
+            if column["name"] == "name_normalized"
+        )
+        assert "TEXT" in str(name_column["type"]).upper()
+    finally:
+        cleanup()
 
 
 def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypatch):
