@@ -4,11 +4,16 @@ import hashlib
 import unicodedata
 
 
+_UNSAFE_UNICODE_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+
+
 def normalize_bank_name(name: str) -> str:
     """Return the display name stored by canonical financing write paths."""
     normalized = name.strip()
     if len(normalized) < 2:
         raise ValueError("El nombre del banco debe tener al menos 2 caracteres")
+    if any(unicodedata.category(char) in _UNSAFE_UNICODE_CATEGORIES for char in normalized):
+        raise ValueError("El nombre del banco contiene caracteres Unicode no permitidos")
     return normalized
 
 
