@@ -64,6 +64,11 @@ def _build_warranty_expiration(record: ProductIMEI) -> Optional[datetime]:
     return record.sold_at + timedelta(days=record.product.garantia_meses * 30)
 
 
+def _resolve_warranty_sale_date(record: ProductIMEI, order: Order) -> datetime:
+    """Usa la venta real del IMEI y conserva fallbacks para registros históricos."""
+    return record.sold_at or order.completed_at or order.created_at
+
+
 @router.post("/admin/add-missing", response_model=ProductIMEIResponse)
 def admin_add_missing_imei(
     payload: IMEIAdminCreateRequest,
@@ -325,7 +330,7 @@ def check_warranty_status(
     if not product:
         raise HTTPException(status_code=404, detail="Producto asociado no encontrado")
         
-    sale_date = order.created_at
+    sale_date = _resolve_warranty_sale_date(product_imei, order)
     warranty_months = product.garantia_meses
     
     if warranty_months == 0:
