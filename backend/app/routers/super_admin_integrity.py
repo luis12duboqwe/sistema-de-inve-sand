@@ -12,8 +12,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AuditLog, Product, ProductIMEI, Stock, StockHistory, User
 from app.routers import super_admin as legacy_super_admin
+from app.routers.auth_admin_integrity import lock_and_guard_super_admin_continuity
 from app.routers.order_state_integrity import cancel_order_canonical
-from app.routers.super_admin import ReasonPayload, StockAdjustmentRequest, get_current_superuser_audited
+from app.routers.super_admin import (
+    ReasonPayload,
+    StockAdjustmentRequest,
+    UserActiveRequest,
+    get_current_superuser_audited,
+)
 from app.utils.audit import log_audit_event
 from app.utils.order_validators import validate_location_exists
 
@@ -57,6 +63,60 @@ def _assert_serialized_stock_target(
                 "Use conteo físico/IMEI para reconciliar la diferencia."
             ),
         )
+
+
+@router.post("/users/{user_id}/active")
+def set_user_active_status_integrity(
+    user_id: int,
+    payload: UserActiveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser_audited),
+):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if target.id == current_user.id and not payload.is_active:
+        raise HTTPException(status_code=400, detail="No puedes desactivarte a ti mismo")
+
+    lock_and_guard_super_admin_continuity(
+        db,
+        current_user=current_user,
+        target_user=target,
+        removes_active_super_admin=not payload.is_active,
+    )
+    return legacy_super_admin.set_user_active_status(
+        user_id=user_id,
+        payload=payload,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.post("/users/{user_id}/reset-role")
+def reset_user_role_integrity(
+    user_id: int,
+    payload: ReasonPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser_audited),
+):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if target.id == current_user.id:
+        raise HTTPException(status_code=400, detail="No puedes resetear tu propio rol")
+
+    lock_and_guard_super_admin_continuity(
+        db,
+        current_user=current_user,
+        target_user=target,
+        removes_active_super_admin=True,
+    )
+    return legacy_super_admin.reset_user_role(
+        user_id=user_id,
+        payload=payload,
+        db=db,
+        current_user=current_user,
+    )
 
 
 @router.post("/stock/adjust")
