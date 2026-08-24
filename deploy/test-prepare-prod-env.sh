@@ -7,7 +7,6 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 ENV_FILE="$TMP_DIR/.env.prod"
-CHANNEL_KEY="test-channel-encryption-key-012345678901234567890123"
 
 env_value() {
   local key="$1"
@@ -15,7 +14,6 @@ env_value() {
 }
 
 APP_DOMAIN="inventory.softmobile.test" \
-CHANNEL_ENCRYPTION_KEY="$CHANNEL_KEY" \
 BACKUP_RCLONE_DESTINATION="offsite:bucket/inventory" \
 bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 
@@ -24,7 +22,15 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 [ "$(env_value CORS_ORIGINS)" = "https://inventory.softmobile.test" ]
 [ "$(env_value ALLOWED_HOSTS)" = "inventory.softmobile.test,localhost,127.0.0.1" ]
 [ "$(env_value BACKUP_RCLONE_DESTINATION)" = "offsite:bucket/inventory" ]
-[ "$(env_value CHANNEL_ENCRYPTION_KEY)" = "$CHANNEL_KEY" ]
+
+CHANNEL_KEY="$(env_value CHANNEL_ENCRYPTION_KEY)"
+python3 - "$CHANNEL_KEY" <<'PY'
+import base64
+import sys
+value = sys.argv[1].encode()
+assert len(value) == 44
+assert len(base64.urlsafe_b64decode(value)) == 32
+PY
 
 for key in POSTGRES_PASSWORD SECRET_KEY SETUP_TOKEN DESTRUCTIVE_OPERATION_TOKEN GRAFANA_ADMIN_PASSWORD; do
   value="$(env_value "$key")"
