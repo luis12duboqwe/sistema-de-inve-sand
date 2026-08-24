@@ -115,6 +115,18 @@ if [ ! -f "$ENV_FILE" ]; then
   cp "$EXAMPLE_FILE" "$ENV_FILE"
 fi
 
+# Capture explicit DB overrides before assigning resolved local values. When no
+# override is supplied, an existing DATABASE_URL is authoritative and must not be
+# reconstructed: it may contain URL-encoded credentials or a custom topology.
+DB_COMPONENT_OVERRIDE=false
+for db_key in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD; do
+  if [ -n "${!db_key-}" ]; then
+    DB_COMPONENT_OVERRIDE=true
+    break
+  fi
+done
+DATABASE_URL_OVERRIDE="${DATABASE_URL-}"
+
 APP_DOMAIN="${APP_DOMAIN:-}"
 if [ -z "$APP_DOMAIN" ]; then
   EXISTING_CORS="$(get_env CORS_ORIGINS)"
@@ -138,11 +150,23 @@ SETUP_TOKEN_VALUE="$(resolve_hex_secret SETUP_TOKEN 32)"
 DESTRUCTIVE_OPERATION_TOKEN_VALUE="$(resolve_hex_secret DESTRUCTIVE_OPERATION_TOKEN 32)"
 GRAFANA_ADMIN_PASSWORD_VALUE="$(resolve_hex_secret GRAFANA_ADMIN_PASSWORD 24)"
 
+DATABASE_URL_VALUE="$DATABASE_URL_OVERRIDE"
+if [ -z "$DATABASE_URL_VALUE" ]; then
+  EXISTING_DATABASE_URL="$(get_env DATABASE_URL)"
+  if [ "$DB_COMPONENT_OVERRIDE" = false ] \
+     && [ -n "$EXISTING_DATABASE_URL" ] \
+     && ! is_placeholder "$EXISTING_DATABASE_URL"; then
+    DATABASE_URL_VALUE="$EXISTING_DATABASE_URL"
+  else
+    DATABASE_URL_VALUE="postgresql+psycopg2://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@db:5432/${POSTGRES_DB_VALUE}"
+  fi
+fi
+
 set_env FRONTEND_PORT "$(resolve_value FRONTEND_PORT 80)"
 set_env POSTGRES_DB "$POSTGRES_DB_VALUE"
 set_env POSTGRES_USER "$POSTGRES_USER_VALUE"
 set_env POSTGRES_PASSWORD "$POSTGRES_PASSWORD_VALUE"
-set_env DATABASE_URL "postgresql+psycopg2://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@db:5432/${POSTGRES_DB_VALUE}"
+set_env DATABASE_URL "$DATABASE_URL_VALUE"
 set_env ENVIRONMENT production
 set_env DEBUG false
 set_env SECRET_KEY "$SECRET_KEY_VALUE"
