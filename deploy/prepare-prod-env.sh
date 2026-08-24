@@ -104,26 +104,31 @@ resolve_fernet_secret() {
 resolve_grafana_password() {
   local env_value="${GRAFANA_ADMIN_PASSWORD-}"
   local existing
-
-  if [ -n "$env_value" ]; then
-    printf '%s' "$env_value"
-    return
-  fi
-
   existing="$(get_env GRAFANA_ADMIN_PASSWORD)"
-  if [ -n "$existing" ] && ! is_placeholder "$existing"; then
-    printf '%s' "$existing"
+
+  if [ "$ENV_FILE_CREATED" = true ]; then
+    if [ -n "$env_value" ]; then
+      printf '%s' "$env_value"
+    elif [ -n "$existing" ] && ! is_placeholder "$existing"; then
+      printf '%s' "$existing"
+    else
+      generate_hex 24
+    fi
     return
   fi
 
-  # Only a brand-new environment can safely assume Grafana has no persisted
-  # admin user yet. For an existing env, leave a missing/placeholder value visible
-  # so validate-prod fails instead of pretending an env rewrite rotated Grafana.
-  if [ "$ENV_FILE_CREATED" = true ]; then
-    generate_hex 24
-  else
-    printf '%s' "$existing"
+  # Once an environment file already exists, changing GF_SECURITY_ADMIN_PASSWORD
+  # cannot be treated as an actual Grafana password rotation: Grafana persists the
+  # admin credential in grafana_data. Fail closed if this bootstrap is asked to
+  # change it, so operators must perform the real Grafana rotation first and then
+  # synchronize the env file deliberately outside this helper.
+  if [ -n "$env_value" ] && [ "$env_value" != "$existing" ]; then
+    echo "GRAFANA_ADMIN_PASSWORD no se puede rotar con prepare-prod-env.sh en un entorno existente." >&2
+    echo "Cambia primero la contraseña real del usuario admin en Grafana y sincroniza deploy/.env.prod de forma deliberada." >&2
+    return 1
   fi
+
+  printf '%s' "$existing"
 }
 
 set_env() {
@@ -243,20 +248,13 @@ fi
 
 chmod 600 "$ENV_FILE"
 
-if [ "$ENV_FILE_CREATED" = false ] && [ -n "${GRAFANA_ADMIN_PASSWORD-}" ]; then
-  cat >&2 <<'EOF2'
-AVISO: GRAFANA_ADMIN_PASSWORD actualizó la configuración del entorno, pero eso NO
-rota automáticamente la contraseña de un Grafana que ya tenga volumen persistente.
-Si Grafana ya fue inicializado, cambia también la contraseña del usuario admin en
-Grafana mediante su procedimiento administrativo antes de depender del nuevo valor.
-EOF2
-elif [ "$ENV_FILE_CREATED" = false ] \
-     && { [ -z "$GRAFANA_ADMIN_PASSWORD_VALUE" ] || is_placeholder "$GRAFANA_ADMIN_PASSWORD_VALUE"; }; then
+if [ "$ENV_FILE_CREATED" = false ] \
+   && { [ -z "$GRAFANA_ADMIN_PASSWORD_VALUE" ] || is_placeholder "$GRAFANA_ADMIN_PASSWORD_VALUE"; }; then
   cat >&2 <<'EOF2'
 AVISO: el entorno existente conserva una contraseña de Grafana vacía/placeholder.
 No se reemplazó automáticamente porque podría existir un volumen Grafana ya
-inicializado. Resuelve la contraseña de Grafana y su estado persistente antes de
-pasar validate-prod.sh.
+inicializado. Resuelve la contraseña real de Grafana y sincroniza después el env
+antes de pasar validate-prod.sh.
 EOF2
 fi
 
@@ -276,8 +274,8 @@ Revisa estos valores antes de levantar:
   - N8N_* y Meta tokens: requeridos sólo para WhatsApp/Messenger/Instagram
 
 Los secretos existentes válidos se conservan al volver a ejecutar este script. Para cambiar
-un valor, pásalo explícitamente y valida el impacto. En Grafana persistente, cambiar la variable
-de entorno no sustituye el procedimiento real de cambio de contraseña del usuario admin.
+un valor, pásalo explícitamente y valida el impacto. La contraseña de Grafana de un entorno
+existente se rota en Grafana, no con este helper; sincroniza el env sólo después del cambio real.
 
 Siguiente paso:
   cd $DEPLOY_DIR
