@@ -10,7 +10,8 @@ ENV_FILE="$TMP_DIR/.env.prod"
 
 env_value() {
   local key="$1"
-  grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d'=' -f2-
+  local file="${2:-$ENV_FILE}"
+  grep -E "^${key}=" "$file" | tail -n 1 | cut -d'=' -f2-
 }
 
 APP_DOMAIN="inventory.softmobile.test" \
@@ -37,7 +38,7 @@ for key in POSTGRES_PASSWORD SECRET_KEY SETUP_TOKEN DESTRUCTIVE_OPERATION_TOKEN 
   [ "${#value}" -ge 12 ]
   case "$value" in
     *CHANGE_ME*|*GENERATE_WITH*)
-      echo "$key conservó un placeholder" >&2
+      echo "$key conservó un placeholder en un entorno nuevo" >&2
       exit 1
       ;;
   esac
@@ -76,16 +77,28 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 [ "$(env_value CORS_ORIGINS)" = "$CORS_BEFORE" ]
 [ "$(stat -c '%a' "$ENV_FILE")" = "600" ]
 
-# Una rotación explícita sí debe aplicarse sin alterar los demás secretos.
-ROTATED_GRAFANA="grafana-rotated-password-2026"
-GRAFANA_ADMIN_PASSWORD="$ROTATED_GRAFANA" \
+# APP_DOMAIN explícito representa un cambio intencional de dominio y debe actualizar
+# los valores derivados sin tocar los secretos o DATABASE_URL existentes.
+APP_DOMAIN="inventory-new.softmobile.test" \
 bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 
-[ "$(env_value GRAFANA_ADMIN_PASSWORD)" = "$ROTATED_GRAFANA" ]
+[ "$(env_value ALLOWED_HOSTS)" = "inventory-new.softmobile.test,localhost,127.0.0.1" ]
+[ "$(env_value CORS_ORIGINS)" = "https://inventory-new.softmobile.test" ]
 [ "$(env_value POSTGRES_PASSWORD)" = "$POSTGRES_PASSWORD_BEFORE" ]
 [ "$(env_value DATABASE_URL)" = "$CUSTOM_DATABASE_URL" ]
 [ "$(env_value SECRET_KEY)" = "$SECRET_KEY_BEFORE" ]
 [ "$(env_value CHANNEL_ENCRYPTION_KEY)" = "$CHANNEL_KEY_BEFORE" ]
-[ "$(env_value SETUP_TOKEN)" = "$SETUP_TOKEN_BEFORE" ]
+[ "$(env_value GRAFANA_ADMIN_PASSWORD)" = "$GRAFANA_PASSWORD_BEFORE" ]
+
+# Un archivo preexistente con placeholder de Grafana puede corresponder a un volumen
+# ya inicializado. El bootstrap no debe fingir una rotación cambiando sólo el env.
+EXISTING_ENV="$TMP_DIR/existing.env"
+cp "$DEPLOY_DIR/.env.prod.example" "$EXISTING_ENV"
+APP_DOMAIN="existing.softmobile.test" \
+BACKUP_RCLONE_DESTINATION="offsite:bucket/existing" \
+bash "$DEPLOY_DIR/prepare-prod-env.sh" "$EXISTING_ENV" >/dev/null 2>/dev/null
+
+[ "$(env_value GRAFANA_ADMIN_PASSWORD "$EXISTING_ENV")" = "CHANGE_ME_GRAFANA_PASSWORD" ]
+[ "$(stat -c '%a' "$EXISTING_ENV")" = "600" ]
 
 echo "Production env bootstrap tests OK"
