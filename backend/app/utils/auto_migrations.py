@@ -174,7 +174,17 @@ def _apply_bank_name_normalization_migration() -> None:
     if "banks" not in inspect(database.engine).get_table_names():
         return
 
-    _add_column_if_missing("banks", "name_normalized", "VARCHAR(255)")
+    # A 255-character display name can produce a longer Unicode casefold key.
+    # Store the canonical key as TEXT and widen any pre-release VARCHAR column
+    # before backfilling so a valid legacy name cannot fail with DataError.
+    _add_column_if_missing("banks", "name_normalized", "TEXT")
+    if _dialect_name() == "postgresql":
+        with database.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE banks ALTER COLUMN name_normalized TYPE TEXT"
+                )
+            )
 
     seen: dict[str, tuple[int, str]] = {}
     with database.engine.begin() as conn:
