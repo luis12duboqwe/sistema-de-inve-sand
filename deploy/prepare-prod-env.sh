@@ -101,6 +101,31 @@ resolve_fernet_secret() {
   generate_fernet_key
 }
 
+resolve_grafana_password() {
+  local env_value="${GRAFANA_ADMIN_PASSWORD-}"
+  local existing
+
+  if [ -n "$env_value" ]; then
+    printf '%s' "$env_value"
+    return
+  fi
+
+  existing="$(get_env GRAFANA_ADMIN_PASSWORD)"
+  if [ -n "$existing" ] && ! is_placeholder "$existing"; then
+    printf '%s' "$existing"
+    return
+  fi
+
+  # Only a brand-new environment can safely assume Grafana has no persisted
+  # admin user yet. For an existing env, leave a missing/placeholder value visible
+  # so validate-prod fails instead of pretending an env rewrite rotated Grafana.
+  if [ "$ENV_FILE_CREATED" = true ]; then
+    generate_hex 24
+  else
+    printf '%s' "$existing"
+  fi
+}
+
 set_env() {
   local key="$1"
   local value="$2"
@@ -115,13 +140,13 @@ set_env() {
   rm -f "$ENV_FILE.bak"
 }
 
+ENV_FILE_CREATED=false
 if [ ! -f "$ENV_FILE" ]; then
   cp "$EXAMPLE_FILE" "$ENV_FILE"
+  ENV_FILE_CREATED=true
 fi
 
-# Capture explicit DB overrides before assigning resolved local values. When no
-# override is supplied, an existing DATABASE_URL is authoritative and must not be
-# reconstructed: it may contain URL-encoded credentials or a custom topology.
+# Capture explicit overrides before assigning resolved local values.
 DB_COMPONENT_OVERRIDE=false
 for db_key in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD; do
   if [ -n "${!db_key-}" ]; then
@@ -130,8 +155,11 @@ for db_key in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD; do
   fi
 done
 DATABASE_URL_OVERRIDE="${DATABASE_URL-}"
+APP_DOMAIN_OVERRIDE="${APP_DOMAIN-}"
+ALLOWED_HOSTS_OVERRIDE="${ALLOWED_HOSTS-}"
+CORS_ORIGINS_OVERRIDE="${CORS_ORIGINS-}"
 
-APP_DOMAIN="${APP_DOMAIN:-}"
+APP_DOMAIN="$APP_DOMAIN_OVERRIDE"
 if [ -z "$APP_DOMAIN" ]; then
   EXISTING_CORS="$(get_env CORS_ORIGINS)"
   if [ -n "$EXISTING_CORS" ] && ! is_placeholder "$EXISTING_CORS"; then
@@ -152,7 +180,7 @@ SECRET_KEY_VALUE="$(resolve_hex_secret SECRET_KEY 32)"
 CHANNEL_ENCRYPTION_KEY_VALUE="$(resolve_fernet_secret)"
 SETUP_TOKEN_VALUE="$(resolve_hex_secret SETUP_TOKEN 32)"
 DESTRUCTIVE_OPERATION_TOKEN_VALUE="$(resolve_hex_secret DESTRUCTIVE_OPERATION_TOKEN 32)"
-GRAFANA_ADMIN_PASSWORD_VALUE="$(resolve_hex_secret GRAFANA_ADMIN_PASSWORD 24)"
+GRAFANA_ADMIN_PASSWORD_VALUE="$(resolve_grafana_password)"
 
 DATABASE_URL_VALUE="$DATABASE_URL_OVERRIDE"
 if [ -z "$DATABASE_URL_VALUE" ]; then
@@ -164,6 +192,22 @@ if [ -z "$DATABASE_URL_VALUE" ]; then
   else
     DATABASE_URL_VALUE="postgresql+psycopg2://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@db:5432/${POSTGRES_DB_VALUE}"
   fi
+fi
+
+if [ -n "$ALLOWED_HOSTS_OVERRIDE" ]; then
+  ALLOWED_HOSTS_VALUE="$ALLOWED_HOSTS_OVERRIDE"
+elif [ -n "$APP_DOMAIN_OVERRIDE" ]; then
+  ALLOWED_HOSTS_VALUE="$APP_DOMAIN,localhost,127.0.0.1"
+else
+  ALLOWED_HOSTS_VALUE="$(resolve_value ALLOWED_HOSTS "$APP_DOMAIN,localhost,127.0.0.1")"
+fi
+
+if [ -n "$CORS_ORIGINS_OVERRIDE" ]; then
+  CORS_ORIGINS_VALUE="$CORS_ORIGINS_OVERRIDE"
+elif [ -n "$APP_DOMAIN_OVERRIDE" ]; then
+  CORS_ORIGINS_VALUE="https://${APP_DOMAIN}"
+else
+  CORS_ORIGINS_VALUE="$(resolve_value CORS_ORIGINS "https://${APP_DOMAIN}")"
 fi
 
 set_env FRONTEND_PORT "$(resolve_value FRONTEND_PORT 80)"
@@ -178,8 +222,8 @@ set_env CHANNEL_ENCRYPTION_KEY "$CHANNEL_ENCRYPTION_KEY_VALUE"
 set_env SETUP_TOKEN "$SETUP_TOKEN_VALUE"
 set_env DESTRUCTIVE_OPERATION_TOKEN "$DESTRUCTIVE_OPERATION_TOKEN_VALUE"
 set_env ENABLE_DESTRUCTIVE_PURGE "$(resolve_value ENABLE_DESTRUCTIVE_PURGE false)"
-set_env ALLOWED_HOSTS "$(resolve_value ALLOWED_HOSTS "$APP_DOMAIN,localhost,127.0.0.1")"
-set_env CORS_ORIGINS "$(resolve_value CORS_ORIGINS "https://${APP_DOMAIN}")"
+set_env ALLOWED_HOSTS "$ALLOWED_HOSTS_VALUE"
+set_env CORS_ORIGINS "$CORS_ORIGINS_VALUE"
 set_env VITE_API_BASE_URL "$(resolve_value VITE_API_BASE_URL /api)"
 set_env LOG_STRUCTURED "$(resolve_value LOG_STRUCTURED true)"
 set_env LOG_TO_FILES "$(resolve_value LOG_TO_FILES true)"
@@ -199,6 +243,23 @@ fi
 
 chmod 600 "$ENV_FILE"
 
+if [ "$ENV_FILE_CREATED" = false ] && [ -n "${GRAFANA_ADMIN_PASSWORD-}" ]; then
+  cat >&2 <<'EOF2'
+AVISO: GRAFANA_ADMIN_PASSWORD actualizó la configuración del entorno, pero eso NO
+rota automáticamente la contraseña de un Grafana que ya tenga volumen persistente.
+Si Grafana ya fue inicializado, cambia también la contraseña del usuario admin en
+Grafana mediante su procedimiento administrativo antes de depender del nuevo valor.
+EOF2
+elif [ "$ENV_FILE_CREATED" = false ] \
+     && { [ -z "$GRAFANA_ADMIN_PASSWORD_VALUE" ] || is_placeholder "$GRAFANA_ADMIN_PASSWORD_VALUE"; }; then
+  cat >&2 <<'EOF2'
+AVISO: el entorno existente conserva una contraseña de Grafana vacía/placeholder.
+No se reemplazó automáticamente porque podría existir un volumen Grafana ya
+inicializado. Resuelve la contraseña de Grafana y su estado persistente antes de
+pasar validate-prod.sh.
+EOF2
+fi
+
 cat <<EOF2
 Archivo de producción preparado: $ENV_FILE
 
@@ -208,14 +269,15 @@ Revisa estos valores antes de levantar:
   - ENABLE_DESTRUCTIVE_PURGE: debe permanecer en false salvo una operación autorizada
   - BACKUP_RCLONE_DESTINATION: configura un destino fuera de este servidor
   - RCLONE_CONFIG_*: configura credenciales del remote sólo en .env.prod/secret manager
-  - GRAFANA_ADMIN_PASSWORD: generado automáticamente si faltaba; custódialo fuera de Git
+  - GRAFANA_ADMIN_PASSWORD: se genera automáticamente sólo para un entorno nuevo
   - SENTRY_DSN: opcional, recomendado
   - OPENAI_API_KEY: requerido sólo si usarás IA
   - SMTP_*: requerido sólo si usarás email/recuperación
   - N8N_* y Meta tokens: requeridos sólo para WhatsApp/Messenger/Instagram
 
-Los secretos existentes válidos se conservan al volver a ejecutar este script. Para rotar
-un valor, pásalo explícitamente como variable de entorno y valida el impacto antes de aplicar.
+Los secretos existentes válidos se conservan al volver a ejecutar este script. Para cambiar
+un valor, pásalo explícitamente y valida el impacto. En Grafana persistente, cambiar la variable
+de entorno no sustituye el procedimiento real de cambio de contraseña del usuario admin.
 
 Siguiente paso:
   cd $DEPLOY_DIR
