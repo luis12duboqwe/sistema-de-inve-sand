@@ -21,6 +21,7 @@ import sqlite3
 from sqlalchemy import inspect, text
 
 import app.database as database
+from app.utils.bank_names import bank_name_key
 
 
 logger = logging.getLogger(__name__)
@@ -168,11 +169,70 @@ def _apply_processed_message_delivery_state_migration() -> None:
         )
 
 
+def _apply_bank_name_normalization_migration() -> None:
+    """Backfill a canonical unique key without guessing how to merge duplicates."""
+    if "banks" not in inspect(database.engine).get_table_names():
+        return
+
+    _add_column_if_missing("banks", "name_normalized", "VARCHAR(255)")
+
+    seen: dict[str, tuple[int, str]] = {}
+    with database.engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, name FROM banks ORDER BY id")).mappings().all()
+        normalized_rows: list[tuple[int, str]] = []
+        for row in rows:
+            bank_id = int(row["id"])
+            raw_name = str(row["name"] or "")
+            try:
+                normalized_key = bank_name_key(raw_name)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Banco existente ID {bank_id} tiene un nombre inválido; "
+                    "corrígelo antes de continuar la migración"
+                ) from exc
+
+            previous = seen.get(normalized_key)
+            if previous is not None:
+                previous_id, previous_name = previous
+                raise RuntimeError(
+                    "Bancos duplicados después de normalizar: "
+                    f"ID {previous_id} '{previous_name}' e ID {bank_id} '{raw_name}'. "
+                    "Unifica esos registros antes de continuar la migración."
+                )
+
+            seen[normalized_key] = (bank_id, raw_name)
+            normalized_rows.append((bank_id, normalized_key))
+
+        for bank_id, normalized_key in normalized_rows:
+            conn.execute(
+                text(
+                    "UPDATE banks SET name_normalized = :normalized_key "
+                    "WHERE id = :bank_id"
+                ),
+                {"normalized_key": normalized_key, "bank_id": bank_id},
+            )
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_banks_name_normalized "
+                "ON banks (name_normalized)"
+            )
+        )
+
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text(
+                    "ALTER TABLE banks ALTER COLUMN name_normalized SET NOT NULL"
+                )
+            )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
     ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
+    ("20260824_02_bank_name_normalized_uniqueness", _apply_bank_name_normalization_migration),
 )
 
 
@@ -260,6 +320,8 @@ def _validate_critical_schema() -> None:
     }
     if "processed_messages" in table_names:
         required_columns["processed_messages"] = {"delivery_status", "reply_text"}
+    if "banks" in table_names:
+        required_columns["banks"] = {"name_normalized"}
 
     missing_columns: list[str] = []
     for table, required in required_columns.items():
@@ -271,6 +333,25 @@ def _validate_critical_schema() -> None:
         raise RuntimeError(
             "Esquema incompleto: faltan columnas críticas: " + ", ".join(missing_columns)
         )
+
+    if "banks" in table_names:
+        with database.engine.connect() as conn:
+            null_count = conn.execute(
+                text("SELECT COUNT(*) FROM banks WHERE name_normalized IS NULL")
+            ).scalar_one()
+        if int(null_count) != 0:
+            raise RuntimeError("Esquema incompleto: existen bancos sin name_normalized")
+
+        bank_indexes = inspect(database.engine).get_indexes("banks")
+        has_unique_normalized_index = any(
+            index.get("unique")
+            and index.get("name") == "ix_banks_name_normalized"
+            for index in bank_indexes
+        )
+        if not has_unique_normalized_index:
+            raise RuntimeError(
+                "Esquema incompleto: falta índice único ix_banks_name_normalized"
+            )
 
 
 def run_auto_migrations() -> bool:
