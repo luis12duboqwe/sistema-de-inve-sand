@@ -149,10 +149,30 @@ def _apply_order_completion_timestamp_migration() -> None:
         )
 
 
+def _apply_processed_message_delivery_state_migration() -> None:
+    """Add durable reply-delivery state to existing webhook deduplication tables."""
+    if "processed_messages" not in inspect(database.engine).get_table_names():
+        # Very old SQLite fixtures/installations can predate the table entirely.
+        # Normal application startup creates missing model tables before these
+        # compatibility ALTERs run, so there is nothing safe to alter here.
+        return
+
+    _add_column_if_missing("processed_messages", "delivery_status", "VARCHAR(32)")
+    _add_column_if_missing("processed_messages", "reply_text", "TEXT")
+    with database.engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_processed_message_delivery_status "
+                "ON processed_messages (delivery_status)"
+            )
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
     ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
+    ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
 )
 
 
@@ -238,6 +258,9 @@ def _validate_critical_schema() -> None:
         "orders": {"validada_at", "validated_by", "completed_at"},
         "stock_transfers": {"received_quantity", "missing_quantity", "incident_notes"},
     }
+    if "processed_messages" in table_names:
+        required_columns["processed_messages"] = {"delivery_status", "reply_text"}
+
     missing_columns: list[str] = []
     for table, required in required_columns.items():
         existing = {column["name"] for column in inspector.get_columns(table)}

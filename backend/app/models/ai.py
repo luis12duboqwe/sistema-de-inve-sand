@@ -95,7 +95,7 @@ class TrainingQueue(Base):
 
 
 class ProcessedMessage(Base):
-    """Cache de mensajes procesados para evitar deduplicación (persistente)."""
+    """Estado persistente de deduplicación y entrega para webhooks de canales."""
 
     __tablename__ = "processed_messages"
 
@@ -106,11 +106,18 @@ class ProcessedMessage(Base):
     sales_profile_id = Column(Integer, ForeignKey("sales_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    # Null preserves compatibility with legacy rows, which are treated as already
+    # processed. New webhook claims use processing/delivering/pending_delivery/delivered.
+    delivery_status = Column(String(32), nullable=True)
+    # Cached only while a generated reply still needs delivery. It is cleared once
+    # Meta accepts the response so ordinary deduplication does not retain reply text.
+    reply_text = Column(Text, nullable=True)
     sales_profile = relationship("SalesProfile")
 
     __table_args__ = (
         Index("idx_processed_message_expires", "expires_at"),
         Index("idx_processed_message_channel_profile", "channel", "sales_profile_id"),
+        Index("idx_processed_message_delivery_status", "delivery_status"),
     )
 
 

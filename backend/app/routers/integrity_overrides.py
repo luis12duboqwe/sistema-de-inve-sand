@@ -16,6 +16,7 @@ from app.routers import (
     auth_router,
     channel_integrations,
     channel_integrity,
+    channel_webhook_integrity,
     multistore_control,
     multistore_integrity,
     order_state_integrity,
@@ -67,6 +68,9 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
         "/api/channels/test-connection/{sales_profile_slug}/{channel}",
         "POST",
     ),
+    (channel_integrations.router, "/api/channels/whatsapp/webhook", "POST"),
+    (channel_integrations.router, "/api/channels/messenger/webhook", "POST"),
+    (channel_integrations.router, "/api/channels/instagram/webhook", "POST"),
     (super_admin.router, "/api/super-admin/users/{user_id}/active", "POST"),
     (super_admin.router, "/api/super-admin/users/{user_id}/reset-role", "POST"),
     (super_admin.router, "/api/super-admin/stock/adjust", "POST"),
@@ -87,5 +91,6 @@ router.include_router(reports_final_integrity.router)
 router.include_router(multistore_integrity.router)
 router.include_router(stock_transfer_integrity.router)
 router.include_router(channel_integrity.router)
+router.include_router(channel_webhook_integrity.router)
 router.include_router(super_admin_integrity.router)
 router.include_router(ai_business_integrity.router)
