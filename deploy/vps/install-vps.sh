@@ -34,7 +34,7 @@ Opciones:
   --with-sample-data        Ejecuta init_db.py --with-data
   --skip-ssl                No ejecuta Certbot ni configura HTTPS final
   --skip-node-setup         No instala Node.js desde NodeSource
-  --force-env               Regenera backend/.env y rota la contraseña PostgreSQL
+  --force-env               Compatibilidad de bootstrap; rechazado si backend/.env ya existe
   --self-test               Valida el instalador sin instalar paquetes ni tocar /etc
   -h, --help                Muestra esta ayuda
 
@@ -243,7 +243,14 @@ create_user_and_dirs() {
 
 should_preserve_existing_db_credentials() {
     local env_file="$APP_DIR/backend/.env"
-    [[ -f "$env_file" && "$FORCE_ENV" != "true" ]]
+    [[ -f "$env_file" ]]
+}
+
+reject_force_env_for_existing_installation() {
+    local env_file="$APP_DIR/backend/.env"
+    if [[ "$FORCE_ENV" == "true" && -f "$env_file" ]]; then
+        fail "--force-env no se permite sobre una instalación existente: reescribiría SECRET_KEY, CHANNEL_ENCRYPTION_KEY y otras configuraciones persistentes. Conserva el .env actual y realiza cualquier rotación mediante un procedimiento dedicado."
+    fi
 }
 
 configure_postgres() {
@@ -252,7 +259,6 @@ configure_postgres() {
 
     if should_preserve_existing_db_credentials; then
         echo "Ya existe $APP_DIR/backend/.env; se conservan las credenciales PostgreSQL existentes."
-        echo "Usa --force-env sólo para una rotación intencional y coordinada de la contraseña."
         return 0
     fi
 
@@ -277,8 +283,8 @@ SQL
 write_env() {
     log "Creando backend/.env"
     local env_file="$APP_DIR/backend/.env"
-    if [[ -f "$env_file" && "$FORCE_ENV" != "true" ]]; then
-        echo "Ya existe ${env_file}; no lo reescribo. Usa --force-env para regenerarlo."
+    if [[ -f "$env_file" ]]; then
+        echo "Ya existe ${env_file}; se conserva sin reescribir."
         echo "Verificando que el .env existente pueda conectarse a PostgreSQL..."
         if ! sudo -u "$APP_USER" bash -lc "cd '$APP_DIR/backend' && set -a && . ./.env && set +a && ./venv/bin/python - <<'PY'
 from sqlalchemy import create_engine, text
@@ -288,7 +294,7 @@ engine = create_engine(settings.database_url)
 with engine.connect() as connection:
     connection.execute(text('SELECT 1'))
 PY"; then
-            fail "El .env existente no conecta a PostgreSQL. Reejecuta con --force-env sólo si deseas rotar de forma coordinada DATABASE_URL y password."
+            fail "El .env existente no conecta a PostgreSQL. No se modificaron credenciales automáticamente; corrige el entorno mediante un procedimiento de recuperación/rotación dedicado."
         fi
         return 0
     fi
@@ -643,6 +649,7 @@ main() {
 
     require_root
     validate_repo
+    reject_force_env_for_existing_installation
     install_packages
     create_user_and_dirs
     install_backend
