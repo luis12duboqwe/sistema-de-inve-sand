@@ -225,6 +225,9 @@ def update_supplier(
         db.refresh(supplier)
         
         return _serialize_supplier(supplier)
+    except HTTPException:
+        db.rollback()
+        raise
     except IntegrityError:
         db.rollback()
         raise HTTPException(
