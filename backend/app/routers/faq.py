@@ -13,6 +13,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _escape_like_pattern(value: str) -> str:
+    """Treat user-provided SQL LIKE wildcard characters as literal text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("", response_model=PaginatedResponse[FAQEntryResponse], dependencies=[Depends(check_permission("settings:view"))])
 def list_faq_entries(
     activa: bool = Query(True, description="Filtrar por entradas activas"),
@@ -57,7 +62,7 @@ def list_faq_entries(
 @router.get("/search", response_model=List[FAQEntryResponse], dependencies=[Depends(check_permission("settings:view"))])
 def search_faq_entries(
     query: str = Query(..., description="Texto de la pregunta del cliente"),
-    limit: int = Query(3, description="Número máximo de resultados"),
+    limit: int = Query(3, ge=1, le=20, description="Número máximo de resultados"),
     db: Session = Depends(get_db)
 ):
     """
@@ -65,7 +70,7 @@ def search_faq_entries(
     
     Args:
         - query: Texto de búsqueda
-        - limit: Número máximo de resultados (default: 3)
+        - limit: Número máximo de resultados (default: 3, max: 20)
         
     Returns:
         Lista de entradas FAQ que coinciden con la búsqueda
@@ -91,11 +96,12 @@ def search_faq_entries(
         # 2. Construir condiciones OR (basta que coincida una palabra clave importante)
         conditions = []
         for k in keywords:
-            term = f"%{k}%"
-            conditions.append(func.lower(FAQEntry.pregunta_clave).like(term))
-            conditions.append(func.lower(FAQEntry.ejemplo_pregunta_cliente).like(term))
+            escaped_keyword = _escape_like_pattern(k)
+            term = f"%{escaped_keyword}%"
+            conditions.append(func.lower(FAQEntry.pregunta_clave).like(term, escape="\\"))
+            conditions.append(func.lower(FAQEntry.ejemplo_pregunta_cliente).like(term, escape="\\"))
             # Opcional: buscar en respuesta también, pero puede dar falsos positivos
-            # conditions.append(func.lower(FAQEntry.respuesta).like(term))
+            # conditions.append(func.lower(FAQEntry.respuesta).like(term, escape="\\"))
 
         results = db.query(FAQEntry).filter(
             FAQEntry.activa == True,
@@ -110,7 +116,7 @@ def search_faq_entries(
         return results
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
         logger.exception("Error al buscar entradas FAQ")
         raise HTTPException(status_code=500, detail="Error interno al buscar entradas FAQ. Intente nuevamente o contacte al administrador.")
@@ -146,7 +152,7 @@ def create_faq_entry(
         db.commit()
         db.refresh(db_faq)
         return db_faq
-    except Exception as e:
+    except Exception:
         db.rollback()
         logger.exception("Error al crear entrada FAQ")
         raise HTTPException(status_code=500, detail="Error interno al crear entrada FAQ. Intente nuevamente o contacte al administrador.")
@@ -220,7 +226,7 @@ def update_faq_entry(
         db.commit()
         db.refresh(faq_entry)
         return faq_entry
-    except Exception as e:
+    except Exception:
         db.rollback()
         logger.exception("Error al actualizar entrada FAQ")
         raise HTTPException(status_code=500, detail="Error interno al actualizar entrada FAQ. Intente nuevamente o contacte al administrador.")
@@ -256,7 +262,7 @@ def delete_faq_entry(
         db.delete(faq_entry)
         db.commit()
         return None
-    except Exception as e:
+    except Exception:
         db.rollback()
         logger.exception("Error al eliminar entrada FAQ")
         raise HTTPException(status_code=500, detail="Error interno al eliminar entrada FAQ. Intente nuevamente o contacte al administrador.")
