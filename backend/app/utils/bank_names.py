@@ -1,5 +1,6 @@
 """Canonical bank-name normalization shared by writes and schema migrations."""
 
+import hashlib
 import unicodedata
 
 
@@ -12,11 +13,18 @@ def normalize_bank_name(name: str) -> str:
 
 
 def bank_name_key(name: str) -> str:
-    """Return a Unicode-normalized, case-insensitive uniqueness key."""
+    """Return the stable Unicode-aware logical identity for a bank name."""
     display_name = normalize_bank_name(name)
-    # NFKC makes canonically/compatibly equivalent spellings share identity
-    # (e.g. composed/decomposed accents), while the display name stays intact.
-    return unicodedata.normalize("NFKC", display_name.casefold())
+    # Compatibility normalization must happen before folding so characters that
+    # normalize into uppercase letters are folded too. Normalize once more after
+    # folding to keep any newly introduced combining sequence canonical.
+    compatibility_normalized = unicodedata.normalize("NFKC", display_name)
+    return unicodedata.normalize("NFKC", compatibility_normalized.casefold())
 
 
-__all__ = ["bank_name_key", "normalize_bank_name"]
+def bank_name_hash(name: str) -> str:
+    """Return an index-safe digest of the full canonical bank identity."""
+    return hashlib.sha256(bank_name_key(name).encode("utf-8")).hexdigest()
+
+
+__all__ = ["bank_name_hash", "bank_name_key", "normalize_bank_name"]
