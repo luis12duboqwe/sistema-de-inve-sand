@@ -34,7 +34,7 @@ def _protected_app(user: User) -> FastAPI:
     return app
 
 
-def test_inactive_user_is_rejected_during_base_jwt_resolution(db_session):
+def test_inactive_user_is_rejected_as_unauthorized_during_base_jwt_resolution(db_session):
     user = _superuser(active=False)
     db_session.add(user)
     db_session.commit()
@@ -43,8 +43,9 @@ def test_inactive_user_is_rejected_during_base_jwt_resolution(db_session):
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(get_current_user(token=token, db=db_session))
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Inactive user"
+    assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
 
 
 def test_optional_auth_treats_inactive_user_as_unauthenticated(db_session):
