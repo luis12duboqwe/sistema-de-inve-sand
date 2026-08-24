@@ -99,12 +99,12 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 # Una copia del template puede personalizar usuario, base o topología antes de
 # generar la contraseña. Si la contraseña de DATABASE_URL sigue siendo exactamente
 # el sentinel del template, hay que reemplazar sólo esa credencial y preservar el
-# resto de la URL personalizada.
+# resto de la URL personalizada, incluyendo encoding del usuario e IPv6.
 CUSTOM_TEMPLATE_ENV="$TMP_DIR/custom-template.env"
 cp "$DEPLOY_DIR/.env.prod.example" "$CUSTOM_TEMPLATE_ENV"
 sed -i 's|^POSTGRES_DB=.*|POSTGRES_DB=custom_inventory|' "$CUSTOM_TEMPLATE_ENV"
 sed -i 's|^POSTGRES_USER=.*|POSTGRES_USER=custom_admin|' "$CUSTOM_TEMPLATE_ENV"
-sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg2://custom_admin:CHANGE_ME_STRONG_PASSWORD@postgres.internal:5544/custom_inventory?sslmode=require|' "$CUSTOM_TEMPLATE_ENV"
+sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg2://custom%40admin:CHANGE_ME_STRONG_PASSWORD@[2001:db8::42]:5544/custom_inventory?sslmode=require|' "$CUSTOM_TEMPLATE_ENV"
 
 APP_DOMAIN="custom.softmobile.test" \
 BACKUP_RCLONE_DESTINATION="offsite:bucket/custom" \
@@ -113,7 +113,7 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$CUSTOM_TEMPLATE_ENV" >/dev/null 2>/dev/
 CUSTOM_GENERATED_PASSWORD="$(env_value POSTGRES_PASSWORD "$CUSTOM_TEMPLATE_ENV")"
 CUSTOM_REBUILT_URL="$(env_value DATABASE_URL "$CUSTOM_TEMPLATE_ENV")"
 [ "$CUSTOM_GENERATED_PASSWORD" != "CHANGE_ME_STRONG_PASSWORD" ]
-[ "$CUSTOM_REBUILT_URL" = "postgresql+psycopg2://custom_admin:${CUSTOM_GENERATED_PASSWORD}@postgres.internal:5544/custom_inventory?sslmode=require" ]
+[ "$CUSTOM_REBUILT_URL" = "postgresql+psycopg2://custom%40admin:${CUSTOM_GENERATED_PASSWORD}@[2001:db8::42]:5544/custom_inventory?sslmode=require" ]
 
 # Un archivo preexistente con placeholder de Grafana puede corresponder a un volumen
 # ya inicializado. El bootstrap no debe fingir una rotación cambiando sólo el env.
