@@ -78,9 +78,13 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     if not user.is_active:
+        # A valid token no longer represents an authenticated session once the
+        # account has been disabled. Returning 401 also lets API clients clear
+        # cached credentials immediately instead of keeping a stale logged-in UI.
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inactive user",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
     return user
