@@ -152,6 +152,26 @@ def test_compatibility_normalization_happens_before_casefold(db_session):
     assert db_session.query(Bank).count() == 1
 
 
+def test_compatibility_normalization_strips_introduced_edge_whitespace(db_session):
+    compatibility_variant = "´BAC"
+    explicit_variant = " \u0301BAC"
+    assert bank_name_key(compatibility_variant) == bank_name_key(explicit_variant)
+    assert bank_name_hash(compatibility_variant) == bank_name_hash(explicit_variant)
+
+    db_session.add(_bank(compatibility_variant))
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_bank(
+            BankCreate(name=explicit_variant, active=True, normal_card_rate=0),
+            db=db_session,
+            current_user=_actor(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert db_session.query(Bank).count() == 1
+
+
 def test_create_and_update_reject_blank_normalized_names(db_session):
     bank = _bank("Banco Inicial")
     db_session.add(bank)
