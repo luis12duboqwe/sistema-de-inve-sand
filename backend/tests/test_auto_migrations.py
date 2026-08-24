@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, inspect, text
 
 import app.database as database
 from app.utils.auto_migrations import MIGRATIONS, run_auto_migrations
+from app.utils.bank_names import bank_name_hash, bank_name_key
 from postgres_test_utils import create_postgres_test_engine
 
 
@@ -39,9 +40,13 @@ def _assert_critical_upgrade_columns(engine) -> None:
         bank_columns = {
             column["name"] for column in inspector.get_columns("banks")
         }
-        assert "name_normalized" in bank_columns
+        assert {"name_normalized", "name_key_hash"}.issubset(bank_columns)
         bank_indexes = inspector.get_indexes("banks")
         assert any(
+            index.get("name") == "ix_banks_name_key_hash" and index.get("unique")
+            for index in bank_indexes
+        )
+        assert not any(
             index.get("name") == "ix_banks_name_normalized" and index.get("unique")
             for index in bank_indexes
         )
@@ -64,12 +69,14 @@ def test_versioned_auto_migrations_are_recorded_and_idempotent(db_session, monke
     _assert_critical_upgrade_columns(test_engine)
 
 
-def test_postgres_bank_name_migration_preserves_expanded_casefold_key(monkeypatch):
-    engine, _, cleanup = create_postgres_test_engine("bank_name_casefold_migration")
-    display_name = "İ" * 128
-    normalized_key = display_name.casefold()
-    assert len(display_name) == 128
-    assert len(normalized_key) == 256
+def test_postgres_bank_name_migration_handles_multi_kilobyte_canonical_key(monkeypatch):
+    engine, _, cleanup = create_postgres_test_engine("bank_name_digest_migration")
+    display_name = "ﷺ" * 255
+    normalized_key = bank_name_key(display_name)
+    normalized_hash = bank_name_hash(display_name)
+    assert len(display_name) == 255
+    assert len(normalized_key.encode("utf-8")) > 8000
+    assert len(normalized_hash) == 64
 
     with engine.begin() as conn:
         conn.execute(
@@ -105,16 +112,17 @@ def test_postgres_bank_name_migration_preserves_expanded_casefold_key(monkeypatc
         assert run_auto_migrations() is True
         with engine.connect() as conn:
             migrated = conn.execute(
-                text("SELECT name, name_normalized FROM banks")
+                text("SELECT name, name_normalized, name_key_hash FROM banks")
             ).one()
 
-        assert tuple(migrated) == (display_name, normalized_key)
+        assert tuple(migrated) == (display_name, normalized_key, normalized_hash)
         name_column = next(
             column
             for column in inspect(engine).get_columns("banks")
             if column["name"] == "name_normalized"
         )
         assert "TEXT" in str(name_column["type"]).upper()
+        _assert_critical_upgrade_columns(engine)
     finally:
         cleanup()
 
@@ -225,13 +233,19 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
             )
         ).one()
         bank = conn.execute(
-            text("SELECT name, name_normalized FROM banks WHERE id = 5")
+            text(
+                "SELECT name, name_normalized, name_key_hash FROM banks WHERE id = 5"
+            )
         ).one()
 
     assert tuple(order) == (41, "completada", 12500)
     assert tuple(transfer) == (7, 3, "pendiente")
     assert tuple(processed) == ("legacy-message", "whatsapp", None, None)
-    assert tuple(bank) == ("\tBanco Legacy\n", "banco legacy")
+    assert tuple(bank) == (
+        "\tBanco Legacy\n",
+        "banco legacy",
+        bank_name_hash("Banco Legacy"),
+    )
 
     # La primera migración sobre un SQLite real crea una copia consistente antes
     # de tocar el esquema. La segunda ejecución no genera backups redundantes.
@@ -255,6 +269,7 @@ def test_legacy_sqlite_database_is_upgraded_without_data_loss(tmp_path, monkeypa
         assert "delivery_status" not in backup_processed_columns
         assert "reply_text" not in backup_processed_columns
         assert "name_normalized" not in backup_bank_columns
+        assert "name_key_hash" not in backup_bank_columns
 
         with backup_engine.connect() as conn:
             backed_up_order = conn.execute(
@@ -301,9 +316,7 @@ def test_bank_name_migration_fails_closed_on_logical_duplicates(tmp_path, monkey
                 """
             )
         )
-        conn.execute(
-            text("INSERT INTO banks (id, name) VALUES (1, 'BAC')")
-        )
+        conn.execute(text("INSERT INTO banks (id, name) VALUES (1, 'BAC')"))
         conn.execute(
             text("INSERT INTO banks (id, name) VALUES (2, :name)"),
             {"name": "\tbac\n"},
