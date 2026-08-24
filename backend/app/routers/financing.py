@@ -14,7 +14,7 @@ from app.schemas import (
 
 from app.auth import check_permission
 from app.models import User
-from app.utils.bank_names import bank_name_key, normalize_bank_name
+from app.utils.bank_names import bank_name_hash, normalize_bank_name
 
 router = APIRouter(prefix="/api/financing", tags=["financing"])
 
@@ -45,8 +45,8 @@ def create_bank(
 ):
     """Crea un nuevo banco"""
     normalized_name = _require_valid_bank_name(bank.name)
-    normalized_key = bank_name_key(normalized_name)
-    existing = db.query(Bank).filter(Bank.name_normalized == normalized_key).first()
+    normalized_hash = bank_name_hash(normalized_name)
+    existing = db.query(Bank).filter(Bank.name_key_hash == normalized_hash).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"El banco '{normalized_name}' ya existe")
 
@@ -92,9 +92,9 @@ def update_bank(
     normalized_name = None
     if bank_update.name is not None:
         normalized_name = _require_valid_bank_name(bank_update.name)
-        normalized_key = bank_name_key(normalized_name)
+        normalized_hash = bank_name_hash(normalized_name)
         existing = db.query(Bank).filter(
-            Bank.name_normalized == normalized_key,
+            Bank.name_key_hash == normalized_hash,
             Bank.id != bank_id,
         ).first()
         if existing:
