@@ -26,31 +26,46 @@ def lock_and_guard_super_admin_continuity(
     if not removes_active_super_admin or not target_user.is_superuser or not target_user.is_active:
         return
 
-    # Lock the complete active Super Admin set. Concurrent demotions/deactivations
-    # then serialize instead of both observing the same pre-change administrator
-    # count and committing a state with no active Super Admin.
+    # Lock the complete active Super Admin set. Concurrent demotions,
+    # deactivations and deletions then serialize instead of all observing the
+    # same pre-change administrator count.
     active_super_admins = (
         db.query(User)
+        .populate_existing()
         .filter(User.is_superuser == True, User.is_active == True)
         .order_by(User.id.asc())
         .with_for_update()
         .all()
     )
 
-    # The request may have waited on another administrator mutation. Refresh the
-    # actor and target after acquiring the locks so stale privilege state cannot
-    # authorize a second destructive transition.
-    db.refresh(current_user)
-    if target_user.id != current_user.id:
-        db.refresh(target_user)
-
-    if not current_user.is_active or not current_user.is_superuser:
+    # The request may have waited while another transaction changed or even
+    # deleted the actor/target. Re-query with populate_existing so identity-map
+    # state cannot preserve stale privileges after the row locks are acquired.
+    fresh_actor = (
+        db.query(User)
+        .populate_existing()
+        .filter(User.id == current_user.id)
+        .first()
+    )
+    if not fresh_actor or not fresh_actor.is_active or not fresh_actor.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="La cuenta ya no tiene privilegios de Super Admin",
         )
 
-    if target_user.is_active and target_user.is_superuser and len(active_super_admins) <= 1:
+    fresh_target = (
+        db.query(User)
+        .populate_existing()
+        .filter(User.id == target_user.id)
+        .first()
+    )
+    if not fresh_target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {target_user.id} not found",
+        )
+
+    if fresh_target.is_active and fresh_target.is_superuser and len(active_super_admins) <= 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se puede dejar el sistema sin Super Admin activo",
@@ -145,6 +160,40 @@ def update_user_admin_integrity(
     return legacy_auth.update_user_admin(
         user_id=user_id,
         updates=updates,
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_integrity(
+    user_id: int,
+    current_user: User = Depends(check_permission("users:manage")),
+    db: Session = Depends(get_db),
+):
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete yourself",
+        )
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found",
+        )
+
+    legacy_auth._require_superuser_for_super_admin_target(current_user, target)
+    lock_and_guard_super_admin_continuity(
+        db,
+        current_user=current_user,
+        target_user=target,
+        removes_active_super_admin=True,
+    )
+
+    return legacy_auth.delete_user(
+        user_id=user_id,
         current_user=current_user,
         db=db,
     )
