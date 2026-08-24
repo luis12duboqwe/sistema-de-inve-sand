@@ -111,22 +111,35 @@ def update_user_admin_integrity(
     current_user: User = Depends(check_permission("users:manage")),
     db: Session = Depends(get_db),
 ):
-    if updates.role_id is not None:
+    target: User | None = None
+    selected_role: Role | None = None
+
+    # Role demotion and deactivation can both remove an active Super Admin. Load
+    # and guard the target once for either transition so the generic update route
+    # cannot bypass the same continuity invariant as the dedicated endpoints.
+    if updates.role_id is not None or updates.is_active is False:
         target = db.query(User).filter(User.id == user_id).first()
         if not target:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
 
-        role = db.query(Role).filter(Role.id == updates.role_id).first()
-        if not role:
-            raise HTTPException(status_code=404, detail=f"Role {updates.role_id} not found")
-
         legacy_auth._require_superuser_for_super_admin_target(current_user, target)
-        legacy_auth._require_superuser_for_super_admin_role(current_user, role)
-        _guard_role_change(
+
+    if updates.role_id is not None:
+        selected_role = db.query(Role).filter(Role.id == updates.role_id).first()
+        if not selected_role:
+            raise HTTPException(status_code=404, detail=f"Role {updates.role_id} not found")
+        legacy_auth._require_superuser_for_super_admin_role(current_user, selected_role)
+
+    if target is not None:
+        removes_active_super_admin = bool(
+            updates.is_active is False
+            or (selected_role is not None and not legacy_auth._is_super_admin_role(selected_role))
+        )
+        lock_and_guard_super_admin_continuity(
             db,
             current_user=current_user,
             target_user=target,
-            new_role=role,
+            removes_active_super_admin=removes_active_super_admin,
         )
 
     return legacy_auth.update_user_admin(
