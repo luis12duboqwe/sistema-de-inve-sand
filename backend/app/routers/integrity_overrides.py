@@ -66,6 +66,8 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
         "/api/channels/test-connection/{sales_profile_slug}/{channel}",
         "POST",
     ),
+    (super_admin.router, "/api/super-admin/users/{user_id}/active", "POST"),
+    (super_admin.router, "/api/super-admin/users/{user_id}/reset-role", "POST"),
     (super_admin.router, "/api/super-admin/stock/adjust", "POST"),
     (super_admin.router, "/api/super-admin/orders/{order_id}/cancel", "POST"),
     (super_admin.router, "/api/super-admin/audit-logs/{audit_id}/revert", "POST"),
