@@ -53,6 +53,45 @@ is_placeholder() {
   esac
 }
 
+database_url_has_template_password() {
+  local value="$1"
+  python3 - "$value" <<'PY'
+import sys
+from urllib.parse import urlsplit
+
+try:
+    parsed = urlsplit(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if parsed.password == "CHANGE_ME_STRONG_PASSWORD" else 1)
+PY
+}
+
+replace_database_url_password() {
+  local value="$1"
+  local replacement="$2"
+  python3 - "$value" "$replacement" <<'PY'
+import sys
+from urllib.parse import quote, urlsplit, urlunsplit
+
+parsed = urlsplit(sys.argv[1])
+if parsed.password != "CHANGE_ME_STRONG_PASSWORD":
+    raise SystemExit("DATABASE_URL no contiene el placeholder de contraseña esperado")
+if parsed.username is None or parsed.hostname is None:
+    raise SystemExit("DATABASE_URL no contiene usuario/host válidos")
+
+username = quote(parsed.username, safe="")
+password = quote(sys.argv[2], safe="")
+hostname = parsed.hostname
+if ":" in hostname and not hostname.startswith("["):
+    hostname = f"[{hostname}]"
+port = f":{parsed.port}" if parsed.port is not None else ""
+netloc = f"{username}:{password}@{hostname}{port}"
+print(urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)))
+PY
+}
+
 resolve_value() {
   local key="$1"
   local fallback="$2"
@@ -202,7 +241,11 @@ if [ -z "$DATABASE_URL_VALUE" ]; then
   EXISTING_DATABASE_URL="$(get_env DATABASE_URL)"
   if [ "$DB_COMPONENT_OVERRIDE" = false ] \
      && [ -n "$EXISTING_DATABASE_URL" ] \
-     && ! is_placeholder DATABASE_URL "$EXISTING_DATABASE_URL"; then
+     && database_url_has_template_password "$EXISTING_DATABASE_URL"; then
+    DATABASE_URL_VALUE="$(replace_database_url_password "$EXISTING_DATABASE_URL" "$POSTGRES_PASSWORD_VALUE")"
+  elif [ "$DB_COMPONENT_OVERRIDE" = false ] \
+       && [ -n "$EXISTING_DATABASE_URL" ] \
+       && ! is_placeholder DATABASE_URL "$EXISTING_DATABASE_URL"; then
     DATABASE_URL_VALUE="$EXISTING_DATABASE_URL"
   else
     DATABASE_URL_VALUE="postgresql+psycopg2://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@db:5432/${POSTGRES_DB_VALUE}"
