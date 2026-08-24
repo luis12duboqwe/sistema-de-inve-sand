@@ -101,4 +101,13 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$EXISTING_ENV" >/dev/null 2>/dev/null
 [ "$(env_value GRAFANA_ADMIN_PASSWORD "$EXISTING_ENV")" = "CHANGE_ME_GRAFANA_PASSWORD" ]
 [ "$(stat -c '%a' "$EXISTING_ENV")" = "600" ]
 
+# Ni siquiera un override explícito debe presentarse como rotación de Grafana en
+# un entorno existente. Debe fallar y dejar el archivo intacto.
+if GRAFANA_ADMIN_PASSWORD='pretend-rotation-password-2026' \
+   bash "$DEPLOY_DIR/prepare-prod-env.sh" "$EXISTING_ENV" >/dev/null 2>/dev/null; then
+  echo "El bootstrap aceptó una falsa rotación de Grafana en un entorno existente" >&2
+  exit 1
+fi
+[ "$(env_value GRAFANA_ADMIN_PASSWORD "$EXISTING_ENV")" = "CHANGE_ME_GRAFANA_PASSWORD" ]
+
 echo "Production env bootstrap tests OK"
