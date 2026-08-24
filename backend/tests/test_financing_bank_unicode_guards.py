@@ -24,6 +24,9 @@ def _actor() -> User:
         "B\u200bAC",  # zero-width space (Cf)
         "B\u00adAC",  # soft hyphen (Cf)
         "B\u0007AC",  # control character (Cc)
+        "BAC\ufe0f",  # variation selector-16 (Mn, Default_Ignorable)
+        "B\u034fAC",  # combining grapheme joiner (Mn, Default_Ignorable)
+        "B\u3164AC",  # Hangul filler (Lo, Default_Ignorable)
     ],
 )
 def test_create_bank_rejects_unsafe_unicode_as_400(db_session, unsafe_name):
@@ -57,7 +60,7 @@ def test_update_bank_rejects_invisible_unicode_and_preserves_name(db_session):
     with pytest.raises(HTTPException) as exc_info:
         update_bank(
             bank.id,
-            BankUpdate(name="Banco\u200bInicial"),
+            BankUpdate(name="Banco\ufe0fInicial"),
             db=db_session,
             current_user=_actor(),
         )
