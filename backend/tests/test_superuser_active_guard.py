@@ -1,7 +1,15 @@
-from fastapi import Depends, FastAPI
+import asyncio
+
+import pytest
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.auth import get_current_superuser, get_current_user
+from app.auth import (
+    create_access_token,
+    get_current_superuser,
+    get_current_user,
+    get_current_user_optional,
+)
 from app.models import User
 
 
@@ -24,6 +32,30 @@ def _protected_app(user: User) -> FastAPI:
         return {"username": current_user.username}
 
     return app
+
+
+def test_inactive_user_is_rejected_during_base_jwt_resolution(db_session):
+    user = _superuser(active=False)
+    db_session.add(user)
+    db_session.commit()
+    token = create_access_token({"sub": user.username})
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(get_current_user(token=token, db=db_session))
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Inactive user"
+
+
+def test_optional_auth_treats_inactive_user_as_unauthenticated(db_session):
+    user = _superuser(active=False)
+    db_session.add(user)
+    db_session.commit()
+    token = create_access_token({"sub": user.username})
+
+    resolved = asyncio.run(get_current_user_optional(token=token, db=db_session))
+
+    assert resolved is None
 
 
 def test_inactive_superuser_cannot_use_superuser_dependency():
