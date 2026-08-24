@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List
 from app.database import get_db
 from app.models import Bank, FinancingOption
@@ -37,27 +38,31 @@ def create_bank(
     if existing:
         raise HTTPException(status_code=400, detail=f"El banco '{bank.name}' ya existe")
     
-    new_bank = Bank(
-        name=bank.name, 
-        active=bank.active,
-        normal_card_rate=bank.normal_card_rate
-    )
-    db.add(new_bank)
-    db.flush()
-    
-    if bank.financing_options:
-        for opt in bank.financing_options:
-            new_opt = FinancingOption(
-                bank_id=new_bank.id,
-                months=opt.months,
-                rate=opt.rate,
-                active=opt.active
-            )
-            db.add(new_opt)
-    
-    db.commit()
-    db.refresh(new_bank)
-    return new_bank
+    try:
+        new_bank = Bank(
+            name=bank.name, 
+            active=bank.active,
+            normal_card_rate=bank.normal_card_rate
+        )
+        db.add(new_bank)
+        db.flush()
+        
+        if bank.financing_options:
+            for opt in bank.financing_options:
+                new_opt = FinancingOption(
+                    bank_id=new_bank.id,
+                    months=opt.months,
+                    rate=opt.rate,
+                    active=opt.active
+                )
+                db.add(new_opt)
+        
+        db.commit()
+        db.refresh(new_bank)
+        return new_bank
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"El banco '{bank.name}' ya existe")
 
 @router.put("/banks/{bank_id}", response_model=BankResponse)
 def update_bank(
@@ -71,16 +76,26 @@ def update_bank(
     if not bank:
         raise HTTPException(status_code=404, detail="Banco no encontrado")
     
-    if bank_update.name is not None:
+    if bank_update.name is not None and bank_update.name != bank.name:
+        existing = db.query(Bank).filter(
+            Bank.name == bank_update.name,
+            Bank.id != bank_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"El banco '{bank_update.name}' ya existe")
         bank.name = bank_update.name
     if bank_update.active is not None:
         bank.active = bank_update.active
     if bank_update.normal_card_rate is not None:
         bank.normal_card_rate = bank_update.normal_card_rate
-        
-    db.commit()
-    db.refresh(bank)
-    return bank
+    
+    try:
+        db.commit()
+        db.refresh(bank)
+        return bank
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"El banco '{bank_update.name}' ya existe")
 
 @router.post("/options", response_model=FinancingOptionResponse)
 def create_option(
