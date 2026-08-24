@@ -27,6 +27,7 @@ from app.routers import (
     stock_transfer_integrity,
     stock_transfers,
     super_admin,
+    super_admin_audit_integrity,
     super_admin_integrity,
 )
 
@@ -75,6 +76,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (super_admin.router, "/api/super-admin/users/{user_id}/reset-role", "POST"),
     (super_admin.router, "/api/super-admin/stock/adjust", "POST"),
     (super_admin.router, "/api/super-admin/orders/{order_id}/cancel", "POST"),
+    (super_admin.router, "/api/super-admin/audit-logs", "GET"),
     (super_admin.router, "/api/super-admin/audit-logs/{audit_id}/revert", "POST"),
     (ai_intelligence.router, "/api/ai/business-insights", "POST"),
 )
@@ -93,4 +95,5 @@ router.include_router(stock_transfer_integrity.router)
 router.include_router(channel_integrity.router)
 router.include_router(channel_webhook_integrity.router)
 router.include_router(super_admin_integrity.router)
+router.include_router(super_admin_audit_integrity.router)
 router.include_router(ai_business_integrity.router)
