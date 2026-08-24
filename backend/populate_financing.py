@@ -1,6 +1,6 @@
 from app.database import SessionLocal
 from app.models import Bank, FinancingOption
-from app.utils.bank_names import bank_name_key, normalize_bank_name
+from app.utils.bank_names import bank_name_hash, normalize_bank_name
 
 
 def populate():
@@ -30,8 +30,8 @@ def populate():
     try:
         for b_data in banks_data:
             name = normalize_bank_name(b_data["name"])
-            normalized_key = bank_name_key(name)
-            bank = db.query(Bank).filter(Bank.name_normalized == normalized_key).first()
+            identity_hash = bank_name_hash(name)
+            bank = db.query(Bank).filter(Bank.name_key_hash == identity_hash).first()
             if not bank:
                 bank = Bank(name=name, active=True)
                 db.add(bank)
