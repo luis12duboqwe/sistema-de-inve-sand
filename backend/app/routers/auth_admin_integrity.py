@@ -15,20 +15,20 @@ from app.schemas import UserResponse, UserUpdate
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
 
-def _lock_and_guard_super_admin_demotion(
+def lock_and_guard_super_admin_continuity(
     db: Session,
     *,
     current_user: User,
     target_user: User,
-    new_role: Role,
+    removes_active_super_admin: bool,
 ) -> None:
-    """Prevent concurrent role changes from removing the final active Super Admin."""
-    if not target_user.is_superuser or legacy_auth._is_super_admin_role(new_role):
+    """Serialize operations that could remove an active Super Admin."""
+    if not removes_active_super_admin or not target_user.is_superuser or not target_user.is_active:
         return
 
-    # Lock the full Super Admin set so concurrent demotions serialize. Refreshing
-    # actor/target after the lock also prevents a stale privileged identity from
-    # continuing if another transaction changed it while this request waited.
+    # Lock the complete active Super Admin set. Concurrent demotions/deactivations
+    # then serialize instead of both observing the same pre-change administrator
+    # count and committing a state with no active Super Admin.
     active_super_admins = (
         db.query(User)
         .filter(User.is_superuser == True, User.is_active == True)
@@ -36,6 +36,10 @@ def _lock_and_guard_super_admin_demotion(
         .with_for_update()
         .all()
     )
+
+    # The request may have waited on another administrator mutation. Refresh the
+    # actor and target after acquiring the locks so stale privilege state cannot
+    # authorize a second destructive transition.
     db.refresh(current_user)
     if target_user.id != current_user.id:
         db.refresh(target_user)
@@ -51,6 +55,21 @@ def _lock_and_guard_super_admin_demotion(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se puede dejar el sistema sin Super Admin activo",
         )
+
+
+def _guard_role_change(
+    db: Session,
+    *,
+    current_user: User,
+    target_user: User,
+    new_role: Role,
+) -> None:
+    lock_and_guard_super_admin_continuity(
+        db,
+        current_user=current_user,
+        target_user=target_user,
+        removes_active_super_admin=not legacy_auth._is_super_admin_role(new_role),
+    )
 
 
 @router.put("/users/{user_id}/role", response_model=UserResponse)
@@ -70,7 +89,7 @@ def update_user_role_integrity(
 
     legacy_auth._require_superuser_for_super_admin_target(current_user, target)
     legacy_auth._require_superuser_for_super_admin_role(current_user, role)
-    _lock_and_guard_super_admin_demotion(
+    _guard_role_change(
         db,
         current_user=current_user,
         target_user=target,
@@ -103,7 +122,7 @@ def update_user_admin_integrity(
 
         legacy_auth._require_superuser_for_super_admin_target(current_user, target)
         legacy_auth._require_superuser_for_super_admin_role(current_user, role)
-        _lock_and_guard_super_admin_demotion(
+        _guard_role_change(
             db,
             current_user=current_user,
             target_user=target,
