@@ -37,19 +37,22 @@ for key in POSTGRES_PASSWORD SECRET_KEY SETUP_TOKEN DESTRUCTIVE_OPERATION_TOKEN 
   value="$(env_value "$key")"
   [ "${#value}" -ge 12 ]
   case "$value" in
-    *CHANGE_ME*|*GENERATE_WITH*)
-      echo "$key conservó un placeholder en un entorno nuevo" >&2
+    CHANGE_ME_STRONG_PASSWORD|GENERATE_WITH_OPENSSL_RAND_HEX_32|GENERATE_WITH_FERNET_GENERATE_KEY|CHANGE_ME_GRAFANA_PASSWORD)
+      echo "$key conservó el sentinel exacto del template en un entorno nuevo" >&2
       exit 1
       ;;
   esac
 done
 
-# Simula una instalación existente con contraseña manual y URL codificada. Una
-# segunda preparación no debe reconstruir ni dañar el DATABASE_URL operativo.
-MANUAL_DB_PASSWORD='manual@password/with:special'
-CUSTOM_DATABASE_URL='postgresql+psycopg2://inventory_admin:manual%40password%2Fwith%3Aspecial@db:5432/inventory'
+# Simula valores reales que contienen palabras parecidas a los placeholders. Deben
+# conservarse: sólo los sentinelas exactos del template son reemplazables.
+MANUAL_DB_PASSWORD='prod_CHANGE_ME_later_2026'
+CUSTOM_DATABASE_URL='postgresql+psycopg2://inventory_admin:prod_CHANGE_ME_later_2026@db:5432/inventory'
+REAL_HOST='myexample.com'
 sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${MANUAL_DB_PASSWORD}|" "$ENV_FILE"
 sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${CUSTOM_DATABASE_URL}|" "$ENV_FILE"
+sed -i "s|^ALLOWED_HOSTS=.*|ALLOWED_HOSTS=${REAL_HOST},localhost,127.0.0.1|" "$ENV_FILE"
+sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://${REAL_HOST}|" "$ENV_FILE"
 
 POSTGRES_PASSWORD_BEFORE="$(env_value POSTGRES_PASSWORD)"
 DATABASE_URL_BEFORE="$(env_value DATABASE_URL)"
@@ -62,10 +65,12 @@ ALLOWED_HOSTS_BEFORE="$(env_value ALLOWED_HOSTS)"
 CORS_BEFORE="$(env_value CORS_ORIGINS)"
 
 # Una segunda ejecución sin overrides debe ser idempotente: no rota secretos,
-# dominio ni una URL de base de datos personalizada.
+# dominio ni una URL de base de datos personalizada, incluso cuando sus valores
+# contienen texto como CHANGE_ME o example.com de forma legítima.
 bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 
 [ "$(env_value POSTGRES_PASSWORD)" = "$POSTGRES_PASSWORD_BEFORE" ]
+[ "$(env_value POSTGRES_PASSWORD)" = "$MANUAL_DB_PASSWORD" ]
 [ "$(env_value DATABASE_URL)" = "$DATABASE_URL_BEFORE" ]
 [ "$(env_value DATABASE_URL)" = "$CUSTOM_DATABASE_URL" ]
 [ "$(env_value SECRET_KEY)" = "$SECRET_KEY_BEFORE" ]
@@ -75,6 +80,7 @@ bash "$DEPLOY_DIR/prepare-prod-env.sh" "$ENV_FILE" >/dev/null
 [ "$(env_value GRAFANA_ADMIN_PASSWORD)" = "$GRAFANA_PASSWORD_BEFORE" ]
 [ "$(env_value ALLOWED_HOSTS)" = "$ALLOWED_HOSTS_BEFORE" ]
 [ "$(env_value CORS_ORIGINS)" = "$CORS_BEFORE" ]
+[ "$(env_value CORS_ORIGINS)" = "https://${REAL_HOST}" ]
 [ "$(stat -c '%a' "$ENV_FILE")" = "600" ]
 
 # APP_DOMAIN explícito representa un cambio intencional de dominio y debe actualizar
