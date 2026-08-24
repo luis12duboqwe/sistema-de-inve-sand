@@ -2,6 +2,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import Role, User
+from app.routers.auth_admin_integrity import (
+    update_user_admin_integrity,
+    update_user_role_integrity,
+)
 from app.routers.auth_router import (
     ensure_default_rbac,
     register_user,
@@ -167,3 +171,66 @@ def test_register_user_rejects_unknown_role_without_creating_user(db_session):
 
     assert exc_info.value.status_code == 404
     assert db_session.query(User).filter(User.username == "badroleuser").first() is None
+
+
+def test_last_active_super_admin_cannot_demote_self_through_role_endpoint(db_session):
+    super_admin_role, seller_role = _roles(db_session)
+    actor = _user("last-root-role", is_superuser=True, role_id=super_admin_role.id)
+    db_session.add(actor)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_user_role_integrity(
+            actor.id,
+            role_id=seller_role.id,
+            current_user=actor,
+            db=db_session,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "sin Super Admin activo" in exc_info.value.detail
+    db_session.refresh(actor)
+    assert actor.role_id == super_admin_role.id
+    assert actor.is_superuser is True
+
+
+def test_last_active_super_admin_cannot_demote_self_through_admin_update(db_session):
+    super_admin_role, seller_role = _roles(db_session)
+    actor = _user("last-root-admin", is_superuser=True, role_id=super_admin_role.id)
+    db_session.add(actor)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_user_admin_integrity(
+            actor.id,
+            UserUpdate(role_id=seller_role.id),
+            current_user=actor,
+            db=db_session,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "sin Super Admin activo" in exc_info.value.detail
+    db_session.refresh(actor)
+    assert actor.role_id == super_admin_role.id
+    assert actor.is_superuser is True
+
+
+def test_super_admin_can_be_demoted_when_another_active_super_admin_remains(db_session):
+    super_admin_role, seller_role = _roles(db_session)
+    actor = _user("root-to-demote", is_superuser=True, role_id=super_admin_role.id)
+    backup = _user("backup-root", is_superuser=True, role_id=super_admin_role.id)
+    db_session.add_all([actor, backup])
+    db_session.commit()
+
+    updated = update_user_role_integrity(
+        actor.id,
+        role_id=seller_role.id,
+        current_user=actor,
+        db=db_session,
+    )
+
+    assert updated.role_id == seller_role.id
+    assert updated.is_superuser is False
+    db_session.refresh(backup)
+    assert backup.is_active is True
+    assert backup.is_superuser is True
