@@ -36,9 +36,19 @@ get_env() {
 }
 
 is_placeholder() {
-  local value="$1"
-  case "$value" in
-    *CHANGE_ME*|*GENERATE_WITH*|*midominio.com*|*example.com*) return 0 ;;
+  local key="$1"
+  local value="$2"
+  case "${key}:${value}" in
+    "POSTGRES_PASSWORD:CHANGE_ME_STRONG_PASSWORD"|\
+    "DATABASE_URL:postgresql+psycopg2://inventory_admin:CHANGE_ME_STRONG_PASSWORD@db:5432/inventory"|\
+    "SECRET_KEY:GENERATE_WITH_OPENSSL_RAND_HEX_32"|\
+    "CHANNEL_ENCRYPTION_KEY:GENERATE_WITH_FERNET_GENERATE_KEY"|\
+    "SETUP_TOKEN:GENERATE_WITH_OPENSSL_RAND_HEX_32"|\
+    "DESTRUCTIVE_OPERATION_TOKEN:GENERATE_WITH_OPENSSL_RAND_HEX_32"|\
+    "ALLOWED_HOSTS:api.midominio.com,localhost,127.0.0.1"|\
+    "CORS_ORIGINS:https://api.midominio.com"|\
+    "BACKUP_RCLONE_DESTINATION:CHANGE_ME_OFFSITE_DESTINATION"|\
+    "GRAFANA_ADMIN_PASSWORD:CHANGE_ME_GRAFANA_PASSWORD") return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -55,7 +65,7 @@ resolve_value() {
   fi
 
   existing="$(get_env "$key")"
-  if [ -n "$existing" ] && ! is_placeholder "$existing"; then
+  if [ -n "$existing" ] && ! is_placeholder "$key" "$existing"; then
     printf '%s' "$existing"
     return
   fi
@@ -75,7 +85,7 @@ resolve_hex_secret() {
   fi
 
   existing="$(get_env "$key")"
-  if [ -n "$existing" ] && ! is_placeholder "$existing"; then
+  if [ -n "$existing" ] && ! is_placeholder "$key" "$existing"; then
     printf '%s' "$existing"
     return
   fi
@@ -93,7 +103,7 @@ resolve_fernet_secret() {
   fi
 
   existing="$(get_env CHANNEL_ENCRYPTION_KEY)"
-  if [ -n "$existing" ] && ! is_placeholder "$existing"; then
+  if [ -n "$existing" ] && ! is_placeholder CHANNEL_ENCRYPTION_KEY "$existing"; then
     printf '%s' "$existing"
     return
   fi
@@ -109,7 +119,7 @@ resolve_grafana_password() {
   if [ "$ENV_FILE_CREATED" = true ]; then
     if [ -n "$env_value" ]; then
       printf '%s' "$env_value"
-    elif [ -n "$existing" ] && ! is_placeholder "$existing"; then
+    elif [ -n "$existing" ] && ! is_placeholder GRAFANA_ADMIN_PASSWORD "$existing"; then
       printf '%s' "$existing"
     else
       generate_hex 24
@@ -167,7 +177,7 @@ CORS_ORIGINS_OVERRIDE="${CORS_ORIGINS-}"
 APP_DOMAIN="$APP_DOMAIN_OVERRIDE"
 if [ -z "$APP_DOMAIN" ]; then
   EXISTING_CORS="$(get_env CORS_ORIGINS)"
-  if [ -n "$EXISTING_CORS" ] && ! is_placeholder "$EXISTING_CORS"; then
+  if [ -n "$EXISTING_CORS" ] && ! is_placeholder CORS_ORIGINS "$EXISTING_CORS"; then
     APP_DOMAIN="${EXISTING_CORS%%,*}"
     APP_DOMAIN="${APP_DOMAIN#https://}"
     APP_DOMAIN="${APP_DOMAIN#http://}"
@@ -192,7 +202,7 @@ if [ -z "$DATABASE_URL_VALUE" ]; then
   EXISTING_DATABASE_URL="$(get_env DATABASE_URL)"
   if [ "$DB_COMPONENT_OVERRIDE" = false ] \
      && [ -n "$EXISTING_DATABASE_URL" ] \
-     && ! is_placeholder "$EXISTING_DATABASE_URL"; then
+     && ! is_placeholder DATABASE_URL "$EXISTING_DATABASE_URL"; then
     DATABASE_URL_VALUE="$EXISTING_DATABASE_URL"
   else
     DATABASE_URL_VALUE="postgresql+psycopg2://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@db:5432/${POSTGRES_DB_VALUE}"
@@ -249,7 +259,7 @@ fi
 chmod 600 "$ENV_FILE"
 
 if [ "$ENV_FILE_CREATED" = false ] \
-   && { [ -z "$GRAFANA_ADMIN_PASSWORD_VALUE" ] || is_placeholder "$GRAFANA_ADMIN_PASSWORD_VALUE"; }; then
+   && { [ -z "$GRAFANA_ADMIN_PASSWORD_VALUE" ] || is_placeholder GRAFANA_ADMIN_PASSWORD "$GRAFANA_ADMIN_PASSWORD_VALUE"; }; then
   cat >&2 <<'EOF2'
 AVISO: el entorno existente conserva una contraseña de Grafana vacía/placeholder.
 No se reemplazó automáticamente porque podría existir un volumen Grafana ya
