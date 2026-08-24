@@ -9,7 +9,7 @@ from app.database import Base
 from app.models import Bank, User
 from app.routers.financing import create_bank, update_bank
 from app.schemas import BankCreate, BankUpdate
-from app.utils.bank_names import bank_name_key
+from app.utils.bank_names import bank_name_hash, bank_name_key
 from postgres_test_utils import create_postgres_test_engine
 
 
@@ -132,6 +132,26 @@ def test_bank_name_normalization_rejects_canonically_equivalent_duplicate(db_ses
     assert db_session.query(Bank).count() == 1
 
 
+def test_compatibility_normalization_happens_before_casefold(db_session):
+    compatibility_variant = "ᴮAC"
+    ordinary_variant = "BAC"
+    assert bank_name_key(compatibility_variant) == "bac"
+    assert bank_name_key(compatibility_variant) == bank_name_key(ordinary_variant)
+
+    db_session.add(_bank(compatibility_variant))
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_bank(
+            BankCreate(name=ordinary_variant, active=True, normal_card_rate=0),
+            db=db_session,
+            current_user=_actor(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert db_session.query(Bank).count() == 1
+
+
 def test_create_and_update_reject_blank_normalized_names(db_session):
     bank = _bank("Banco Inicial")
     db_session.add(bank)
@@ -169,11 +189,11 @@ def test_create_bank_stores_trimmed_name_and_unique_key(db_session):
     assert stored is not None
     assert stored.name == "Banco Nuevo"
     assert stored.name_normalized == "banco nuevo"
+    assert stored.name_key_hash == bank_name_hash("Banco Nuevo")
+    assert len(stored.name_key_hash) == 64
 
 
 def test_create_bank_allows_casefold_key_to_expand_beyond_255(db_session):
-    # U+0130 casefolds to two code points ("i" + combining dot), so this
-    # display name is valid under the 255-char schema cap while its key is 256.
     display_name = "İ" * 128
     normalized_key = bank_name_key(display_name)
     assert len(display_name) == 128
@@ -189,6 +209,28 @@ def test_create_bank_allows_casefold_key_to_expand_beyond_255(db_session):
     assert stored is not None
     assert stored.name == display_name
     assert stored.name_normalized == normalized_key
+    assert stored.name_key_hash == bank_name_hash(display_name)
+
+
+def test_create_bank_handles_canonical_key_larger_than_postgres_btree_limit(db_session):
+    # U+FDFA expands heavily under NFKC. The display name still fits the 255-char
+    # API cap, but the full canonical key is >8 KB and must never be B-tree indexed.
+    display_name = "ﷺ" * 255
+    normalized_key = bank_name_key(display_name)
+    assert len(display_name) == 255
+    assert len(normalized_key.encode("utf-8")) > 8000
+
+    response = create_bank(
+        BankCreate(name=display_name, active=True, normal_card_rate=0),
+        db=db_session,
+        current_user=_actor(),
+    )
+
+    stored = db_session.get(Bank, response.id)
+    assert stored is not None
+    assert stored.name_normalized == normalized_key
+    assert stored.name_key_hash == bank_name_hash(display_name)
+    assert len(stored.name_key_hash) == 64
 
 
 def test_update_bank_still_persists_valid_changes(db_session):
@@ -208,6 +250,7 @@ def test_update_bank_still_persists_valid_changes(db_session):
     db_session.refresh(bank)
     assert bank.name == "Banco Actualizado"
     assert bank.name_normalized == "banco actualizado"
+    assert bank.name_key_hash == bank_name_hash("Banco Actualizado")
     assert bank.active is False
 
 
@@ -249,6 +292,7 @@ def test_database_unique_key_blocks_concurrent_case_variants():
             rows = check_session.query(Bank).all()
             assert len(rows) == 1
             assert rows[0].name_normalized == "bac"
+            assert rows[0].name_key_hash == bank_name_hash("BAC")
         finally:
             check_session.close()
     finally:
