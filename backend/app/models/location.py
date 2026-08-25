@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 from app.database import Base
-from app.utils.supplier_names import (
+from app.supplier_identity import (
     normalize_supplier_name,
     supplier_name_hash,
     supplier_name_key,
