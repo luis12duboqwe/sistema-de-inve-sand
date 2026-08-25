@@ -254,12 +254,55 @@ def _apply_bank_name_normalization_migration() -> None:
             )
 
 
+def _apply_supplier_name_uniqueness_migration() -> None:
+    """Add a database concurrency boundary without rewriting historical suppliers."""
+    if "suppliers" not in inspect(database.engine).get_table_names():
+        return
+
+    seen: dict[str, tuple[int, str]] = {}
+    with database.engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, nombre, lower(trim(nombre)) AS normalized_name "
+                "FROM suppliers ORDER BY id"
+            )
+        ).mappings().all()
+
+        for row in rows:
+            supplier_id = int(row["id"])
+            raw_name = str(row["nombre"] or "")
+            normalized_name = str(row["normalized_name"] or "")
+            if not normalized_name:
+                raise RuntimeError(
+                    f"Proveedor existente ID {supplier_id} tiene un nombre vacío; "
+                    "corrígelo antes de continuar la migración"
+                )
+
+            previous = seen.get(normalized_name)
+            if previous is not None:
+                previous_id, previous_name = previous
+                raise RuntimeError(
+                    "Proveedores duplicados después de normalizar: "
+                    f"ID {previous_id} '{previous_name}' e ID {supplier_id} '{raw_name}'. "
+                    "Unifica esos registros antes de continuar la migración."
+                )
+            seen[normalized_name] = (supplier_id, raw_name)
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_suppliers_nombre_normalized "
+                "ON suppliers (lower(trim(nombre)))"
+            )
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
     ("20260820_01_order_completion_timestamp", _apply_order_completion_timestamp_migration),
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
     ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
+    ("20260825_01_supplier_name_uniqueness", _apply_supplier_name_uniqueness_migration),
 )
 
 
@@ -331,6 +374,29 @@ def _backup_sqlite_before_migration() -> Path | None:
     return destination
 
 
+def _supplier_unique_index_exists() -> bool:
+    if "suppliers" not in inspect(database.engine).get_table_names():
+        return True
+
+    with database.engine.connect() as conn:
+        if _dialect_name() == "sqlite":
+            rows = conn.execute(text("PRAGMA index_list('suppliers')")).fetchall()
+            return any(
+                str(row[1]) == "ix_suppliers_nombre_normalized" and bool(row[2])
+                for row in rows
+            )
+
+        indexdef = conn.execute(
+            text(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE schemaname = current_schema() "
+                "AND tablename = 'suppliers' "
+                "AND indexname = 'ix_suppliers_nombre_normalized'"
+            )
+        ).scalar_one_or_none()
+        return bool(indexdef and "CREATE UNIQUE INDEX" in str(indexdef).upper())
+
+
 def _validate_critical_schema() -> None:
     inspector = inspect(database.engine)
     table_names = set(inspector.get_table_names())
@@ -381,6 +447,29 @@ def _validate_critical_schema() -> None:
         if not has_unique_hash_index:
             raise RuntimeError(
                 "Esquema incompleto: falta índice único ix_banks_name_key_hash"
+            )
+
+    if "suppliers" in table_names:
+        with database.engine.connect() as conn:
+            invalid_count = conn.execute(
+                text("SELECT COUNT(*) FROM suppliers WHERE trim(nombre) = ''")
+            ).scalar_one()
+            duplicate = conn.execute(
+                text(
+                    "SELECT lower(trim(nombre)) AS normalized_name "
+                    "FROM suppliers GROUP BY lower(trim(nombre)) "
+                    "HAVING COUNT(*) > 1 LIMIT 1"
+                )
+            ).first()
+        if int(invalid_count) != 0:
+            raise RuntimeError("Esquema incompleto: existen proveedores con nombre vacío")
+        if duplicate is not None:
+            raise RuntimeError(
+                "Esquema incompleto: existen proveedores duplicados después de normalizar"
+            )
+        if not _supplier_unique_index_exists():
+            raise RuntimeError(
+                "Esquema incompleto: falta índice único ix_suppliers_nombre_normalized"
             )
 
 
