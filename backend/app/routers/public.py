@@ -10,6 +10,12 @@ from app.schemas import CategoriaEnum, CondicionEnum, PaginatedResponse, PublicP
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
+
+def _escape_like_literal(value: str) -> str:
+    """Escape SQL LIKE metacharacters so public catalog search is literal text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("/catalog", response_model=PaginatedResponse[PublicProductResponse])
 def get_public_catalog(
     search: Optional[str] = Query(None),
@@ -29,12 +35,12 @@ def get_public_catalog(
     query = query.options(joinedload(Product.stock_items))
     
     if search:
-        search_term = f"%{search}%"
+        search_term = f"%{_escape_like_literal(search)}%"
         query = query.filter(
             or_(
-                Product.nombre.ilike(search_term),
-                Product.marca.ilike(search_term),
-                Product.modelo.ilike(search_term)
+                Product.nombre.ilike(search_term, escape="\\"),
+                Product.marca.ilike(search_term, escape="\\"),
+                Product.modelo.ilike(search_term, escape="\\")
             )
         )
         
