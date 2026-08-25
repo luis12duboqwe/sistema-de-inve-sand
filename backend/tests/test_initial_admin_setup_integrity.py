@@ -71,8 +71,15 @@ def test_failed_initial_setup_rolls_back_claim_and_allows_retry(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["user"]["username"] == "retryadmin"
-    assert db_session.query(User).count() == 1
+    payload = response.json()
+    assert payload["token_type"] == "bearer"
+    assert payload["access_token"]
+    assert "user" not in payload  # Token response model intentionally filters extras.
+
+    users = db_session.query(User).all()
+    assert len(users) == 1
+    assert users[0].username == "retryadmin"
+    assert users[0].is_superuser is True
     assert db_session.query(Role).count() == len(auth_setup_integrity.SYSTEM_ROLE_CONFIG)
     assert db_session.query(Permission).count() == len(auth_setup_integrity.SYSTEM_PERMISSIONS)
     assert (
