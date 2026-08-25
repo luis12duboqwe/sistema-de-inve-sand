@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import User
-from app.routers import auth_register_integrity, auth_router, integrity_overrides
+from app.routers import auth_register_integrity
 from app.schemas import UserCreate
 
 
@@ -152,20 +152,31 @@ def test_unknown_integrity_conflict_is_not_mislabeled_as_duplicate(
     assert "retry" in str(error.detail).lower()
 
 
-def test_register_route_replaces_legacy_with_one_canonical_handler() -> None:
-    legacy = [
-        route
-        for route in auth_router.router.routes
-        if getattr(route, "path", None) == "/api/auth/register"
-        and "POST" in (getattr(route, "methods", set()) or set())
-    ]
-    canonical = [
-        route
-        for route in integrity_overrides.router.routes
-        if getattr(route, "path", None) == "/api/auth/register"
-        and "POST" in (getattr(route, "methods", set()) or set())
-    ]
+def test_register_route_is_canonical_in_openapi_and_runtime(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    schema_response = client.get("/openapi.json")
+    assert schema_response.status_code == 200, schema_response.text
+    register_path = schema_response.json()["paths"]["/api/auth/register"]
+    assert set(register_path) == {"post"}
+    assert register_path["post"]["operationId"].startswith("register_user_integrity_")
 
-    assert legacy == []
-    assert len(canonical) == 1
-    assert canonical[0].endpoint.__name__ == "register_user_integrity"
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "username": "runtime-register-user",
+            "email": "runtime-register@example.com",
+            "password": PASSWORD,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["username"] == "runtime-register-user"
+
+    db_session.expire_all()
+    assert (
+        db_session.query(User)
+        .filter(User.username == "runtime-register-user")
+        .count()
+        == 1
+    )
