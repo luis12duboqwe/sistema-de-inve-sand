@@ -1,8 +1,13 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.supplier_identity import (
+    normalize_supplier_name,
+    supplier_name_hash,
+    supplier_name_key,
+)
 
 
 class Location(Base):
@@ -69,6 +74,10 @@ class Supplier(Base):
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     nombre = Column(String, nullable=False, index=True)
+    # Persist the full canonical identity for diagnostics/migration verification.
+    nombre_normalized = Column(Text, nullable=False)
+    # Fixed-size digest owns DB-level uniqueness consistently on PostgreSQL/SQLite.
+    nombre_key_hash = Column(String(64), nullable=False, unique=True, index=True)
     contacto = Column(String, nullable=True)
     telefono = Column(String, nullable=True)
     email = Column(String, nullable=True)
@@ -82,6 +91,13 @@ class Supplier(Base):
     products = relationship("Product", back_populates="supplier")
 
     __table_args__ = (Index("idx_supplier_profile_active", "profile_id", "activo"),)
+
+    @validates("nombre")
+    def _canonicalize_nombre(self, _key: str, value: str) -> str:
+        normalized = normalize_supplier_name(value)
+        self.nombre_normalized = supplier_name_key(normalized)
+        self.nombre_key_hash = supplier_name_hash(normalized)
+        return normalized
 
 
 __all__ = ["Location", "SalesProfile", "Profile", "Supplier"]

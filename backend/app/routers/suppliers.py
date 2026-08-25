@@ -1,6 +1,5 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import List, Optional
@@ -8,6 +7,7 @@ from app.database import get_db
 from app.auth import get_current_active_user, check_permission
 from app.models import Supplier, Profile, User
 from app.schemas import SupplierCreate, SupplierUpdate, SupplierResponse
+from app.utils.supplier_names import normalize_supplier_name, supplier_name_hash
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,39 @@ router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 def _escape_like_literal(value: str) -> str:
     """Escape SQL LIKE metacharacters so supplier search is literal text."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _supplier_name_filter(value: str):
+    """Match the stable supplier identity enforced by the database."""
+    return Supplier.nombre_key_hash == supplier_name_hash(value)
+
+
+def _supplier_integrity_error(
+    db: Session,
+    name: str,
+    *,
+    exclude_supplier_id: Optional[int] = None,
+) -> HTTPException:
+    """Return duplicate-name errors only when that collision is proven."""
+    clean_name = normalize_supplier_name(name)
+    query = db.query(Supplier).filter(_supplier_name_filter(clean_name))
+    if exclude_supplier_id is not None:
+        query = query.filter(Supplier.id != exclude_supplier_id)
+
+    if query.first() is not None:
+        return HTTPException(
+            status_code=400,
+            detail=f"El proveedor '{clean_name}' ya existe"
+        )
+
+    logger.warning(
+        "Supplier write hit an unrelated integrity conflict (supplier_id=%s)",
+        exclude_supplier_id,
+    )
+    return HTTPException(
+        status_code=409,
+        detail="Conflicto de integridad al guardar el proveedor. Reintente la operación."
+    )
 
 
 def _serialize_supplier(supplier: Supplier) -> SupplierResponse:
@@ -54,17 +87,15 @@ def create_supplier(
     Returns:
         Proveedor creado
     """
-    # Validar que el nombre sea único (case-insensitive)
-    nombre_limpio = (supplier.nombre or "").strip()
-    if not nombre_limpio:
-        raise HTTPException(
-            status_code=400,
-            detail="El nombre del proveedor no puede estar vacío"
-        )
+    # Validar que el nombre sea único con la misma identidad Unicode estable que
+    # la restricción de base de datos. El índice único sigue siendo la autoridad
+    # final cuando dos solicitudes pasan este precheck al mismo tiempo.
+    try:
+        nombre_limpio = normalize_supplier_name(supplier.nombre)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     
-    existing = db.query(Supplier).filter(
-        func.lower(Supplier.nombre) == nombre_limpio.lower()
-    ).first()
+    existing = db.query(Supplier).filter(_supplier_name_filter(nombre_limpio)).first()
     if existing:
         raise HTTPException(
             status_code=400,
@@ -92,10 +123,7 @@ def create_supplier(
         return _serialize_supplier(db_supplier)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Error de integridad: El proveedor ya existe."
-        )
+        raise _supplier_integrity_error(db, nombre_limpio)
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Database error creating supplier")
@@ -199,22 +227,25 @@ def update_supplier(
             status_code=404,
             detail=f"Proveedor con ID {supplier_id} no encontrado"
         )
+
+    integrity_name = supplier.nombre
     
     try:
         # Aplicar actualizaciones
         update_data = updates.model_dump(exclude_unset=True)
         
-        # Validar nombre único si se está actualizando (case-insensitive)
+        # Validar nombre único si se está actualizando con la misma identidad que
+        # usa la restricción de base de datos.
         if 'nombre' in update_data:
-            nuevo_nombre = (update_data['nombre'] or "").strip()
-            if not nuevo_nombre:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El nombre del proveedor no puede estar vacío"
-                )
-            if nuevo_nombre.lower() != supplier.nombre.lower():
+            try:
+                nuevo_nombre = normalize_supplier_name(update_data['nombre'])
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            integrity_name = nuevo_nombre
+            target_hash = supplier_name_hash(nuevo_nombre)
+            if target_hash != supplier.nombre_key_hash:
                 existing = db.query(Supplier).filter(
-                    func.lower(Supplier.nombre) == nuevo_nombre.lower(),
+                    Supplier.nombre_key_hash == target_hash,
                     Supplier.id != supplier_id
                 ).first()
                 if existing:
@@ -236,9 +267,10 @@ def update_supplier(
         raise
     except IntegrityError:
         db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Error de integridad: El nombre de proveedor ya existe."
+        raise _supplier_integrity_error(
+            db,
+            integrity_name,
+            exclude_supplier_id=supplier_id,
         )
     except SQLAlchemyError:
         db.rollback()
