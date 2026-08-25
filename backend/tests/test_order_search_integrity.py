@@ -17,6 +17,16 @@ def _order(customer_name: str, customer_phone: str) -> Order:
     )
 
 
+def test_openapi_exposes_canonical_order_search_handler(client: TestClient) -> None:
+    schema_response = client.get("/openapi.json")
+    assert schema_response.status_code == 200, schema_response.text
+
+    schema = schema_response.json()
+    search_path = schema["paths"]["/api/orders/search"]
+    assert set(search_path) == {"post"}
+    assert search_path["post"]["operationId"].startswith("search_orders_integrity_")
+
+
 def test_customer_search_treats_like_wildcards_as_literal_text(
     client: TestClient,
     db_session: Session,
