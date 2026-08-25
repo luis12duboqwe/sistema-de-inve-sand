@@ -5,14 +5,17 @@ GET /api/channels/monitoring/metrics
 GET /api/channels/monitoring/audit/{profile_slug}
 """
 
+from datetime import UTC, datetime, timedelta
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, UTC, timedelta
-from app.database import get_db
-from app.models import SalesProfile, InteractionLog, ProcessedMessage
+
 from app.auth import check_permission
 from app.channel_audit import channel_metrics
-from typing import Any, Dict, List
+from app.database import get_db
+from app.models import InteractionLog, ProcessedMessage, SalesProfile
+from app.utils.sales_profile_config import parse_channels
 
 router = APIRouter(
     prefix="/api/channels/monitoring",
@@ -25,7 +28,7 @@ router = APIRouter(
 def get_channel_metrics() -> Dict[str, Any]:
     """
     Retorna métricas activas de canales.
-    
+
     Incluye:
     - Mensajes recibidos por canal/perfil
     - Mensajes enviados por canal/perfil
@@ -46,12 +49,12 @@ def get_profile_audit_log(
 ) -> Dict[str, Any]:
     """
     Retorna log de auditoría para un perfil.
-    
+
     Incluye:
     - Últimas interacciones (últimas N horas)
     - Mensajes procesados / duplicados
     - Cambios de configuración (si se guardó)
-    
+
     Args:
         sales_profile_slug: Slug del perfil
         hours: Rango de horas a buscar (default 24, max 7 días)
@@ -59,26 +62,26 @@ def get_profile_audit_log(
     # Validar perfil existe
     profile = db.query(SalesProfile).filter(
         SalesProfile.slug == sales_profile_slug,
-        SalesProfile.active == True
+        SalesProfile.active == True,
     ).first()
-    
+
     if not profile:
         raise HTTPException(status_code=404, detail=f"Perfil {sales_profile_slug} no encontrado")
-    
+
     cutoff_time = datetime.now(UTC) - timedelta(hours=hours)
-    
+
     # Últimas interacciones
     interactions = db.query(InteractionLog).filter(
         InteractionLog.sales_profile_id == profile.id,
-        InteractionLog.created_at >= cutoff_time
+        InteractionLog.created_at >= cutoff_time,
     ).order_by(InteractionLog.created_at.desc()).limit(100).all()
-    
+
     # Mensajes procesados (del último día por defecto)
     processed_messages = db.query(ProcessedMessage).filter(
         ProcessedMessage.sales_profile_id == profile.id,
-        ProcessedMessage.processed_at >= cutoff_time
+        ProcessedMessage.processed_at >= cutoff_time,
     ).order_by(ProcessedMessage.processed_at.desc()).limit(100).all()
-    
+
     # Agrupar por canal
     by_channel: Dict[str, List[Dict[str, str]]] = {}
     for msg in processed_messages:
@@ -91,7 +94,7 @@ def get_profile_audit_log(
             "processed_at": msg.processed_at.isoformat(),
             "expires_at": msg.expires_at.isoformat(),
         })
-    
+
     return {
         "timestamp": datetime.now(UTC).isoformat(),
         "sales_profile_slug": sales_profile_slug,
@@ -119,40 +122,38 @@ def get_profile_audit_log(
 def get_channel_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Retorna estado general del sistema de canales.
-    
+
     Incluye:
     - Profiles activos con canales configurados
     - Últimas interacciones globales
     - Métricas agregadas
     """
-    # Profiles con canales
     profiles = db.query(SalesProfile).filter(
         SalesProfile.active == True,
-        SalesProfile.canales != None
+        SalesProfile.canales != None,
     ).all()
-    
+
     profiles_with_channels: List[Dict[str, Any]] = []
-    for p in profiles:
-        canales_raw = str(p.canales or "").strip()
-        if canales_raw:
-            canales = [canal.strip() for canal in canales_raw.split(',') if canal.strip()]
-            profiles_with_channels.append({
-                "slug": str(p.slug),
-                "name": str(p.name),
-                "canales": canales,
-                "tipo": str(p.tipo),
-            })
-    
-    # Últimas 24h
+    for profile in profiles:
+        channels = parse_channels(profile.canales)
+        if not channels:
+            continue
+        profiles_with_channels.append({
+            "slug": str(profile.slug),
+            "name": str(profile.name),
+            "canales": channels,
+            "tipo": str(profile.tipo),
+        })
+
     cutoff_time = datetime.now(UTC) - timedelta(hours=24)
     recent_interactions = db.query(InteractionLog).filter(
-        InteractionLog.created_at >= cutoff_time
+        InteractionLog.created_at >= cutoff_time,
     ).count()
-    
+
     recent_messages = db.query(ProcessedMessage).filter(
-        ProcessedMessage.processed_at >= cutoff_time
+        ProcessedMessage.processed_at >= cutoff_time,
     ).count()
-    
+
     return {
         "timestamp": datetime.now(UTC).isoformat(),
         "system_status": "operational",
