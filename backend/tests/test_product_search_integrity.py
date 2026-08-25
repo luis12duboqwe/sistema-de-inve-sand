@@ -61,13 +61,10 @@ def test_product_search_treats_backslash_as_literal(
     assert _search_names(client, "\\") == ["Ruta\\Central"]
 
 
-def test_product_list_exposes_single_canonical_get_route(client: TestClient) -> None:
-    matching = [
-        route
-        for route in client.app.routes
-        if getattr(route, "path", None) == "/api/products"
-        and "GET" in (getattr(route, "methods", set()) or set())
-    ]
+def test_product_list_exposes_canonical_get_route(client: TestClient) -> None:
+    schema_response = client.get("/openapi.json")
+    assert schema_response.status_code == 200, schema_response.text
 
-    assert len(matching) == 1
-    assert matching[0].endpoint.__module__.endswith("product_search_integrity")
+    product_path = schema_response.json()["paths"]["/api/products"]
+    assert "get" in product_path
+    assert product_path["get"]["operationId"].startswith("list_products_integrity_")
