@@ -22,6 +22,7 @@ from sqlalchemy import inspect, text
 
 import app.database as database
 from app.utils.bank_names import bank_name_hash, bank_name_key
+from app.utils.supplier_names import supplier_name_hash, supplier_name_key
 
 
 logger = logging.getLogger(__name__)
@@ -255,30 +256,39 @@ def _apply_bank_name_normalization_migration() -> None:
 
 
 def _apply_supplier_name_uniqueness_migration() -> None:
-    """Add a database concurrency boundary without rewriting historical suppliers."""
+    """Backfill stable supplier identities without rewriting historical display names."""
     if "suppliers" not in inspect(database.engine).get_table_names():
         return
 
-    seen: dict[str, tuple[int, str]] = {}
+    _add_column_if_missing("suppliers", "nombre_normalized", "TEXT")
+    _add_column_if_missing("suppliers", "nombre_key_hash", "VARCHAR(64)")
+
+    # Remove the short-lived expression-index name if an unreleased branch was
+    # tested against a local database. The released invariant is the digest key.
+    with database.engine.begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS ix_suppliers_nombre_normalized"))
+
+    seen_keys: dict[str, tuple[int, str]] = {}
+    seen_hashes: dict[str, tuple[str, int, str]] = {}
     with database.engine.begin() as conn:
         rows = conn.execute(
-            text(
-                "SELECT id, nombre, lower(trim(nombre)) AS normalized_name "
-                "FROM suppliers ORDER BY id"
-            )
+            text("SELECT id, nombre FROM suppliers ORDER BY id")
         ).mappings().all()
+        normalized_rows: list[tuple[int, str, str]] = []
 
         for row in rows:
             supplier_id = int(row["id"])
             raw_name = str(row["nombre"] or "")
-            normalized_name = str(row["normalized_name"] or "")
-            if not normalized_name:
+            try:
+                normalized_key = supplier_name_key(raw_name)
+                normalized_hash = supplier_name_hash(raw_name)
+            except ValueError as exc:
                 raise RuntimeError(
-                    f"Proveedor existente ID {supplier_id} tiene un nombre vacío; "
+                    f"Proveedor existente ID {supplier_id} tiene un nombre inválido; "
                     "corrígelo antes de continuar la migración"
-                )
+                ) from exc
 
-            previous = seen.get(normalized_name)
+            previous = seen_keys.get(normalized_key)
             if previous is not None:
                 previous_id, previous_name = previous
                 raise RuntimeError(
@@ -286,14 +296,47 @@ def _apply_supplier_name_uniqueness_migration() -> None:
                     f"ID {previous_id} '{previous_name}' e ID {supplier_id} '{raw_name}'. "
                     "Unifica esos registros antes de continuar la migración."
                 )
-            seen[normalized_name] = (supplier_id, raw_name)
+
+            hash_previous = seen_hashes.get(normalized_hash)
+            if hash_previous is not None and hash_previous[0] != normalized_key:
+                _, previous_id, previous_name = hash_previous
+                raise RuntimeError(
+                    "Colisión de identidad de proveedor detectada: "
+                    f"ID {previous_id} '{previous_name}' e ID {supplier_id} '{raw_name}'. "
+                    "No se puede continuar de forma segura."
+                )
+
+            seen_keys[normalized_key] = (supplier_id, raw_name)
+            seen_hashes[normalized_hash] = (normalized_key, supplier_id, raw_name)
+            normalized_rows.append((supplier_id, normalized_key, normalized_hash))
+
+        for supplier_id, normalized_key, normalized_hash in normalized_rows:
+            conn.execute(
+                text(
+                    "UPDATE suppliers SET nombre_normalized = :normalized_key, "
+                    "nombre_key_hash = :normalized_hash WHERE id = :supplier_id"
+                ),
+                {
+                    "normalized_key": normalized_key,
+                    "normalized_hash": normalized_hash,
+                    "supplier_id": supplier_id,
+                },
+            )
 
         conn.execute(
             text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_suppliers_nombre_normalized "
-                "ON suppliers (lower(trim(nombre)))"
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_suppliers_nombre_key_hash "
+                "ON suppliers (nombre_key_hash)"
             )
         )
+
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text("ALTER TABLE suppliers ALTER COLUMN nombre_normalized SET NOT NULL")
+            )
+            conn.execute(
+                text("ALTER TABLE suppliers ALTER COLUMN nombre_key_hash SET NOT NULL")
+            )
 
 
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
@@ -382,7 +425,7 @@ def _supplier_unique_index_exists() -> bool:
         if _dialect_name() == "sqlite":
             rows = conn.execute(text("PRAGMA index_list('suppliers')")).fetchall()
             return any(
-                str(row[1]) == "ix_suppliers_nombre_normalized" and bool(row[2])
+                str(row[1]) == "ix_suppliers_nombre_key_hash" and bool(row[2])
                 for row in rows
             )
 
@@ -391,7 +434,7 @@ def _supplier_unique_index_exists() -> bool:
                 "SELECT indexdef FROM pg_indexes "
                 "WHERE schemaname = current_schema() "
                 "AND tablename = 'suppliers' "
-                "AND indexname = 'ix_suppliers_nombre_normalized'"
+                "AND indexname = 'ix_suppliers_nombre_key_hash'"
             )
         ).scalar_one_or_none()
         return bool(indexdef and "CREATE UNIQUE INDEX" in str(indexdef).upper())
@@ -415,6 +458,8 @@ def _validate_critical_schema() -> None:
         required_columns["processed_messages"] = {"delivery_status", "reply_text"}
     if "banks" in table_names:
         required_columns["banks"] = {"name_normalized", "name_key_hash"}
+    if "suppliers" in table_names:
+        required_columns["suppliers"] = {"nombre_normalized", "nombre_key_hash"}
 
     missing_columns: list[str] = []
     for table, required in required_columns.items():
@@ -452,24 +497,28 @@ def _validate_critical_schema() -> None:
     if "suppliers" in table_names:
         with database.engine.connect() as conn:
             invalid_count = conn.execute(
-                text("SELECT COUNT(*) FROM suppliers WHERE trim(nombre) = ''")
+                text(
+                    "SELECT COUNT(*) FROM suppliers WHERE nombre_normalized IS NULL "
+                    "OR nombre_key_hash IS NULL"
+                )
             ).scalar_one()
             duplicate = conn.execute(
                 text(
-                    "SELECT lower(trim(nombre)) AS normalized_name "
-                    "FROM suppliers GROUP BY lower(trim(nombre)) "
-                    "HAVING COUNT(*) > 1 LIMIT 1"
+                    "SELECT nombre_key_hash FROM suppliers "
+                    "GROUP BY nombre_key_hash HAVING COUNT(*) > 1 LIMIT 1"
                 )
             ).first()
         if int(invalid_count) != 0:
-            raise RuntimeError("Esquema incompleto: existen proveedores con nombre vacío")
+            raise RuntimeError(
+                "Esquema incompleto: existen proveedores sin identidad normalizada"
+            )
         if duplicate is not None:
             raise RuntimeError(
                 "Esquema incompleto: existen proveedores duplicados después de normalizar"
             )
         if not _supplier_unique_index_exists():
             raise RuntimeError(
-                "Esquema incompleto: falta índice único ix_suppliers_nombre_normalized"
+                "Esquema incompleto: falta índice único ix_suppliers_nombre_key_hash"
             )
 
 
