@@ -59,6 +59,138 @@ def _connection_result(status: str, channel: str, slug: str, details: str) -> Di
     }
 
 
+def _meta_failure_result(
+    response: httpx.Response,
+    *,
+    channel: str,
+    slug: str,
+    capability_check: bool = False,
+) -> Dict[str, Any]:
+    if response.status_code in {401, 403}:
+        detail = "Token sin autorización o inválido"
+    elif capability_check:
+        detail = (
+            "Meta no confirmó permisos/capacidad de mensajería "
+            f"(HTTP {response.status_code})"
+        )
+    else:
+        detail = f"Meta Graph API respondió HTTP {response.status_code}"
+    return _connection_result("error", channel, slug, detail)
+
+
+async def _test_page_messaging_capability(
+    client: httpx.AsyncClient,
+    *,
+    channel: str,
+    slug: str,
+    configured_object_id: str,
+    token: str,
+) -> Dict[str, Any]:
+    """Validate Page-token ownership and read-only messaging capability.
+
+    Meta's Conversations API requires the same messaging permissions/tasks used
+    by Messenger/Instagram messaging. Querying one conversation page therefore
+    gives us a non-destructive capability probe without sending a customer
+    message. Instagram's Facebook-Login flow is anchored to the Facebook Page,
+    so ``/me`` is also used to verify that the configured IG professional account
+    is actually linked to the Page represented by the supplied Page token.
+    """
+    if channel == "messenger":
+        identity_fields = "id,name"
+    else:
+        identity_fields = "id,name,instagram_business_account"
+
+    identity_response = await client.get(
+        f"{META_GRAPH_BASE}/me",
+        params={"fields": identity_fields},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if identity_response.status_code != 200:
+        return _meta_failure_result(
+            identity_response,
+            channel=channel,
+            slug=slug,
+        )
+
+    try:
+        identity = identity_response.json()
+    except ValueError:
+        return _connection_result(
+            "error",
+            channel,
+            slug,
+            "Meta Graph API devolvió una respuesta de identidad inválida",
+        )
+    if not isinstance(identity, dict):
+        return _connection_result(
+            "error",
+            channel,
+            slug,
+            "Meta Graph API devolvió una respuesta de identidad inválida",
+        )
+
+    page_id = str(identity.get("id") or "").strip()
+    if not page_id:
+        return _connection_result(
+            "error",
+            channel,
+            slug,
+            "El Page Access Token no resolvió una Page válida",
+        )
+
+    if channel == "messenger":
+        if page_id != configured_object_id:
+            return _connection_result(
+                "error",
+                channel,
+                slug,
+                "El Page Access Token pertenece a una Page distinta del page_id configurado",
+            )
+        conversation_params: Dict[str, str] = {"limit": "1"}
+    else:
+        linked_instagram = identity.get("instagram_business_account")
+        linked_instagram_id = (
+            str(linked_instagram.get("id") or "").strip()
+            if isinstance(linked_instagram, dict)
+            else ""
+        )
+        if not linked_instagram_id:
+            return _connection_result(
+                "error",
+                channel,
+                slug,
+                "La Page del token no tiene una cuenta profesional de Instagram vinculada",
+            )
+        if linked_instagram_id != configured_object_id:
+            return _connection_result(
+                "error",
+                channel,
+                slug,
+                "La cuenta de Instagram vinculada no coincide con instagram_account_id",
+            )
+        conversation_params = {"platform": "instagram", "limit": "1"}
+
+    capability_response = await client.get(
+        f"{META_GRAPH_BASE}/{page_id}/conversations",
+        params=conversation_params,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if capability_response.status_code != 200:
+        return _meta_failure_result(
+            capability_response,
+            channel=channel,
+            slug=slug,
+            capability_check=True,
+        )
+
+    return _connection_result(
+        "success",
+        channel,
+        slug,
+        f"Conexión y capacidad de mensajería verificadas para {channel}",
+    )
+
+
 @router.post("/test-connection/{sales_profile_slug}/{channel}")
 async def test_channel_connection_integrity(
     sales_profile_slug: str,
@@ -97,33 +229,42 @@ async def test_channel_connection_integrity(
     if prod_settings.is_production() and not _app_secret_configured():
         return _connection_result("error", normalized_channel, sales_profile_slug, "Falta META_APP_SECRET para validar firmas de webhook en producción")
 
-    if normalized_channel == "whatsapp":
-        object_id = str(channel_config["phone_number_id"]).strip()
-        token = str(channel_config["access_token"]).strip()
-        fields = "id,display_phone_number,verified_name"
-    elif normalized_channel == "messenger":
-        object_id = str(channel_config["page_id"]).strip()
-        token = str(channel_config["page_access_token"]).strip()
-        fields = "id,name"
-    else:
-        object_id = str(channel_config["instagram_account_id"]).strip()
-        token = str(channel_config["page_access_token"]).strip()
-        fields = "id,username"
-
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(
-                f"{META_GRAPH_BASE}/{object_id}",
-                params={"fields": fields},
-                headers={"Authorization": f"Bearer {token}"},
+            if normalized_channel == "whatsapp":
+                object_id = str(channel_config["phone_number_id"]).strip()
+                token = str(channel_config["access_token"]).strip()
+                response = await client.get(
+                    f"{META_GRAPH_BASE}/{object_id}",
+                    params={"fields": "id,display_phone_number,verified_name"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if response.status_code == 200:
+                    return _connection_result(
+                        "success",
+                        normalized_channel,
+                        sales_profile_slug,
+                        "Identidad de WhatsApp verificada en Meta Graph API",
+                    )
+                return _meta_failure_result(
+                    response,
+                    channel=normalized_channel,
+                    slug=sales_profile_slug,
+                )
+
+            if normalized_channel == "messenger":
+                object_id = str(channel_config["page_id"]).strip()
+            else:
+                object_id = str(channel_config["instagram_account_id"]).strip()
+            token = str(channel_config["page_access_token"]).strip()
+            return await _test_page_messaging_capability(
+                client,
+                channel=normalized_channel,
+                slug=sales_profile_slug,
+                configured_object_id=object_id,
+                token=token,
             )
     except httpx.TimeoutException:
         return _connection_result("error", normalized_channel, sales_profile_slug, "Timeout conectando a Meta Graph API")
     except httpx.HTTPError:
         return _connection_result("error", normalized_channel, sales_profile_slug, "Error de red conectando a Meta Graph API")
-
-    if response.status_code == 200:
-        return _connection_result("success", normalized_channel, sales_profile_slug, f"Conexión exitosa a Meta Graph API para {normalized_channel}")
-    if response.status_code in {401, 403}:
-        return _connection_result("error", normalized_channel, sales_profile_slug, "Token sin autorización o inválido")
-    return _connection_result("error", normalized_channel, sales_profile_slug, f"Meta Graph API respondió HTTP {response.status_code}")
