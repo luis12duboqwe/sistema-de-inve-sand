@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
 
+def _escape_like_literal(value: str) -> str:
+    """Escape SQL LIKE metacharacters so supplier search is literal text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _serialize_supplier(supplier: Supplier) -> SupplierResponse:
     """Serializa un Supplier a SupplierResponse"""
     return SupplierResponse(
@@ -129,10 +134,11 @@ def list_suppliers(
     """
     query = db.query(Supplier)
     
-    # Filtro por búsqueda
+    # Filtro por búsqueda. ``%``, ``_`` y ``\`` son texto de usuario, no
+    # sintaxis LIKE; el endpoint debe buscar literalmente lo que se escribió.
     if search:
-        search_pattern = f"%{search}%"
-        query = query.filter(Supplier.nombre.ilike(search_pattern))
+        search_pattern = f"%{_escape_like_literal(search)}%"
+        query = query.filter(Supplier.nombre.ilike(search_pattern, escape="\\"))
     
     # Filtro por estado
     if not include_inactive:
