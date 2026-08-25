@@ -81,7 +81,14 @@ class Supplier(Base):
     profile = relationship("Profile", back_populates="suppliers")
     products = relationship("Product", back_populates="supplier")
 
-    __table_args__ = (Index("idx_supplier_profile_active", "profile_id", "activo"),)
+    __table_args__ = (
+        Index("idx_supplier_profile_active", "profile_id", "activo"),
+        Index(
+            "ix_suppliers_nombre_normalized",
+            func.lower(func.trim(nombre)),
+            unique=True,
+        ),
+    )
 
 
 __all__ = ["Location", "SalesProfile", "Profile", "Supplier"]
