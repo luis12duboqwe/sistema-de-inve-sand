@@ -17,8 +17,12 @@ from app.schemas import UserCreate, UserResponse
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
 
-def _duplicate_user_error(db: Session, username: str, email: str | None) -> HTTPException:
-    """Translate the database uniqueness boundary into the existing API contract."""
+def _registration_integrity_error(
+    db: Session,
+    username: str,
+    email: str | None,
+) -> HTTPException:
+    """Translate known duplicate races without mislabeling other DB conflicts."""
     if db.query(User.id).filter(User.username == username).first():
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -30,8 +34,8 @@ def _duplicate_user_error(db: Session, username: str, email: str | None) -> HTTP
             detail="Email already registered",
         )
     return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Username or email already registered",
+        status_code=status.HTTP_409_CONFLICT,
+        detail="User registration conflicted with another database change; retry",
     )
 
 
@@ -81,4 +85,4 @@ def register_user_integrity(
         return db_user
     except IntegrityError:
         db.rollback()
-        raise _duplicate_user_error(db, user.username, normalized_email)
+        raise _registration_integrity_error(db, user.username, normalized_email)
