@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.main import app
-from app.models import SystemConfig, User
+from app.models import Permission, Role, SystemConfig, User
 from app.routers import auth_setup_integrity
 from app.schemas import UserCreate
 
@@ -55,6 +55,8 @@ def test_failed_initial_setup_rolls_back_claim_and_allows_retry(
         )
 
     assert db_session.query(User).count() == 0
+    assert db_session.query(Role).count() == 0
+    assert db_session.query(Permission).count() == 0
     assert (
         db_session.query(SystemConfig)
         .filter(SystemConfig.key == SETUP_KEY)
@@ -71,6 +73,8 @@ def test_failed_initial_setup_rolls_back_claim_and_allows_retry(
     assert response.status_code == 200, response.text
     assert response.json()["user"]["username"] == "retryadmin"
     assert db_session.query(User).count() == 1
+    assert db_session.query(Role).count() == len(auth_setup_integrity.SYSTEM_ROLE_CONFIG)
+    assert db_session.query(Permission).count() == len(auth_setup_integrity.SYSTEM_PERMISSIONS)
     assert (
         db_session.query(SystemConfig)
         .filter(SystemConfig.key == SETUP_KEY)
@@ -83,9 +87,12 @@ def test_concurrent_initial_setup_creates_exactly_one_super_admin(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Seed RBAC without users so the concurrency test isolates the setup claim.
-    auth_setup_integrity._ensure_default_rbac_transactional(db_session)
-    db_session.commit()
+    # Exercise a truly fresh installation: no users, roles, permissions or setup
+    # marker exist before the two first-boot requests race each other.
+    assert db_session.query(User).count() == 0
+    assert db_session.query(Role).count() == 0
+    assert db_session.query(Permission).count() == 0
+    assert db_session.query(SystemConfig).filter(SystemConfig.key == SETUP_KEY).count() == 0
 
     session_factory = sessionmaker(
         autocommit=False,
@@ -144,6 +151,8 @@ def test_concurrent_initial_setup_creates_exactly_one_super_admin(
     assert users[0].is_superuser is True
     assert users[0].role is not None
     assert users[0].role.name == "Super Admin"
+    assert db_session.query(Role).count() == len(auth_setup_integrity.SYSTEM_ROLE_CONFIG)
+    assert db_session.query(Permission).count() == len(auth_setup_integrity.SYSTEM_PERMISSIONS)
 
     claims = (
         db_session.query(SystemConfig)
