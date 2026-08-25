@@ -105,10 +105,10 @@ def get_profile(profile_id: int, db: Session = Depends(get_db)):
     
     Args:
         - profile_id: ID del perfil
-        
+    
     Returns:
         Perfil solicitado
-        
+    
     Raises:
         - 404: Si el perfil no existe
     """
@@ -133,7 +133,7 @@ def update_profile(
 
     Args:
         - profile_id: ID del perfil a actualizar
-        - updates: Campos a modificar (nombre/activo)
+        - updates: Campos a modificar (nombre/slug/activo/settings)
 
     Returns:
         Perfil actualizado
@@ -165,6 +165,10 @@ def update_profile(
         profile.name = updates.name
     if updates.active is not None:
         profile.active = updates.active
+    # ``settings`` is nullable. Distinguish an omitted field (preserve current
+    # value) from an explicit JSON null (clear the stored settings).
+    if "settings" in updates.model_fields_set:
+        profile.settings = updates.settings
 
     try:
         db.commit()
@@ -203,10 +207,10 @@ def delete_profile(
     
     Args:
         - profile_id: ID del perfil a eliminar
-        
+    
     Returns:
         No content (204)
-        
+    
     Raises:
         - 404: Si el perfil no existe
         - 500: Si ocurre un error al eliminar
