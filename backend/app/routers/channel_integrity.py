@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import httpx
 from sqlalchemy.orm import Session
 
-from app.auth import check_permission
+from app.auth import check_permission, get_current_user_optional
 from app.config_production import prod_settings
 from app.database import get_db
 from app.models import SalesProfile, User
@@ -25,8 +25,46 @@ def _app_secret_configured() -> bool:
     return bool((getattr(prod_settings, "META_APP_SECRET", "") or "").strip())
 
 
+def _can_view_channel_health_details(user: User | None) -> bool:
+    """Return whether the caller may inspect channel/profile diagnostics."""
+    if user is None:
+        return False
+    if user.is_superuser:
+        return True
+    role = getattr(user, "role", None)
+    permissions = getattr(role, "permissions", None) or []
+    return any(getattr(permission, "slug", None) == "ai:manage" for permission in permissions)
+
+
+def _redacted_channel_health(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the polling contract without exposing integration configuration."""
+    ready = bool(snapshot.get("ready"))
+    redacted_channel = {"ready": ready, "missing": []}
+    return {
+        "status": "ok",
+        "ready": ready,
+        "global": {
+            "has_verify_token": False,
+            "has_default_sales_profile": False,
+            "signature_validation_enabled": False,
+            "message_ttl_seconds": 0,
+            "missing": [],
+        },
+        "channels": {
+            "whatsapp": dict(redacted_channel),
+            "messenger": dict(redacted_channel),
+            "instagram": dict(redacted_channel),
+        },
+        "profiles": [],
+        "diagnostics_restricted": True,
+    }
+
+
 @router.get("/health")
-def channels_health_integrity(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def channels_health_integrity(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> Dict[str, Any]:
     snapshot = _channel_health_snapshot_with_profiles(db)
     signature_enabled = _app_secret_configured()
     global_info = snapshot.setdefault("global", {})
@@ -46,6 +84,9 @@ def channels_health_integrity(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 channel_missing = list(info.get("missing") or [])
                 channel_missing.append("META_APP_SECRET")
                 info["missing"] = sorted(set(channel_missing))
+
+    if not _can_view_channel_health_details(current_user):
+        return _redacted_channel_health(snapshot)
     return snapshot
 
 
