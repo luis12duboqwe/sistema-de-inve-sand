@@ -59,6 +59,49 @@ def _connection_result(status: str, channel: str, slug: str, details: str) -> Di
     }
 
 
+async def _probe_page_messaging_capability(
+    client: httpx.AsyncClient,
+    *,
+    channel: str,
+    object_id: str,
+    token: str,
+) -> httpx.Response | None:
+    """Verify messaging permission through a read-only Meta Conversations request."""
+    headers = {"Authorization": f"Bearer {token}"}
+    if channel == "messenger":
+        return await client.get(
+            f"{META_GRAPH_BASE}/{object_id}/conversations",
+            params={"limit": 1},
+            headers=headers,
+        )
+
+    if channel != "instagram":
+        return None
+
+    # Instagram with Facebook Login sends through a Page Access Token. Resolve
+    # the linked Page represented by that token, then probe its Instagram inbox.
+    page_response = await client.get(
+        f"{META_GRAPH_BASE}/me",
+        params={"fields": "id"},
+        headers=headers,
+    )
+    if page_response.status_code != 200:
+        return page_response
+
+    try:
+        page_id = str((page_response.json() or {}).get("id") or "").strip()
+    except (TypeError, ValueError):
+        page_id = ""
+    if not page_id:
+        return None
+
+    return await client.get(
+        f"{META_GRAPH_BASE}/{page_id}/conversations",
+        params={"platform": "instagram", "limit": 1},
+        headers=headers,
+    )
+
+
 @router.post("/test-connection/{sales_profile_slug}/{channel}")
 async def test_channel_connection_integrity(
     sales_profile_slug: str,
@@ -117,13 +160,33 @@ async def test_channel_connection_integrity(
                 params={"fields": fields},
                 headers={"Authorization": f"Bearer {token}"},
             )
+            if response.status_code == 200 and normalized_channel in {"messenger", "instagram"}:
+                messaging_response = await _probe_page_messaging_capability(
+                    client,
+                    channel=normalized_channel,
+                    object_id=object_id,
+                    token=token,
+                )
+                if messaging_response is None:
+                    return _connection_result(
+                        "error",
+                        normalized_channel,
+                        sales_profile_slug,
+                        "Meta no devolvió el Page ID necesario para validar mensajería",
+                    )
+                if messaging_response.status_code != 200:
+                    if messaging_response.status_code in {400, 401, 403}:
+                        details = "Token válido para lectura básica pero sin autorización de mensajería"
+                    else:
+                        details = f"Meta Conversations API respondió HTTP {messaging_response.status_code}"
+                    return _connection_result("error", normalized_channel, sales_profile_slug, details)
     except httpx.TimeoutException:
         return _connection_result("error", normalized_channel, sales_profile_slug, "Timeout conectando a Meta Graph API")
     except httpx.HTTPError:
         return _connection_result("error", normalized_channel, sales_profile_slug, "Error de red conectando a Meta Graph API")
 
     if response.status_code == 200:
-        return _connection_result("success", normalized_channel, sales_profile_slug, f"Conexión exitosa a Meta Graph API para {normalized_channel}")
+        return _connection_result("success", normalized_channel, sales_profile_slug, f"Conexión y capacidad de mensajería verificadas para {normalized_channel}")
     if response.status_code in {401, 403}:
         return _connection_result("error", normalized_channel, sales_profile_slug, "Token sin autorización o inválido")
     return _connection_result("error", normalized_channel, sales_profile_slug, f"Meta Graph API respondió HTTP {response.status_code}")
