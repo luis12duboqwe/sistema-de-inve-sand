@@ -6,9 +6,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.main import app
 from app.models import User
-from app.routers import auth_register_integrity
+from app.routers import auth_register_integrity, auth_router, integrity_overrides
 from app.schemas import UserCreate
 
 
@@ -153,13 +152,20 @@ def test_unknown_integrity_conflict_is_not_mislabeled_as_duplicate(
     assert "retry" in str(error.detail).lower()
 
 
-def test_register_route_is_canonical_and_unique() -> None:
-    matching = [
+def test_register_route_replaces_legacy_with_one_canonical_handler() -> None:
+    legacy = [
         route
-        for route in app.routes
+        for route in auth_router.router.routes
+        if getattr(route, "path", None) == "/api/auth/register"
+        and "POST" in (getattr(route, "methods", set()) or set())
+    ]
+    canonical = [
+        route
+        for route in integrity_overrides.router.routes
         if getattr(route, "path", None) == "/api/auth/register"
         and "POST" in (getattr(route, "methods", set()) or set())
     ]
 
-    assert len(matching) == 1
-    assert matching[0].endpoint.__name__ == "register_user_integrity"
+    assert legacy == []
+    assert len(canonical) == 1
+    assert canonical[0].endpoint.__name__ == "register_user_integrity"
