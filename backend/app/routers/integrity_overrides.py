@@ -20,6 +20,7 @@ from app.routers import (
     channel_webhook_integrity,
     multistore_control,
     multistore_integrity,
+    order_search_integrity,
     order_state_integrity,
     orders,
     reports,
@@ -50,6 +51,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (auth_router.router, "/api/auth/users/{user_id}/role", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "DELETE"),
+    (orders.router, "/api/orders/search", "POST"),
     (orders.router, "/api/orders/{order_id}/status", "PUT"),
     (orders.router, "/api/orders/{order_id}", "PUT"),
     (orders.router, "/api/orders/{order_id}/cancel", "POST"),
@@ -90,6 +92,7 @@ for _router, _path, _method in _SHADOWED_ROUTES:
 router = APIRouter()
 router.include_router(auth_setup_integrity.router)
 router.include_router(auth_admin_integrity.router)
+router.include_router(order_search_integrity.router)
 router.include_router(order_state_integrity.router)
 router.include_router(reports_integrity.router)
 router.include_router(reports_final_integrity.router)
