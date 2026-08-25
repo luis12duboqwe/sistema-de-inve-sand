@@ -1,4 +1,5 @@
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ def _add_products(db_session: Session, *names: str) -> None:
     for index, name in enumerate(names, start=1):
         products.append(
             Product(
-                sku=f"SEARCH-{index}-{name.encode('unicode_escape').decode('ascii')}",
+                sku=f"SEARCH-{uuid4().hex}-{index}",
                 nombre=name,
                 categoria="accesorio",
                 marca="MarcaNeutral",
