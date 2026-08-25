@@ -1,0 +1,111 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from types import SimpleNamespace
+
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.main import app
+from app.models import User
+from app.routers import auth_register_integrity
+from app.schemas import UserCreate
+
+
+PASSWORD = "StrongPass123!"
+
+
+def _superuser():
+    return SimpleNamespace(is_superuser=True)
+
+
+def test_register_duplicate_email_returns_client_error(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        User(
+            username="existinguser",
+            email="same@example.com",
+            hashed_password="hashed",
+            is_active=True,
+            is_superuser=False,
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "username": "newuser",
+            "email": " same@example.com ",
+            "password": PASSWORD,
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Email already registered"
+
+
+def test_concurrent_duplicate_username_is_never_reported_as_server_error(
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    bind = db_session.get_bind()
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=bind)
+    barrier = Barrier(2)
+
+    def synchronized_hash(_: str) -> str:
+        barrier.wait(timeout=10)
+        return "hashed"
+
+    monkeypatch.setattr(auth_register_integrity, "get_password_hash", synchronized_hash)
+
+    payloads = [
+        UserCreate(
+            username="raceuser",
+            email="race-a@example.com",
+            password=PASSWORD,
+        ),
+        UserCreate(
+            username="raceuser",
+            email="race-b@example.com",
+            password=PASSWORD,
+        ),
+    ]
+
+    def register(payload: UserCreate):
+        session = SessionLocal()
+        try:
+            try:
+                created = auth_register_integrity.register_user_integrity(
+                    payload,
+                    session,
+                    _superuser(),
+                )
+                return (201, created.username)
+            except HTTPException as exc:
+                return (exc.status_code, exc.detail)
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(register, payloads))
+
+    assert sorted(status for status, _ in results) == [201, 400]
+    assert any(detail == "Username already registered" for status, detail in results if status == 400)
+
+    db_session.expire_all()
+    assert db_session.query(User).filter(User.username == "raceuser").count() == 1
+
+
+def test_register_route_is_canonical_and_unique() -> None:
+    matching = [
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/auth/register"
+        and "POST" in (getattr(route, "methods", set()) or set())
+    ]
+
+    assert len(matching) == 1
+    assert matching[0].endpoint.__name__ == "register_user_integrity"
