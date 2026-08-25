@@ -46,9 +46,14 @@ def get_profile_audit_log(
     sales_profile_slug: str,
     db: Session = Depends(get_db),
     hours: int = Query(24, ge=1, le=168),
+    _ai_manager: Any = Depends(check_permission("ai:manage")),
 ) -> Dict[str, Any]:
     """
     Retorna log de auditoría para un perfil.
+
+    El detalle contiene previews de conversación e identificadores del cliente,
+    por lo que requiere tanto acceso a reportes (dependencia del router) como
+    permiso explícito para administrar IA.
 
     Incluye:
     - Últimas interacciones (últimas N horas)
