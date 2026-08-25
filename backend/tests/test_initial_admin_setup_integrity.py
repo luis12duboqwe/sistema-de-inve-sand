@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.main import app
 from app.models import Permission, Role, SystemConfig, User
 from app.routers import auth_setup_integrity
 from app.schemas import UserCreate
@@ -24,16 +23,23 @@ def _request(username: str) -> UserCreate:
     )
 
 
-def test_openapi_exposes_one_canonical_initial_setup_handler() -> None:
+def test_openapi_exposes_one_canonical_initial_setup_handler(
+    client: TestClient,
+) -> None:
     setup_routes = [
         route
-        for route in app.routes
+        for route in client.app.routes
         if getattr(route, "path", None) == "/api/auth/setup"
         and "POST" in (getattr(route, "methods", set()) or set())
     ]
 
     assert len(setup_routes) == 1
     assert setup_routes[0].endpoint is auth_setup_integrity.setup_initial_admin_integrity
+
+    schema_response = client.get("/openapi.json")
+    assert schema_response.status_code == 200, schema_response.text
+    setup_operation = schema_response.json()["paths"]["/api/auth/setup"]["post"]
+    assert setup_operation["operationId"].startswith("setup_initial_admin_integrity_")
 
 
 def test_failed_initial_setup_rolls_back_claim_and_allows_retry(
