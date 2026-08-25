@@ -13,6 +13,7 @@ from app.routers import (
     ai_business_integrity,
     ai_intelligence,
     auth_admin_integrity,
+    auth_register_integrity,
     auth_router,
     auth_setup_integrity,
     channel_integrations,
@@ -48,6 +49,7 @@ def _strip_route(router: APIRouter, path: str, method: str) -> None:
 
 _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (auth_router.router, "/api/auth/setup", "POST"),
+    (auth_router.router, "/api/auth/register", "POST"),
     (auth_router.router, "/api/auth/users/{user_id}/role", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "DELETE"),
@@ -91,6 +93,7 @@ for _router, _path, _method in _SHADOWED_ROUTES:
 
 router = APIRouter()
 router.include_router(auth_setup_integrity.router)
+router.include_router(auth_register_integrity.router)
 router.include_router(auth_admin_integrity.router)
 router.include_router(order_search_integrity.router)
 router.include_router(order_state_integrity.router)
