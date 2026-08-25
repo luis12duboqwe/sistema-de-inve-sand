@@ -165,18 +165,18 @@ def test_register_route_is_canonical_in_openapi_and_runtime(
     response = client.post(
         "/api/auth/register",
         json={
-            "username": "runtime-register-user",
+            "username": "runtimeregisteruser",
             "email": "runtime-register@example.com",
             "password": PASSWORD,
         },
     )
     assert response.status_code == 201, response.text
-    assert response.json()["username"] == "runtime-register-user"
+    assert response.json()["username"] == "runtimeregisteruser"
 
     db_session.expire_all()
     assert (
         db_session.query(User)
-        .filter(User.username == "runtime-register-user")
+        .filter(User.username == "runtimeregisteruser")
         .count()
         == 1
     )
