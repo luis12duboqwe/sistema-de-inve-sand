@@ -153,9 +153,9 @@ def test_canonical_ai_context_promotes_only_literal_keyword_matches(
         stock=1,
     )
 
-    # Fourteen higher-stock fillers guarantee the ordinary top-stock fallback
-    # cannot reintroduce the low-stock decoy after literal keyword matching.
-    for index in range(14):
+    # Fifteen higher-stock fillers consume the complete top-stock fallback cutoff.
+    # Without keyword promotion, neither the literal product nor decoy can re-enter.
+    for index in range(15):
         _stocked_product(
             db_session,
             location_id=location.id,
