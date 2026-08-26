@@ -7,7 +7,7 @@ This module removes only the paths replaced by the hardening routers below.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.routers import (
     ai_business_integrity,
@@ -123,5 +123,8 @@ router.include_router(channel_integrity.router)
 router.include_router(channel_webhook_integrity.router)
 router.include_router(super_admin_integrity.router)
 router.include_router(super_admin_audit_integrity.router)
-router.include_router(ai_business_integrity.router)
+router.include_router(
+    ai_business_integrity.router,
+    dependencies=[Depends(ai_intelligence._ensure_ai_features_enabled)],
+)
 router.include_router(ai_slug_integrity.router)
