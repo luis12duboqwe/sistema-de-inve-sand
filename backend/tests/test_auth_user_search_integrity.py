@@ -1,11 +1,11 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.main import app
 from app.models import User
-from app.routers import auth_admin_integrity
+from app.routers import auth_admin_integrity, auth_router, integrity_overrides
 
 
 def _user(username: str, full_name: str) -> User:
@@ -28,6 +28,15 @@ def _search_usernames(db_session: Session, search: str) -> set[str]:
         db=db_session,
     )
     return {item.username for item in result.items}
+
+
+def _matching_get_routes(router) -> list:
+    return [
+        route
+        for route in router.routes
+        if getattr(route, "path", None) == "/api/auth/users"
+        and "GET" in (getattr(route, "methods", set()) or set())
+    ]
 
 
 def test_admin_user_search_treats_percent_as_literal(db_session: Session) -> None:
@@ -91,13 +100,13 @@ def test_admin_user_search_preserves_pagination_contract(db_session: Session) ->
     assert len(result.items) == 1
 
 
-def test_admin_user_search_is_the_only_registered_get_handler() -> None:
-    matches = [
-        route
-        for route in app.routes
-        if getattr(route, "path", None) == "/api/auth/users"
-        and "GET" in (getattr(route, "methods", set()) or set())
-    ]
+def test_admin_user_search_is_the_only_overlay_get_handler(client: TestClient) -> None:
+    legacy_matches = _matching_get_routes(auth_router.router)
+    overlay_matches = _matching_get_routes(integrity_overrides.router)
 
-    assert len(matches) == 1
-    assert matches[0].endpoint is auth_admin_integrity.list_users_integrity
+    assert legacy_matches == []
+    assert len(overlay_matches) == 1
+    assert overlay_matches[0].endpoint is auth_admin_integrity.list_users_integrity
+
+    operation = client.get("/openapi.json").json()["paths"]["/api/auth/users"]["get"]
+    assert operation["operationId"].startswith("list_users_integrity_")
