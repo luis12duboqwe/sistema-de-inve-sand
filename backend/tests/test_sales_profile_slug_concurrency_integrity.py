@@ -53,7 +53,7 @@ def _run_concurrent_create(db_session: Session, slugs: tuple[str, str]):
                     session,
                     SimpleNamespace(),
                 )
-                return (201, created.slug)
+                return (201, created["slug"])
             except HTTPException as exc:
                 return (exc.status_code, exc.detail)
         finally:
@@ -94,7 +94,7 @@ def _run_concurrent_update(
                     session,
                     SimpleNamespace(),
                 )
-                return (200, updated.slug)
+                return (200, updated["slug"])
             except HTTPException as exc:
                 return (exc.status_code, exc.detail)
         finally:
@@ -181,8 +181,8 @@ def test_sales_profile_lookup_by_slug_uses_same_case_insensitive_identity(
         db=db_session,
     )
 
-    assert result.id == profile.id
-    assert result.slug == f"Bót-Lookup-{suffix}"
+    assert result["id"] == profile.id
+    assert result["slug"] == f"Bót-Lookup-{suffix}"
 
 
 def test_sales_profile_slug_http_route_precedes_dynamic_id_route(
@@ -274,8 +274,8 @@ def test_update_preserves_unchanged_historical_display_slug(
         SimpleNamespace(),
     )
 
-    assert updated.slug == historical_display
-    assert updated.name == "Perfil histórico renombrado"
+    assert updated["slug"] == historical_display
+    assert updated["name"] == "Perfil histórico renombrado"
     persisted = db_session.query(SalesProfile).filter(SalesProfile.id == profile_id).one()
     assert persisted.slug == historical_display
     assert persisted.slug_key_hash == sales_profile_slug_hash(canonical_slug)
