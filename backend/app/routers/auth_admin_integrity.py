@@ -2,17 +2,64 @@
 
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
 from app.models import Role, User
 from app.routers import auth_router as legacy_auth
-from app.schemas import UserResponse, UserUpdate
+from app.schemas import PaginatedResponse, UserResponse, UserUpdate
 
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
+
+
+def _escape_like_literal(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
+def list_users_integrity(
+    search: str | None = Query(None, description="Filtro por nombre, usuario o email"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(50, ge=1, le=200, description="Resultados por página"),
+    current_user: User = Depends(check_permission("users:manage")),  # noqa: ARG001
+    db: Session = Depends(get_db),
+):
+    """List users while treating LIKE metacharacters in search as literals."""
+    query = db.query(User)
+
+    if search:
+        like_term = f"%{_escape_like_literal(search)}%"
+        query = query.filter(
+            or_(
+                User.username.ilike(like_term, escape="\\"),
+                User.full_name.ilike(like_term, escape="\\"),
+                User.email.ilike(like_term, escape="\\"),
+            )
+        )
+
+    total = query.count()
+    offset = (page - 1) * per_page
+    users = (
+        query.order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
+    pages = math.ceil(total / per_page) if total else 0
+
+    return PaginatedResponse(
+        items=users,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
+    )
 
 
 def lock_and_guard_super_admin_continuity(
