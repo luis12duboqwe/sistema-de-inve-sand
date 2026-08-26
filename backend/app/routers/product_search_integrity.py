@@ -24,6 +24,8 @@ from app.utils.location_access import get_accessible_location_ids
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
+MAX_PRODUCT_SEARCH_KEYWORDS = 6
+
 
 def _escape_like_literal(value: str) -> str:
     """Escape SQL LIKE metacharacters so product search treats input literally."""
@@ -72,7 +74,9 @@ def list_products_integrity(
         query = query.filter(Product.activo == True)  # noqa: E712
 
     if search:
-        keywords = search.split()
+        # Bound only the SQL-generating tokens; the original query value and API
+        # contract stay unchanged while preventing arbitrarily large AND trees.
+        keywords = search.split()[:MAX_PRODUCT_SEARCH_KEYWORDS]
         for keyword in keywords:
             term = f"%{_escape_like_literal(keyword)}%"
             query = query.filter(
