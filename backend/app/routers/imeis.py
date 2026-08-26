@@ -28,6 +28,11 @@ def _validate_imei_digits(imei: str) -> str:
     return cleaned
 
 
+def _escape_like_literal(value: str) -> str:
+    """Escape SQL LIKE metacharacters so IMEI search is literal text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _serialize_product_imei(record: ProductIMEI) -> ProductIMEIResponse:
     return ProductIMEIResponse(
         id=record.id,
@@ -208,8 +213,8 @@ def list_product_imeis(
     if product_id is not None:
         query = query.filter(ProductIMEI.product_id == product_id)
     if search:
-        like_term = f"%{search}%"
-        query = query.filter(ProductIMEI.imei.ilike(like_term))
+        like_term = f"%{_escape_like_literal(search)}%"
+        query = query.filter(ProductIMEI.imei.ilike(like_term, escape="\\"))
 
     total = query.count()
     offset = (page - 1) * per_page
