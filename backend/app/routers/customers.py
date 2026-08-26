@@ -5,6 +5,7 @@ from typing import List, Optional
 from decimal import Decimal
 from app.database import get_db
 from app.models import Order, Profile, SalesProfile, Customer, User
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.schemas import CustomerStats, CustomerHistory, OrderListResponse
 from app.routers.orders import _serialize_order
 from app.auth import get_current_active_user, check_permission
@@ -35,22 +36,14 @@ def list_customers(
     
     V2.0: Filtra por sales_profile_slug (canal de venta).
     Optimizado para usar agregación SQL en lugar de procesamiento en memoria.
-    
-    Args:
-        - sales_profile_slug: Filtro opcional por canal de venta
-        - page: Número de página (default: 1)
-        - per_page: Resultados por página (default: 50, max: 100)
-        
-    Returns:
-        Lista de clientes con estadísticas (ordenados por total gastado, descendente)
     """
-    # Base query for filtering
     filter_conditions = []
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
@@ -58,7 +51,6 @@ def list_customers(
             )
         filter_conditions.append(Order.sales_profile_id == sales_profile.id)
 
-    # Aggregation query
     query = db.query(
         Order.customer_phone,
         func.max(Order.customer_name).label('customer_name'),
@@ -73,29 +65,22 @@ def list_customers(
         query = query.filter(*filter_conditions)
 
     query = _apply_customer_location_access(query, db, current_user)
-
     query = query.group_by(Order.customer_phone).order_by(desc('total_spent'))
-    
-    # Pagination
     offset = (page - 1) * per_page
     results = query.offset(offset).limit(per_page).all()
-    
-    # Fetch AI Customer data
+
     phones = [row.customer_phone for row in results]
     ai_customers = {}
     if phones:
         customers_db = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
         ai_customers = {c.phone_number: c for c in customers_db}
-    
-    # Transform results to schema
+
     response = []
     for row in results:
-        # row is a KeyedTuple
         total_spent = row.total_spent or Decimal("0.00")
         completed_count = row.completed_orders_count or 0
-        
         ai_data = ai_customers.get(row.customer_phone)
-        
+
         response.append(CustomerStats(
             customer_phone=row.customer_phone,
             customer_name=row.customer_name,
@@ -104,14 +89,13 @@ def list_customers(
             average_order=total_spent / completed_count if completed_count > 0 else Decimal("0.00"),
             first_order_date=row.first_order_date,
             last_order_date=row.last_order_date,
-            # AI Fields
             id=ai_data.id if ai_data else None,
             is_troll=ai_data.is_troll if ai_data else False,
             is_blocked=ai_data.is_blocked if ai_data else False,
             reputation_score=ai_data.reputation_score if ai_data else 100,
             daily_message_count=ai_data.daily_message_count if ai_data else 0
         ))
-    
+
     return response
 
 
@@ -122,54 +106,38 @@ def get_customer_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:view"))
 ):
-    """
-    Obtiene estadísticas de un cliente específico por su teléfono.
-    
-    V2.0: Filtra por sales_profile_slug (canal de venta).
-    
-    Args:
-        - customer_phone: Teléfono del cliente
-        - sales_profile_slug: Filtro opcional por canal de venta
-        
-    Returns:
-        Estadísticas del cliente
-        
-    Raises:
-        - 404: Si el cliente no tiene órdenes
-    """
+    """Obtiene estadísticas de un cliente específico por su teléfono."""
     query = _apply_customer_location_access(
         db.query(Order).filter(Order.customer_phone == customer_phone),
         db,
         current_user,
     )
-    
+
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
                 detail=f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado o está inactivo"
             )
         query = query.filter(Order.sales_profile_id == sales_profile.id)
-    
+
     orders = query.all()
-    
+
     if not orders:
         raise HTTPException(
             status_code=404,
             detail=f"No se encontraron órdenes para el cliente con teléfono '{customer_phone}'"
         )
-    
-    # Solo contar ventas finales para total gastado.
+
     completed_orders = [o for o in orders if o.estado in FINAL_SALE_STATUSES]
     total_spent = sum(o.total for o in completed_orders)
-    
-    # Fetch AI Customer data
     ai_data = db.query(Customer).filter(Customer.phone_number == customer_phone).first()
-    
+
     return CustomerStats(
         customer_phone=customer_phone,
         customer_name=orders[0].customer_name,
@@ -178,7 +146,6 @@ def get_customer_stats(
         average_order=total_spent / len(completed_orders) if completed_orders else Decimal("0.00"),
         first_order_date=min(o.created_at for o in orders),
         last_order_date=max(o.created_at for o in orders),
-        # AI Fields
         id=ai_data.id if ai_data else None,
         is_troll=ai_data.is_troll if ai_data else False,
         is_blocked=ai_data.is_blocked if ai_data else False,
@@ -194,54 +161,38 @@ def get_customer_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:view"))
 ):
-    """
-    Obtiene el historial completo de órdenes de un cliente.
-    
-    V2.0: Filtra por sales_profile_slug (canal de venta).
-    
-    Args:
-        - customer_phone: Teléfono del cliente
-        - sales_profile_slug: Filtro opcional por canal de venta
-        
-    Returns:
-        Estadísticas del cliente con lista completa de órdenes
-        
-    Raises:
-        - 404: Si el cliente no tiene órdenes
-    """
+    """Obtiene el historial completo de órdenes de un cliente."""
     query = _apply_customer_location_access(
         db.query(Order).filter(Order.customer_phone == customer_phone),
         db,
         current_user,
     )
-    
+
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
                 detail=f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado o está inactivo"
             )
         query = query.filter(Order.sales_profile_id == sales_profile.id)
-    
+
     orders = query.order_by(Order.created_at.desc()).all()
-    
+
     if not orders:
         raise HTTPException(
             status_code=404,
             detail=f"No se encontraron órdenes para el cliente con teléfono '{customer_phone}'"
         )
-    
-    # Solo contar ventas finales en el total.
+
     completed_orders = [o for o in orders if o.estado in FINAL_SALE_STATUSES]
     total_spent = sum(o.total for o in completed_orders)
-    
-    # Fetch AI Customer data
     ai_data = db.query(Customer).filter(Customer.phone_number == customer_phone).first()
-    
+
     return CustomerHistory(
         customer_phone=customer_phone,
         customer_name=orders[0].customer_name,
@@ -250,7 +201,6 @@ def get_customer_history(
         average_order=total_spent / len(completed_orders) if completed_orders else Decimal("0.00"),
         first_order_date=min(o.created_at for o in orders),
         last_order_date=max(o.created_at for o in orders),
-        # AI Fields
         id=ai_data.id if ai_data else None,
         is_troll=ai_data.is_troll if ai_data else False,
         is_blocked=ai_data.is_blocked if ai_data else False,
