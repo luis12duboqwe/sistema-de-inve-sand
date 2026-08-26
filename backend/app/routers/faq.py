@@ -12,6 +12,8 @@ from app.auth import check_permission
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+MAX_FAQ_SEARCH_KEYWORDS = 6
+
 
 def _escape_like_pattern(value: str) -> str:
     """Treat user-provided SQL LIKE wildcard characters as literal text."""
@@ -92,6 +94,11 @@ def search_faq_entries(
         if not keywords:
             # Fallback si todo eran stop words
             keywords = [query.strip().lower()]
+
+        # Evitar amplificación de consultas SQL con mensajes arbitrariamente largos.
+        # El texto original no se trunca; solo se acotan las palabras que generan
+        # predicados LIKE, usando el mismo límite que la búsqueda de candidatos IA.
+        keywords = keywords[:MAX_FAQ_SEARCH_KEYWORDS]
 
         # 2. Construir condiciones OR (basta que coincida una palabra clave importante)
         conditions = []
