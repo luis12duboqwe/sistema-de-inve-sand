@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 import app.database as database
 from app.models import SalesProfile
-from app.routers import sales_profiles
+from app.routers import channel_monitoring, sales_profiles
 from app.sales_profile_identity import sales_profile_slug_hash, sales_profile_slug_key
 from app.schemas import SalesProfileCreate, SalesProfileUpdate
 from app.utils.auto_migrations import run_auto_migrations
+from app.utils.order_queries import resolve_sales_profile_for_query
+from app.utils.order_validators import resolve_sales_profile
 
 
 def _profile(name: str, slug: str) -> SalesProfile:
@@ -198,6 +200,85 @@ def test_sales_profile_slug_http_route_precedes_dynamic_id_route(
     assert response.status_code == 200, response.text
     assert response.json()["id"] == profile.id
     assert response.json()["slug"] == slug
+
+
+def test_order_and_query_resolvers_accept_same_unicode_slug_variant(
+    db_session: Session,
+) -> None:
+    suffix = uuid4().hex
+    stored_slug = f"Bót-Orden-{suffix}"
+    variant = f"bÓT-ORDEN-{suffix}"
+    profile = _profile("Perfil orden", stored_slug)
+    db_session.add(profile)
+    db_session.commit()
+
+    resolved, legacy, resolved_id, legacy_id = resolve_sales_profile(
+        db_session,
+        variant,
+        None,
+    )
+    query_resolved = resolve_sales_profile_for_query(
+        db_session,
+        variant,
+        require_active=True,
+    )
+
+    assert resolved is not None and resolved.id == profile.id
+    assert resolved_id == profile.id
+    assert legacy is None and legacy_id is None
+    assert query_resolved is not None and query_resolved.id == profile.id
+
+
+def test_channel_monitoring_accepts_same_unicode_slug_variant(
+    db_session: Session,
+) -> None:
+    suffix = uuid4().hex
+    stored_slug = f"Bót-Canal-{suffix}"
+    variant = f"bÓT-CANAL-{suffix}"
+    profile = _profile("Perfil canal", stored_slug)
+    db_session.add(profile)
+    db_session.commit()
+
+    payload = channel_monitoring.get_profile_audit_log(
+        variant,
+        db=db_session,
+        hours=1,
+        _ai_manager=SimpleNamespace(),
+    )
+
+    assert payload["sales_profile_slug"] == variant
+
+
+def test_update_preserves_unchanged_historical_display_slug(
+    db_session: Session,
+) -> None:
+    suffix = uuid4().hex
+    canonical_slug = f"bot-historical-{suffix}"
+    historical_display = f"  {canonical_slug}  "
+    profile = _profile("Perfil histórico", canonical_slug)
+    db_session.add(profile)
+    db_session.commit()
+    profile_id = int(profile.id)
+
+    db_session.execute(
+        text("UPDATE sales_profiles SET slug = :slug WHERE id = :profile_id"),
+        {"slug": historical_display, "profile_id": profile_id},
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    updated = sales_profiles.update_sales_profile(
+        profile_id,
+        SalesProfileUpdate(name="Perfil histórico renombrado", slug=historical_display),
+        db_session,
+        SimpleNamespace(),
+    )
+
+    assert updated.slug == historical_display
+    assert updated.name == "Perfil histórico renombrado"
+    persisted = db_session.query(SalesProfile).filter(SalesProfile.id == profile_id).one()
+    assert persisted.slug == historical_display
+    assert persisted.slug_key_hash == sales_profile_slug_hash(canonical_slug)
 
 
 def test_concurrent_sales_profile_create_leaves_one_normalized_slug(
