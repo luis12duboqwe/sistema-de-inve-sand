@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from app.routers import (
     ai_business_integrity,
     ai_candidate_product_integrity,
+    ai_customer_search_integrity,
     ai_intelligence,
     ai_order_product_integrity,
     ai_slug_integrity,
@@ -97,6 +98,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (ai_intelligence.router, "/api/ai/log", "POST"),
     (ai_intelligence.router, "/api/ai/training/submit", "POST"),
     (ai_intelligence.router, "/api/ai/handle-message", "POST"),
+    (ai_intelligence.router, "/api/ai/customers", "GET"),
 )
 
 for _router, _path, _method in _SHADOWED_ROUTES:
@@ -142,6 +144,10 @@ router.include_router(super_admin_integrity.router)
 router.include_router(super_admin_audit_integrity.router)
 router.include_router(
     ai_business_integrity.router,
+    dependencies=[Depends(ai_intelligence._ensure_ai_features_enabled)],
+)
+router.include_router(
+    ai_customer_search_integrity.router,
     dependencies=[Depends(ai_intelligence._ensure_ai_features_enabled)],
 )
 router.include_router(ai_slug_integrity.router)
