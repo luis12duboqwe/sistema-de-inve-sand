@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 from app.auth import check_permission, get_current_user_optional
 from app.config_production import prod_settings
 from app.database import get_db
-from app.models import SalesProfile, User
+from app.models import User
 from app.routers.channel_integrations import _channel_health_snapshot_with_profiles
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.utils.sales_profile_config import parse_sales_profile_config
 
 
@@ -74,8 +75,6 @@ def channels_health_integrity(
         missing.append("META_APP_SECRET")
     global_info["missing"] = sorted(set(missing))
 
-    # Meta owns the three supported webhook channels. In production no one of them
-    # is considered ready unless webhook signatures can be authenticated.
     if prod_settings.is_production() and not signature_enabled:
         snapshot["ready"] = False
         for info in (snapshot.get("channels") or {}).values():
@@ -127,15 +126,7 @@ async def _test_page_messaging_capability(
     configured_object_id: str,
     token: str,
 ) -> Dict[str, Any]:
-    """Validate Page-token ownership and read-only messaging capability.
-
-    Meta's Conversations API requires the same messaging permissions/tasks used
-    by Messenger/Instagram messaging. Querying one conversation page therefore
-    gives us a non-destructive capability probe without sending a customer
-    message. Instagram's Facebook-Login flow is anchored to the Facebook Page,
-    so ``/me`` is also used to verify that the configured IG professional account
-    is actually linked to the Page represented by the supplied Page token.
-    """
+    """Validate Page-token ownership and read-only messaging capability."""
     if channel == "messenger":
         identity_fields = "id,name"
     else:
@@ -239,10 +230,7 @@ async def test_channel_connection_integrity(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("ai:manage")),  # noqa: ARG001
 ) -> Dict[str, Any]:
-    profile = db.query(SalesProfile).filter(
-        SalesProfile.slug == sales_profile_slug,
-        SalesProfile.active == True,
-    ).first()
+    profile = find_sales_profile_by_slug(db, sales_profile_slug, active=True)
     if not profile:
         raise HTTPException(status_code=404, detail=f"Perfil {sales_profile_slug} no encontrado")
 
