@@ -1,0 +1,58 @@
+name: Apply AI context test cutoff fix
+
+on:
+  push:
+    branches:
+      - fix/ai-context-like-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/ai-context-like-integrity
+          fetch-depth: 0
+
+      - name: Strengthen runtime fallback cutoff regression
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/tests/test_ai_context_like_integrity.py")
+          text = path.read_text()
+
+          old = '''    # Fourteen higher-stock fillers guarantee the ordinary top-stock fallback
+    # cannot reintroduce the low-stock decoy after literal keyword matching.
+    for index in range(14):
+'''
+          new = '''    # Fifteen higher-stock fillers consume the complete fallback cutoff. If the
+    # keyword phase stops promoting the literal product, neither literal nor
+    # decoy can be reintroduced by top-stock and the runtime regression fails.
+    for index in range(15):
+'''
+
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one fallback fixture anchor, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          if text.count("for index in range(15):") != 1:
+              raise SystemExit("filler cutoff guard failed")
+          path.write_text(text)
+          PY
+          python -m compileall -q backend/tests/test_ai_context_like_integrity.py
+          git diff --check
+
+      - name: Commit fix and remove temporary workflow
+        run: |
+          rm .github/workflows/apply-ai-context-test-cutoff.yml
+          git config user.name "SoftMobile Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/tests/test_ai_context_like_integrity.py .github/workflows/apply-ai-context-test-cutoff.yml
+          git diff --cached --check
+          git commit -m "test: keep AI literal match below fallback cutoff"
+          git push origin HEAD:fix/ai-context-like-integrity
