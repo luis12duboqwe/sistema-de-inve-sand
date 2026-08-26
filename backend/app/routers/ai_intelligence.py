@@ -18,6 +18,7 @@ except:
     pass
 
 from app.database import get_db
+from app.ai_context_search import ilike_contains_literal
 from app.auth import check_permission, get_current_user_optional
 from app.models import (
     SalesProfile, Product, Stock, FAQEntry, Order, OrderItem,
@@ -1183,11 +1184,11 @@ def get_ai_context(
         and_conditions = []
         for k in keywords:
             term_condition = or_(
-                Product.nombre.ilike(f"%{k}%"),
-                Product.marca.ilike(f"%{k}%"),
-                Product.modelo.ilike(f"%{k}%"),
-                Product.sku.ilike(f"%{k}%"),
-                Product.categoria.ilike(f"%{k}%") # V2.5: Buscar también en categoría (ej: "Accesorios")
+                ilike_contains_literal(Product.nombre, k),
+                ilike_contains_literal(Product.marca, k),
+                ilike_contains_literal(Product.modelo, k),
+                ilike_contains_literal(Product.sku, k),
+                ilike_contains_literal(Product.categoria, k) # V2.5: Buscar también en categoría (ej: "Accesorios")
             )
             and_conditions.append(term_condition)
             
@@ -1205,9 +1206,9 @@ def get_ai_context(
             # Aplanar condiciones para un OR gigante
             or_conditions = []
             for k in keywords:
-                or_conditions.append(Product.nombre.ilike(f"%{k}%"))
-                or_conditions.append(Product.modelo.ilike(f"%{k}%"))
-                or_conditions.append(Product.categoria.ilike(f"%{k}%"))
+                or_conditions.append(ilike_contains_literal(Product.nombre, k))
+                or_conditions.append(ilike_contains_literal(Product.modelo, k))
+                or_conditions.append(ilike_contains_literal(Product.categoria, k))
             
             more_products = db.query(Product).options(
                 joinedload(Product.stock_items).joinedload(Stock.location)
@@ -1308,7 +1309,7 @@ def get_ai_context(
     
     if keywords:
         # Construir query OR para palabras clave
-        conditions = [FAQEntry.pregunta_clave.ilike(f"%{k}%") for k in keywords]
+        conditions = [ilike_contains_literal(FAQEntry.pregunta_clave, k) for k in keywords]
         if conditions:
             relevant_faqs = db.query(FAQEntry).filter(
                 FAQEntry.activa == True,
