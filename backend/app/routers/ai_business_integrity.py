@@ -38,6 +38,7 @@ from app.routers.ai_intelligence import (
     _utcnow,
     openai_service,
 )
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_integrity import effective_sale_at, effective_sale_column
 
@@ -60,7 +61,7 @@ def generate_business_insights_integrity(
 
     sales_profile_id = payload.sales_profile_id
     if payload.sales_profile_slug:
-        profile = db.query(SalesProfile).filter(SalesProfile.slug == payload.sales_profile_slug).first()
+        profile = find_sales_profile_by_slug(db, payload.sales_profile_slug)
         if not profile:
             raise HTTPException(status_code=404, detail="Sales Profile not found")
         sales_profile_id = profile.id
