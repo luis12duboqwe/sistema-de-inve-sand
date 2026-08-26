@@ -18,7 +18,7 @@ except:
     pass
 
 from app.database import get_db
-from app.ai_context_search import ilike_contains_literal
+from app.ai_context_search import bound_ai_context_sql_keywords, ilike_contains_literal
 from app.auth import check_permission, get_current_user_optional
 from app.models import (
     SalesProfile, Product, Stock, FAQEntry, Order, OrderItem,
@@ -1176,7 +1176,7 @@ def get_ai_context(
     # Filtrar palabras cortas y comunes para evitar ruido
     stop_words = {'hola', 'quiero', 'tienes', 'precio', 'cuanto', 'cuesta', 'busco', 'necesito', 'para', 'celular', 'telefono'}
     # V2.2 FIX: Permitir palabras de 2 letras (ej: XR, 11, 12, S9)
-    keywords = [w.lower() for w in search_message.split() if len(w) >= 2 and w.lower() not in stop_words]
+    keywords = bound_ai_context_sql_keywords([w.lower() for w in search_message.split() if len(w) >= 2 and w.lower() not in stop_words])
     
     if keywords:
         # 1. INTENTO ESTRICTO (AND)
@@ -1305,7 +1305,7 @@ def get_ai_context(
     relevant_faqs = []
     
     # A. Búsqueda por palabras clave (simple)
-    keywords = [w.lower() for w in request.message_content.split() if len(w) > 3]
+    keywords = bound_ai_context_sql_keywords([w.lower() for w in request.message_content.split() if len(w) > 3])
     
     if keywords:
         # Construir query OR para palabras clave
