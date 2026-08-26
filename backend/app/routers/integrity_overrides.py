@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from app.routers import (
     ai_business_integrity,
     ai_intelligence,
+    ai_order_product_integrity,
     ai_slug_integrity,
     auth_admin_integrity,
     auth_register_integrity,
@@ -105,6 +106,14 @@ for _router, _path, _method in _SHADOWED_ROUTES:
 # default slugs receive identical Unicode/case-insensitive semantics.
 channel_integrations.handle_message_without_n8n = (
     ai_slug_integrity.handle_message_without_n8n_integrity
+)
+
+# AI order creation resolves product_query values through a module-global helper.
+# Rebind that boundary once so both /create-order and /handle-message order intents
+# treat user-entered LIKE metacharacters as literal text without duplicating auth,
+# feature gates, stock validation, or OrderService behavior.
+ai_intelligence._resolve_product_for_ai_item = (
+    ai_order_product_integrity.resolve_product_for_ai_item_integrity
 )
 
 
