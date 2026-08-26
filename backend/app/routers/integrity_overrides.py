@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 
 from app.routers import (
     ai_business_integrity,
+    ai_candidate_product_integrity,
     ai_intelligence,
     ai_order_product_integrity,
     ai_slug_integrity,
@@ -114,6 +115,13 @@ channel_integrations.handle_message_without_n8n = (
 # feature gates, stock validation, or OrderService behavior.
 ai_intelligence._resolve_product_for_ai_item = (
     ai_order_product_integrity.resolve_product_for_ai_item_integrity
+)
+
+# Candidate products influence inventory context, remembered products, and photo
+# requests. Rebind the shared runtime helper once so every AI path keeps existing
+# ranking/fallback semantics while treating message keywords as literal text.
+ai_intelligence._find_candidate_products = (
+    ai_candidate_product_integrity.find_candidate_products_integrity
 )
 
 
