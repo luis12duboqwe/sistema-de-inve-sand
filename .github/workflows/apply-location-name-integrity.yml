@@ -1,0 +1,180 @@
+name: Apply location name integrity patch
+
+on:
+  push:
+    branches:
+      - fix/location-name-concurrency-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  apply_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/location-name-concurrency-integrity
+          fetch-depth: 0
+
+      - name: Apply guarded location integrity changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          # Model: persistent canonical identity + validator.
+          path = Path("backend/app/models/location.py")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              "from app.database import Base\nfrom app.sales_profile_identity import (",
+              "from app.database import Base\nfrom app.location_identity import (\n    location_name_hash,\n    location_name_key,\n    normalize_location_name,\n)\nfrom app.sales_profile_identity import (",
+              "model identity import",
+          )
+          text = replace_once(
+              text,
+              "    nombre = Column(String, nullable=False, index=True)\n    tipo = Column(String, nullable=False, index=True)",
+              "    nombre = Column(String, nullable=False, index=True)\n    nombre_normalized = Column(Text, nullable=False)\n    nombre_key_hash = Column(String(64), nullable=False, unique=True, index=True)\n    tipo = Column(String, nullable=False, index=True)",
+              "model identity columns",
+          )
+          text = replace_once(
+              text,
+              "    __table_args__ = (Index(\"idx_location_tipo_activo\", \"tipo\", \"activo\"),)\n\n\nclass SalesProfile(Base):",
+              "    __table_args__ = (Index(\"idx_location_tipo_activo\", \"tipo\", \"activo\"),)\n\n    @validates(\"nombre\")\n    def _canonicalize_nombre(self, _key: str, value: str) -> str:\n        normalized = normalize_location_name(value)\n        self.nombre_normalized = location_name_key(normalized)\n        self.nombre_key_hash = location_name_hash(normalized)\n        return normalized\n\n\nclass SalesProfile(Base):",
+              "model validator",
+          )
+          path.write_text(text)
+
+          # Router: canonical prechecks + DB-authoritative race handling.
+          path = Path("backend/app/routers/locations.py")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              "from sqlalchemy import func\nfrom sqlalchemy.orm import Session",
+              "from sqlalchemy import func\nfrom sqlalchemy.exc import IntegrityError\nfrom sqlalchemy.orm import Session",
+              "router integrity import",
+          )
+          text = replace_once(
+              text,
+              "from app.database import get_db\n\nfrom app.auth import",
+              "from app.database import get_db\nfrom app.location_identity import (\n    location_name_hash,\n    normalize_location_name,\n)\n\nfrom app.auth import",
+              "router identity import",
+          )
+          text = replace_once(
+              text,
+              "router = APIRouter(prefix=\"/api/locations\", tags=[\"locations\"])\nlogger = logging.getLogger(__name__)\n\n\n@router.get",
+              "router = APIRouter(prefix=\"/api/locations\", tags=[\"locations\"])\nlogger = logging.getLogger(__name__)\n\n\ndef _location_name_filter(value: str):\n    return models.Location.nombre_key_hash == location_name_hash(value)\n\n\ndef _location_integrity_error(\n    db: Session,\n    name: str,\n    *,\n    exclude_location_id: Optional[int] = None,\n) -> HTTPException:\n    clean_name = normalize_location_name(name)\n    query = db.query(models.Location).filter(_location_name_filter(clean_name))\n    if exclude_location_id is not None:\n        query = query.filter(models.Location.id != exclude_location_id)\n\n    if query.first() is not None:\n        return HTTPException(\n            status_code=400,\n            detail=f\"La ubicación '{clean_name}' ya existe\",\n        )\n\n    logger.warning(\n        \"Location write hit an unrelated integrity conflict (location_id=%s)\",\n        exclude_location_id,\n    )\n    return HTTPException(\n        status_code=409,\n        detail=\"Conflicto de integridad al guardar la ubicación. Reintente la operación.\",\n    )\n\n\n@router.get",
+              "router helper insertion",
+          )
+          text = replace_once(
+              text,
+              "    # Validar que el nombre sea único (case-insensitive)\n    nombre_limpio = (location.nombre or \"\").strip()\n    if not nombre_limpio:\n        raise HTTPException(\n            status_code=400,\n            detail=\"El nombre de la ubicación no puede estar vacío\"\n        )\n    \n    existing = db.query(models.Location).filter(\n        func.lower(models.Location.nombre) == nombre_limpio.lower()\n    ).first()\n    if existing:\n        raise HTTPException(\n            status_code=400,\n            detail=f\"La ubicación '{nombre_limpio}' ya existe\"\n        )",
+              "    try:\n        nombre_limpio = normalize_location_name(location.nombre)\n    except ValueError as exc:\n        raise HTTPException(status_code=400, detail=str(exc)) from exc\n\n    existing = db.query(models.Location).filter(\n        _location_name_filter(nombre_limpio)\n    ).first()\n    if existing:\n        raise HTTPException(\n            status_code=400,\n            detail=f\"La ubicación '{nombre_limpio}' ya existe\"\n        )",
+              "create precheck",
+          )
+          text = replace_once(
+              text,
+              "        db.refresh(db_location)\n        return db_location\n    except Exception:\n        db.rollback()\n        logger.exception(\"Error al crear ubicación\")",
+              "        db.refresh(db_location)\n        return db_location\n    except IntegrityError:\n        db.rollback()\n        raise _location_integrity_error(db, nombre_limpio)\n    except Exception:\n        db.rollback()\n        logger.exception(\"Error al crear ubicación\")",
+              "create integrity catch",
+          )
+          text = replace_once(
+              text,
+              "    if not db_location:\n        raise HTTPException(status_code=404, detail=\"Ubicación no encontrada\")\n    \n    try:\n        update_data = location.model_dump(exclude_unset=True)",
+              "    if not db_location:\n        raise HTTPException(status_code=404, detail=\"Ubicación no encontrada\")\n\n    integrity_name = db_location.nombre\n    try:\n        update_data = location.model_dump(exclude_unset=True)",
+              "update integrity seed",
+          )
+          text = replace_once(
+              text,
+              "        # Validar nombre único si se está actualizando (case-insensitive)\n        if 'nombre' in update_data:\n            nuevo_nombre = (update_data['nombre'] or \"\").strip()\n            if not nuevo_nombre:\n                raise HTTPException(\n                    status_code=400,\n                    detail=\"El nombre de la ubicación no puede estar vacío\"\n                )\n            if nuevo_nombre.lower() != db_location.nombre.lower():\n                existing = db.query(models.Location).filter(\n                    func.lower(models.Location.nombre) == nuevo_nombre.lower(),\n                    models.Location.id != location_id\n                ).first()\n                if existing:\n                    raise HTTPException(\n                        status_code=400,\n                        detail=f\"La ubicación '{nuevo_nombre}' ya existe\"\n                    )\n            update_data['nombre'] = nuevo_nombre",
+              "        if 'nombre' in update_data:\n            try:\n                nuevo_nombre = normalize_location_name(update_data['nombre'])\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            integrity_name = nuevo_nombre\n            target_hash = location_name_hash(nuevo_nombre)\n            if target_hash != db_location.nombre_key_hash:\n                existing = db.query(models.Location).filter(\n                    models.Location.nombre_key_hash == target_hash,\n                    models.Location.id != location_id,\n                ).first()\n                if existing:\n                    raise HTTPException(\n                        status_code=400,\n                        detail=f\"La ubicación '{nuevo_nombre}' ya existe\"\n                    )\n            update_data['nombre'] = nuevo_nombre",
+              "update precheck",
+          )
+          text = replace_once(
+              text,
+              "    except HTTPException:\n        db.rollback()\n        raise\n    except Exception:\n        db.rollback()\n        logger.exception(\"Error al actualizar ubicación %s\", location_id)",
+              "    except HTTPException:\n        db.rollback()\n        raise\n    except IntegrityError:\n        db.rollback()\n        raise _location_integrity_error(\n            db,\n            integrity_name,\n            exclude_location_id=location_id,\n        )\n    except Exception:\n        db.rollback()\n        logger.exception(\"Error al actualizar ubicación %s\", location_id)",
+              "update integrity catch",
+          )
+          path.write_text(text)
+
+          # Versioned migration + critical schema validation.
+          path = Path("backend/app/utils/auto_migrations.py")
+          text = path.read_text()
+          text = replace_once(
+              text,
+              "import app.database as database\nfrom app.sales_profile_identity import",
+              "import app.database as database\nfrom app.location_identity import location_name_hash, location_name_key\nfrom app.sales_profile_identity import",
+              "migration identity import",
+          )
+
+          location_migration = '''def _apply_location_name_uniqueness_migration() -> None:\n    \"\"\"Backfill stable location identities without rewriting historical display names.\"\"\"\n    if \"locations\" not in inspect(database.engine).get_table_names():\n        return\n\n    _add_column_if_missing(\"locations\", \"nombre_normalized\", \"TEXT\")\n    _add_column_if_missing(\"locations\", \"nombre_key_hash\", \"VARCHAR(64)\")\n\n    with database.engine.begin() as conn:\n        conn.execute(text(\"DROP INDEX IF EXISTS ix_locations_nombre_normalized\"))\n\n    seen_keys: dict[str, tuple[int, str]] = {}\n    seen_hashes: dict[str, tuple[str, int, str]] = {}\n    with database.engine.begin() as conn:\n        rows = conn.execute(\n            text(\"SELECT id, nombre FROM locations ORDER BY id\")\n        ).mappings().all()\n        normalized_rows: list[tuple[int, str, str]] = []\n\n        for row in rows:\n            location_id = int(row[\"id\"])\n            raw_name = str(row[\"nombre\"] or \"\")\n            try:\n                normalized_key = location_name_key(raw_name)\n                normalized_hash = location_name_hash(raw_name)\n            except ValueError as exc:\n                raise RuntimeError(\n                    f\"Ubicación existente ID {location_id} tiene un nombre inválido; \"\n                    \"corrígelo antes de continuar la migración\"\n                ) from exc\n\n            previous = seen_keys.get(normalized_key)\n            if previous is not None:\n                previous_id, previous_name = previous\n                raise RuntimeError(\n                    \"Ubicaciones duplicadas después de normalizar: \"\n                    f\"ID {previous_id} '{previous_name}' e ID {location_id} '{raw_name}'. \"\n                    \"Unifica esos registros antes de continuar la migración.\"\n                )\n\n            hash_previous = seen_hashes.get(normalized_hash)\n            if hash_previous is not None and hash_previous[0] != normalized_key:\n                _, previous_id, previous_name = hash_previous\n                raise RuntimeError(\n                    \"Colisión de identidad de ubicación detectada: \"\n                    f\"ID {previous_id} '{previous_name}' e ID {location_id} '{raw_name}'. \"\n                    \"No se puede continuar de forma segura.\"\n                )\n\n            seen_keys[normalized_key] = (location_id, raw_name)\n            seen_hashes[normalized_hash] = (normalized_key, location_id, raw_name)\n            normalized_rows.append((location_id, normalized_key, normalized_hash))\n\n        for location_id, normalized_key, normalized_hash in normalized_rows:\n            conn.execute(\n                text(\n                    \"UPDATE locations SET nombre_normalized = :normalized_key, \"\n                    \"nombre_key_hash = :normalized_hash WHERE id = :location_id\"\n                ),\n                {\n                    \"normalized_key\": normalized_key,\n                    \"normalized_hash\": normalized_hash,\n                    \"location_id\": location_id,\n                },\n            )\n\n        conn.execute(\n            text(\n                \"CREATE UNIQUE INDEX IF NOT EXISTS ix_locations_nombre_key_hash \"\n                \"ON locations (nombre_key_hash)\"\n            )\n        )\n\n        if _dialect_name() == \"postgresql\":\n            conn.execute(\n                text(\"ALTER TABLE locations ALTER COLUMN nombre_normalized SET NOT NULL\")\n            )\n            conn.execute(\n                text(\"ALTER TABLE locations ALTER COLUMN nombre_key_hash SET NOT NULL\")\n            )\n\n\n'''
+          text = replace_once(
+              text,
+              "def _apply_sales_profile_slug_uniqueness_migration() -> None:",
+              location_migration + "def _apply_sales_profile_slug_uniqueness_migration() -> None:",
+              "migration function insertion",
+          )
+          text = replace_once(
+              text,
+              "    (\"20260825_02_sales_profile_slug_uniqueness\", _apply_sales_profile_slug_uniqueness_migration),\n)",
+              "    (\"20260825_02_sales_profile_slug_uniqueness\", _apply_sales_profile_slug_uniqueness_migration),\n    (\"20260826_01_location_name_uniqueness\", _apply_location_name_uniqueness_migration),\n)",
+              "migration registry",
+          )
+
+          location_index_helper = '''def _location_unique_index_exists() -> bool:\n    if \"locations\" not in inspect(database.engine).get_table_names():\n        return True\n\n    with database.engine.connect() as conn:\n        if _dialect_name() == \"sqlite\":\n            rows = conn.execute(text(\"PRAGMA index_list('locations')\")).fetchall()\n            return any(\n                str(row[1]) == \"ix_locations_nombre_key_hash\" and bool(row[2])\n                for row in rows\n            )\n\n        indexdef = conn.execute(\n            text(\n                \"SELECT indexdef FROM pg_indexes \"\n                \"WHERE schemaname = current_schema() \"\n                \"AND tablename = 'locations' \"\n                \"AND indexname = 'ix_locations_nombre_key_hash'\"\n            )\n        ).scalar_one_or_none()\n        return bool(indexdef and \"CREATE UNIQUE INDEX\" in str(indexdef).upper())\n\n\n'''
+          text = replace_once(
+              text,
+              "def _supplier_unique_index_exists() -> bool:",
+              location_index_helper + "def _supplier_unique_index_exists() -> bool:",
+              "location index helper",
+          )
+          text = replace_once(
+              text,
+              "    if \"suppliers\" in table_names:\n        required_columns[\"suppliers\"] = {\"nombre_normalized\", \"nombre_key_hash\"}",
+              "    if \"locations\" in table_names:\n        required_columns[\"locations\"] = {\"nombre_normalized\", \"nombre_key_hash\"}\n    if \"suppliers\" in table_names:\n        required_columns[\"suppliers\"] = {\"nombre_normalized\", \"nombre_key_hash\"}",
+              "critical location columns",
+          )
+
+          location_validation = '''    if \"locations\" in table_names:\n        with database.engine.connect() as conn:\n            invalid_count = conn.execute(\n                text(\n                    \"SELECT COUNT(*) FROM locations WHERE nombre_normalized IS NULL \"\n                    \"OR nombre_key_hash IS NULL\"\n                )\n            ).scalar_one()\n            duplicate = conn.execute(\n                text(\n                    \"SELECT nombre_key_hash FROM locations \"\n                    \"GROUP BY nombre_key_hash HAVING COUNT(*) > 1 LIMIT 1\"\n                )\n            ).first()\n        if int(invalid_count) != 0:\n            raise RuntimeError(\n                \"Esquema incompleto: existen ubicaciones sin identidad normalizada\"\n            )\n        if duplicate is not None:\n            raise RuntimeError(\n                \"Esquema incompleto: existen ubicaciones duplicadas después de normalizar\"\n            )\n        if not _location_unique_index_exists():\n            raise RuntimeError(\n                \"Esquema incompleto: falta índice único ix_locations_nombre_key_hash\"\n            )\n\n'''
+          text = replace_once(
+              text,
+              "    if \"suppliers\" in table_names:\n        with database.engine.connect() as conn:",
+              location_validation + "    if \"suppliers\" in table_names:\n        with database.engine.connect() as conn:",
+              "critical location validation",
+          )
+          path.write_text(text)
+          PY
+
+          python -m compileall -q \
+            backend/app/location_identity.py \
+            backend/app/models/location.py \
+            backend/app/routers/locations.py \
+            backend/app/utils/auto_migrations.py \
+            backend/tests/test_location_name_concurrency_integrity.py
+          git diff --check
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-location-name-integrity.yml
+          git config user.name 'SoftMobile Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            backend/app/models/location.py \
+            backend/app/routers/locations.py \
+            backend/app/utils/auto_migrations.py \
+            .github/workflows/apply-location-name-integrity.yml
+          git diff --cached --check
+          git commit -m 'fix: enforce location name identity at database level'
+          git push origin HEAD:fix/location-name-concurrency-integrity
