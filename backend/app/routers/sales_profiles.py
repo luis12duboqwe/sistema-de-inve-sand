@@ -79,16 +79,6 @@ def get_sales_profiles(
     return [serialize_sales_profile(profile) for profile in profiles]
 
 
-@router.get("/{profile_id}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_any_permission("settings:view", "orders:view", "orders:create"))])
-def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
-    """Obtener un perfil de venta específico"""
-    profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
-    
-    return serialize_sales_profile(profile)
-
-
 @router.get("/slug/{slug}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_any_permission("settings:view", "orders:view", "orders:create"))])
 def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
     """Obtener un perfil de venta por su slug con identidad case-insensitive estable."""
@@ -98,6 +88,16 @@ def get_sales_profile_by_slug(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
 
     profile = db.query(models.SalesProfile).filter(_slug_filter(clean_slug)).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
+    
+    return serialize_sales_profile(profile)
+
+
+@router.get("/{profile_id}", response_model=schemas.SalesProfileResponse, dependencies=[Depends(check_any_permission("settings:view", "orders:view", "orders:create"))])
+def get_sales_profile(profile_id: int, db: Session = Depends(get_db)):
+    """Obtener un perfil de venta específico"""
+    profile = db.query(models.SalesProfile).filter(models.SalesProfile.id == profile_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Perfil de venta no encontrado")
     
