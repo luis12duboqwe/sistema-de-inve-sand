@@ -53,6 +53,7 @@ def _strip_route(router: APIRouter, path: str, method: str) -> None:
 _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (auth_router.router, "/api/auth/setup", "POST"),
     (auth_router.router, "/api/auth/register", "POST"),
+    (auth_router.router, "/api/auth/users", "GET"),
     (auth_router.router, "/api/auth/users/{user_id}/role", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "PUT"),
     (auth_router.router, "/api/auth/users/{user_id}", "DELETE"),
