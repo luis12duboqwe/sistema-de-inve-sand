@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-patch:
+  apply_patch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
@@ -19,40 +19,25 @@ jobs:
           fetch-depth: 0
 
       - name: Strengthen runtime fallback cutoff regression
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("backend/tests/test_ai_context_like_integrity.py")
-          text = path.read_text()
-
-          old = '''    # Fourteen higher-stock fillers guarantee the ordinary top-stock fallback
-    # cannot reintroduce the low-stock decoy after literal keyword matching.
-    for index in range(14):
-'''
-          new = '''    # Fifteen higher-stock fillers consume the complete fallback cutoff. If the
-    # keyword phase stops promoting the literal product, neither literal nor
-    # decoy can be reintroduced by top-stock and the runtime regression fails.
-    for index in range(15):
-'''
-
-          if text.count(old) != 1:
-              raise SystemExit(f"expected one fallback fixture anchor, found {text.count(old)}")
-          text = text.replace(old, new, 1)
-
-          if text.count("for index in range(15):") != 1:
-              raise SystemExit("filler cutoff guard failed")
-          path.write_text(text)
-          PY
+          set -euo pipefail
+          test "$(grep -Fc 'for index in range(14):' backend/tests/test_ai_context_like_integrity.py)" -eq 1
+          sed -i 's/for index in range(14):/for index in range(15):/' backend/tests/test_ai_context_like_integrity.py
+          sed -i 's/# Fourteen higher-stock fillers guarantee the ordinary top-stock fallback/# Fifteen higher-stock fillers consume the complete top-stock fallback cutoff./' backend/tests/test_ai_context_like_integrity.py
+          sed -i 's/# cannot reintroduce the low-stock decoy after literal keyword matching./# Without keyword promotion, neither the literal product nor decoy can re-enter./' backend/tests/test_ai_context_like_integrity.py
+          test "$(grep -Fc 'for index in range(15):' backend/tests/test_ai_context_like_integrity.py)" -eq 1
           python -m compileall -q backend/tests/test_ai_context_like_integrity.py
           git diff --check
 
       - name: Commit fix and remove temporary workflow
+        shell: bash
         run: |
+          set -euo pipefail
           rm .github/workflows/apply-ai-context-test-cutoff.yml
-          git config user.name "SoftMobile Automation"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name 'SoftMobile Automation'
+          git config user.email 'actions@users.noreply.github.com'
           git add backend/tests/test_ai_context_like_integrity.py .github/workflows/apply-ai-context-test-cutoff.yml
           git diff --cached --check
-          git commit -m "test: keep AI literal match below fallback cutoff"
+          git commit -m 'test: keep AI literal match below fallback cutoff'
           git push origin HEAD:fix/ai-context-like-integrity
