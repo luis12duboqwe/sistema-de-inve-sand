@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import User
-from app.routers import auth_admin_integrity, auth_router, integrity_overrides
+from app.routers import auth_admin_integrity, auth_router
 
 
 def _user(username: str, full_name: str) -> User:
@@ -100,13 +100,30 @@ def test_admin_user_search_preserves_pagination_contract(db_session: Session) ->
     assert len(result.items) == 1
 
 
-def test_admin_user_search_is_the_only_overlay_get_handler(client: TestClient) -> None:
+def test_admin_user_search_runtime_dispatch_is_canonical(
+    client: TestClient,
+    db_session: Session,
+) -> None:
     legacy_matches = _matching_get_routes(auth_router.router)
-    overlay_matches = _matching_get_routes(integrity_overrides.router)
+    canonical_matches = _matching_get_routes(auth_admin_integrity.router)
 
     assert legacy_matches == []
-    assert len(overlay_matches) == 1
-    assert overlay_matches[0].endpoint is auth_admin_integrity.list_users_integrity
+    assert len(canonical_matches) == 1
+    assert canonical_matches[0].endpoint is auth_admin_integrity.list_users_integrity
+
+    suffix = uuid4().hex
+    literal = _user(f"runtimeliteral{suffix}", f"Usuario runtime%{suffix}")
+    wildcard_decoy = _user(f"runtimedecoy{suffix}", f"Usuario runtimeX{suffix}")
+    db_session.add_all([literal, wildcard_decoy])
+    db_session.commit()
+
+    response = client.get(
+        "/api/auth/users",
+        params={"search": f"runtime%{suffix}", "per_page": 200},
+    )
+
+    assert response.status_code == 200, response.text
+    assert {item["username"] for item in response.json()["items"]} == {literal.username}
 
     operation = client.get("/openapi.json").json()["paths"]["/api/auth/users"]["get"]
     assert operation["operationId"].startswith("list_users_integrity_")
