@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.main import app
 from app.models import User
 from app.routers import auth_admin_integrity
 
@@ -91,8 +91,13 @@ def test_admin_user_search_preserves_pagination_contract(db_session: Session) ->
     assert len(result.items) == 1
 
 
-def test_admin_user_search_is_the_canonical_openapi_handler(client: TestClient) -> None:
-    schema = client.get("/openapi.json").json()
-    operation = schema["paths"]["/api/auth/users"]["get"]
+def test_admin_user_search_is_the_only_registered_get_handler() -> None:
+    matches = [
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/auth/users"
+        and "GET" in (getattr(route, "methods", set()) or set())
+    ]
 
-    assert operation["operationId"].startswith("list_users_integrity_")
+    assert len(matches) == 1
+    assert matches[0].endpoint is auth_admin_integrity.list_users_integrity
