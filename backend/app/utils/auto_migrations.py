@@ -21,6 +21,7 @@ import sqlite3
 from sqlalchemy import inspect, text
 
 import app.database as database
+from app.sales_profile_identity import sales_profile_slug_hash, sales_profile_slug_key
 from app.utils.bank_names import bank_name_hash, bank_name_key
 from app.utils.supplier_names import supplier_name_hash, supplier_name_key
 
@@ -339,6 +340,85 @@ def _apply_supplier_name_uniqueness_migration() -> None:
             )
 
 
+def _apply_sales_profile_slug_uniqueness_migration() -> None:
+    """Backfill stable slug identities without rewriting historical display slugs."""
+    if "sales_profiles" not in inspect(database.engine).get_table_names():
+        return
+
+    _add_column_if_missing("sales_profiles", "slug_normalized", "TEXT")
+    _add_column_if_missing("sales_profiles", "slug_key_hash", "VARCHAR(64)")
+
+    seen_keys: dict[str, tuple[int, str]] = {}
+    seen_hashes: dict[str, tuple[str, int, str]] = {}
+    with database.engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT id, slug FROM sales_profiles ORDER BY id")
+        ).mappings().all()
+        normalized_rows: list[tuple[int, str, str]] = []
+
+        for row in rows:
+            profile_id = int(row["id"])
+            raw_slug = str(row["slug"] or "")
+            try:
+                normalized_key = sales_profile_slug_key(raw_slug)
+                normalized_hash = sales_profile_slug_hash(raw_slug)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Perfil de venta existente ID {profile_id} tiene un slug inválido; "
+                    "corrígelo antes de continuar la migración"
+                ) from exc
+
+            previous = seen_keys.get(normalized_key)
+            if previous is not None:
+                previous_id, previous_slug = previous
+                raise RuntimeError(
+                    "Perfiles de venta duplicados después de normalizar slug: "
+                    f"ID {previous_id} '{previous_slug}' e ID {profile_id} '{raw_slug}'. "
+                    "Unifica esos registros antes de continuar la migración."
+                )
+
+            hash_previous = seen_hashes.get(normalized_hash)
+            if hash_previous is not None and hash_previous[0] != normalized_key:
+                _, previous_id, previous_slug = hash_previous
+                raise RuntimeError(
+                    "Colisión de identidad de slug de perfil de venta detectada: "
+                    f"ID {previous_id} '{previous_slug}' e ID {profile_id} '{raw_slug}'. "
+                    "No se puede continuar de forma segura."
+                )
+
+            seen_keys[normalized_key] = (profile_id, raw_slug)
+            seen_hashes[normalized_hash] = (normalized_key, profile_id, raw_slug)
+            normalized_rows.append((profile_id, normalized_key, normalized_hash))
+
+        for profile_id, normalized_key, normalized_hash in normalized_rows:
+            conn.execute(
+                text(
+                    "UPDATE sales_profiles SET slug_normalized = :normalized_key, "
+                    "slug_key_hash = :normalized_hash WHERE id = :profile_id"
+                ),
+                {
+                    "normalized_key": normalized_key,
+                    "normalized_hash": normalized_hash,
+                    "profile_id": profile_id,
+                },
+            )
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_sales_profiles_slug_key_hash "
+                "ON sales_profiles (slug_key_hash)"
+            )
+        )
+
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text("ALTER TABLE sales_profiles ALTER COLUMN slug_normalized SET NOT NULL")
+            )
+            conn.execute(
+                text("ALTER TABLE sales_profiles ALTER COLUMN slug_key_hash SET NOT NULL")
+            )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260805_01_daily_close_validation", _apply_daily_close_migration),
     ("20260805_02_transfer_receiving_fields", _apply_transfer_receiving_fields_migration),
@@ -346,6 +426,7 @@ MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
     ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
     ("20260825_01_supplier_name_uniqueness", _apply_supplier_name_uniqueness_migration),
+    ("20260825_02_sales_profile_slug_uniqueness", _apply_sales_profile_slug_uniqueness_migration),
 )
 
 
@@ -440,6 +521,29 @@ def _supplier_unique_index_exists() -> bool:
         return bool(indexdef and "CREATE UNIQUE INDEX" in str(indexdef).upper())
 
 
+def _sales_profile_slug_unique_index_exists() -> bool:
+    if "sales_profiles" not in inspect(database.engine).get_table_names():
+        return True
+
+    with database.engine.connect() as conn:
+        if _dialect_name() == "sqlite":
+            rows = conn.execute(text("PRAGMA index_list('sales_profiles')")).fetchall()
+            return any(
+                str(row[1]) == "ix_sales_profiles_slug_key_hash" and bool(row[2])
+                for row in rows
+            )
+
+        indexdef = conn.execute(
+            text(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE schemaname = current_schema() "
+                "AND tablename = 'sales_profiles' "
+                "AND indexname = 'ix_sales_profiles_slug_key_hash'"
+            )
+        ).scalar_one_or_none()
+        return bool(indexdef and "CREATE UNIQUE INDEX" in str(indexdef).upper())
+
+
 def _validate_critical_schema() -> None:
     inspector = inspect(database.engine)
     table_names = set(inspector.get_table_names())
@@ -460,6 +564,8 @@ def _validate_critical_schema() -> None:
         required_columns["banks"] = {"name_normalized", "name_key_hash"}
     if "suppliers" in table_names:
         required_columns["suppliers"] = {"nombre_normalized", "nombre_key_hash"}
+    if "sales_profiles" in table_names:
+        required_columns["sales_profiles"] = {"slug_normalized", "slug_key_hash"}
 
     missing_columns: list[str] = []
     for table, required in required_columns.items():
@@ -519,6 +625,33 @@ def _validate_critical_schema() -> None:
         if not _supplier_unique_index_exists():
             raise RuntimeError(
                 "Esquema incompleto: falta índice único ix_suppliers_nombre_key_hash"
+            )
+
+    if "sales_profiles" in table_names:
+        with database.engine.connect() as conn:
+            invalid_count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM sales_profiles WHERE slug_normalized IS NULL "
+                    "OR slug_key_hash IS NULL"
+                )
+            ).scalar_one()
+            duplicate = conn.execute(
+                text(
+                    "SELECT slug_key_hash FROM sales_profiles "
+                    "GROUP BY slug_key_hash HAVING COUNT(*) > 1 LIMIT 1"
+                )
+            ).first()
+        if int(invalid_count) != 0:
+            raise RuntimeError(
+                "Esquema incompleto: existen perfiles de venta sin identidad de slug normalizada"
+            )
+        if duplicate is not None:
+            raise RuntimeError(
+                "Esquema incompleto: existen perfiles de venta con slugs duplicados después de normalizar"
+            )
+        if not _sales_profile_slug_unique_index_exists():
+            raise RuntimeError(
+                "Esquema incompleto: falta índice único ix_sales_profiles_slug_key_hash"
             )
 
 

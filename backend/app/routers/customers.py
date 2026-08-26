@@ -5,6 +5,7 @@ from typing import List, Optional
 from decimal import Decimal
 from app.database import get_db
 from app.models import Order, Profile, SalesProfile, Customer, User
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.schemas import CustomerStats, CustomerHistory, OrderListResponse
 from app.routers.orders import _serialize_order
 from app.auth import get_current_active_user, check_permission
@@ -47,10 +48,11 @@ def list_customers(
     # Base query for filtering
     filter_conditions = []
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
@@ -144,10 +146,11 @@ def get_customer_stats(
     )
     
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
@@ -216,10 +219,11 @@ def get_customer_history(
     )
     
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True  # Validar que esté activo
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,

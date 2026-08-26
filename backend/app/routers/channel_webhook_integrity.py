@@ -17,6 +17,7 @@ from app.config_production import prod_settings
 from app.database import get_db
 from app.models import ProcessedMessage, SalesProfile
 from app.routers import channel_integrations as legacy_channels
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.schemas import AIHandleMessageRequest
 
 
@@ -183,7 +184,7 @@ def _store_reply_for_delivery(
     if claim is None:
         raise RuntimeError("Webhook delivery claim disappeared before reply persistence")
 
-    profile = db.query(SalesProfile).filter(SalesProfile.slug == sales_profile_slug).first()
+    profile = find_sales_profile_by_slug(db, sales_profile_slug)
     claim.sales_profile_id = profile.id if profile else None
     claim.reply_text = reply_text
     claim.delivery_status = "delivering"

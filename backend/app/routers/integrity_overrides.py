@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from app.routers import (
     ai_business_integrity,
     ai_intelligence,
+    ai_slug_integrity,
     auth_admin_integrity,
     auth_register_integrity,
     auth_router,
@@ -88,10 +89,22 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (super_admin.router, "/api/super-admin/audit-logs", "GET"),
     (super_admin.router, "/api/super-admin/audit-logs/{audit_id}/revert", "POST"),
     (ai_intelligence.router, "/api/ai/business-insights", "POST"),
+    (ai_intelligence.router, "/api/ai/context", "POST"),
+    (ai_intelligence.router, "/api/ai/reply", "POST"),
+    (ai_intelligence.router, "/api/ai/log", "POST"),
+    (ai_intelligence.router, "/api/ai/training/submit", "POST"),
+    (ai_intelligence.router, "/api/ai/handle-message", "POST"),
 )
 
 for _router, _path, _method in _SHADOWED_ROUTES:
     _strip_route(_router, _path, _method)
+
+# Channel handlers import the legacy AI function directly. Point that runtime
+# reference at the same canonical boundary used by the HTTP API so configured
+# default slugs receive identical Unicode/case-insensitive semantics.
+channel_integrations.handle_message_without_n8n = (
+    ai_slug_integrity.handle_message_without_n8n_integrity
+)
 
 
 router = APIRouter()
@@ -110,3 +123,4 @@ router.include_router(channel_webhook_integrity.router)
 router.include_router(super_admin_integrity.router)
 router.include_router(super_admin_audit_integrity.router)
 router.include_router(ai_business_integrity.router)
+router.include_router(ai_slug_integrity.router)

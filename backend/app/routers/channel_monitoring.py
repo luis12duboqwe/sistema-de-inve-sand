@@ -15,6 +15,7 @@ from app.auth import check_permission
 from app.channel_audit import channel_metrics
 from app.database import get_db
 from app.models import InteractionLog, ProcessedMessage, SalesProfile
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.utils.sales_profile_config import parse_channels
 
 router = APIRouter(
@@ -65,10 +66,7 @@ def get_profile_audit_log(
         hours: Rango de horas a buscar (default 24, max 7 días)
     """
     # Validar perfil existe
-    profile = db.query(SalesProfile).filter(
-        SalesProfile.slug == sales_profile_slug,
-        SalesProfile.active == True,
-    ).first()
+    profile = find_sales_profile_by_slug(db, sales_profile_slug, active=True)
 
     if not profile:
         raise HTTPException(status_code=404, detail=f"Perfil {sales_profile_slug} no encontrado")

@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 from app.auth import check_permission, get_current_user_optional
 from app.config_production import prod_settings
 from app.database import get_db
-from app.models import SalesProfile, User
+from app.models import User
 from app.routers.channel_integrations import _channel_health_snapshot_with_profiles
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.utils.sales_profile_config import parse_sales_profile_config
 
 
@@ -239,10 +240,7 @@ async def test_channel_connection_integrity(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("ai:manage")),  # noqa: ARG001
 ) -> Dict[str, Any]:
-    profile = db.query(SalesProfile).filter(
-        SalesProfile.slug == sales_profile_slug,
-        SalesProfile.active == True,
-    ).first()
+    profile = find_sales_profile_by_slug(db, sales_profile_slug, active=True)
     if not profile:
         raise HTTPException(status_code=404, detail=f"Perfil {sales_profile_slug} no encontrado")
 

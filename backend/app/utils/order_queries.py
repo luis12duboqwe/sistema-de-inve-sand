@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, Query
 
 from app.models import SalesProfile
+from app.sales_profile_lookup import find_sales_profile_by_slug
 
 
 def resolve_sales_profile_for_query(
@@ -19,11 +20,11 @@ def resolve_sales_profile_for_query(
     if not sales_profile_slug:
         return None
 
-    query = db.query(SalesProfile).filter(SalesProfile.slug == sales_profile_slug)
-    if require_active:
-        query = query.filter(SalesProfile.active == True)
-
-    sales_profile = query.first()
+    sales_profile = find_sales_profile_by_slug(
+        db,
+        sales_profile_slug,
+        active=True if require_active else None,
+    )
     if not sales_profile:
         detail = (
             f"El canal de venta con slug '{sales_profile_slug}' no fue encontrado"

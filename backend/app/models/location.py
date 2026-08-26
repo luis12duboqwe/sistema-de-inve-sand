@@ -3,6 +3,11 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.sales_profile_identity import (
+    normalize_sales_profile_slug,
+    sales_profile_slug_hash,
+    sales_profile_slug_key,
+)
 from app.supplier_identity import (
     normalize_supplier_name,
     supplier_name_hash,
@@ -38,6 +43,8 @@ class SalesProfile(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, nullable=False, index=True)
+    slug_normalized = Column(Text, nullable=False)
+    slug_key_hash = Column(String(64), nullable=False, unique=True, index=True)
     tipo = Column(String, nullable=False, index=True)
     canales = Column(Text, nullable=True)
     active = Column(Boolean, default=True, nullable=False, index=True)
@@ -48,6 +55,13 @@ class SalesProfile(Base):
     orders = relationship("Order", back_populates="sales_profile")
 
     __table_args__ = (Index("idx_sales_profile_tipo_active", "tipo", "active"),)
+
+    @validates("slug")
+    def _canonicalize_slug(self, _key: str, value: str) -> str:
+        normalized = normalize_sales_profile_slug(value)
+        self.slug_normalized = sales_profile_slug_key(normalized)
+        self.slug_key_hash = sales_profile_slug_hash(normalized)
+        return normalized
 
 
 class Profile(Base):

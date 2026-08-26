@@ -48,6 +48,7 @@ from app.routers import (
     suppliers,
     websocket,
 )
+from app.startup_schema_lock import startup_schema_lock
 from app.utils.auth_security import extract_jwt_subject
 from app.utils.auto_migrations import run_auto_migrations
 from app.utils.demo_seed import seed_demo_data
@@ -90,12 +91,14 @@ PATH_ID_PATTERN = re.compile(r"/\d+|/[0-9a-fA-F-]{16,}")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up application...")
-    init_db()
-    app.state.forecast_cache = None
 
-    # Las migraciones son parte del arranque. Un fallo debe detener el proceso
-    # para evitar operar con un esquema incompleto.
-    run_auto_migrations()
+    # Uvicorn ejecuta este lifespan en cada worker. Serializamos create_all +
+    # migraciones para que varios procesos no compitan por el mismo DDL/ledger.
+    with startup_schema_lock():
+        init_db()
+        run_auto_migrations()
+
+    app.state.forecast_cache = None
 
     scheduler = None
     if prod_settings.ENABLE_FORECAST_SCHEDULER:

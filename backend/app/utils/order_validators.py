@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Location, Profile, SalesProfile, Product
+from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.utils.validators import InputValidator, ValidationError
 
 
@@ -23,10 +24,11 @@ def resolve_sales_profile(
     profile: Optional[Profile] = None
 
     if sales_profile_slug:
-        sales_profile = db.query(SalesProfile).filter(
-            SalesProfile.slug == sales_profile_slug,
-            SalesProfile.active == True
-        ).first()
+        sales_profile = find_sales_profile_by_slug(
+            db,
+            sales_profile_slug,
+            active=True,
+        )
         if not sales_profile:
             raise HTTPException(
                 status_code=404,
