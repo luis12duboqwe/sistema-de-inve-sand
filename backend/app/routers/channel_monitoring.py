@@ -27,7 +27,15 @@ router = APIRouter(
 
 @router.get("/metrics")
 def get_channel_metrics() -> Dict[str, Any]:
-    """Retorna métricas activas de canales."""
+    """
+    Retorna métricas activas de canales.
+
+    Incluye:
+    - Mensajes recibidos por canal/perfil
+    - Mensajes enviados por canal/perfil
+    - Mensajes duplicados deduplicados
+    - Errores de API
+    """
     return {
         "timestamp": datetime.now(UTC).isoformat(),
         "metrics": channel_metrics.get_summary(),
@@ -41,7 +49,23 @@ def get_profile_audit_log(
     hours: int = Query(24, ge=1, le=168),
     _ai_manager: Any = Depends(check_permission("ai:manage")),
 ) -> Dict[str, Any]:
-    """Retorna log de auditoría para un perfil."""
+    """
+    Retorna log de auditoría para un perfil.
+
+    El detalle contiene previews de conversación e identificadores del cliente,
+    por lo que requiere tanto acceso a reportes (dependencia del router) como
+    permiso explícito para administrar IA.
+
+    Incluye:
+    - Últimas interacciones (últimas N horas)
+    - Mensajes procesados / duplicados
+    - Cambios de configuración (si se guardó)
+
+    Args:
+        sales_profile_slug: Slug del perfil
+        hours: Rango de horas a buscar (default 24, max 7 días)
+    """
+    # Validar perfil existe
     profile = find_sales_profile_by_slug(db, sales_profile_slug, active=True)
 
     if not profile:
@@ -49,16 +73,19 @@ def get_profile_audit_log(
 
     cutoff_time = datetime.now(UTC) - timedelta(hours=hours)
 
+    # Últimas interacciones
     interactions = db.query(InteractionLog).filter(
         InteractionLog.sales_profile_id == profile.id,
         InteractionLog.created_at >= cutoff_time,
     ).order_by(InteractionLog.created_at.desc()).limit(100).all()
 
+    # Mensajes procesados (del último día por defecto)
     processed_messages = db.query(ProcessedMessage).filter(
         ProcessedMessage.sales_profile_id == profile.id,
         ProcessedMessage.processed_at >= cutoff_time,
     ).order_by(ProcessedMessage.processed_at.desc()).limit(100).all()
 
+    # Agrupar por canal
     by_channel: Dict[str, List[Dict[str, str]]] = {}
     for msg in processed_messages:
         channel = str(msg.channel)
@@ -80,7 +107,7 @@ def get_profile_audit_log(
             {
                 "id": i.id,
                 "role": i.role,
-                "content": i.content[:100],
+                "content": i.content[:100],  # Preview
                 "tokens_used": i.tokens_used,
                 "created_at": i.created_at.isoformat(),
             }
@@ -96,7 +123,14 @@ def get_profile_audit_log(
 
 @router.get("/status")
 def get_channel_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
-    """Retorna estado general del sistema de canales."""
+    """
+    Retorna estado general del sistema de canales.
+
+    Incluye:
+    - Profiles activos con canales configurados
+    - Últimas interacciones globales
+    - Métricas agregadas
+    """
     profiles = db.query(SalesProfile).filter(
         SalesProfile.active == True,
         SalesProfile.canales != None,
