@@ -75,6 +75,8 @@ def channels_health_integrity(
         missing.append("META_APP_SECRET")
     global_info["missing"] = sorted(set(missing))
 
+    # Meta owns the three supported webhook channels. In production no one of them
+    # is considered ready unless webhook signatures can be authenticated.
     if prod_settings.is_production() and not signature_enabled:
         snapshot["ready"] = False
         for info in (snapshot.get("channels") or {}).values():
@@ -126,7 +128,15 @@ async def _test_page_messaging_capability(
     configured_object_id: str,
     token: str,
 ) -> Dict[str, Any]:
-    """Validate Page-token ownership and read-only messaging capability."""
+    """Validate Page-token ownership and read-only messaging capability.
+
+    Meta's Conversations API requires the same messaging permissions/tasks used
+    by Messenger/Instagram messaging. Querying one conversation page therefore
+    gives us a non-destructive capability probe without sending a customer
+    message. Instagram's Facebook-Login flow is anchored to the Facebook Page,
+    so ``/me`` is also used to verify that the configured IG professional account
+    is actually linked to the Page represented by the supplied Page token.
+    """
     if channel == "messenger":
         identity_fields = "id,name"
     else:
