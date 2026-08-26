@@ -3,10 +3,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.location_identity import (
+    location_name_hash,
+    normalize_location_name,
+)
 
 from app.auth import get_current_active_user, check_permission, check_any_permission
 from app.models import User
@@ -14,6 +19,37 @@ from app.utils.location_access import get_accessible_location_ids, require_locat
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 logger = logging.getLogger(__name__)
+
+
+def _location_name_filter(value: str):
+    return models.Location.nombre_key_hash == location_name_hash(value)
+
+
+def _location_integrity_error(
+    db: Session,
+    name: str,
+    *,
+    exclude_location_id: Optional[int] = None,
+) -> HTTPException:
+    clean_name = normalize_location_name(name)
+    query = db.query(models.Location).filter(_location_name_filter(clean_name))
+    if exclude_location_id is not None:
+        query = query.filter(models.Location.id != exclude_location_id)
+
+    if query.first() is not None:
+        return HTTPException(
+            status_code=400,
+            detail=f"La ubicación '{clean_name}' ya existe",
+        )
+
+    logger.warning(
+        "Location write hit an unrelated integrity conflict (location_id=%s)",
+        exclude_location_id,
+    )
+    return HTTPException(
+        status_code=409,
+        detail="Conflicto de integridad al guardar la ubicación. Reintente la operación.",
+    )
 
 
 @router.get("", response_model=List[schemas.LocationResponse], dependencies=[Depends(check_any_permission("settings:view", "locations:view", "orders:view", "orders:create", "inventory:view", "inventory:count", "inventory:adjust", "purchases:manage", "cash_closes:manage", "audit:view", "locations:access_manage"))])
@@ -62,16 +98,13 @@ def create_location(
     current_user: User = Depends(check_permission("locations:manage"))
 ):
     """Crear una nueva ubicación"""
-    # Validar que el nombre sea único (case-insensitive)
-    nombre_limpio = (location.nombre or "").strip()
-    if not nombre_limpio:
-        raise HTTPException(
-            status_code=400,
-            detail="El nombre de la ubicación no puede estar vacío"
-        )
-    
+    try:
+        nombre_limpio = normalize_location_name(location.nombre)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     existing = db.query(models.Location).filter(
-        func.lower(models.Location.nombre) == nombre_limpio.lower()
+        _location_name_filter(nombre_limpio)
     ).first()
     if existing:
         raise HTTPException(
@@ -87,6 +120,9 @@ def create_location(
         db.commit()
         db.refresh(db_location)
         return db_location
+    except IntegrityError:
+        db.rollback()
+        raise _location_integrity_error(db, nombre_limpio)
     except Exception:
         db.rollback()
         logger.exception("Error al crear ubicación")
@@ -107,22 +143,22 @@ def update_location(
     db_location = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not db_location:
         raise HTTPException(status_code=404, detail="Ubicación no encontrada")
-    
+
+    integrity_name = db_location.nombre
     try:
         update_data = location.model_dump(exclude_unset=True)
         
-        # Validar nombre único si se está actualizando (case-insensitive)
         if 'nombre' in update_data:
-            nuevo_nombre = (update_data['nombre'] or "").strip()
-            if not nuevo_nombre:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El nombre de la ubicación no puede estar vacío"
-                )
-            if nuevo_nombre.lower() != db_location.nombre.lower():
+            try:
+                nuevo_nombre = normalize_location_name(update_data['nombre'])
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            integrity_name = nuevo_nombre
+            target_hash = location_name_hash(nuevo_nombre)
+            if target_hash != db_location.nombre_key_hash:
                 existing = db.query(models.Location).filter(
-                    func.lower(models.Location.nombre) == nuevo_nombre.lower(),
-                    models.Location.id != location_id
+                    models.Location.nombre_key_hash == target_hash,
+                    models.Location.id != location_id,
                 ).first()
                 if existing:
                     raise HTTPException(
@@ -140,6 +176,13 @@ def update_location(
     except HTTPException:
         db.rollback()
         raise
+    except IntegrityError:
+        db.rollback()
+        raise _location_integrity_error(
+            db,
+            integrity_name,
+            exclude_location_id=location_id,
+        )
     except Exception:
         db.rollback()
         logger.exception("Error al actualizar ubicación %s", location_id)
