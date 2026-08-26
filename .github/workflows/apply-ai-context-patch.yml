@@ -1,0 +1,90 @@
+name: Apply AI context literal-search patch
+
+on:
+  push:
+    branches:
+      - fix/ai-context-like-integrity
+    paths:
+      - .github/workflows/apply-ai-context-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/ai-context-like-integrity
+          fetch-depth: 0
+
+      - name: Apply surgical context-search replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/app/routers/ai_intelligence.py")
+          text = path.read_text(encoding="utf-8")
+
+          import_line = "from app.ai_context_search import ilike_contains_literal\n"
+          import_anchor = "from app.database import get_db\n"
+          if import_line not in text:
+              if text.count(import_anchor) != 1:
+                  raise SystemExit(f"Unexpected import anchor count: {text.count(import_anchor)}")
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          start_marker = '@router.post("/context", response_model=AIContextResponse)\n'
+          end_marker = '@router.post("/reply", response_model=AIReplyResponse)\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          segment = text[start:end]
+
+          replacements = [
+              ('Product.nombre.ilike(f"%{k}%")', 'ilike_contains_literal(Product.nombre, k)', 2),
+              ('Product.marca.ilike(f"%{k}%")', 'ilike_contains_literal(Product.marca, k)', 1),
+              ('Product.modelo.ilike(f"%{k}%")', 'ilike_contains_literal(Product.modelo, k)', 2),
+              ('Product.sku.ilike(f"%{k}%")', 'ilike_contains_literal(Product.sku, k)', 1),
+              ('Product.categoria.ilike(f"%{k}%")', 'ilike_contains_literal(Product.categoria, k)', 2),
+              ('FAQEntry.pregunta_clave.ilike(f"%{k}%")', 'ilike_contains_literal(FAQEntry.pregunta_clave, k)', 1),
+          ]
+
+          for old, new, expected in replacements:
+              actual = segment.count(old)
+              if actual != expected:
+                  raise SystemExit(f"Unexpected replacement count for {old!r}: expected {expected}, got {actual}")
+              segment = segment.replace(old, new)
+
+          # Guard the intended funnel after replacement.
+          expected_new_counts = [
+              ('ilike_contains_literal(Product.nombre, k)', 2),
+              ('ilike_contains_literal(Product.marca, k)', 1),
+              ('ilike_contains_literal(Product.modelo, k)', 2),
+              ('ilike_contains_literal(Product.sku, k)', 1),
+              ('ilike_contains_literal(Product.categoria, k)', 2),
+              ('ilike_contains_literal(FAQEntry.pregunta_clave, k)', 1),
+          ]
+          for needle, expected in expected_new_counts:
+              actual = segment.count(needle)
+              if actual != expected:
+                  raise SystemExit(f"Unexpected patched count for {needle!r}: expected {expected}, got {actual}")
+
+          text = text[:start] + segment + text[end:]
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          python -m compileall -q backend/app/routers/ai_intelligence.py backend/app/ai_context_search.py
+          git diff --check
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "SoftMobile Integrity Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/apply-ai-context-patch.yml
+          git add backend/app/routers/ai_intelligence.py
+          git diff --cached --check
+          git commit -m "Wire literal search into AI context"
+          git push origin HEAD:fix/ai-context-like-integrity
