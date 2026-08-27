@@ -1,0 +1,47 @@
+name: Apply AI context memory priority fix
+
+on:
+  push:
+    branches:
+      - fix/ai-context-keyword-bound
+    paths:
+      - .github/workflows/apply-ai-context-memory-priority-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply_patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/ai-context-keyword-bound
+          fetch-depth: 0
+
+      - name: Prioritize remembered product terms before SQL keyword bound
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/app/routers/ai_intelligence.py")
+          text = path.read_text()
+          old = '        search_message = f"{request.message_content} {customer.last_referenced_product_name}"\n'
+          new = '        search_message = f"{customer.last_referenced_product_name} {request.message_content}"\n'
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"guard failed: expected one remembered-product search_message assignment, found {count}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-ai-context-memory-priority-fix.yml
+          git config user.name "SoftMobile Integrity Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/app/routers/ai_intelligence.py backend/tests/test_ai_context_keyword_bound.py .github/workflows/apply-ai-context-memory-priority-fix.yml
+          git commit -m "fix: prioritize remembered product in AI keyword bound"
+          git push origin HEAD:fix/ai-context-keyword-bound
