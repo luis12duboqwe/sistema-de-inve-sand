@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-from threading import Barrier, Event, Lock, get_ident
+from threading import Barrier, BrokenBarrierError, Event, Lock, get_ident
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -246,11 +246,28 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
     bind = db_session.get_bind()
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=bind)
     start = Barrier(2)
+    first_product_lock_barrier = Barrier(2)
     legacy_first_stock_barrier = Barrier(2)
     state_lock = Lock()
     worker_threads: set[int] = set()
-    product_lock_seen: set[int] = set()
+    expected_product_order = [first_product_id, second_product_id]
+    product_lock_sequences: dict[int, list[int]] = {}
+    completed_product_lock_sequences: list[tuple[int, ...]] = []
+    protocol_violations: list[tuple[int, tuple[int, ...]]] = []
     first_stock_seen: set[int] = set()
+
+    def _product_id_from_parameters(parameters) -> int | None:
+        if isinstance(parameters, dict):
+            values = parameters.values()
+        elif isinstance(parameters, (tuple, list)):
+            values = parameters
+        else:
+            values = ()
+        expected = {first_product_id, second_product_id}
+        for value in values:
+            if isinstance(value, int) and not isinstance(value, bool) and value in expected:
+                return value
+        return None
 
     def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
         normalized = _normalized(statement)
@@ -264,8 +281,27 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
             and "FROM PRODUCTS" in normalized
             and "FOR UPDATE" in normalized
         ):
+            product_id = _product_id_from_parameters(parameters)
+            if product_id is None:
+                with state_lock:
+                    protocol_violations.append((thread_id, ()))
+                return
+
             with state_lock:
-                product_lock_seen.add(thread_id)
+                sequence = product_lock_sequences.setdefault(thread_id, [])
+                sequence.append(product_id)
+                first_product_for_thread = len(sequence) == 1
+
+            if first_product_for_thread:
+                # Wrong implementations that pre-lock reversed payload order can
+                # acquire different first Product rows. Synchronizing after that
+                # first acquisition makes the ensuing cross-lock deterministic.
+                # The correct sorted implementation has both workers contend for
+                # the same first Product, so the leader times out and proceeds.
+                try:
+                    first_product_lock_barrier.wait(timeout=0.75)
+                except BrokenBarrierError:
+                    pass
             return
 
         if not (
@@ -276,7 +312,11 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
             return
 
         with state_lock:
-            legacy_path = thread_id not in product_lock_seen
+            sequence = tuple(product_lock_sequences.get(thread_id, []))
+            complete_protocol = list(sequence) == expected_product_order
+            if not complete_protocol:
+                protocol_violations.append((thread_id, sequence))
+            legacy_path = len(sequence) == 0
             first_for_thread = thread_id not in first_stock_seen
             if first_for_thread:
                 first_stock_seen.add(thread_id)
@@ -323,7 +363,8 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
         finally:
             with state_lock:
                 worker_threads.discard(thread_id)
-                product_lock_seen.discard(thread_id)
+                sequence = product_lock_sequences.pop(thread_id, [])
+                completed_product_lock_sequences.append(tuple(sequence))
                 first_stock_seen.discard(thread_id)
             session.close()
 
@@ -338,6 +379,10 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
         event.remove(bind, "after_cursor_execute", after_cursor_execute)
 
     assert sorted(status for status, _ in results) == [200, 200]
+    assert protocol_violations == []
+    assert sorted(completed_product_lock_sequences) == sorted(
+        [tuple(expected_product_order), tuple(expected_product_order)]
+    )
 
     db_session.expire_all()
     stocks = {
