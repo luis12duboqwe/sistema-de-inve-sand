@@ -804,7 +804,14 @@ def restock_product(
     """Reabastece inventario de un producto existente con trazabilidad de IMEIs."""
     require_location_access(db, current_user, payload.location_id, "can_receive_purchase")
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Serialize restocks for the same product before reading stock or cost.
+    # This protects both existing-stock increments and the first Stock-row create.
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id)
+        .with_for_update()
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail=f"El producto con ID {product_id} no fue encontrado")
 
