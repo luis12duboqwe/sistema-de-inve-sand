@@ -1,0 +1,32 @@
+name: One-shot supplier identity hardening
+
+on:
+  push:
+    branches:
+      - fix/supplier-identity-unicode-index-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/supplier-identity-unicode-index-integrity
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Apply supplier identity hardening patch
+        run: python .github/patch_supplier_identity_hardening.py
+      - name: Commit patch and remove temporary helpers
+        run: |
+          rm .github/patch_supplier_identity_hardening.py
+          rm .github/workflows/one-shot-supplier-identity-hardening.yml
+          git config user.name 'SoftMobile Integrity Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add backend/app/utils/auto_migrations.py backend/tests/test_supplier_name_concurrency_integrity.py .github/patch_supplier_identity_hardening.py .github/workflows/one-shot-supplier-identity-hardening.yml
+          git commit -m 'test: harden supplier identity migration validation'
+          git push origin HEAD:fix/supplier-identity-unicode-index-integrity
