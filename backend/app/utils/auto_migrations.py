@@ -596,26 +596,16 @@ def _location_unique_index_exists() -> bool:
 
 
 def _supplier_unique_index_exists() -> bool:
-    if "suppliers" not in inspect(database.engine).get_table_names():
+    inspector = inspect(database.engine)
+    if "suppliers" not in inspector.get_table_names():
         return True
 
-    with database.engine.connect() as conn:
-        if _dialect_name() == "sqlite":
-            rows = conn.execute(text("PRAGMA index_list('suppliers')")).fetchall()
-            return any(
-                str(row[1]) == "ix_suppliers_nombre_key_hash" and bool(row[2])
-                for row in rows
-            )
-
-        indexdef = conn.execute(
-            text(
-                "SELECT indexdef FROM pg_indexes "
-                "WHERE schemaname = current_schema() "
-                "AND tablename = 'suppliers' "
-                "AND indexname = 'ix_suppliers_nombre_key_hash'"
-            )
-        ).scalar_one_or_none()
-        return bool(indexdef and "CREATE UNIQUE INDEX" in str(indexdef).upper())
+    return any(
+        str(index.get("name") or "") == "ix_suppliers_nombre_key_hash"
+        and bool(index.get("unique"))
+        and list(index.get("column_names") or []) == ["nombre_key_hash"]
+        for index in inspector.get_indexes("suppliers")
+    )
 
 
 def _sales_profile_slug_unique_index_exists() -> bool:
