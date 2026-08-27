@@ -1,0 +1,50 @@
+name: Fix location review P2s
+
+on:
+  push:
+    branches:
+      - fix/location-name-concurrency-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply location integrity review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          identity = Path('backend/app/location_identity.py')
+          identity.write_text('''"""Stable location-name identity shared by model writes and migrations."""\n\nimport hashlib\nimport unicodedata\n\n\n_UNSAFE_UNICODE_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})\n\n# Keep the same explicit safety boundary used by canonical bank identities.\n# Python's Unicode database can lag newer Format additions, so these ranges\n# supplement ``unicodedata.category``.\n_UNICODE17_FORMAT_RANGES: tuple[tuple[int, int], ...] = (\n    (0x00AD, 0x00AD),\n    (0x0600, 0x0605),\n    (0x061C, 0x061C),\n    (0x06DD, 0x06DD),\n    (0x070F, 0x070F),\n    (0x0890, 0x0891),\n    (0x08E2, 0x08E2),\n    (0x180E, 0x180E),\n    (0x200B, 0x200F),\n    (0x202A, 0x202E),\n    (0x2060, 0x2064),\n    (0x2066, 0x206F),\n    (0xFEFF, 0xFEFF),\n    (0xFFF9, 0xFFFB),\n    (0x110BD, 0x110BD),\n    (0x110CD, 0x110CD),\n    (0x13430, 0x1343F),\n    (0x1BCA0, 0x1BCA3),\n    (0x1D173, 0x1D17A),\n    (0xE0001, 0xE0001),\n    (0xE0020, 0xE007F),\n)\n\n_DEFAULT_IGNORABLE_RANGES: tuple[tuple[int, int], ...] = (\n    (0x00AD, 0x00AD),\n    (0x034F, 0x034F),\n    (0x061C, 0x061C),\n    (0x115F, 0x1160),\n    (0x17B4, 0x17B5),\n    (0x180B, 0x180F),\n    (0x200B, 0x200F),\n    (0x202A, 0x202E),\n    (0x2060, 0x206F),\n    (0x3164, 0x3164),\n    (0xFE00, 0xFE0F),\n    (0xFEFF, 0xFEFF),\n    (0xFFA0, 0xFFA0),\n    (0xFFF0, 0xFFF8),\n    (0x1BCA0, 0x1BCA3),\n    (0x1D173, 0x1D17A),\n    (0xE0000, 0xE0FFF),\n)\n\n\ndef _in_ranges(codepoint: int, ranges: tuple[tuple[int, int], ...]) -> bool:\n    return any(start <= codepoint <= end for start, end in ranges)\n\n\ndef _assert_safe_unicode(value: str) -> None:\n    if any(\n        unicodedata.category(char) in _UNSAFE_UNICODE_CATEGORIES\n        or _in_ranges(ord(char), _UNICODE17_FORMAT_RANGES)\n        or _in_ranges(ord(char), _DEFAULT_IGNORABLE_RANGES)\n        for char in value\n    ):\n        raise ValueError(\n            "El nombre de la ubicación contiene caracteres Unicode no permitidos"\n        )\n\n\ndef normalize_location_name(name: str) -> str:\n    """Return the trimmed display name accepted by location write paths."""\n    normalized = (name or "").strip()\n    if not normalized:\n        raise ValueError("El nombre de la ubicación no puede estar vacío")\n    _assert_safe_unicode(normalized)\n    return normalized\n\n\ndef location_name_key(name: str) -> str:\n    """Return a deterministic Unicode-aware logical location identity."""\n    display_name = normalize_location_name(name)\n    compatibility_normalized = unicodedata.normalize("NFKC", display_name).strip()\n    _assert_safe_unicode(compatibility_normalized)\n    folded = compatibility_normalized.casefold()\n    canonical = unicodedata.normalize("NFKC", folded).strip()\n    _assert_safe_unicode(canonical)\n    return canonical\n\n\ndef location_name_hash(name: str) -> str:\n    """Return an index-safe digest of the complete canonical location identity."""\n    return hashlib.sha256(location_name_key(name).encode("utf-8")).hexdigest()\n\n\n__all__ = ["normalize_location_name", "location_name_hash", "location_name_key"]\n''')
+
+          migrations = Path('backend/app/utils/auto_migrations.py')
+          text = migrations.read_text()
+          start = text.index('def _location_unique_index_exists() -> bool:\n')
+          end = text.index('\n\ndef _supplier_unique_index_exists() -> bool:', start)
+          replacement = '''def _location_unique_index_exists() -> bool:\n    inspector = inspect(database.engine)\n    if "locations" not in inspector.get_table_names():\n        return True\n\n    return any(\n        str(index.get("name") or "") == "ix_locations_nombre_key_hash"\n        and bool(index.get("unique"))\n        and list(index.get("column_names") or []) == ["nombre_key_hash"]\n        for index in inspector.get_indexes("locations")\n    )\n'''
+          migrations.write_text(text[:start] + replacement + text[end:])
+
+          tests = Path('backend/tests/test_location_name_concurrency_integrity.py')
+          test_text = tests.read_text()
+          marker = 'def test_location_name_rejects_invisible_unicode_controls() -> None:'
+          if marker not in test_text:
+              test_text += '''\n\ndef test_location_name_rejects_invisible_unicode_controls() -> None:\n    with pytest.raises(ValueError, match="Unicode no permitidos"):\n        location_name_key("Tienda\\u200bCentro")\n\n\ndef test_location_name_migration_fails_closed_on_invisible_unicode(\n    tmp_path,\n    monkeypatch,\n) -> None:\n    db_path = tmp_path / "location-invisible.db"\n    engine = create_engine(f"sqlite:///{db_path}")\n    _create_legacy_sqlite_schema(engine, [(1, "Tienda\\u200bCentro")])\n    monkeypatch.setattr(database, "engine", engine)\n\n    try:\n        with pytest.raises(RuntimeError, match="nombre inválido"):\n            run_auto_migrations()\n    finally:\n        engine.dispose()\n\n\ndef test_location_schema_rejects_misbound_unique_index(\n    tmp_path,\n    monkeypatch,\n) -> None:\n    db_path = tmp_path / "location-wrong-index.db"\n    engine = create_engine(f"sqlite:///{db_path}")\n    _create_legacy_sqlite_schema(engine, [(1, "Tienda Centro")])\n    with engine.begin() as conn:\n        conn.execute(\n            text(\n                "CREATE UNIQUE INDEX ix_locations_nombre_key_hash "\n                "ON locations (nombre)"\n            )\n        )\n    monkeypatch.setattr(database, "engine", engine)\n\n    try:\n        with pytest.raises(\n            RuntimeError,\n            match="falta índice único ix_locations_nombre_key_hash",\n        ):\n            run_auto_migrations()\n\n        with engine.connect() as conn:\n            columns = [\n                str(row[2])\n                for row in conn.execute(\n                    text("PRAGMA index_info('ix_locations_nombre_key_hash')")\n                ).fetchall()\n            ]\n        assert columns == ["nombre"]\n    finally:\n        engine.dispose()\n'''
+              tests.write_text(test_text)
+          PY
+      - name: Commit review fixes
+        shell: bash
+        run: |
+          rm .github/workflows/fix-location-review-p2.yml
+          git config user.name "SoftMobile Integrity Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/app/location_identity.py backend/app/utils/auto_migrations.py backend/tests/test_location_name_concurrency_integrity.py .github/workflows/fix-location-review-p2.yml
+          git commit -m "fix: harden location identity and index validation"
+          git push
