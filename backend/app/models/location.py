@@ -3,6 +3,11 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.location_identity import (
+    location_name_hash,
+    location_name_key,
+    normalize_location_name,
+)
 from app.sales_profile_identity import (
     normalize_sales_profile_slug,
     sales_profile_slug_hash,
@@ -22,6 +27,8 @@ class Location(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False, index=True)
+    nombre_normalized = Column(Text, nullable=False)
+    nombre_key_hash = Column(String(64), nullable=False, unique=True, index=True)
     tipo = Column(String, nullable=False, index=True)
     direccion = Column(Text, nullable=True)
     telefono = Column(String, nullable=True)
@@ -33,6 +40,13 @@ class Location(Base):
     orders = relationship("Order", back_populates="source_location")
 
     __table_args__ = (Index("idx_location_tipo_activo", "tipo", "activo"),)
+
+    @validates("nombre")
+    def _canonicalize_nombre(self, _key: str, value: str) -> str:
+        normalized = normalize_location_name(value)
+        self.nombre_normalized = location_name_key(normalized)
+        self.nombre_key_hash = location_name_hash(normalized)
+        return normalized
 
 
 class SalesProfile(Base):
