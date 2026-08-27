@@ -21,6 +21,7 @@ import sqlite3
 from sqlalchemy import inspect, text
 
 import app.database as database
+from app.location_identity import location_name_hash, location_name_key
 from app.sales_profile_identity import sales_profile_slug_hash, sales_profile_slug_key
 from app.utils.bank_names import bank_name_hash, bank_name_key
 from app.utils.supplier_names import supplier_name_hash, supplier_name_key
@@ -340,6 +341,88 @@ def _apply_supplier_name_uniqueness_migration() -> None:
             )
 
 
+def _apply_location_name_uniqueness_migration() -> None:
+    """Backfill stable location identities without rewriting historical display names."""
+    if "locations" not in inspect(database.engine).get_table_names():
+        return
+
+    _add_column_if_missing("locations", "nombre_normalized", "TEXT")
+    _add_column_if_missing("locations", "nombre_key_hash", "VARCHAR(64)")
+
+    with database.engine.begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS ix_locations_nombre_normalized"))
+
+    seen_keys: dict[str, tuple[int, str]] = {}
+    seen_hashes: dict[str, tuple[str, int, str]] = {}
+    with database.engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT id, nombre FROM locations ORDER BY id")
+        ).mappings().all()
+        normalized_rows: list[tuple[int, str, str]] = []
+
+        for row in rows:
+            location_id = int(row["id"])
+            raw_name = str(row["nombre"] or "")
+            try:
+                normalized_key = location_name_key(raw_name)
+                normalized_hash = location_name_hash(raw_name)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Ubicación existente ID {location_id} tiene un nombre inválido; "
+                    "corrígelo antes de continuar la migración"
+                ) from exc
+
+            previous = seen_keys.get(normalized_key)
+            if previous is not None:
+                previous_id, previous_name = previous
+                raise RuntimeError(
+                    "Ubicaciones duplicadas después de normalizar: "
+                    f"ID {previous_id} '{previous_name}' e ID {location_id} '{raw_name}'. "
+                    "Unifica esos registros antes de continuar la migración."
+                )
+
+            hash_previous = seen_hashes.get(normalized_hash)
+            if hash_previous is not None and hash_previous[0] != normalized_key:
+                _, previous_id, previous_name = hash_previous
+                raise RuntimeError(
+                    "Colisión de identidad de ubicación detectada: "
+                    f"ID {previous_id} '{previous_name}' e ID {location_id} '{raw_name}'. "
+                    "No se puede continuar de forma segura."
+                )
+
+            seen_keys[normalized_key] = (location_id, raw_name)
+            seen_hashes[normalized_hash] = (normalized_key, location_id, raw_name)
+            normalized_rows.append((location_id, normalized_key, normalized_hash))
+
+        for location_id, normalized_key, normalized_hash in normalized_rows:
+            conn.execute(
+                text(
+                    "UPDATE locations SET nombre_normalized = :normalized_key, "
+                    "nombre_key_hash = :normalized_hash WHERE id = :location_id"
+                ),
+                {
+                    "normalized_key": normalized_key,
+                    "normalized_hash": normalized_hash,
+                    "location_id": location_id,
+                },
+            )
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_locations_nombre_key_hash "
+                "ON locations (nombre_key_hash)"
+            )
+        )
+
+        if _dialect_name() == "postgresql":
+            conn.execute(
+                text("ALTER TABLE locations ALTER COLUMN nombre_normalized SET NOT NULL")
+            )
+            conn.execute(
+                text("ALTER TABLE locations ALTER COLUMN nombre_key_hash SET NOT NULL")
+            )
+
+
 def _apply_sales_profile_slug_uniqueness_migration() -> None:
     """Backfill stable slug identities without rewriting historical display slugs."""
     if "sales_profiles" not in inspect(database.engine).get_table_names():
@@ -427,6 +510,7 @@ MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
     ("20260825_01_supplier_name_uniqueness", _apply_supplier_name_uniqueness_migration),
     ("20260825_02_sales_profile_slug_uniqueness", _apply_sales_profile_slug_uniqueness_migration),
+    ("20260826_01_location_name_uniqueness", _apply_location_name_uniqueness_migration),
 )
 
 
@@ -498,6 +582,19 @@ def _backup_sqlite_before_migration() -> Path | None:
     return destination
 
 
+def _location_unique_index_exists() -> bool:
+    inspector = inspect(database.engine)
+    if "locations" not in inspector.get_table_names():
+        return True
+
+    return any(
+        str(index.get("name") or "") == "ix_locations_nombre_key_hash"
+        and bool(index.get("unique"))
+        and list(index.get("column_names") or []) == ["nombre_key_hash"]
+        for index in inspector.get_indexes("locations")
+    )
+
+
 def _supplier_unique_index_exists() -> bool:
     if "suppliers" not in inspect(database.engine).get_table_names():
         return True
@@ -562,6 +659,8 @@ def _validate_critical_schema() -> None:
         required_columns["processed_messages"] = {"delivery_status", "reply_text"}
     if "banks" in table_names:
         required_columns["banks"] = {"name_normalized", "name_key_hash"}
+    if "locations" in table_names:
+        required_columns["locations"] = {"nombre_normalized", "nombre_key_hash"}
     if "suppliers" in table_names:
         required_columns["suppliers"] = {"nombre_normalized", "nombre_key_hash"}
     if "sales_profiles" in table_names:
@@ -598,6 +697,33 @@ def _validate_critical_schema() -> None:
         if not has_unique_hash_index:
             raise RuntimeError(
                 "Esquema incompleto: falta índice único ix_banks_name_key_hash"
+            )
+
+    if "locations" in table_names:
+        with database.engine.connect() as conn:
+            invalid_count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM locations WHERE nombre_normalized IS NULL "
+                    "OR nombre_key_hash IS NULL"
+                )
+            ).scalar_one()
+            duplicate = conn.execute(
+                text(
+                    "SELECT nombre_key_hash FROM locations "
+                    "GROUP BY nombre_key_hash HAVING COUNT(*) > 1 LIMIT 1"
+                )
+            ).first()
+        if int(invalid_count) != 0:
+            raise RuntimeError(
+                "Esquema incompleto: existen ubicaciones sin identidad normalizada"
+            )
+        if duplicate is not None:
+            raise RuntimeError(
+                "Esquema incompleto: existen ubicaciones duplicadas después de normalizar"
+            )
+        if not _location_unique_index_exists():
+            raise RuntimeError(
+                "Esquema incompleto: falta índice único ix_locations_nombre_key_hash"
             )
 
     if "suppliers" in table_names:
