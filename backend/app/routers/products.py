@@ -685,6 +685,22 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session = Depend
         db.commit()
         db.refresh(product)
         return _serialize_product(product)
+    except IntegrityError:
+        db.rollback()
+        if updates.sku is not None:
+            conflicting_sku = db.query(Product).filter(
+                Product.sku == updates.sku,
+                Product.id != product_id,
+            ).first()
+            if conflicting_sku is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Ya existe otro producto con el SKU '{updates.sku}'",
+                )
+        raise HTTPException(
+            status_code=409,
+            detail="Conflicto de integridad al actualizar el producto. Reintente la operación.",
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al actualizar producto: {str(e)}")
