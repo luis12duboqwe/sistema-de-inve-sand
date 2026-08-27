@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import Product
+from app.routers.product_search_integrity import MAX_PRODUCT_SEARCH_KEYWORDS
 
 
 def _add_products(db_session: Session, *names: str) -> None:
@@ -59,6 +60,24 @@ def test_product_search_treats_backslash_as_literal(
     _add_products(db_session, "Ruta\\Central", "RutaXCentral")
 
     assert _search_names(client, "\\") == ["Ruta\\Central"]
+
+
+def test_product_search_limits_sql_keyword_expansion_to_six(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first_six = "alphaone betatwo gammathree deltafour epsilonfive zetasix"
+    _add_products(
+        db_session,
+        first_six,
+        f"{first_six} needle-seven-only",
+    )
+
+    names = _search_names(client, f"{first_six} needle-seven-only")
+
+    assert MAX_PRODUCT_SEARCH_KEYWORDS == 6
+    assert first_six in names
+    assert f"{first_six} needle-seven-only" in names
 
 
 def test_product_list_exposes_canonical_get_route(client: TestClient) -> None:
