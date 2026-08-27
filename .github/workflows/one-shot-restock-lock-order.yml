@@ -1,0 +1,72 @@
+name: One-shot restock lock-order patch
+
+on:
+  push:
+    branches:
+      - fix/restock-concurrency-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/restock-concurrency-integrity
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Enforce Product then Stock lock order in purchase receipts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/app/routers/multistore_control.py')
+          text = path.read_text()
+          old = '''    total_cost = Decimal("0")
+    try:
+        for item in payload.items:
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Producto {item.product_id} no encontrado")
+            imeis = item.imeis or []
+'''
+          new = '''    total_cost = Decimal("0")
+    try:
+        # All workflows that mutate both Product and Stock must acquire locks in
+        # the same order. Lock every referenced Product first, in deterministic
+        # ID order, before any Stock row is locked or created. This prevents a
+        # manual restock (Product -> Stock) from deadlocking with a purchase
+        # receipt and also prevents two multi-product receipts with reversed item
+        # order from forming a Product-lock cycle.
+        products_by_id: dict[int, Product] = {}
+        for product_id in sorted({item.product_id for item in payload.items}):
+            product = (
+                db.query(Product)
+                .filter(Product.id == product_id)
+                .with_for_update()
+                .first()
+            )
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Producto {product_id} no encontrado")
+            products_by_id[product_id] = product
+
+        for item in payload.items:
+            product = products_by_id[item.product_id]
+            imeis = item.imeis or []
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one purchase-receipt lock-order target, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Remove one-shot workflow and commit patch
+        run: |
+          rm .github/workflows/one-shot-restock-lock-order.yml
+          git config user.name 'SoftMobile Integrity Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add backend/app/routers/multistore_control.py .github/workflows/one-shot-restock-lock-order.yml
+          git commit -m 'fix: align purchase receipt lock ordering'
+          git push origin HEAD:fix/restock-concurrency-integrity
