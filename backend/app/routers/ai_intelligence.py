@@ -1165,7 +1165,7 @@ def get_ai_context(
         token in request.message_content.lower()
         for token in ["foto", "fotos", "imagen", "ese", "esa", "este", "gris", "negro", "blanco", "color"]
     ):
-        search_message = f"{request.message_content} {customer.last_referenced_product_name}"
+        search_message = f"{customer.last_referenced_product_name} {request.message_content}"
 
     # 4. Obtener Inventario Relevante (Búsqueda Híbrida Mejorada)
     # Estrategia de Embudo: 
