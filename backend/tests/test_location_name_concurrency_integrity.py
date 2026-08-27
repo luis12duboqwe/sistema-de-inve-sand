@@ -295,3 +295,59 @@ def test_location_name_migration_preserves_data_and_enforces_hash_unique_index(
                 )
     finally:
         engine.dispose()
+
+
+def test_location_name_rejects_invisible_unicode_controls() -> None:
+    with pytest.raises(ValueError, match="Unicode no permitidos"):
+        location_name_key("Tienda\u200bCentro")
+
+
+def test_location_name_migration_fails_closed_on_invisible_unicode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "location-invisible.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    _create_legacy_sqlite_schema(engine, [(1, "Tienda\u200bCentro")])
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        with pytest.raises(RuntimeError, match="nombre inválido"):
+            run_auto_migrations()
+    finally:
+        engine.dispose()
+
+
+def test_location_schema_rejects_misbound_unique_index(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "location-wrong-index.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    _create_legacy_sqlite_schema(engine, [(1, "Tienda Centro")])
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX ix_locations_nombre_key_hash "
+                "ON locations (nombre)"
+            )
+        )
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="falta índice único ix_locations_nombre_key_hash",
+        ):
+            run_auto_migrations()
+
+        with engine.connect() as conn:
+            columns = [
+                str(row[2])
+                for row in conn.execute(
+                    text("PRAGMA index_info('ix_locations_nombre_key_hash')")
+                ).fetchall()
+            ]
+        assert columns == ["nombre"]
+    finally:
+        engine.dispose()
