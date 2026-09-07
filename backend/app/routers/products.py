@@ -860,14 +860,24 @@ def restock_product(
                 detail=f"El IMEI '{existentes[0].imei}' ya está registrado en el sistema",
             )
 
-    stock = db.query(Stock).filter(
-        Stock.product_id == product_id,
-        Stock.location_id == payload.location_id,
-    ).first()
+    locked_stocks = (
+        db.query(Stock)
+        .filter(Stock.product_id == product_id)
+        .order_by(Stock.location_id.asc(), Stock.id.asc())
+        .with_for_update()
+        .all()
+    )
+    stock = next(
+        (
+            stock_item
+            for stock_item in locked_stocks
+            if stock_item.location_id == payload.location_id
+        ),
+        None,
+    )
 
     stock_total_anterior = sum(
-        int(stock_item.cantidad_disponible or 0)
-        for stock_item in db.query(Stock).filter(Stock.product_id == product_id).all()
+        int(stock_item.cantidad_disponible or 0) for stock_item in locked_stocks
     )
     costo_anterior = Decimal(product.costo or 0)
     costo_compra = Decimal(payload.costo_unitario)
