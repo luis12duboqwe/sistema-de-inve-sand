@@ -1,0 +1,81 @@
+name: PR110 apply stock lock fix
+
+on:
+  push:
+    branches:
+      - fix/restock-concurrency-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/restock-concurrency-integrity
+          fetch-depth: 0
+
+      - name: Apply targeted restock fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/app/routers/products.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    stock = db.query(Stock).filter(
+              Stock.product_id == product_id,
+              Stock.location_id == payload.location_id,
+          ).first()
+
+          stock_total_anterior = sum(
+              int(stock_item.cantidad_disponible or 0)
+              for stock_item in db.query(Stock).filter(Stock.product_id == product_id).all()
+          )
+          '''
+          new = '''    locked_stocks = (
+              db.query(Stock)
+              .filter(Stock.product_id == product_id)
+              .order_by(Stock.location_id.asc(), Stock.id.asc())
+              .with_for_update()
+              .all()
+          )
+          stock = next(
+              (
+                  stock_item
+                  for stock_item in locked_stocks
+                  if stock_item.location_id == payload.location_id
+              ),
+              None,
+          )
+
+          stock_total_anterior = sum(
+              int(stock_item.cantidad_disponible or 0) for stock_item in locked_stocks
+          )
+          '''
+          if old in text:
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected one target block, found {text.count(old)}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+              print('Applied targeted Stock locking fix.')
+          elif new in text:
+              print('Targeted fix already present.')
+          else:
+              raise SystemExit('Target block not found; refusing to modify unrelated code.')
+          PY
+
+      - name: Commit and push if changed
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/app/routers/products.py
+          git commit -m "fix: lock stock before restock calculations"
+          git push origin HEAD:fix/restock-concurrency-integrity
