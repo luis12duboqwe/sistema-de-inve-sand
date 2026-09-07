@@ -111,7 +111,7 @@ def test_restock_and_transfer_confirmation_share_ordered_stock_lock_protocol(
                 confirmation_product_locks.append(normalized)
             return
 
-        if "FROM STOCK" in normalized and "FOR UPDATE" in normalized:
+        if "FROM STOCK " in normalized and "FOR UPDATE" in normalized:
             with state_lock:
                 confirmation_stock_locks.append((normalized, repr(parameters)))
 
