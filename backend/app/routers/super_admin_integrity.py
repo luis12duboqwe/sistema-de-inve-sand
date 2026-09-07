@@ -125,7 +125,14 @@ def adjust_stock_integrity(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser_audited),
 ):
-    product = db.query(Product).filter(Product.id == payload.product_id).first()
+    # Serialize adjustments (including first-Stock-row creation) with other
+    # Product -> Stock writers before taking the target Stock lock.
+    product = (
+        db.query(Product)
+        .filter(Product.id == payload.product_id)
+        .with_for_update(key_share=True)
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 

@@ -82,10 +82,9 @@ def confirm_transfer_integrity(
     current_user: User = Depends(check_permission("inventory:edit")),
 ):
     """Confirm using the mature handler while retaining a Transfer-first row lock."""
-    # Confirmation historically locked Stock first and updated StockTransfer later,
-    # while reject/cancel use Transfer -> Stock. Acquire the transfer lock here and
-    # keep the same transaction open while delegating to the mature reconciliation
-    # implementation so every competing transition now follows one lock order.
+    # Competing transfer state transitions share Transfer first. The delegated
+    # confirmation implementation owns the Product -> ordered Stock protocol so
+    # the same inventory safety also applies if that mature handler is reused.
     _load_pending_transfer(db, transfer_id)
     return _legacy_confirm_transfer(
         transfer_id=transfer_id,
