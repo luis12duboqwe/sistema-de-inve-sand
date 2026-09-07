@@ -4,7 +4,7 @@ from threading import Event, Lock, get_ident
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Location, Product, Stock, StockHistory, StockTransfer
@@ -313,3 +313,30 @@ def test_purge_fails_fast_when_transfer_transition_holds_transfer(db_session: Se
     assert source_stock.cantidad_disponible == 7
     assert source_stock.cantidad_reservada == 0
     assert destination_stock.cantidad_disponible == 8
+
+
+def test_purge_barrier_covers_indirect_order_cascade_tables(db_session: Session) -> None:
+    product, _, _ = _product_and_locations(db_session)
+    product_id = int(product.id)
+    db_session.commit()
+
+    bind, SessionLocal = _session_factory(db_session)
+    if bind.dialect.name != "postgresql":
+        return
+
+    for table_name in ("trade_ins", "interaction_logs"):
+        holder = SessionLocal()
+        purge_session = SessionLocal()
+        try:
+            # Active writers hold ROW EXCLUSIVE; purge must fail fast.
+            holder.execute(text(f'LOCK TABLE "{table_name}" IN ROW EXCLUSIVE MODE'))
+            status, _ = _purge(purge_session, product_id)
+            assert status == 409, f"purge barrier omitted {table_name}"
+        finally:
+            purge_session.rollback()
+            holder.rollback()
+            purge_session.close()
+            holder.close()
+
+    db_session.expire_all()
+    assert db_session.get(Product, product_id) is not None

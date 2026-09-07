@@ -738,6 +738,7 @@ def correct_order_payment(
 _PRODUCT_PURGE_WRITE_TABLES = (
     "customers",
     "imei_history",
+    "interaction_logs",
     "order_items",
     "orders",
     "photo_request_media",
@@ -750,6 +751,7 @@ _PRODUCT_PURGE_WRITE_TABLES = (
     "stock",
     "stock_history",
     "stock_transfers",
+    "trade_ins",
 )
 
 
