@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import ProductIMEI, Stock, StockTransfer, User
+from app.models import Product, ProductIMEI, Stock, StockTransfer, User
 from app.routers.stock_transfers import (
     _serialize_transfer,
     confirm_transfer as _legacy_confirm_transfer,
@@ -39,6 +39,42 @@ def _load_pending_transfer(db: Session, transfer_id: int) -> StockTransfer:
             detail=f"Solo se puede operar una transferencia pendiente. Estado actual: '{transfer.estado}'",
         )
     return transfer
+
+
+def _lock_confirmation_product_and_stocks(db: Session, transfer: StockTransfer) -> None:
+    """Align confirmation locks with restock's Product -> ordered Stock protocol.
+
+    Restocking locks Product with ``FOR NO KEY UPDATE`` and then every existing
+    Stock row for that product in ascending location/row order. Confirmation used
+    to lock only the source row first and the destination later, which can form a
+    source/destination cycle when those location IDs sort in the opposite order.
+
+    The Product lock also serializes the case where the destination Stock row does
+    not exist yet, preventing confirmation and restock from racing to create it.
+    """
+    product = (
+        db.query(Product)
+        .filter(Product.id == transfer.product_id, Product.activo == True)
+        .with_for_update(key_share=True)
+        .first()
+    )
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Producto con ID {transfer.product_id} no encontrado o inactivo",
+        )
+
+    location_ids = sorted({int(transfer.from_location_id), int(transfer.to_location_id)})
+    (
+        db.query(Stock)
+        .filter(
+            Stock.product_id == transfer.product_id,
+            Stock.location_id.in_(location_ids),
+        )
+        .order_by(Stock.location_id.asc(), Stock.id.asc())
+        .with_for_update()
+        .all()
+    )
 
 
 def _release_transfer_reservation(
@@ -81,12 +117,12 @@ def confirm_transfer_integrity(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("inventory:edit")),
 ):
-    """Confirm using the mature handler while retaining a Transfer-first row lock."""
-    # Confirmation historically locked Stock first and updated StockTransfer later,
-    # while reject/cancel use Transfer -> Stock. Acquire the transfer lock here and
-    # keep the same transaction open while delegating to the mature reconciliation
-    # implementation so every competing transition now follows one lock order.
-    _load_pending_transfer(db, transfer_id)
+    """Confirm using the mature handler under the canonical lock protocol."""
+    # Keep competing state transitions serialized by Transfer first. Before the
+    # legacy reconciliation touches either Stock row, align with manual restock:
+    # Product FOR NO KEY UPDATE -> Stock rows in deterministic location/id order.
+    transfer = _load_pending_transfer(db, transfer_id)
+    _lock_confirmation_product_and_stocks(db, transfer)
     return _legacy_confirm_transfer(
         transfer_id=transfer_id,
         confirm_data=confirm_data,
