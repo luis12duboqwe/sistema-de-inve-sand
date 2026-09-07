@@ -341,6 +341,28 @@ def _apply_supplier_name_uniqueness_migration() -> None:
             )
 
 
+
+def _apply_supplier_unicode_safety_revalidation_migration() -> None:
+    """Revalidate historical supplier names under the hardened Unicode policy."""
+    if "suppliers" not in inspect(database.engine).get_table_names():
+        return
+
+    with database.engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, nombre FROM suppliers ORDER BY id")
+        ).mappings().all()
+
+    for row in rows:
+        supplier_id = int(row["id"])
+        raw_name = str(row["nombre"] or "")
+        try:
+            supplier_name_key(raw_name)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Proveedor existente ID {supplier_id} tiene un nombre inválido; "
+                "corrígelo antes de continuar la migración"
+            ) from exc
+
 def _apply_location_name_uniqueness_migration() -> None:
     """Backfill stable location identities without rewriting historical display names."""
     if "locations" not in inspect(database.engine).get_table_names():
@@ -509,6 +531,7 @@ MIGRATIONS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("20260824_01_processed_message_delivery_state", _apply_processed_message_delivery_state_migration),
     ("20260824_03_bank_name_digest_uniqueness", _apply_bank_name_normalization_migration),
     ("20260825_01_supplier_name_uniqueness", _apply_supplier_name_uniqueness_migration),
+    ("20260907_01_supplier_unicode_safety_revalidation", _apply_supplier_unicode_safety_revalidation_migration),
     ("20260825_02_sales_profile_slug_uniqueness", _apply_sales_profile_slug_uniqueness_migration),
     ("20260826_01_location_name_uniqueness", _apply_location_name_uniqueness_migration),
 )
@@ -600,12 +623,20 @@ def _supplier_unique_index_exists() -> bool:
     if "suppliers" not in inspector.get_table_names():
         return True
 
-    return any(
-        str(index.get("name") or "") == "ix_suppliers_nombre_key_hash"
-        and bool(index.get("unique"))
-        and list(index.get("column_names") or []) == ["nombre_key_hash"]
-        for index in inspector.get_indexes("suppliers")
-    )
+    for index in inspector.get_indexes("suppliers"):
+        dialect_options = index.get("dialect_options") or {}
+        is_partial = (
+            dialect_options.get("postgresql_where") is not None
+            or dialect_options.get("sqlite_where") is not None
+        )
+        if (
+            str(index.get("name") or "") == "ix_suppliers_nombre_key_hash"
+            and bool(index.get("unique"))
+            and list(index.get("column_names") or []) == ["nombre_key_hash"]
+            and not is_partial
+        ):
+            return True
+    return False
 
 
 def _sales_profile_slug_unique_index_exists() -> bool:

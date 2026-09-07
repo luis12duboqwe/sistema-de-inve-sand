@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.database as database
+import app.utils.auto_migrations as auto_migrations
 from app.models import Supplier
 from app.routers import suppliers
 from app.schemas import SupplierCreate, SupplierUpdate
@@ -356,3 +357,116 @@ def test_supplier_schema_rejects_misbound_unique_index(
         assert columns == ["nombre"]
     finally:
         engine.dispose()
+
+
+
+def test_supplier_unicode_revalidation_rejects_already_migrated_unsafe_name(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "supplier-already-migrated-invisible.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    _create_legacy_sqlite_schema(engine, [(1, "Proveedor\u200bCentral")])
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE suppliers ADD COLUMN nombre_normalized TEXT"))
+        conn.execute(text("ALTER TABLE suppliers ADD COLUMN nombre_key_hash VARCHAR(64)"))
+        conn.execute(
+            text(
+                "UPDATE suppliers SET nombre_normalized = :normalized, "
+                "nombre_key_hash = :digest WHERE id = 1"
+            ),
+            {
+                "normalized": "proveedor\u200bcentral",
+                "digest": "0" * 64,
+            },
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX ix_suppliers_nombre_key_hash "
+                "ON suppliers (nombre_key_hash)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE schema_migrations ("
+                "id VARCHAR(100) PRIMARY KEY, "
+                "applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO schema_migrations (id) VALUES (:migration_id)"),
+            {"migration_id": "20260825_01_supplier_name_uniqueness"},
+        )
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        with pytest.raises(RuntimeError, match="nombre inválido"):
+            run_auto_migrations()
+
+        with engine.connect() as conn:
+            applied = {
+                str(row[0])
+                for row in conn.execute(text("SELECT id FROM schema_migrations"))
+            }
+        assert "20260825_01_supplier_name_uniqueness" in applied
+        assert "20260907_01_supplier_unicode_safety_revalidation" not in applied
+    finally:
+        engine.dispose()
+
+
+def test_supplier_schema_rejects_correctly_named_partial_unique_index(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "supplier-partial-index.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    _create_legacy_sqlite_schema(engine, [(1, "Proveedor Central")])
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE suppliers ADD COLUMN nombre_key_hash VARCHAR(64)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX ix_suppliers_nombre_key_hash "
+                "ON suppliers (nombre_key_hash) WHERE activo = 1"
+            )
+        )
+    monkeypatch.setattr(database, "engine", engine)
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="falta índice único ix_suppliers_nombre_key_hash",
+        ):
+            run_auto_migrations()
+
+        with engine.connect() as conn:
+            index_rows = conn.execute(text("PRAGMA index_list('suppliers')")).fetchall()
+        matching = [
+            row for row in index_rows
+            if str(row[1]) == "ix_suppliers_nombre_key_hash"
+        ]
+        assert len(matching) == 1
+        assert bool(matching[0][2])
+        assert bool(matching[0][4])
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("where_key", ["postgresql_where", "sqlite_where"])
+def test_supplier_unique_index_metadata_rejects_partial_predicates(
+    monkeypatch,
+    where_key: str,
+) -> None:
+    fake_inspector = SimpleNamespace(
+        get_table_names=lambda: ["suppliers"],
+        get_indexes=lambda table: [
+            {
+                "name": "ix_suppliers_nombre_key_hash",
+                "unique": True,
+                "column_names": ["nombre_key_hash"],
+                "dialect_options": {where_key: "activo = 1"},
+            }
+        ],
+    )
+    monkeypatch.setattr(auto_migrations, "inspect", lambda engine: fake_inspector)
+
+    assert auto_migrations._supplier_unique_index_exists() is False
