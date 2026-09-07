@@ -95,7 +95,7 @@ def test_manual_restock_and_purchase_receipt_share_product_then_stock_lock_order
             role == "receipt"
             and normalized.startswith("SELECT")
             and "FROM PRODUCTS" in normalized
-            and "FOR UPDATE" in normalized
+            and "FOR NO KEY UPDATE" in normalized
         ):
             with state_lock:
                 receipt_has_product_lock.add(thread_id)
@@ -105,7 +105,7 @@ def test_manual_restock_and_purchase_receipt_share_product_then_stock_lock_order
             role == "restock"
             and normalized.startswith("SELECT")
             and "FROM PRODUCTS" in normalized
-            and "FOR UPDATE" in normalized
+            and "FOR NO KEY UPDATE" in normalized
         ):
             restock_product_locked.set()
             # On the legacy opposite-order path, let the receipt acquire Stock
@@ -279,7 +279,7 @@ def test_purchase_receipts_lock_products_in_deterministic_order(
         if (
             normalized.startswith("SELECT")
             and "FROM PRODUCTS" in normalized
-            and "FOR UPDATE" in normalized
+            and "FOR NO KEY UPDATE" in normalized
         ):
             product_id = _product_id_from_parameters(parameters)
             if product_id is None:

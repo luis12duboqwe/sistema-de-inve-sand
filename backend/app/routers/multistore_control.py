@@ -278,7 +278,7 @@ def create_purchase_receipt(
             product = (
                 db.query(Product)
                 .filter(Product.id == product_id)
-                .with_for_update()
+                .with_for_update(key_share=True)
                 .first()
             )
             if not product:

@@ -64,7 +64,7 @@ def _run_concurrent_restocks(
 ) -> list[tuple[int, str]]:
     """Run two real PostgreSQL restocks and deterministically expose the old race.
 
-    If the production product lookup does not use ``FOR UPDATE``, both workers are
+    If the production product lookup does not use ``FOR NO KEY UPDATE``, both workers are
     paused immediately after their first Stock SELECT has executed. That guarantees
     both legacy transactions observed the same pre-restock state before either can
     mutate it. Once the production Product SELECT is locking, the second transaction
@@ -94,7 +94,7 @@ def _run_concurrent_restocks(
             with state_lock:
                 product_lock_by_thread.setdefault(
                     thread_id,
-                    "FOR UPDATE" in normalized,
+                    "FOR NO KEY UPDATE" in normalized,
                 )
 
     def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):

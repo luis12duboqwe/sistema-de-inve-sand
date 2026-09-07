@@ -805,11 +805,13 @@ def restock_product(
     require_location_access(db, current_user, payload.location_id, "can_receive_purchase")
 
     # Serialize restocks for the same product before reading stock or cost.
-    # This protects both existing-stock increments and the first Stock-row create.
+    # PostgreSQL FOR NO KEY UPDATE still conflicts with other restock/cost
+    # writers, while remaining compatible with FK KEY SHARE checks emitted by
+    # stock-history writers that may already hold the Stock row.
     product = (
         db.query(Product)
         .filter(Product.id == product_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .first()
     )
     if not product:
