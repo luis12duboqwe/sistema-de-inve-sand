@@ -93,7 +93,25 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
     thread_roles: dict[int, str] = {}
     restock_product_locked = Event()
     count_stock_locked = Event()
+    restock_stock_lock_attempted = Event()
     restock_product_lock_sql: list[str] = []
+    restock_stock_lock_sql: list[str] = []
+
+    def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        normalized = _normalized(statement)
+        thread_id = get_ident()
+        with state_lock:
+            role = thread_roles.get(thread_id)
+
+        if (
+            role == "restock"
+            and normalized.startswith("SELECT")
+            and "FROM STOCK" in normalized
+            and "FOR UPDATE" in normalized
+        ):
+            with state_lock:
+                restock_stock_lock_sql.append(normalized)
+            restock_stock_lock_attempted.set()
 
     def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
         normalized = _normalized(statement)
@@ -121,7 +139,9 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
         ):
             count_stock_locked.set()
             restock_product_locked.wait(timeout=5)
+            restock_stock_lock_attempted.wait(timeout=5)
 
+    event.listen(bind, "before_cursor_execute", before_cursor_execute)
     event.listen(bind, "after_cursor_execute", after_cursor_execute)
 
     def run_restock() -> tuple[int, str]:
@@ -179,11 +199,14 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
             futures = [pool.submit(run_restock), pool.submit(run_count_approval)]
             results = [future.result(timeout=20) for future in futures]
     finally:
+        event.remove(bind, "before_cursor_execute", before_cursor_execute)
         event.remove(bind, "after_cursor_execute", after_cursor_execute)
 
     assert sorted(status for status, _ in results) == [200, 200]
     assert restock_product_lock_sql
     assert all("FOR NO KEY UPDATE" in sql for sql in restock_product_lock_sql)
+    assert restock_stock_lock_sql
+    assert all("FOR UPDATE" in sql for sql in restock_stock_lock_sql)
 
     db_session.expire_all()
     stock = (
@@ -194,10 +217,13 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
         )
         .one()
     )
+    persisted_product = db_session.get(Product, product_id)
     persisted_count = db_session.get(PhysicalInventoryCount, count_id)
+    assert persisted_product is not None
     assert persisted_count is not None
     assert persisted_count.status == "approved"
     assert stock.cantidad_disponible == 25
+    assert Decimal(persisted_product.costo) == Decimal("120.00")
     assert (
         db_session.query(StockHistory)
         .filter(
