@@ -1,0 +1,61 @@
+name: PR110 final PostgreSQL gate
+
+on:
+  push:
+    branches:
+      - ci/pr110-final-gate-b724
+
+permissions:
+  contents: read
+
+jobs:
+  focused-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_focus
+          POSTGRES_USER: inventory_focus
+          POSTGRES_PASSWORD: inventory_focus_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U inventory_focus -d inventory_focus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: 'true'
+      ENVIRONMENT: testing
+      DEBUG: 'true'
+      DATABASE_URL: postgresql+psycopg2://inventory_focus:inventory_focus_password@127.0.0.1:5432/inventory_focus
+      ALLOWED_HOSTS: '*'
+      CORS_ORIGINS: http://testserver,http://127.0.0.1:8001
+      SENTRY_DISABLED: 'true'
+      ENABLE_AI_FEATURES: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install backend deps
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run focused concurrency and purge regressions
+        run: |
+          cd backend
+          pytest -q \
+            tests/test_restock_transfer_confirmation_lock_compatibility.py \
+            tests/test_restock_inventory_count_lock_compatibility.py \
+            tests/test_purchase_restock_lock_order_integrity.py \
+            tests/test_product_restock_concurrency_integrity.py \
+            tests/test_product_purge_lock_order_integrity.py \
+            tests/test_super_admin_product_purge.py
