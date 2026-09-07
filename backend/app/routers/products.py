@@ -804,7 +804,16 @@ def restock_product(
     """Reabastece inventario de un producto existente con trazabilidad de IMEIs."""
     require_location_access(db, current_user, payload.location_id, "can_receive_purchase")
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Serialize restocks for the same product before reading stock or cost.
+    # PostgreSQL FOR NO KEY UPDATE still conflicts with other restock/cost
+    # writers, while remaining compatible with FK KEY SHARE checks emitted by
+    # stock-history writers that may already hold the Stock row.
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id)
+        .with_for_update(key_share=True)
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail=f"El producto con ID {product_id} no fue encontrado")
 
@@ -851,14 +860,24 @@ def restock_product(
                 detail=f"El IMEI '{existentes[0].imei}' ya está registrado en el sistema",
             )
 
-    stock = db.query(Stock).filter(
-        Stock.product_id == product_id,
-        Stock.location_id == payload.location_id,
-    ).first()
+    locked_stocks = (
+        db.query(Stock)
+        .filter(Stock.product_id == product_id)
+        .order_by(Stock.location_id.asc(), Stock.id.asc())
+        .with_for_update()
+        .all()
+    )
+    stock = next(
+        (
+            stock_item
+            for stock_item in locked_stocks
+            if stock_item.location_id == payload.location_id
+        ),
+        None,
+    )
 
     stock_total_anterior = sum(
-        int(stock_item.cantidad_disponible or 0)
-        for stock_item in db.query(Stock).filter(Stock.product_id == product_id).all()
+        int(stock_item.cantidad_disponible or 0) for stock_item in locked_stocks
     )
     costo_anterior = Decimal(product.costo or 0)
     costo_compra = Decimal(payload.costo_unitario)

@@ -354,18 +354,49 @@ def confirm_transfer(
             )
             raise HTTPException(status_code=403, detail="Código de validación incorrecto.")
     
-    # Validar entidades base
-    product = validate_product_exists(db, transfer.product_id)
+    # Validar entidades base y alinear el protocolo de bloqueo con restock.
+    # Product FOR NO KEY UPDATE serializa escritores de costo/stock sin bloquear
+    # los KEY SHARE de historiales; luego todas las filas Stock involucradas se
+    # adquieren en orden determinista para evitar ciclos origen/destino.
+    product = (
+        db.query(Product)
+        .filter(Product.id == transfer.product_id, Product.activo == True)
+        .with_for_update(key_share=True)
+        .first()
+    )
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Producto con ID {transfer.product_id} no encontrado o inactivo"
+        )
+
     from_location = validate_location_exists(db, transfer.from_location_id)
     require_location_access(db, current_user, from_location.id, "can_edit")
     to_location = validate_location_exists(db, transfer.to_location_id)
-    
-    # Validar stock en ubicación de origen
-    source_stock = db.query(Stock).filter(
-        Stock.product_id == transfer.product_id,
-        Stock.location_id == transfer.from_location_id
-    ).with_for_update().first()
-    
+
+    involved_location_ids = sorted({
+        int(transfer.from_location_id),
+        int(transfer.to_location_id),
+    })
+    locked_stocks = (
+        db.query(Stock)
+        .filter(
+            Stock.product_id == transfer.product_id,
+            Stock.location_id.in_(involved_location_ids),
+        )
+        .order_by(Stock.location_id.asc(), Stock.id.asc())
+        .with_for_update()
+        .all()
+    )
+    source_stock = next(
+        (
+            stock_item
+            for stock_item in locked_stocks
+            if stock_item.location_id == transfer.from_location_id
+        ),
+        None,
+    )
+
     if not source_stock:
         raise HTTPException(
             status_code=400,

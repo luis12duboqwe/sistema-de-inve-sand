@@ -4,7 +4,8 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -734,6 +735,72 @@ def correct_order_payment(
     return {"ok": True, "order_id": order.id}
 
 
+_PRODUCT_PURGE_WRITE_TABLES = (
+    "customers",
+    "imei_history",
+    "interaction_logs",
+    "order_items",
+    "orders",
+    "photo_request_media",
+    "photo_requests",
+    "physical_inventory_count_items",
+    "product_imeis",
+    "purchase_receipt_items",
+    "return_items",
+    "returns",
+    "stock",
+    "stock_history",
+    "stock_transfers",
+    "trade_ins",
+)
+
+
+def _is_postgres_lock_not_available(exc: OperationalError) -> bool:
+    return getattr(getattr(exc, "orig", None), "pgcode", None) == "55P03"
+
+
+def _acquire_product_purge_lock(db: Session, product_id: int) -> Product | None:
+    """Acquire a fail-fast destructive barrier without waiting in mixed row-lock order."""
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        table_list = ", ".join(f'"{name}"' for name in sorted(_PRODUCT_PURGE_WRITE_TABLES))
+        try:
+            # EXCLUSIVE conflicts with SELECT FOR UPDATE/SHARE and DML table locks,
+            # while NOWAIT guarantees purge never holds one dependency while waiting
+            # for another writer. Plain reads remain allowed.
+            db.execute(text(f"LOCK TABLE {table_list} IN EXCLUSIVE MODE NOWAIT"))
+        except OperationalError as exc:
+            if not _is_postgres_lock_not_available(exc):
+                raise
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="El producto tiene una operación de inventario en curso. Intente la purga nuevamente.",
+            ) from exc
+
+    query = db.query(Product).filter(Product.id == product_id)
+    if dialect_name == "postgresql":
+        query = query.with_for_update(nowait=True)
+    else:
+        query = query.with_for_update()
+
+    try:
+        product = query.first()
+    except OperationalError as exc:
+        if dialect_name != "postgresql" or not _is_postgres_lock_not_available(exc):
+            raise
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="El producto tiene una operación de inventario en curso. Intente la purga nuevamente.",
+        ) from exc
+
+    if product is None and dialect_name == "postgresql":
+        # Release the global destructive barrier immediately on a 404 path.
+        db.rollback()
+    return product
+
+
 @router.post("/products/{product_id}/purge")
 def purge_product_for_admin(
     product_id: int,
@@ -741,7 +808,11 @@ def purge_product_for_admin(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser_audited),
 ):
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Destructive purge uses a PostgreSQL fail-fast barrier across every table it
+    # can mutate, then locks Product NOWAIT. It therefore never waits on a child
+    # row/table while holding Product (or vice versa), avoiding mixed-protocol
+    # deadlocks with restock, adjustments, orders, and transfer transitions.
+    product = _acquire_product_purge_lock(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
@@ -753,6 +824,7 @@ def purge_product_for_admin(
     deleted_counts = {
         "products": 0,
         "imeis": 0,
+        "imei_history": 0,
         "stock": 0,
         "stock_history": 0,
         "order_items": 0,
@@ -780,6 +852,7 @@ def purge_product_for_admin(
 
         deleted_counts["transfers"] = db.query(StockTransfer).filter(StockTransfer.product_id == product_id).delete(synchronize_session=False)
         deleted_counts["stock_history"] = db.query(StockHistory).filter(StockHistory.product_id == product_id).delete(synchronize_session=False)
+        deleted_counts["imei_history"] = db.query(IMEIHistory).filter(IMEIHistory.product_id == product_id).delete(synchronize_session=False)
         deleted_counts["imeis"] = db.query(ProductIMEI).filter(ProductIMEI.product_id == product_id).delete(synchronize_session=False)
         deleted_counts["stock"] = db.query(Stock).filter(Stock.product_id == product_id).delete(synchronize_session=False)
         deleted_counts["purchase_receipt_items"] = db.query(PurchaseReceiptItem).filter(PurchaseReceiptItem.product_id == product_id).delete(synchronize_session=False)

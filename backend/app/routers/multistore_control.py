@@ -268,10 +268,25 @@ def create_purchase_receipt(
 
     total_cost = Decimal("0")
     try:
-        for item in payload.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
+        # Keep one global lock order for workflows that mutate Product + Stock.
+        # Lock every referenced product first and do it in deterministic ID order
+        # before any Stock row is locked or created. Besides matching manual
+        # restock (Product -> Stock), this prevents two receipts with reversed
+        # payload item order from forming a Product-lock cycle.
+        products_by_id: dict[int, Product] = {}
+        for product_id in sorted({item.product_id for item in payload.items}):
+            product = (
+                db.query(Product)
+                .filter(Product.id == product_id)
+                .with_for_update(key_share=True)
+                .first()
+            )
             if not product:
-                raise HTTPException(status_code=404, detail=f"Producto {item.product_id} no encontrado")
+                raise HTTPException(status_code=404, detail=f"Producto {product_id} no encontrado")
+            products_by_id[product_id] = product
+
+        for item in payload.items:
+            product = products_by_id[item.product_id]
             imeis = item.imeis or []
             if product.is_serialized and len(imeis) != item.quantity:
                 raise HTTPException(status_code=400, detail=f"Producto {product.nombre} requiere {item.quantity} IMEI(s)")
@@ -477,8 +492,23 @@ def approve_inventory_count(
     require_location_access(db, current_user, count.location_id, "can_edit")
 
     try:
+        # Align physical-count approval with every inventory writer that can create
+        # a missing Stock row. Lock all involved Products first, in ascending ID
+        # order, so a missing (product, location) Stock key is serialized before
+        # either this approval or transfer/restock treats it as absent. PostgreSQL
+        # FOR NO KEY UPDATE also remains compatible with StockHistory FK KEY SHARE.
+        product_ids = sorted({int(item.product_id) for item in count.items})
+        locked_products = (
+            db.query(Product)
+            .filter(Product.id.in_(product_ids))
+            .order_by(Product.id.asc())
+            .with_for_update(key_share=True)
+            .all()
+        )
+        locked_products_by_id = {int(product.id): product for product in locked_products}
+
         for item in count.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
+            product = locked_products_by_id.get(int(item.product_id))
             stock = _stock_for_update(db, item.product_id, count.location_id)
             previous = stock.cantidad_disponible
             stock.cantidad_disponible = item.counted_quantity
