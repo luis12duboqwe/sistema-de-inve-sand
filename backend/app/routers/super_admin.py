@@ -741,7 +741,15 @@ def purge_product_for_admin(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser_audited),
 ):
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Purge participates in the same global inventory lock order as restock,
+    # receipts, counts, and transfer confirmation: Product before child Stock.
+    # A strong Product lock is appropriate here because the row itself is deleted.
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id)
+        .with_for_update()
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
