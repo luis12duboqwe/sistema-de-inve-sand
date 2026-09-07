@@ -1,0 +1,32 @@
+name: One-shot no-key-update inventory locks
+
+on:
+  push:
+    branches:
+      - fix/restock-concurrency-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/restock-concurrency-integrity
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Apply no-key-update inventory lock patch
+        run: python .github/patch_no_key_update_inventory_locks.py
+      - name: Commit patch and remove temporary helpers
+        run: |
+          rm .github/patch_no_key_update_inventory_locks.py
+          rm .github/workflows/one-shot-no-key-update-inventory-locks.yml
+          git config user.name 'SoftMobile Integrity Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add backend/app/routers/products.py backend/app/routers/multistore_control.py backend/tests/test_product_restock_concurrency_integrity.py backend/tests/test_purchase_restock_lock_order_integrity.py backend/tests/test_restock_inventory_count_lock_compatibility.py .github/patch_no_key_update_inventory_locks.py .github/workflows/one-shot-no-key-update-inventory-locks.yml
+          git commit -m 'fix: use no-key-update for inventory product locks'
+          git push origin HEAD:fix/restock-concurrency-integrity
