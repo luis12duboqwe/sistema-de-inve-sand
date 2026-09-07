@@ -27,7 +27,7 @@ def _normalized(statement: str) -> str:
     return " ".join(statement.upper().split())
 
 
-def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
+def test_restock_and_inventory_count_share_product_then_stock_protocol(
     db_session: Session,
 ) -> None:
     suffix = uuid4().hex
@@ -91,9 +91,9 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
     start = Barrier(2)
     state_lock = Lock()
     thread_roles: dict[int, str] = {}
-    restock_product_locked = Event()
-    count_stock_locked = Event()
-    restock_stock_lock_attempted = Event()
+    count_product_locked = Event()
+    restock_product_lock_attempted = Event()
+    count_product_lock_sql: list[str] = []
     restock_product_lock_sql: list[str] = []
     restock_stock_lock_sql: list[str] = []
 
@@ -106,18 +106,37 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
         if (
             role == "restock"
             and normalized.startswith("SELECT")
-            and "FROM STOCK" in normalized
+            and "FROM PRODUCTS" in normalized
+            and ("FOR UPDATE" in normalized or "FOR NO KEY UPDATE" in normalized)
+        ):
+            restock_product_lock_attempted.set()
+
+        if (
+            role == "restock"
+            and normalized.startswith("SELECT")
+            and "FROM STOCK " in normalized
             and "FOR UPDATE" in normalized
         ):
             with state_lock:
                 restock_stock_lock_sql.append(normalized)
-            restock_stock_lock_attempted.set()
 
     def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
         normalized = _normalized(statement)
         thread_id = get_ident()
         with state_lock:
             role = thread_roles.get(thread_id)
+
+        if (
+            role == "count"
+            and normalized.startswith("SELECT")
+            and "FROM PRODUCTS" in normalized
+            and ("FOR UPDATE" in normalized or "FOR NO KEY UPDATE" in normalized)
+        ):
+            with state_lock:
+                count_product_lock_sql.append(normalized)
+            count_product_locked.set()
+            restock_product_lock_attempted.wait(timeout=5)
+            return
 
         if (
             role == "restock"
@@ -127,19 +146,6 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
         ):
             with state_lock:
                 restock_product_lock_sql.append(normalized)
-            restock_product_locked.set()
-            count_stock_locked.wait(timeout=5)
-            return
-
-        if (
-            role == "count"
-            and normalized.startswith("SELECT")
-            and "FROM STOCK" in normalized
-            and "FOR UPDATE" in normalized
-        ):
-            count_stock_locked.set()
-            restock_product_locked.wait(timeout=5)
-            restock_stock_lock_attempted.wait(timeout=5)
 
     event.listen(bind, "before_cursor_execute", before_cursor_execute)
     event.listen(bind, "after_cursor_execute", after_cursor_execute)
@@ -151,6 +157,7 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
             thread_roles[thread_id] = "restock"
         try:
             start.wait(timeout=10)
+            count_product_locked.wait(timeout=5)
             try:
                 result = products.restock_product(
                     product_id,
@@ -203,6 +210,8 @@ def test_restock_no_key_update_is_compatible_with_inventory_count_history_fk(
         event.remove(bind, "after_cursor_execute", after_cursor_execute)
 
     assert sorted(status for status, _ in results) == [200, 200]
+    assert count_product_lock_sql
+    assert all("FOR NO KEY UPDATE" in sql for sql in count_product_lock_sql)
     assert restock_product_lock_sql
     assert all("FOR NO KEY UPDATE" in sql for sql in restock_product_lock_sql)
     assert restock_stock_lock_sql
