@@ -1,0 +1,70 @@
+name: Issue 112 PostgreSQL regression proof
+on:
+  push:
+    branches: ['validation/issue-112-postgres-20260917']
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_test
+          POSTGRES_USER: inventory_test
+          POSTGRES_PASSWORD: inventory_test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U inventory_test -d inventory_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql+psycopg2://inventory_test:inventory_test_password@127.0.0.1:5432/inventory_test
+      ENVIRONMENT: testing
+      DEBUG: 'true'
+      ALLOWED_HOSTS: '*'
+      CORS_ORIGINS: http://testserver
+      SENTRY_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Both corrected transfer paths pass
+        run: pytest -q backend/tests/test_transfer_creation_release_lock_compatibility.py --junitxml=/tmp/fixed.xml
+      - name: Restore legacy Product lock only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("backend/app/utils/stock_manager.py")
+          s = p.read_text()
+          old = ").with_for_update(key_share=True).first()"
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, ").with_for_update().first()", 1))
+          PY
+      - name: Both tests must detect the legacy lock failure
+        run: |
+          set +e
+          pytest -q backend/tests/test_transfer_creation_release_lock_compatibility.py --junitxml=/tmp/legacy.xml > /tmp/legacy.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/legacy.log
+          test "$result" -eq 1
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("/tmp/legacy.xml").getroot()
+          cases = root.findall(".//testcase")
+          assert len(cases) == 2
+          for case in cases:
+              failure = case.find("failure")
+              assert failure is not None
+              assert "assert results == [200, 200]" in (failure.text or "")
+          print("Confirmed: both legacy paths fail the concurrent success assertion.")
+          PY
