@@ -4,16 +4,23 @@ from threading import Event, Lock, get_ident
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import event
+import pytest
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Location, Product, Stock, StockHistory, StockTransfer
-from app.routers.stock_transfer_integrity import reject_transfer_integrity
+from app.routers.stock_transfer_integrity import (
+    cancel_transfer_integrity,
+    reject_transfer_integrity,
+)
 from app.routers.stock_transfers import create_transfer
 from app.schemas import StockTransferCreate, StockTransferReject
 
 
-def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session: Session):
+@pytest.mark.parametrize("action, final_state", [("reject", "rechazada"), ("cancel", "cancelada")])
+def test_transfer_creation_does_not_deadlock_with_reservation_release(
+    db_session: Session, action: str, final_state: str,
+):
     suffix = uuid4().hex
     product = Product(
         sku=f"TRANSFER-RELEASE-{suffix}", nombre=f"Transfer Release {suffix}",
@@ -39,28 +46,24 @@ def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session
     bind = db_session.get_bind()
     SessionLocal = sessionmaker(bind=bind, autoflush=False)
     release_has_stock = Event()
-    create_attempted_product = Event()
+    create_has_product = Event()
     state_lock = Lock()
     roles = {}
     product_sql = []
-
-    def before_execute(conn, cursor, statement, parameters, context, executemany):
-        sql = " ".join(statement.upper().split())
-        with state_lock:
-            role = roles.get(get_ident())
-        if role == "create" and "FROM PRODUCTS" in sql and "FOR " in sql:
-            product_sql.append(sql)
-            create_attempted_product.set()
 
     def after_execute(conn, cursor, statement, parameters, context, executemany):
         sql = " ".join(statement.upper().split())
         with state_lock:
             role = roles.get(get_ident())
+        if role == "create" and sql.startswith("SELECT") and "FROM PRODUCTS" in sql and "FOR " in sql:
+            product_sql.append(sql)
+            create_has_product.set()
         if role == "release" and "FROM STOCK " in sql and "FOR UPDATE" in sql:
             release_has_stock.set()
-            assert create_attempted_product.wait(timeout=10)
+            # Wait for the Product lock to actually be acquired, not merely
+            # attempted. Legacy FOR UPDATE must now deadlock on the history FK.
+            assert create_has_product.wait(timeout=10)
 
-    event.listen(bind, "before_cursor_execute", before_execute)
     event.listen(bind, "after_cursor_execute", after_execute)
     user = SimpleNamespace(id=1, username="qa", is_superuser=True, is_active=True, role=None)
 
@@ -69,6 +72,8 @@ def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session
         with state_lock:
             roles[get_ident()] = role
         try:
+            session.execute(text("SET LOCAL lock_timeout = '12s'"))
+            session.execute(text("SET LOCAL statement_timeout = '15s'"))
             if role == "create":
                 assert release_has_stock.wait(timeout=10)
                 create_transfer(
@@ -76,11 +81,13 @@ def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session
                                         to_location_id=destination_id, cantidad=3),
                     session, user,
                 )
-            else:
+            elif action == "reject":
                 reject_transfer_integrity(
                     transfer_id, StockTransferReject(rejection_reason="QA"),
                     session, user,
                 )
+            else:
+                cancel_transfer_integrity(transfer_id, session, user)
             return 200
         except Exception as exc:
             session.rollback()
@@ -96,7 +103,6 @@ def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session
             b = pool.submit(run, "create")
             results = [a.result(timeout=25), b.result(timeout=25)]
     finally:
-        event.remove(bind, "before_cursor_execute", before_execute)
         event.remove(bind, "after_cursor_execute", after_execute)
 
     assert results == [200, 200]
@@ -104,6 +110,6 @@ def test_transfer_creation_does_not_deadlock_with_reservation_release(db_session
     db_session.expire_all()
     stock = db_session.query(Stock).filter_by(product_id=product_id, location_id=source_id).one()
     assert (stock.cantidad_disponible, stock.cantidad_reservada) == (10, 3)
-    assert db_session.get(StockTransfer, transfer_id).estado == "rechazada"
+    assert db_session.get(StockTransfer, transfer_id).estado == final_state
     assert db_session.query(StockTransfer).filter_by(product_id=product_id, estado="pendiente").count() == 1
     assert db_session.query(StockHistory).filter_by(product_id=product_id, location_id=source_id).count() == 2
