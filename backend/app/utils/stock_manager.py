@@ -116,11 +116,13 @@ class StockManager:
                 detail="La cantidad debe ser mayor a 0"
             )
         
-        # 2. Validar Producto con bloqueo
+        # Serializar escritores sin bloquear el KEY SHARE de las FK de StockHistory.
+        # FOR UPDATE aquí puede formar un ciclo con una liberación de reserva que
+        # ya bloqueó Stock y luego inserta el historial del mismo producto.
         product = self.db.query(Product).filter(
             Product.id == product_id,
             Product.activo == True
-        ).with_for_update().first()
+        ).with_for_update(key_share=True).first()
         
         if not product:
             raise HTTPException(
