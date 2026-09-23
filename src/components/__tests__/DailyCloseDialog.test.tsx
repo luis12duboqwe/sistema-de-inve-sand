@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -5,6 +6,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DailyCloseDialog } from '../DailyCloseDialog'
 import { apiClient } from '@/lib/apiClient'
 import { toast } from 'sonner'
+
+vi.mock('framer-motion', async () => {
+  const React = await import('react')
+  const MotionElement = ({ children }: { children?: ReactNode }) => React.createElement('div', null, children)
+
+  return {
+    AnimatePresence: ({ children }: { children?: ReactNode }) => React.createElement(React.Fragment, null, children),
+    motion: new Proxy({}, {
+      get: () => MotionElement,
+    }),
+  }
+})
 
 vi.mock('@/lib/apiClient', () => ({
   apiClient: {
@@ -41,7 +54,10 @@ describe('DailyCloseDialog production-critical validation flow', () => {
         items_summary: 'iPhone 15 Pro',
       },
     ] as Awaited<ReturnType<typeof apiClient.getDailyClosePending>>)
-    vi.mocked(apiClient.getDailyCloseConfig).mockResolvedValue({ configured: true })
+    vi.mocked(apiClient.getDailyCloseConfig).mockResolvedValue({
+      configured: true,
+      mensaje: 'Cierre diario configurado',
+    })
     vi.mocked(apiClient.listLocations).mockResolvedValue([
       { id: 1, nombre: 'Tienda Centro', tipo: 'tienda', activo: true, created_at: '2026-09-23T10:00:00Z' },
     ] as Awaited<ReturnType<typeof apiClient.listLocations>>)
