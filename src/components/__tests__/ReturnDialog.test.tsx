@@ -66,7 +66,7 @@ describe('ReturnDialog production-critical return flow', () => {
       />
     )
 
-    await browserUser.click(screen.getByRole('button', { name: /Procesar Devolución/i }))
+    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Devolución' }))
 
     expect(toast.error).toHaveBeenCalledWith('Selecciona al menos un producto para devolver')
     expect(mockInventoryService.createReturn).not.toHaveBeenCalled()
@@ -87,7 +87,7 @@ describe('ReturnDialog production-critical return flow', () => {
     )
 
     await browserUser.click(screen.getByLabelText('iPhone 15 Pro'))
-    await browserUser.click(screen.getByRole('button', { name: /Procesar Devolución/i }))
+    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Devolución' }))
 
     await waitFor(() => {
       expect(mockInventoryService.createReturn).toHaveBeenCalledWith({
