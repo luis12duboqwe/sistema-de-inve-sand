@@ -30,6 +30,8 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+ENV_FILE="$(realpath "$ENV_FILE")"
+
 echo "[1/9] Validando configuración de producción"
 "$DEPLOY_DIR/validate-prod.sh" "$ENV_FILE"
 
