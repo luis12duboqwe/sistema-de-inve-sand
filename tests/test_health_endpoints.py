@@ -37,6 +37,29 @@ def test_api_health_is_liveness_and_reports_database(monkeypatch):
     assert payload["database"] == "connected"
 
 
+def test_api_health_exposes_exact_release_sha_header(monkeypatch):
+    release_sha = "a" * 40
+    monkeypatch.setenv("APP_BUILD_SHA", release_sha)
+    monkeypatch.setattr("app.main.check_db_connection", lambda: True)
+
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers["X-Release-SHA"] == release_sha
+
+
+def test_api_health_never_exposes_invalid_release_sha(monkeypatch):
+    monkeypatch.setenv("APP_BUILD_SHA", "not-a-valid-git-sha")
+    monkeypatch.setattr("app.main.check_db_connection", lambda: True)
+
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.headers["X-Release-SHA"] == "unknown"
+
+
 def test_api_ready_requires_config_and_database(monkeypatch):
     monkeypatch.setattr("app.main.check_db_connection", lambda: True)
     monkeypatch.setattr("app.main.check_production_readiness", lambda: READY_CONFIG)
