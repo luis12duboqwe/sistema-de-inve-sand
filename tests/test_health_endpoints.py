@@ -33,7 +33,7 @@ def test_api_health_is_liveness_and_reports_database(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "alive"
+    assert payload["status"] == "healthy"
     assert payload["database"] == "connected"
 
 
