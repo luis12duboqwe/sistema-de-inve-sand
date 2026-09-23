@@ -1,6 +1,7 @@
 import { inventoryService as localService } from './inventoryService'
 import { apiClient } from './apiClient'
 import { getKV } from './kvStorage'
+import { isProductionApiForced } from './runtimePolicy'
 import type {
   Profile,
   Product,
@@ -830,6 +831,9 @@ class UnifiedInventoryService implements IInventoryService {
       return useApi ? new ApiInventoryService() : new LocalServiceWrapper()
     } catch (error) {
       console.error('Error determining service type:', error)
+      if (isProductionApiForced()) {
+        return new ApiInventoryService()
+      }
       return new LocalServiceWrapper()
     }
   }
