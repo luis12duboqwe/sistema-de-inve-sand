@@ -505,7 +505,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         const itemsTotal = order.items?.reduce((acc, item) => acc + item.cantidad, 0) ?? 0
         return sum + itemsTotal
       }, 0)
-      const ticketPromedio = completedLocationOrders.length > 0 ? revenue / completedLocationOrders.length : null
+      const ticketPromedio = completedLocationOrders.length > 0 ? revenue / completedLocationOrders.length : 0
       
       return {
         nombre: location.nombre,
@@ -1585,7 +1585,6 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
 // Envolver con memo para evitar re-renders innecesarios
 export const DashboardStats = memo(DashboardStatsComponent)
-
 
 
 
