@@ -11,6 +11,11 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+# Docker Compose resolves env_file paths relative to the compose file. Normalize
+# the requested production env first so callers can safely pass ./deploy/.env.prod
+# (or any other relative path) without it becoming deploy/deploy/.env.prod.
+ENV_FILE="$(realpath "$ENV_FILE")"
+
 if grep -Eq 'CHANGE_ME|GENERATE_WITH|midominio\.com|api\.example\.com|example\.com' "$ENV_FILE"; then
   echo "Hay placeholders pendientes en $ENV_FILE. Edita el archivo antes de producción." >&2
   grep -En 'CHANGE_ME|GENERATE_WITH|midominio\.com|api\.example\.com|example\.com' "$ENV_FILE" >&2 || true
