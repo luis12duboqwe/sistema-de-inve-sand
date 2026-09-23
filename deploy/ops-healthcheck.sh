@@ -59,12 +59,58 @@ fi
 echo "[2/4] Verificando /api/health, /api/ready y /api/metrics..."
 frontend_port="$(read_env_value FRONTEND_PORT)"
 frontend_port="${frontend_port:-80}"
-curl -fsS "http://127.0.0.1:${frontend_port}/api/health" >/tmp/inventory_health.json
+curl -fsS -D /tmp/inventory_health_headers.txt \
+  "http://127.0.0.1:${frontend_port}/api/health" \
+  -o /tmp/inventory_health.json
 curl -fsS "http://127.0.0.1:${frontend_port}/api/ready" >/tmp/inventory_ready.json
 curl -fsS "http://127.0.0.1:${frontend_port}/api/metrics" >/tmp/inventory_metrics.json
 echo "health: $(cat /tmp/inventory_health.json)"
 echo "ready: $(cat /tmp/inventory_ready.json)"
 echo "metrics: $(cat /tmp/inventory_metrics.json)"
+
+expected_release_sha="${EXPECTED_RELEASE_SHA:-${APP_BUILD_SHA:-}}"
+if [ -n "$expected_release_sha" ]; then
+  expected_release_sha="${expected_release_sha,,}"
+  if ! [[ "$expected_release_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "EXPECTED_RELEASE_SHA/APP_BUILD_SHA no es un SHA Git completo válido: $expected_release_sha" >&2
+    exit 1
+  fi
+
+  api_release_sha="$(
+    awk -F': *' '
+      tolower($1) == "x-release-sha" {
+        gsub(/\r/, "", $2)
+        print tolower($2)
+      }
+    ' /tmp/inventory_health_headers.txt | tail -n1
+  )"
+
+  backend_container_id="$(
+    PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" ps -q backend
+  )"
+  if [ -z "$backend_container_id" ]; then
+    echo "No se pudo resolver el contenedor backend para verificar provenance." >&2
+    exit 1
+  fi
+
+  container_release_sha="$(
+    docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+      "$backend_container_id"
+  )"
+  container_release_sha="${container_release_sha,,}"
+
+  if [ "$api_release_sha" != "$expected_release_sha" ]; then
+    echo "El backend responde release $api_release_sha pero se esperaba $expected_release_sha." >&2
+    exit 1
+  fi
+
+  if [ "$container_release_sha" != "$expected_release_sha" ]; then
+    echo "El contenedor está etiquetado como $container_release_sha pero se esperaba $expected_release_sha." >&2
+    exit 1
+  fi
+
+  echo "Release SHA verificado extremo a extremo: $expected_release_sha"
+fi
 
 echo "[3/4] Esperando un backup automático completo y verificable en el volumen Docker..."
 latest_backup=""
