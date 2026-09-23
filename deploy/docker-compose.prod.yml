@@ -27,6 +27,9 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ENABLE_DESTRUCTIVE_PURGE: ${ENABLE_DESTRUCTIVE_PURGE:-false}
+      APP_BUILD_SHA: ${APP_BUILD_SHA:-unknown}
+    labels:
+      org.opencontainers.image.revision: ${APP_BUILD_SHA:-unknown}
     expose:
       - "8000"
     healthcheck:
