@@ -7,6 +7,8 @@ from fastapi import HTTPException
 
 from app.models import (
     Location,
+    Order,
+    OrderItem,
     Product,
     ProductIMEI,
     Stock,
@@ -39,6 +41,33 @@ def _product(suffix: str) -> Product:
 
 def _location(name: str) -> Location:
     return Location(nombre=name, tipo="tienda", activo=True)
+
+
+def _completed_order(db_session, location: Location, product: Product | None = None) -> Order:
+    order = Order(
+        source_location_id=location.id,
+        customer_name="Cliente QA",
+        customer_phone="99999999",
+        canal="tienda",
+        metodo_pago="efectivo",
+        total=Decimal("10000.00"),
+        estado="completada",
+    )
+    db_session.add(order)
+    db_session.flush()
+    if product is not None:
+        db_session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                cantidad=1,
+                precio_unitario=Decimal("10000.00"),
+                costo_unitario=Decimal("7000.00"),
+                es_regalo_promocion=False,
+            )
+        )
+        db_session.flush()
+    return order
 
 
 def test_sale_cannot_consume_imei_reserved_for_pending_transfer(db_session):
@@ -115,6 +144,7 @@ def test_defective_return_quarantines_imei_from_future_sale(db_session):
     location = _location(f"Garantías {suffix}")
     db_session.add_all([product, location])
     db_session.flush()
+    order = _completed_order(db_session, location)
     db_session.add(
         Stock(
             product_id=product.id,
@@ -129,7 +159,7 @@ def test_defective_return_quarantines_imei_from_future_sale(db_session):
         location_id=location.id,
         imei="357333333333333",
         vendido=True,
-        order_id=None,
+        order_id=order.id,
         acquisition_type="purchase_receipt",
     )
     db_session.add(imei)
@@ -146,6 +176,7 @@ def test_defective_return_quarantines_imei_from_future_sale(db_session):
     db_session.flush()
 
     assert imei.vendido is False
+    assert imei.order_id is None
     assert imei.acquisition_type == "devolucion_defectuosa"
 
     with pytest.raises(HTTPException) as exc:
@@ -167,6 +198,7 @@ def test_warranty_replacement_requires_free_stock_and_records_negative_exit(db_s
     location = _location(f"Reemplazos {suffix}")
     db_session.add_all([product, location])
     db_session.flush()
+    order = _completed_order(db_session, location)
 
     stock = Stock(
         product_id=product.id,
@@ -189,7 +221,7 @@ def test_warranty_replacement_requires_free_stock_and_records_negative_exit(db_s
     with pytest.raises(StockValidationError):
         manager.process_warranty_replacement_imei(
             replacement_imei_record=imei,
-            original_order_id=500,
+            original_order_id=order.id,
             return_id=600,
             user_id="qa",
         )
@@ -200,14 +232,14 @@ def test_warranty_replacement_requires_free_stock_and_records_negative_exit(db_s
     db_session.flush()
     manager.process_warranty_replacement_imei(
         replacement_imei_record=imei,
-        original_order_id=500,
+        original_order_id=order.id,
         return_id=601,
         user_id="qa",
     )
     db_session.flush()
 
     assert imei.vendido is True
-    assert imei.order_id == 500
+    assert imei.order_id == order.id
     assert stock.cantidad_disponible == 0
     movement = (
         db_session.query(StockHistory)
@@ -236,6 +268,7 @@ def test_warranty_replacement_cannot_use_imei_from_unauthorized_store(db_session
     )
     db_session.add_all([product, allowed, denied, user])
     db_session.flush()
+    order = _completed_order(db_session, allowed, product)
     db_session.add(
         UserLocationAccess(
             user_id=user.id,
@@ -267,7 +300,7 @@ def test_warranty_replacement_cannot_use_imei_from_unauthorized_store(db_session
         location_id=allowed.id,
         imei="357555555555557",
         vendido=True,
-        order_id=900,
+        order_id=order.id,
         acquisition_type="purchase_receipt",
     )
     replacement = ProductIMEI(
@@ -281,7 +314,7 @@ def test_warranty_replacement_cannot_use_imei_from_unauthorized_store(db_session
     db_session.commit()
 
     order_view = SimpleNamespace(
-        id=900,
+        id=order.id,
         estado="completada",
         items=[SimpleNamespace(product_id=product.id, cantidad=1, product=product)],
     )
