@@ -51,6 +51,43 @@ def _parse_down_payment(value: Any, total_after_tradeins: Decimal) -> Decimal:
     return down_payment
 
 
+def _invalid_persisted_financing() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=(
+            "Los detalles de financiamiento guardados son inválidos. "
+            "No se puede recalcular el total automáticamente; corrija el financiamiento "
+            "antes de modificar los productos de la orden."
+        ),
+    )
+
+
+def _parse_persisted_nonnegative_decimal(value: Any) -> Decimal:
+    if isinstance(value, bool):
+        raise _invalid_persisted_financing()
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise _invalid_persisted_financing() from exc
+    if not parsed.is_finite() or parsed < 0:
+        raise _invalid_persisted_financing()
+    return parsed
+
+
+def _parse_persisted_months(value: Any) -> int:
+    if value in (None, "", 0, "0"):
+        return 0
+    if isinstance(value, bool):
+        raise _invalid_persisted_financing()
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise _invalid_persisted_financing() from exc
+    if not parsed.is_finite() or parsed < 0 or parsed != parsed.to_integral_value():
+        raise _invalid_persisted_financing()
+    return int(parsed)
+
+
 def compute_financing_from_payload(
     db: Session,
     financing_data: Optional[Dict[str, Any]],
@@ -132,43 +169,63 @@ def recompute_financing_from_details(
     metodo_pago: str,
     total_after_tradeins: Decimal
 ) -> Tuple[Decimal, Optional[str]]:
-    """Recalcula financiamiento a partir de financing_details existente.
+    """Recalcula financiamiento a partir de ``financing_details`` existente.
 
-    Mantiene el mismo formato JSON utilizado previamente.
+    Los datos persistidos son parte del valor monetario histórico de la orden. Si el
+    JSON existe pero está corrupto, fallamos de forma cerrada en vez de eliminar el
+    recargo silenciosamente durante una edición de productos.
     """
     if metodo_pago not in FINANCING_METHODS or not financing_details:
         return total_after_tradeins, None
 
     try:
-        data = json.loads(financing_details or "{}")
-    except Exception:
-        return total_after_tradeins, None
+        data = json.loads(financing_details)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise _invalid_persisted_financing() from exc
 
-    down_payment = Decimal(str(data.get("down_payment", data.get("prima", 0) or 0)))
-    rate = Decimal(str(data.get("rate", 0)))
-    months = int(data.get("months", data.get("plazo", 0) or 0))
+    if not isinstance(data, dict) or "rate" not in data:
+        raise _invalid_persisted_financing()
+
+    down_payment = _parse_persisted_nonnegative_decimal(
+        data.get("down_payment", data.get("prima", 0) or 0)
+    )
+    rate = _parse_persisted_nonnegative_decimal(data["rate"])
+    months = _parse_persisted_months(data.get("months", data.get("plazo", 0) or 0))
     bank_id = data.get("bank_id")
     bank_name = data.get("bank_name")
 
+    if down_payment > total_after_tradeins:
+        raise _invalid_persisted_financing()
+
     amount_to_finance = total_after_tradeins - down_payment
-    if amount_to_finance < 0:
-        amount_to_finance = Decimal("0.00")
 
-    if months and months > 0:
+    try:
         surcharge_amount = amount_to_finance * rate
         total_with_surcharge = amount_to_finance + surcharge_amount
-        monthly_payment = total_with_surcharge / Decimal(months)
-    else:
-        surcharge_amount = amount_to_finance * rate
-        total_with_surcharge = amount_to_finance + surcharge_amount
-        monthly_payment = total_with_surcharge
+        if months > 0:
+            monthly_payment = total_with_surcharge / Decimal(months)
+        else:
+            monthly_payment = total_with_surcharge
+        total_final = down_payment + total_with_surcharge
+    except (InvalidOperation, OverflowError, ValueError) as exc:
+        raise _invalid_persisted_financing() from exc
 
-    total_final = down_payment + total_with_surcharge
+    if not all(
+        value.is_finite()
+        for value in (
+            amount_to_finance,
+            surcharge_amount,
+            total_with_surcharge,
+            monthly_payment,
+            total_final,
+        )
+    ):
+        raise _invalid_persisted_financing()
 
     recomputed_financing = json.dumps({
         "bank_id": bank_id,
         "bank_name": bank_name,
-        "months": months or 0,
+        "months": months,
         "rate": float(rate),
         "surcharge": float(surcharge_amount),
         "monthly_payment": float(monthly_payment),
