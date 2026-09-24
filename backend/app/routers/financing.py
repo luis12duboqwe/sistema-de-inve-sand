@@ -26,6 +26,15 @@ def _require_valid_bank_name(name: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _validate_unique_months(options: List[FinancingOptionCreate]) -> None:
+    months = [int(option.months) for option in options]
+    if len(months) != len(set(months)):
+        raise HTTPException(
+            status_code=400,
+            detail="No puede configurar dos opciones de financiamiento con el mismo plazo para un banco",
+        )
+
+
 @router.get("/banks", response_model=List[BankResponse])
 def list_banks(active_only: bool = False, db: Session = Depends(get_db)):
     """Lista todos los bancos y sus opciones de financiamiento"""
@@ -49,6 +58,8 @@ def create_bank(
     existing = db.query(Bank).filter(Bank.name_key_hash == normalized_hash).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"El banco '{normalized_name}' ya existe")
+
+    _validate_unique_months(bank.financing_options)
 
     try:
         new_bank = Bank(
@@ -123,9 +134,21 @@ def create_option(
     current_user: User = Depends(check_permission("settings:edit")),
 ):
     """Agrega una opción de financiamiento a un banco"""
-    bank = db.query(Bank).filter(Bank.id == bank_id).first()
+    # Serialize option creation per bank. This closes the race where two admin
+    # requests could create the same term and later make pricing depend on .first().
+    bank = db.query(Bank).filter(Bank.id == bank_id).with_for_update().first()
     if not bank:
         raise HTTPException(status_code=404, detail="Banco no encontrado")
+
+    existing = db.query(FinancingOption).filter(
+        FinancingOption.bank_id == bank_id,
+        FinancingOption.months == option.months,
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya existe una opción de {option.months} meses para este banco",
+        )
 
     new_opt = FinancingOption(
         bank_id=bank_id,
@@ -134,9 +157,13 @@ def create_option(
         active=option.active,
     )
     db.add(new_opt)
-    db.commit()
-    db.refresh(new_opt)
-    return new_opt
+    try:
+        db.commit()
+        db.refresh(new_opt)
+        return new_opt
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflicto al crear la opción de financiamiento") from exc
 
 
 @router.delete("/options/{option_id}")
