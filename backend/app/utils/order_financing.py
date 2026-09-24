@@ -183,13 +183,13 @@ def recompute_financing_from_details(
     except (json.JSONDecodeError, TypeError) as exc:
         raise _invalid_persisted_financing() from exc
 
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or "rate" not in data:
         raise _invalid_persisted_financing()
 
     down_payment = _parse_persisted_nonnegative_decimal(
         data.get("down_payment", data.get("prima", 0) or 0)
     )
-    rate = _parse_persisted_nonnegative_decimal(data.get("rate", 0))
+    rate = _parse_persisted_nonnegative_decimal(data["rate"])
     months = _parse_persisted_months(data.get("months", data.get("plazo", 0) or 0))
     bank_id = data.get("bank_id")
     bank_name = data.get("bank_name")
