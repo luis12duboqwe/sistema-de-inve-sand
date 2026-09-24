@@ -81,6 +81,8 @@ def compute_financing_from_payload(
     bank = db.query(Bank).filter(Bank.id == bank_id).first()
     if not bank:
         raise HTTPException(status_code=404, detail="Banco no encontrado")
+    if not bank.active:
+        raise HTTPException(status_code=400, detail="El banco seleccionado está inactivo para nuevas ventas")
 
     amount_to_finance = total_after_tradeins - down_payment
 
