@@ -40,6 +40,7 @@ def test_recompute_preserves_financing_formula_for_valid_persisted_details():
     [
         "{not-json",
         "[]",
+        json.dumps({"months": 12, "down_payment": 0}),
         json.dumps({"months": "12.5", "rate": "0.10", "down_payment": 0}),
         json.dumps({"months": 12, "rate": "NaN", "down_payment": 0}),
         json.dumps({"months": 12, "rate": "-0.10", "down_payment": 0}),
