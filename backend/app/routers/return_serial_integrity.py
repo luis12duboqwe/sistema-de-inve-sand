@@ -1,7 +1,7 @@
 """Serialized-device integrity hardening for returns and warranty exchanges.
 
 This layer closes cross-flow gaps between sales, transfers and returns without
-changing the public return contract.  It keeps the existing mature return handler
+changing the public return contract. It keeps the existing mature return handler
 as the transaction owner while strengthening the shared stock/IMEI boundaries.
 """
 
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import IMEIHistory, ProductIMEI, Stock, StockHistory, User
+from app.models import IMEIHistory, ProductIMEI, ReturnItem, Stock, StockHistory, User
 from app.routers.returns import create_return as _legacy_create_return
 from app.schemas import ReturnCreate, ReturnResponse
 from app.services.stock_transaction_helper import StockTransactionHelper
@@ -41,6 +41,27 @@ _original_prepare_return_items = StockTransactionHelper.prepare_return_items
 
 def _imei_state(record: ProductIMEI) -> str:
     return str(getattr(record, "acquisition_type", "") or "").strip().lower()
+
+
+def _imei_is_unsellable(db: Session, record: ProductIMEI) -> bool:
+    """Return True for current or historical defective/unavailable serials.
+
+    The history lookup protects databases upgraded from versions that predate the
+    explicit ``devolucion_defectuosa`` operational marker. There is currently no
+    repair/rehabilitation workflow, so any recorded defective return remains out of
+    the sellable pool unless that future workflow explicitly changes the rule.
+    """
+    if _imei_state(record) in UNSELLABLE_IMEI_STATES:
+        return True
+    historical_defective_return = (
+        db.query(ReturnItem.id)
+        .filter(
+            ReturnItem.imei == record.imei,
+            ReturnItem.condition == "defectuoso",
+        )
+        .first()
+    )
+    return historical_defective_return is not None
 
 
 def _validate_imeis_integrity(
@@ -71,7 +92,7 @@ def _validate_imeis_integrity(
                     status_code=409,
                     detail=f"El IMEI {imei} está reservado en una transferencia pendiente",
                 )
-            if _imei_state(record) in UNSELLABLE_IMEI_STATES:
+            if _imei_is_unsellable(self.db, record):
                 raise HTTPException(
                     status_code=409,
                     detail=f"El IMEI {imei} no está habilitado para venta",
@@ -120,7 +141,7 @@ def _prepare_return_items_integrity(
                 status_code=409,
                 detail=f"El IMEI de reemplazo {record.imei} ya está reservado por otra orden",
             )
-        if _imei_state(record) in UNSELLABLE_IMEI_STATES:
+        if _imei_is_unsellable(self.db, record):
             raise HTTPException(
                 status_code=409,
                 detail=f"El IMEI de reemplazo {record.imei} no está habilitado para venta",
@@ -191,7 +212,7 @@ def _process_warranty_replacement_imei_integrity(
             status_code=409,
             detail=f"El IMEI de reemplazo {replacement_imei_record.imei} está reservado por otra orden",
         )
-    if _imei_state(replacement_imei_record) in UNSELLABLE_IMEI_STATES:
+    if _imei_is_unsellable(self.db, replacement_imei_record):
         raise HTTPException(
             status_code=409,
             detail=f"El IMEI de reemplazo {replacement_imei_record.imei} no está habilitado para venta",
@@ -268,7 +289,7 @@ def _process_warranty_replacement_imei_integrity(
     return history
 
 
-# Patch shared transaction boundaries once.  Sales, transfers, returns and direct
+# Patch shared transaction boundaries once. Sales, transfers, returns and direct
 # service callers all instantiate these classes dynamically, so the protections are
 # not limited to the HTTP wrapper below.
 StockManager._validate_imeis = _validate_imeis_integrity  # type: ignore[method-assign]
