@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import IMEIHistory, ProductIMEI, ReturnItem, Stock, StockHistory, User
+from app.models import IMEIHistory, Order, ProductIMEI, ReturnItem, Stock, StockHistory, User
 from app.routers.returns import create_return as _legacy_create_return
 from app.schemas import ReturnCreate, ReturnResponse
 from app.services.stock_transaction_helper import StockTransactionHelper
@@ -289,6 +289,60 @@ def _process_warranty_replacement_imei_integrity(
     return history
 
 
+def _prelock_return_stock_rows(db: Session, return_data: ReturnCreate) -> None:
+    """Use Stock -> IMEI ordering before the legacy return flow locks serial rows.
+
+    Sales, transfers, restocks and counts all serialize through Stock before touching
+    serial rows. Returns historically did the reverse for serialized items. Locking
+    every source/replacement Stock row first prevents a Stock<->IMEI deadlock under
+    concurrent sale/transfer/warranty activity while leaving business validation to
+    the mature return handler.
+    """
+    order = (
+        db.query(Order)
+        .filter(Order.id == return_data.order_id)
+        .with_for_update()
+        .first()
+    )
+    if order is None:
+        return
+
+    stock_keys: set[tuple[int, int]] = set()
+    if order.source_location_id is not None:
+        source_location_id = int(order.source_location_id)
+        for item in return_data.items:
+            stock_keys.add((int(item.product_id), source_location_id))
+
+    replacement_values = sorted(
+        {
+            str(item.replacement_imei).strip()
+            for item in return_data.items
+            if getattr(item, "replacement_imei", None)
+            and str(item.replacement_imei).strip()
+        }
+    )
+    if replacement_values:
+        replacement_records = (
+            db.query(ProductIMEI)
+            .filter(ProductIMEI.imei.in_(replacement_values))
+            .all()
+        )
+        for record in replacement_records:
+            if record.location_id is not None:
+                stock_keys.add((int(record.product_id), int(record.location_id)))
+
+    for product_id, location_id in sorted(stock_keys):
+        (
+            db.query(Stock)
+            .filter(
+                Stock.product_id == product_id,
+                Stock.location_id == location_id,
+            )
+            .with_for_update()
+            .first()
+        )
+
+
 # Patch shared transaction boundaries once. Sales, transfers, returns and direct
 # service callers all instantiate these classes dynamically, so the protections are
 # not limited to the HTTP wrapper below.
@@ -305,6 +359,7 @@ def create_return_serial_integrity(
     current_user: User = Depends(check_permission("orders:edit")),
 ):
     """Delegate to the canonical return transaction with serial-scope context."""
+    _prelock_return_stock_rows(db, return_data)
     token = _return_user.set(current_user)
     try:
         return _legacy_create_return(
