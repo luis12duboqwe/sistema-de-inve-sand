@@ -116,6 +116,11 @@ class ProductionSettings:
             warnings.append("MONITOREO: Logging a archivos deshabilitado; se recomienda habilitarlo")
         if not cls.ENABLE_AUTO_BACKUP:
             warnings.append("BACKUPS: Backups automáticos deshabilitados. Deben habilitarse en producción")
+        if not cls.N8N_AUTH_TOKEN or len(cls.N8N_AUTH_TOKEN) < 32:
+            warnings.append(
+                "SEGURIDAD: N8N_AUTH_TOKEN debe estar configurado con al menos 32 caracteres; "
+                "sin él las integraciones de servicio no tienen una credencial fuerte"
+            )
         if not cls.SMTP_HOST or not cls.SMTP_USER:
             warnings.append("NOTIFICACIONES: Configuración de email incompleta; funciones de correo no estarán disponibles")
         if cls.ENABLE_AI_FEATURES and not cls.OPENAI_API_KEY:
