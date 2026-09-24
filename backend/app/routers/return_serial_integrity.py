@@ -16,7 +16,16 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import IMEIHistory, Order, ProductIMEI, ReturnItem, Stock, StockHistory, User
+from app.models import (
+    IMEIHistory,
+    Order,
+    Product,
+    ProductIMEI,
+    ReturnItem,
+    Stock,
+    StockHistory,
+    User,
+)
 from app.routers.returns import create_return as _legacy_create_return
 from app.schemas import ReturnCreate, ReturnResponse
 from app.services.stock_transaction_helper import StockTransactionHelper
@@ -290,13 +299,14 @@ def _process_warranty_replacement_imei_integrity(
 
 
 def _prelock_return_stock_rows(db: Session, return_data: ReturnCreate) -> None:
-    """Use Stock -> IMEI ordering before the legacy return flow locks serial rows.
+    """Use Product -> Stock -> IMEI ordering for serialized return transactions.
 
-    Sales, transfers, restocks and counts all serialize through Stock before touching
-    serial rows. Returns historically did the reverse for serialized items. Locking
-    every source/replacement Stock row first prevents a Stock<->IMEI deadlock under
-    concurrent sale/transfer/warranty activity while leaving business validation to
-    the mature return handler.
+    Sales, transfers, restocks, purchases and physical counts already serialize
+    inventory writers through Product before Stock, then serial rows where needed.
+    Returns historically could lock an IMEI first and Stock later. Locking the
+    involved Product rows and then every source/replacement Stock row prevents both
+    Stock<->IMEI deadlocks and a replacement IMEI moving locations between the
+    availability check and the warranty mutation.
     """
     order = (
         db.query(Order)
@@ -307,11 +317,21 @@ def _prelock_return_stock_rows(db: Session, return_data: ReturnCreate) -> None:
     if order is None:
         return
 
+    product_ids = sorted({int(item.product_id) for item in return_data.items})
+    if product_ids:
+        (
+            db.query(Product)
+            .filter(Product.id.in_(product_ids))
+            .order_by(Product.id.asc())
+            .with_for_update(key_share=True)
+            .all()
+        )
+
     stock_keys: set[tuple[int, int]] = set()
     if order.source_location_id is not None:
         source_location_id = int(order.source_location_id)
-        for item in return_data.items:
-            stock_keys.add((int(item.product_id), source_location_id))
+        for product_id in product_ids:
+            stock_keys.add((product_id, source_location_id))
 
     replacement_values = sorted(
         {
@@ -322,13 +342,16 @@ def _prelock_return_stock_rows(db: Session, return_data: ReturnCreate) -> None:
         }
     )
     if replacement_values:
+        # Valid replacements must belong to one of the already-locked products.
+        # Holding Product prevents the normal transfer/restock writers from moving
+        # or creating Stock for those product IDs while we resolve these locations.
         replacement_records = (
             db.query(ProductIMEI)
             .filter(ProductIMEI.imei.in_(replacement_values))
             .all()
         )
         for record in replacement_records:
-            if record.location_id is not None:
+            if record.product_id in product_ids and record.location_id is not None:
                 stock_keys.add((int(record.product_id), int(record.location_id)))
 
     for product_id, location_id in sorted(stock_keys):
