@@ -34,6 +34,8 @@ from app.routers import (
     reports,
     reports_final_integrity,
     reports_integrity,
+    returns,
+    return_serial_integrity,
     stock_transfer_integrity,
     stock_transfers,
     super_admin,
@@ -77,6 +79,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (multistore_control.router, "/api/multistore-control/purchase-receipts", "POST"),
     (multistore_control.router, "/api/multistore-control/inventory-counts/{count_id}/approve", "POST"),
     (multistore_control.router, "/api/multistore-control/location-daily-closes", "POST"),
+    (returns.router, "/api/returns", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}/confirm", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}/reject", "POST"),
     (stock_transfers.router, "/api/stock-transfers/{transfer_id}", "DELETE"),
@@ -141,6 +144,7 @@ router.include_router(reports_integrity.router)
 router.include_router(reports_final_integrity.router)
 router.include_router(multistore_integrity.router)
 router.include_router(multistore_ops_integrity.router)
+router.include_router(return_serial_integrity.router)
 router.include_router(stock_transfer_integrity.router)
 router.include_router(channel_integrity.router)
 router.include_router(channel_webhook_integrity.router)
