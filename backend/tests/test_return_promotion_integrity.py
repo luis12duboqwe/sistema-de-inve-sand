@@ -23,7 +23,7 @@ def _create_paid_plus_gift_order(
     product = seed_product(
         client,
         location.id,
-        stock_inicial=2,
+        stock_inicial=4,
         is_serialized=False,
         categoria="accesorio",
     )
@@ -65,69 +65,45 @@ def _create_paid_plus_gift_order(
     return order, product, location
 
 
-def test_cash_refund_cannot_include_promotional_gift_quantity(
+def test_refund_and_store_credit_are_rejected_by_business_policy(
     client: TestClient,
     db_session: Session,
 ) -> None:
     order, product, _ = _create_paid_plus_gift_order(
         client,
         db_session,
-        customer_name="Cliente Promo",
+        customer_name="Cliente Política Garantía",
     )
 
-    invalid_refund = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "No debe reembolsar el regalo",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 2,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert invalid_refund.status_code == 400, invalid_refund.text
-    assert "excede las unidades pagadas" in invalid_refund.json()["detail"]
+    for action in ("refund", "store_credit"):
+        response = client.post(
+            "/api/returns",
+            json={
+                "order_id": order["id"],
+                "reason": "Acción no permitida por política comercial",
+                "items": [
+                    {
+                        "product_id": product["id"],
+                        "quantity": 1,
+                        "condition": "nuevo",
+                        "action": action,
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 422, response.text
+
     assert db_session.query(Return).count() == 0
 
-    valid_refund = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "Reembolso de la unidad pagada",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert valid_refund.status_code == 201, valid_refund.text
 
-    report_response = client.get("/api/reports/sales")
-    assert report_response.status_code == 200, report_response.text
-    report = report_response.json()
-    assert Decimal(str(report["total_revenue"])) == Decimal("0.00")
-    top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
-    assert top["units_sold"] == 0
-    assert Decimal(str(top["total_revenue"])) == Decimal("0.00")
-
-
-def test_concurrent_refunds_cannot_consume_same_paid_allowance(
+def test_concurrent_warranty_returns_cannot_return_same_sold_units_twice(
     client: TestClient,
     db_session: Session,
 ) -> None:
     order, product, location = _create_paid_plus_gift_order(
         client,
         db_session,
-        customer_name="Cliente Promo Concurrente",
+        customer_name="Cliente Garantía Concurrente",
     )
 
     bind = db_session.get_bind()
@@ -139,13 +115,13 @@ def test_concurrent_refunds_cannot_consume_same_paid_allowance(
     payload = ReturnCreate.model_validate(
         {
             "order_id": order["id"],
-            "reason": "Competencia por la última unidad pagada",
+            "reason": "Competencia por las mismas unidades vendidas",
             "items": [
                 {
                     "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "quantity": 2,
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                 }
             ],
         }
@@ -179,7 +155,7 @@ def test_concurrent_refunds_cannot_consume_same_paid_allowance(
     for thread in threads:
         thread.join(timeout=15)
 
-    assert all(not thread.is_alive() for thread in threads), "Concurrent refund test deadlocked"
+    assert all(not thread.is_alive() for thread in threads), "Concurrent warranty return test deadlocked"
     assert errors == []
     assert sorted(results) == [201, 400]
 
@@ -194,4 +170,5 @@ def test_concurrent_refunds_cannot_consume_same_paid_allowance(
         .first()
     )
     assert stock is not None
-    assert int(stock.cantidad_disponible or 0) == 1
+    assert int(stock.cantidad_disponible or 0) == 0
+    assert int(stock.cantidad_defectuosa or 0) == 2

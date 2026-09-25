@@ -1,6 +1,29 @@
 from decimal import Decimal
 
+from app.models import Return, ReturnItem
+
 from .helpers import seed_location_and_sales_profile, seed_product
+
+
+def _record_legacy_refund(db_session, *, order_id: int, product_id: int, quantity: int = 1) -> None:
+    legacy_return = Return(
+        order_id=order_id,
+        reason="Reembolso histórico para prueba de reportes",
+        status="completed",
+        created_by="legacy-test",
+    )
+    db_session.add(legacy_return)
+    db_session.flush()
+    db_session.add(
+        ReturnItem(
+            return_id=legacy_return.id,
+            product_id=product_id,
+            quantity=quantity,
+            condition="nuevo",
+            action="refund",
+        )
+    )
+    db_session.commit()
 
 
 def _create_order(
@@ -133,7 +156,7 @@ def test_analytics_forecast_filters_by_confidence(client, db_session):
     assert len(high_conf["forecasts"]) <= len(low_conf["forecasts"])
 
 
-def test_sales_report_allocates_refund_once_across_duplicate_product_lines(client, db_session):
+def test_sales_report_allocates_legacy_refund_once_across_duplicate_product_lines(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     product = seed_product(
         client,
@@ -173,52 +196,22 @@ def test_sales_report_allocates_refund_once_across_duplicate_product_lines(clien
     )
     assert completed.status_code == 200, completed.text
 
-    returned = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "Devolución parcial",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert returned.status_code == 201, returned.text
+    # La API actual ya no permite reembolsos. Se inserta un registro histórico para
+    # demostrar que los reportes siguen interpretando correctamente datos legados.
+    _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
 
     report_response = client.get("/api/reports/sales")
     assert report_response.status_code == 200, report_response.text
     report = report_response.json()
 
-    # Base histórica: 1x100 + 1x300 = 400. Una unidad devuelta se asigna
+    # Base histórica: 1x100 + 1x300 = 400. Una unidad reembolsada se asigna
     # al promedio ponderado de 200; nunca se multiplica por las dos líneas.
     assert Decimal(str(report["total_revenue"])) == Decimal("200.00")
     top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
     assert top["units_sold"] == 1
     assert Decimal(str(top["total_revenue"])) == Decimal("200.00")
 
-    # La segunda unidad también debe poder devolverse: el límite es la cantidad
-    # total vendida del producto en la orden, no la cantidad de una sola línea.
-    second_return = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "Devolución restante",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert second_return.status_code == 201, second_return.text
+    _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
 
     final_report_response = client.get("/api/reports/sales")
     assert final_report_response.status_code == 200, final_report_response.text
@@ -229,7 +222,7 @@ def test_sales_report_allocates_refund_once_across_duplicate_product_lines(clien
     assert Decimal(str(final_top["total_revenue"])) == Decimal("0.00")
 
 
-def test_serialized_return_requires_one_item_per_imei(client, db_session):
+def test_serialized_warranty_return_requires_one_item_per_imei(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     imeis = ["444444444444444", "555555555555555"]
     product = seed_product(
@@ -271,13 +264,13 @@ def test_serialized_return_requires_one_item_per_imei(client, db_session):
         "/api/returns",
         json={
             "order_id": order["id"],
-            "reason": "Intento de devolución serializada agrupada",
+            "reason": "Intento de garantía serializada agrupada",
             "items": [
                 {
                     "product_id": product["id"],
                     "quantity": 2,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                     "imei": imeis[0],
                 }
             ],

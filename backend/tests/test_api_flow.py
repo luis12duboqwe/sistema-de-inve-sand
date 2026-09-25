@@ -3,7 +3,15 @@ from app.models import Location, Order
 from .helpers import seed_location_and_sales_profile, seed_product
 
 
-def _order_payload(sales_profile, location, product, *, phone: str = "99999999", payment=None):
+def _order_payload(
+    sales_profile,
+    location,
+    product,
+    *,
+    phone: str = "99999999",
+    payment=None,
+    imei: str = "111111111111111",
+):
     payload = {
         "sales_profile_slug": sales_profile.slug,
         "source_location_id": location.id,
@@ -15,7 +23,7 @@ def _order_payload(sales_profile, location, product, *, phone: str = "99999999",
             {
                 "product_id": product["id"],
                 "cantidad": 1,
-                "imeis": ["111111111111111"],
+                "imeis": [imei],
                 "precio_unitario": 1000,
             }
         ],
@@ -95,8 +103,8 @@ def test_pending_order_cannot_be_returned(client, db_session):
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                     "imei": "111111111111111",
                 }
             ],
@@ -126,8 +134,8 @@ def test_returns_reject_over_return_and_invalid_imei(client, db_session):
                 {
                     "product_id": product["id"],
                     "quantity": 2,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                     "imei": "111111111111111",
                 }
             ],
@@ -143,8 +151,8 @@ def test_returns_reject_over_return_and_invalid_imei(client, db_session):
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                     "imei": "999999999999999",
                 }
             ],
@@ -153,13 +161,19 @@ def test_returns_reject_over_return_and_invalid_imei(client, db_session):
     assert bad_imei_res.status_code == 400
 
 
-def test_return_accepts_finalized_sale_and_restocks(client, db_session):
+def test_warranty_exchange_accepts_finalized_sale_and_tracks_stock(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
-    product = seed_product(client, location.id)
+    sold_imei = "111111111111111"
+    replacement_imei = "222222222222222"
+    product = seed_product(
+        client,
+        location.id,
+        imei_values=[sold_imei, replacement_imei],
+    )
 
     create_res = client.post(
         "/api/orders",
-        json=_order_payload(sales_profile, location, product, phone="77777777"),
+        json=_order_payload(sales_profile, location, product, phone="77777777", imei=sold_imei),
     )
     assert create_res.status_code == 201, create_res.text
     order = create_res.json()
@@ -173,29 +187,38 @@ def test_return_accepts_finalized_sale_and_restocks(client, db_session):
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                    "imei": "111111111111111",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
+                    "imei": sold_imei,
+                    "replacement_imei": replacement_imei,
                 }
             ],
         },
     )
     assert ret_res.status_code == 201, ret_res.text
+    assert ret_res.json()["items"][0]["action"] == "warranty_exchange"
 
     product_after_return = client.get("/api/products?per_page=50").json()["items"]
-    restored = next(p for p in product_after_return if p["id"] == product["id"])
-    assert restored["stock_disponible"] == 1
+    exchanged = next(p for p in product_after_return if p["id"] == product["id"])
+    assert exchanged["stock_disponible"] == 0
 
     imeis_available = client.get(f"/api/products/{product['id']}/imeis?location_id={location.id}").json()
-    assert "111111111111111" in imeis_available
+    assert sold_imei not in imeis_available
+    assert replacement_imei not in imeis_available
 
 
-def test_sale_with_return_cannot_be_cancelled_or_double_restocked(client, db_session):
+def test_sale_with_warranty_cannot_be_cancelled_or_double_restocked(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
-    product = seed_product(client, location.id)
+    sold_imei = "111111111111111"
+    replacement_imei = "222222222222222"
+    product = seed_product(
+        client,
+        location.id,
+        imei_values=[sold_imei, replacement_imei],
+    )
     created = client.post(
         "/api/orders",
-        json=_order_payload(sales_profile, location, product, phone="70000002"),
+        json=_order_payload(sales_profile, location, product, phone="70000002", imei=sold_imei),
     )
     assert created.status_code == 201, created.text
     order_id = created.json()["id"]
@@ -209,9 +232,10 @@ def test_sale_with_return_cannot_be_cancelled_or_double_restocked(client, db_ses
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                    "imei": "111111111111111",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
+                    "imei": sold_imei,
+                    "replacement_imei": replacement_imei,
                 }
             ],
         },
@@ -222,8 +246,8 @@ def test_sale_with_return_cannot_be_cancelled_or_double_restocked(client, db_ses
     assert cancel.status_code == 409, cancel.text
 
     products = client.get("/api/products?per_page=50").json()["items"]
-    restored = next(p for p in products if p["id"] == product["id"])
-    assert restored["stock_disponible"] == 1
+    exchanged = next(p for p in products if p["id"] == product["id"])
+    assert exchanged["stock_disponible"] == 0
 
     order = db_session.query(Order).filter(Order.id == order_id).first()
     assert order is not None

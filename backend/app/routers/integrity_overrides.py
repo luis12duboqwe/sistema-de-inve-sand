@@ -31,6 +31,7 @@ from app.routers import (
     orders,
     product_search_integrity,
     products,
+    product_imei_integrity,
     reports,
     reports_final_integrity,
     reports_integrity,
@@ -68,6 +69,7 @@ _SHADOWED_ROUTES: tuple[tuple[APIRouter, str, str], ...] = (
     (orders.router, "/api/orders/{order_id}", "PUT"),
     (orders.router, "/api/orders/{order_id}/cancel", "POST"),
     (products.router, "/api/products", "GET"),
+    (products.router, "/api/products/{product_id}/imeis", "GET"),
     (reports.router, "/api/reports/dashboard", "GET"),
     (reports.router, "/api/reports/sales", "GET"),
     (reports.router, "/api/reports/sales-summary-by-location", "GET"),
@@ -140,6 +142,7 @@ router.include_router(auth_admin_integrity.router)
 router.include_router(order_search_integrity.router)
 router.include_router(order_state_integrity.router)
 router.include_router(product_search_integrity.router)
+router.include_router(product_imei_integrity.router)
 router.include_router(reports_integrity.router)
 router.include_router(reports_final_integrity.router)
 router.include_router(multistore_integrity.router)

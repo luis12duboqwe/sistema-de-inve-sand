@@ -5,9 +5,31 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models import Order
+from app.models import Order, Return, ReturnItem
 
 from .helpers import seed_location_and_sales_profile, seed_product
+
+
+def _record_legacy_refund(db_session: Session, *, order_id: int, product_id: int) -> None:
+    """Persist historical refund data without reopening the disabled refund API path."""
+    legacy_return = Return(
+        order_id=order_id,
+        reason="Registro histórico de reembolso",
+        created_by="legacy-test",
+        status="completed",
+    )
+    db_session.add(legacy_return)
+    db_session.flush()
+    db_session.add(
+        ReturnItem(
+            return_id=legacy_return.id,
+            product_id=product_id,
+            quantity=1,
+            condition="nuevo",
+            action="refund",
+        )
+    )
+    db_session.commit()
 
 
 def _create_completed_refunded_order(
@@ -52,22 +74,7 @@ def _create_completed_refunded_order(
     )
     assert completed.status_code == 200, completed.text
 
-    returned = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "Devolución para prueba contable",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert returned.status_code == 201, returned.text
+    _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
     return order, product, location
 
 
@@ -116,22 +123,7 @@ def test_refund_does_not_make_current_period_negative_for_old_sale(
     order_row.completed_at = datetime.combine(old_sale_date, time(hour=12))
     db_session.commit()
 
-    returned = client.post(
-        "/api/returns",
-        json={
-            "order_id": order["id"],
-            "reason": "Devolución posterior de venta histórica",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert returned.status_code == 201, returned.text
+    _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
 
     today = date.today().isoformat()
     today_report_response = client.get(

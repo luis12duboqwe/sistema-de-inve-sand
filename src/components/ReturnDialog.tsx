@@ -32,9 +32,14 @@ interface ReturnDialogProps {
   onSuccess: () => void
 }
 
-/** Normaliza un valor de scanner: completa IMEI de 14 dígitos con dígito Luhn. */
+/** Mantiene únicamente los 15 dígitos del IMEI sin autocompletar mientras el scanner escribe. */
 function normalizeImeiInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
+  return raw.replace(/\D/g, '').slice(0, 15)
+}
+
+/** Completa un IMEI TAC+serial de 14 dígitos únicamente cuando termina la captura. */
+function finalizeImeiInput(raw: string): string {
+  const digits = normalizeImeiInput(raw)
   if (digits.length === 14) {
     return digits + calculateLuhnCheckDigit(digits)
   }
@@ -45,15 +50,11 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
   const [selectedItems, setSelectedItems] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
   const [conditions, setConditions] = useState<Record<number, 'nuevo' | 'defectuoso' | 'abierto'>>({})
-  const [actions, setActions] = useState<Record<number, 'refund' | 'warranty_exchange' | 'store_credit'>>({})
-  // IMEI del equipo defectuoso que entra (devuelta por el cliente)
   const [imeis, setImeis] = useState<Record<number, string>>({})
-  // IMEI del equipo de reemplazo que sale (solo warranty_exchange)
   const [replacementImeis, setReplacementImeis] = useState<Record<number, string>>({})
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Refs para enfocar scanner inputs
   const defectiveImeiRefs = useRef<Record<number, HTMLInputElement | null>>({})
   const replacementImeiRefs = useRef<Record<number, HTMLInputElement | null>>({})
 
@@ -61,19 +62,6 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
     setSelectedItems(prev => ({ ...prev, [itemId]: !prev[itemId] }))
     if (!quantities[itemId]) {
       setQuantities(prev => ({ ...prev, [itemId]: 1 }))
-      setConditions(prev => ({ ...prev, [itemId]: 'defectuoso' }))
-      setActions(prev => ({ ...prev, [itemId]: 'refund' }))
-    }
-  }
-
-  const handleActionChange = (itemId: number, value: 'refund' | 'warranty_exchange' | 'store_credit') => {
-    setActions(prev => ({ ...prev, [itemId]: value }))
-    // Limpiar replacement_imei si se cambia de warranty_exchange a otra acción
-    if (value !== 'warranty_exchange') {
-      setReplacementImeis(prev => { const next = { ...prev }; delete next[itemId]; return next })
-    }
-    // Auto-set condición a 'defectuoso' para garantías
-    if (value === 'warranty_exchange') {
       setConditions(prev => ({ ...prev, [itemId]: 'defectuoso' }))
     }
   }
@@ -91,6 +79,14 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
     }
   }, [])
 
+  const handleImeiFinalize = useCallback((itemId: number, field: 'defective' | 'replacement') => {
+    if (field === 'defective') {
+      setImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+    } else {
+      setReplacementImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+    }
+  }, [])
+
   const handleSubmit = async () => {
     const itemsToReturn: ReturnItem[] = []
 
@@ -103,26 +99,32 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
         return
       }
 
-      const action = actions[item.id] || 'refund'
-      const isWarrantyExchange = action === 'warranty_exchange'
       const isPhone = item.product?.categoria === 'celular'
+      const defectiveImei = finalizeImeiInput(imeis[item.id] || '')
+      const replacementImei = finalizeImeiInput(replacementImeis[item.id] || '')
 
-      // Validar que se proporcionaron los IMEIs necesarios para garantías de celulares
-      if (isWarrantyExchange && isPhone) {
-        const defImei = imeis[item.id]?.trim()
-        const replImei = replacementImeis[item.id]?.trim()
-
-        if (!defImei) {
+      if (isPhone) {
+        if (!defectiveImei) {
           toast.error(`Escanea el IMEI del equipo defectuoso para "${item.product?.nombre}"`)
           defectiveImeiRefs.current[item.id]?.focus()
           return
         }
-        if (!replImei) {
+        if (defectiveImei.length !== 15) {
+          toast.error(`El IMEI del equipo defectuoso debe tener 15 dígitos para "${item.product?.nombre}"`)
+          defectiveImeiRefs.current[item.id]?.focus()
+          return
+        }
+        if (!replacementImei) {
           toast.error(`Escanea el IMEI del equipo de reemplazo para "${item.product?.nombre}"`)
           replacementImeiRefs.current[item.id]?.focus()
           return
         }
-        if (defImei === replImei) {
+        if (replacementImei.length !== 15) {
+          toast.error(`El IMEI del equipo de reemplazo debe tener 15 dígitos para "${item.product?.nombre}"`)
+          replacementImeiRefs.current[item.id]?.focus()
+          return
+        }
+        if (defectiveImei === replacementImei) {
           toast.error(`El IMEI defectuoso y el de reemplazo no pueden ser el mismo para "${item.product?.nombre}"`)
           return
         }
@@ -132,14 +134,14 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
         product_id: item.product_id,
         quantity: qty,
         condition: conditions[item.id] || 'defectuoso',
-        action,
-        imei: imeis[item.id]?.trim() || undefined,
-        replacement_imei: isWarrantyExchange ? (replacementImeis[item.id]?.trim() || undefined) : undefined,
+        action: 'warranty_exchange',
+        imei: defectiveImei || undefined,
+        replacement_imei: isPhone ? (replacementImei || undefined) : undefined,
       })
     }
 
     if (itemsToReturn.length === 0) {
-      toast.error('Selecciona al menos un producto para devolver')
+      toast.error('Selecciona al menos un producto para procesar la garantía')
       return
     }
 
@@ -153,31 +155,36 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
       }
 
       await inventoryServiceInstance.createReturn(returnData)
-      toast.success('Devolución procesada exitosamente')
+      toast.success('Cambio por garantía procesado exitosamente')
       onSuccess()
       onOpenChange(false)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error al procesar devolución')
+      toast.error(error instanceof Error ? error.message : 'Error al procesar la garantía')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const isPhone = (categoría?: string) => categoría === 'celular'
+  const isPhone = (category?: string) => category === 'celular'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Procesar Devolución / Garantía — Orden #{order.id}</DialogTitle>
+          <DialogTitle>Procesar Cambio / Garantía — Orden #{order.id}</DialogTitle>
           <DialogDescription>
-            Selecciona los productos a devolver y especifica la condición y acción. Para cambios
-            por garantía en celulares, escanea ambos IMEIs (el defectuoso que entra y el de
-            reemplazo que sale).
+            Este flujo solo permite cambio por garantía. No se realizan devoluciones de dinero ni
+            crédito en tienda. Para celulares, registra el IMEI defectuoso que entra y el IMEI del
+            equipo de reemplazo que sale.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Política comercial: venta final sin reembolso. La atención posterior a la venta se
+            procesa mediante cambio o garantía.
+          </div>
+
           <div className="space-y-4">
             <Label>Productos de la Orden</Label>
             {order.items.map(item => (
@@ -197,14 +204,13 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                         (Comprados: {item.cantidad})
                       </span>
                       {isPhone(item.product?.categoria) && (
-                        <Badge variant="outline" className="text-xs">📱 Con IMEI</Badge>
+                        <Badge variant="outline" className="text-xs">Con IMEI</Badge>
                       )}
                     </div>
 
                     {selectedItems[item.id] && (
                       <div className="space-y-4 mt-3 pl-1">
-                        {/* Fila 1: Cantidad + Condición + Acción */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div className="space-y-1.5">
                             <Label className="text-xs text-muted-foreground">Cantidad</Label>
                             <Input
@@ -225,181 +231,116 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                             <Label className="text-xs text-muted-foreground">Condición</Label>
                             <Select
                               value={conditions[item.id] || 'defectuoso'}
-                              onValueChange={(v: any) =>
-                                setConditions(prev => ({ ...prev, [item.id]: v }))
+                              onValueChange={(value: 'nuevo' | 'defectuoso' | 'abierto') =>
+                                setConditions(prev => ({ ...prev, [item.id]: value }))
                               }
                             >
                               <SelectTrigger>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="nuevo">🟢 Nuevo (Sellado)</SelectItem>
-                                <SelectItem value="abierto">🟡 Abierto (Buen estado)</SelectItem>
-                                <SelectItem value="defectuoso">🔴 Defectuoso (Garantía)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-muted-foreground">Acción</Label>
-                            <Select
-                              value={actions[item.id] || 'refund'}
-                              onValueChange={(v: any) => handleActionChange(item.id, v)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="refund">💵 Reembolso</SelectItem>
-                                <SelectItem value="warranty_exchange">🔄 Cambio por Garantía</SelectItem>
-                                <SelectItem value="store_credit">🎟️ Crédito en Tienda</SelectItem>
+                                <SelectItem value="nuevo">Nuevo / Sellado</SelectItem>
+                                <SelectItem value="abierto">Abierto / Buen estado</SelectItem>
+                                <SelectItem value="defectuoso">Defectuoso / Garantía</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
 
-                        {/* IMEI section — solo para celulares */}
+                        <div className="rounded-md border px-3 py-2 text-sm">
+                          Acción: <strong>Cambio por garantía</strong>
+                        </div>
+
                         {isPhone(item.product?.categoria) && (
-                          <>
-                            {actions[item.id] === 'warranty_exchange' ? (
-                              /* Cambio por garantía: dos IMEIs */
-                              <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-3 space-y-3">
-                                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                                  🔄 Cambio por Garantía — Registro de IMEIs
-                                </p>
+                          <div className="rounded-lg border border-dashed p-3 space-y-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide">
+                              Registro de IMEIs del cambio
+                            </p>
 
-                                {/* IMEI del equipo defectuoso (entra) */}
-                                <div className="space-y-1.5">
-                                  <Label className="text-xs">
-                                    📥 IMEI equipo defectuoso{' '}
-                                    <span className="text-muted-foreground">(que entra al inventario)</span>
-                                  </Label>
-                                  <div className="flex gap-2">
-                                    <Input
-                                      ref={el => { defectiveImeiRefs.current[item.id] = el }}
-                                      placeholder="Escanea o escribe el IMEI del equipo defectuoso"
-                                      value={imeis[item.id] || ''}
-                                      onChange={e =>
-                                        handleImeiScan(item.id, 'defective', e.target.value)
-                                      }
-                                      onKeyDown={e => {
-                                        if (e.key === 'Enter') {
-                                          e.preventDefault()
-                                          replacementImeiRefs.current[item.id]?.focus()
-                                        }
-                                      }}
-                                      className={
-                                        imeis[item.id]?.length === 15
-                                          ? 'border-green-400 focus-visible:ring-green-400'
-                                          : ''
-                                      }
-                                      maxLength={17}
-                                    />
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="shrink-0"
-                                      onClick={() => defectiveImeiRefs.current[item.id]?.focus()}
-                                    >
-                                      📷
-                                    </Button>
-                                  </div>
-                                  {imeis[item.id] && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {imeis[item.id].length === 15
-                                        ? '✅ IMEI válido (15 dígitos)'
-                                        : `⚠️ ${imeis[item.id].length} dígitos — se esperan 15`}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* IMEI del equipo de reemplazo (sale) */}
-                                <div className="space-y-1.5">
-                                  <Label className="text-xs">
-                                    📤 IMEI equipo de reemplazo{' '}
-                                    <span className="text-muted-foreground">(que sale al cliente)</span>
-                                  </Label>
-                                  <div className="flex gap-2">
-                                    <Input
-                                      ref={el => { replacementImeiRefs.current[item.id] = el }}
-                                      placeholder="Escanea o escribe el IMEI del equipo nuevo"
-                                      value={replacementImeis[item.id] || ''}
-                                      onChange={e =>
-                                        handleImeiScan(item.id, 'replacement', e.target.value)
-                                      }
-                                      className={
-                                        replacementImeis[item.id]?.length === 15
-                                          ? 'border-blue-400 focus-visible:ring-blue-400'
-                                          : ''
-                                      }
-                                      maxLength={17}
-                                    />
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="shrink-0"
-                                      onClick={() => replacementImeiRefs.current[item.id]?.focus()}
-                                    >
-                                      📷
-                                    </Button>
-                                  </div>
-                                  {replacementImeis[item.id] && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {replacementImeis[item.id].length === 15
-                                        ? '✅ IMEI válido (15 dígitos)'
-                                        : `⚠️ ${replacementImeis[item.id].length} dígitos — se esperan 15`}
-                                    </p>
-                                  )}
-                                </div>
-
-                                <p className="text-xs text-amber-600 dark:text-amber-400">
-                                  ℹ️ Ambos IMEIs quedan registrados en el historial. El equipo
-                                  defectuoso se marca como devuelto y el de reemplazo como vendido.
-                                </p>
-                              </div>
-                            ) : (
-                              /* Reembolso / crédito: solo un IMEI opcional */
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-muted-foreground">
-                                  IMEI del equipo a devolver (opcional)
-                                </Label>
-                                <div className="flex gap-2">
-                                  <Input
-                                    ref={el => { defectiveImeiRefs.current[item.id] = el }}
-                                    placeholder="Escanea o escribe el IMEI"
-                                    value={imeis[item.id] || ''}
-                                    onChange={e =>
-                                      handleImeiScan(item.id, 'defective', e.target.value)
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">
+                                IMEI equipo defectuoso{' '}
+                                <span className="text-muted-foreground">(entra)</span>
+                              </Label>
+                              <div className="flex gap-2">
+                                <Input
+                                  ref={el => { defectiveImeiRefs.current[item.id] = el }}
+                                  placeholder="Escanea o escribe el IMEI del equipo defectuoso"
+                                  value={imeis[item.id] || ''}
+                                  onChange={e => handleImeiScan(item.id, 'defective', e.target.value)}
+                                  onBlur={() => handleImeiFinalize(item.id, 'defective')}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      handleImeiFinalize(item.id, 'defective')
+                                      replacementImeiRefs.current[item.id]?.focus()
                                     }
-                                    className={
-                                      imeis[item.id]?.length === 15
-                                        ? 'border-green-400 focus-visible:ring-green-400'
-                                        : ''
-                                    }
-                                    maxLength={17}
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="shrink-0"
-                                    onClick={() => defectiveImeiRefs.current[item.id]?.focus()}
-                                  >
-                                    📷
-                                  </Button>
-                                </div>
-                                {imeis[item.id] && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {imeis[item.id].length === 15
-                                      ? '✅ IMEI válido (15 dígitos)'
-                                      : `⚠️ ${imeis[item.id].length} dígitos — se esperan 15`}
-                                  </p>
-                                )}
+                                  }}
+                                  maxLength={15}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0"
+                                  onClick={() => defectiveImeiRefs.current[item.id]?.focus()}
+                                >
+                                  Escanear
+                                </Button>
                               </div>
-                            )}
-                          </>
+                              {imeis[item.id] && (
+                                <p className="text-xs text-muted-foreground">
+                                  {imeis[item.id].length === 15
+                                    ? 'IMEI válido (15 dígitos)'
+                                    : `${imeis[item.id].length} dígitos — se esperan 15`}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">
+                                IMEI equipo de reemplazo{' '}
+                                <span className="text-muted-foreground">(sale al cliente)</span>
+                              </Label>
+                              <div className="flex gap-2">
+                                <Input
+                                  ref={el => { replacementImeiRefs.current[item.id] = el }}
+                                  placeholder="Escanea o escribe el IMEI del equipo de reemplazo"
+                                  value={replacementImeis[item.id] || ''}
+                                  onChange={e => handleImeiScan(item.id, 'replacement', e.target.value)}
+                                  onBlur={() => handleImeiFinalize(item.id, 'replacement')}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      handleImeiFinalize(item.id, 'replacement')
+                                    }
+                                  }}
+                                  maxLength={15}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0"
+                                  onClick={() => replacementImeiRefs.current[item.id]?.focus()}
+                                >
+                                  Escanear
+                                </Button>
+                              </div>
+                              {replacementImeis[item.id] && (
+                                <p className="text-xs text-muted-foreground">
+                                  {replacementImeis[item.id].length === 15
+                                    ? 'IMEI válido (15 dígitos)'
+                                    : `${replacementImeis[item.id].length} dígitos — se esperan 15`}
+                                </p>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-muted-foreground">
+                              Ambos IMEIs quedan en el historial: el defectuoso entra y el reemplazo
+                              sale asociado a esta garantía.
+                            </p>
+                          </div>
                         )}
                       </div>
                     )}
@@ -410,9 +351,9 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
           </div>
 
           <div className="space-y-2">
-            <Label>Motivo de la Devolución</Label>
+            <Label>Motivo del Cambio / Garantía</Label>
             <Textarea
-              placeholder="Explica por qué se realiza la devolución..."
+              placeholder="Describe la falla o el motivo del cambio..."
               value={reason}
               onChange={e => setReason(e.target.value)}
             />
@@ -424,7 +365,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Procesando...' : 'Confirmar Devolución'}
+            {isSubmitting ? 'Procesando...' : 'Confirmar Cambio / Garantía'}
           </Button>
         </DialogFooter>
       </DialogContent>
