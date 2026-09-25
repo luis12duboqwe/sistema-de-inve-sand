@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Order, OrderItem, Stock
+from app.models import Order, OrderItem, Return, ReturnItem, Stock
 from app.routers.order_state_integrity import cancel_order_canonical, update_order_canonical
 from app.schemas import OrderUpdate
 
@@ -153,7 +153,7 @@ def test_order_edit_and_cancel_share_order_before_stock_lock_order(client, db_se
     assert int(final_stock.cantidad_disponible or 0) == 2
 
 
-def test_full_refund_never_exceeds_recorded_net_order_total(client, db_session) -> None:
+def test_legacy_full_refund_never_exceeds_recorded_net_order_total(client, db_session) -> None:
     location, sales_profile = seed_location_and_sales_profile(db_session)
     product = seed_product(
         client,
@@ -177,26 +177,28 @@ def test_full_refund_never_exceeds_recorded_net_order_total(client, db_session) 
         text("UPDATE orders SET total = :total WHERE id = :order_id"),
         {"total": Decimal("200.00"), "order_id": order_id},
     )
+    legacy_return = Return(
+        order_id=order_id,
+        reason="Reembolso histórico de orden con neto reducido",
+        created_by="legacy-test",
+        status="completed",
+    )
+    db_session.add(legacy_return)
+    db_session.flush()
+    db_session.add(
+        ReturnItem(
+            return_id=legacy_return.id,
+            product_id=product["id"],
+            quantity=1,
+            condition="nuevo",
+            action="refund",
+        )
+    )
     db_session.commit()
     db_session.expire_all()
 
-    returned = client.post(
-        "/api/returns",
-        json={
-            "order_id": order_id,
-            "reason": "Reembolso total de orden con neto reducido",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
-                }
-            ],
-        },
-    )
-    assert returned.status_code == 201, returned.text
-
+    # La API actual ya no crea reembolsos; esta cobertura garantiza que datos históricos
+    # nunca puedan volver negativos los reportes después de migrar una instalación antigua.
     today = __import__("datetime").date.today().isoformat()
     sales_response = client.get(f"/api/reports/sales?date_from={today}&date_to={today}")
     assert sales_response.status_code == 200, sales_response.text
