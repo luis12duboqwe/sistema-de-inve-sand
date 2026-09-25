@@ -27,7 +27,7 @@ def _fake_superuser() -> SimpleNamespace:
     )
 
 
-def test_cancel_and_refund_are_serialized_without_double_restock(
+def test_cancel_and_warranty_are_serialized_without_double_restock(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -46,7 +46,7 @@ def test_cancel_and_refund_are_serialized_without_double_restock(
             "sales_profile_slug": sales_profile.slug,
             "source_location_id": location.id,
             "canal": "tienda",
-            "customer_name": "Cliente Carrera Cancel Refund",
+            "customer_name": "Cliente Carrera Cancel Garantía",
             "customer_phone": "75555555",
             "metodo_pago": "efectivo",
             "items": [
@@ -84,28 +84,28 @@ def test_cancel_and_refund_are_serialized_without_double_restock(
     return_payload = ReturnCreate.model_validate(
         {
             "order_id": order["id"],
-            "reason": "Carrera devolución vs cancelación",
+            "reason": "Carrera garantía vs cancelación",
             "items": [
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                 }
             ],
         }
     )
     fake_user = _fake_superuser()
 
-    def refund_worker() -> None:
+    def warranty_worker() -> None:
         session: Session = SessionLocal()
         try:
             barrier.wait()
             create_return(return_payload, db=session, current_user=fake_user)  # type: ignore[arg-type]
-            outcomes.append(("refund", 200))
+            outcomes.append(("warranty", 200))
         except HTTPException as exc:
             session.rollback()
-            outcomes.append(("refund", exc.status_code))
+            outcomes.append(("warranty", exc.status_code))
         except BaseException as exc:
             session.rollback()
             errors.append(exc)
@@ -118,7 +118,7 @@ def test_cancel_and_refund_are_serialized_without_double_restock(
             barrier.wait()
             cancel_order_canonical(
                 order_id=order["id"],
-                reason="Carrera devolución vs cancelación",
+                reason="Carrera garantía vs cancelación",
                 db=session,
                 current_user=fake_user,  # type: ignore[arg-type]
             )
@@ -132,13 +132,13 @@ def test_cancel_and_refund_are_serialized_without_double_restock(
         finally:
             session.close()
 
-    threads = [threading.Thread(target=refund_worker), threading.Thread(target=cancel_worker)]
+    threads = [threading.Thread(target=warranty_worker), threading.Thread(target=cancel_worker)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(timeout=15)
 
-    assert all(not thread.is_alive() for thread in threads), "Cancel/refund concurrency test deadlocked"
+    assert all(not thread.is_alive() for thread in threads), "Cancel/warranty concurrency test deadlocked"
     assert errors == []
     assert len(outcomes) == 2
 
@@ -265,7 +265,7 @@ def test_completion_and_cancellation_share_order_before_stock_lock_order(
     assert int(final_stock.cantidad_reservada or 0) == 0
 
 
-def test_runtime_cancel_rejects_order_with_existing_return(
+def test_runtime_cancel_rejects_order_with_existing_warranty_return(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -284,7 +284,7 @@ def test_runtime_cancel_rejects_order_with_existing_return(
             "sales_profile_slug": sales_profile.slug,
             "source_location_id": location.id,
             "canal": "tienda",
-            "customer_name": "Cliente Devolución Antes Cancelación",
+            "customer_name": "Cliente Garantía Antes Cancelación",
             "customer_phone": "76666666",
             "metodo_pago": "efectivo",
             "items": [{"product_id": product["id"], "cantidad": 1, "precio_unitario": 100}],
@@ -300,13 +300,13 @@ def test_runtime_cancel_rejects_order_with_existing_return(
         "/api/returns",
         json={
             "order_id": order["id"],
-            "reason": "Devolución existente",
+            "reason": "Garantía existente",
             "items": [
                 {
                     "product_id": product["id"],
                     "quantity": 1,
-                    "condition": "nuevo",
-                    "action": "refund",
+                    "condition": "defectuoso",
+                    "action": "warranty_exchange",
                 }
             ],
         },
@@ -327,7 +327,7 @@ def test_runtime_cancel_rejects_order_with_existing_return(
 
     super_admin_cancel = client.post(
         f"/api/super-admin/orders/{order['id']}/cancel",
-        json={"reason": "No duplicar devolución existente"},
+        json={"reason": "No duplicar garantía existente"},
     )
     assert super_admin_cancel.status_code == 409, super_admin_cancel.text
     assert "ya tiene devoluciones" in super_admin_cancel.json()["detail"]
