@@ -1,4 +1,4 @@
-"""Esquemas para devoluciones e historial de IMEIs."""
+"""Esquemas para cambios por garantía e historial de IMEIs."""
 
 from datetime import datetime
 from enum import Enum
@@ -14,9 +14,14 @@ class ReturnConditionEnum(str, Enum):
 
 
 class ReturnActionEnum(str, Enum):
-    REFUND = "refund"
+    """Acciones permitidas para nuevas devoluciones.
+
+    La política comercial no permite reembolsos de dinero ni crédito en tienda.
+    Los valores históricos que ya existan continúan siendo legibles mediante
+    ``ReturnItemResponse.action`` (string), pero no pueden crearse de nuevo.
+    """
+
     WARRANTY_EXCHANGE = "warranty_exchange"
-    STORE_CREDIT = "store_credit"
 
 
 def _validate_imei_str(value: Optional[str], field_name: str = "IMEI") -> Optional[str]:
