@@ -32,9 +32,14 @@ interface ReturnDialogProps {
   onSuccess: () => void
 }
 
-/** Normaliza un valor de scanner: completa IMEI de 14 dígitos con dígito Luhn. */
+/** Mantiene únicamente los 15 dígitos del IMEI sin autocompletar mientras el scanner escribe. */
 function normalizeImeiInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
+  return raw.replace(/\D/g, '').slice(0, 15)
+}
+
+/** Completa un IMEI TAC+serial de 14 dígitos únicamente cuando termina la captura. */
+function finalizeImeiInput(raw: string): string {
+  const digits = normalizeImeiInput(raw)
   if (digits.length === 14) {
     return digits + calculateLuhnCheckDigit(digits)
   }
@@ -74,6 +79,14 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
     }
   }, [])
 
+  const handleImeiFinalize = useCallback((itemId: number, field: 'defective' | 'replacement') => {
+    if (field === 'defective') {
+      setImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+    } else {
+      setReplacementImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+    }
+  }, [])
+
   const handleSubmit = async () => {
     const itemsToReturn: ReturnItem[] = []
 
@@ -87,18 +100,27 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
       }
 
       const isPhone = item.product?.categoria === 'celular'
+      const defectiveImei = finalizeImeiInput(imeis[item.id] || '')
+      const replacementImei = finalizeImeiInput(replacementImeis[item.id] || '')
 
       if (isPhone) {
-        const defectiveImei = imeis[item.id]?.trim()
-        const replacementImei = replacementImeis[item.id]?.trim()
-
         if (!defectiveImei) {
           toast.error(`Escanea el IMEI del equipo defectuoso para "${item.product?.nombre}"`)
           defectiveImeiRefs.current[item.id]?.focus()
           return
         }
+        if (defectiveImei.length !== 15) {
+          toast.error(`El IMEI del equipo defectuoso debe tener 15 dígitos para "${item.product?.nombre}"`)
+          defectiveImeiRefs.current[item.id]?.focus()
+          return
+        }
         if (!replacementImei) {
           toast.error(`Escanea el IMEI del equipo de reemplazo para "${item.product?.nombre}"`)
+          replacementImeiRefs.current[item.id]?.focus()
+          return
+        }
+        if (replacementImei.length !== 15) {
+          toast.error(`El IMEI del equipo de reemplazo debe tener 15 dígitos para "${item.product?.nombre}"`)
           replacementImeiRefs.current[item.id]?.focus()
           return
         }
@@ -113,8 +135,8 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
         quantity: qty,
         condition: conditions[item.id] || 'defectuoso',
         action: 'warranty_exchange',
-        imei: imeis[item.id]?.trim() || undefined,
-        replacement_imei: isPhone ? (replacementImeis[item.id]?.trim() || undefined) : undefined,
+        imei: defectiveImei || undefined,
+        replacement_imei: isPhone ? (replacementImei || undefined) : undefined,
       })
     }
 
@@ -246,13 +268,15 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                                   placeholder="Escanea o escribe el IMEI del equipo defectuoso"
                                   value={imeis[item.id] || ''}
                                   onChange={e => handleImeiScan(item.id, 'defective', e.target.value)}
+                                  onBlur={() => handleImeiFinalize(item.id, 'defective')}
                                   onKeyDown={e => {
                                     if (e.key === 'Enter') {
                                       e.preventDefault()
+                                      handleImeiFinalize(item.id, 'defective')
                                       replacementImeiRefs.current[item.id]?.focus()
                                     }
                                   }}
-                                  maxLength={17}
+                                  maxLength={15}
                                 />
                                 <Button
                                   type="button"
@@ -284,7 +308,14 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                                   placeholder="Escanea o escribe el IMEI del equipo de reemplazo"
                                   value={replacementImeis[item.id] || ''}
                                   onChange={e => handleImeiScan(item.id, 'replacement', e.target.value)}
-                                  maxLength={17}
+                                  onBlur={() => handleImeiFinalize(item.id, 'replacement')}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      handleImeiFinalize(item.id, 'replacement')
+                                    }
+                                  }}
+                                  maxLength={15}
                                 />
                                 <Button
                                   type="button"
