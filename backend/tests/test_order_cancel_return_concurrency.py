@@ -162,7 +162,7 @@ def test_cancel_and_warranty_are_serialized_without_double_restock(
         assert return_count == 0
     else:
         assert final_order.estado in {"completada", "validada"}
-        assert return_count == 1
+        assert return_count == 0
 
 
 def test_completion_and_cancellation_share_order_before_stock_lock_order(
@@ -273,7 +273,7 @@ def test_runtime_cancel_rejects_order_with_existing_warranty_return(
     product = seed_product(
         client,
         location.id,
-        stock_inicial=1,
+        stock_inicial=2,
         is_serialized=False,
         categoria="accesorio",
     )
@@ -323,7 +323,8 @@ def test_runtime_cancel_rejects_order_with_existing_warranty_return(
         .filter(Stock.product_id == product["id"], Stock.location_id == location.id)
         .one()
     )
-    assert int(stock.cantidad_disponible or 0) == 1
+    assert int(stock.cantidad_disponible or 0) == 0
+    assert int(stock.cantidad_defectuosa or 0) == 1
 
     super_admin_cancel = client.post(
         f"/api/super-admin/orders/{order['id']}/cancel",
@@ -338,4 +339,5 @@ def test_runtime_cancel_rejects_order_with_existing_warranty_return(
         .filter(Stock.product_id == product["id"], Stock.location_id == location.id)
         .one()
     )
-    assert int(stock_after_super_admin.cantidad_disponible or 0) == 1
+    assert int(stock_after_super_admin.cantidad_disponible or 0) == 0
+    assert int(stock_after_super_admin.cantidad_defectuosa or 0) == 1
