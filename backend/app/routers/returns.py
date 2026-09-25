@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, IMEIHistory, User
+from app.models import Order, Return, ReturnItem, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
 from types import SimpleNamespace
@@ -104,8 +104,6 @@ def create_return(
     Una orden pendiente o por entregar todavía puede cambiar/cancelarse y, por tanto,
     nunca debe reingresar stock por este flujo. Solo las ventas finalizadas son elegibles.
     """
-    # La orden es la fila compartida de control para todas las garantías de una venta.
-    # Se bloquea antes de leer devoluciones previas para serializar solicitudes concurrentes.
     order = (
         db.query(Order)
         .filter(Order.id == return_data.order_id)
@@ -125,8 +123,6 @@ def create_return(
             )
         raise HTTPException(status_code=400, detail=detail)
 
-    # Defensa adicional a la validación del esquema: ninguna ruta interna debe convertir
-    # este endpoint nuevamente en un mecanismo de reembolso o crédito en tienda.
     for item in return_data.items:
         action = item.action.value if hasattr(item.action, "value") else str(item.action)
         if action != WARRANTY_ACTION:
@@ -188,30 +184,19 @@ def create_return(
         )
 
         if prepared.imeis_to_release:
-            stock_manager.process_return_imeis(
+            return_histories = stock_manager.process_return_imeis(
                 prepared.imeis_to_release,
                 return_id=new_return.id,
                 condition=prepared.condition,
                 action=prepared.action,
                 user_id=user_name,
             )
-            for imei_rec in prepared.imeis_to_release:
-                last_history = (
-                    db.query(IMEIHistory)
-                    .filter(
-                        IMEIHistory.imei == imei_rec.imei,
-                        IMEIHistory.reference_id == new_return.id,
-                        IMEIHistory.reference_type == "return",
-                    )
-                    .order_by(IMEIHistory.id.desc())
-                    .first()
+            for history in return_histories:
+                history.event_type = "garantia_entrada"
+                history.notes = (
+                    f"Equipo recibido del cliente - Garantía #{new_return.id} "
+                    f"(Orden #{order.id}) - Condición: {prepared.condition}"
                 )
-                if last_history:
-                    last_history.event_type = "garantia_entrada"
-                    last_history.notes = (
-                        f"Equipo defectuoso recibido del cliente - Garantía #{new_return.id} "
-                        f"(Orden #{order.id}) - Condición: {prepared.condition}"
-                    )
 
         if prepared.replacement_imei_record:
             stock_manager.process_warranty_replacement_imei(
