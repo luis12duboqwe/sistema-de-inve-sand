@@ -308,7 +308,7 @@ def test_business_flow_end_to_end_with_real_auth():
             expected_status=200,
         )
         replacement_history_items = _payload_items(replacement_history)
-        assert any(item["event_type"] == "warranty_replacement" for item in replacement_history_items)
+        assert any(item["event_type"] == "garantia_salida" for item in replacement_history_items)
     finally:
         _stop_backend(process, temp_dir)
 
