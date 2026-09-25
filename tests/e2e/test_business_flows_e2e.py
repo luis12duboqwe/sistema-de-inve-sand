@@ -167,6 +167,7 @@ def test_business_flow_end_to_end_with_real_auth():
 
         imei_1 = f"{uuid.uuid4().int % 10**15:015d}"
         imei_2 = f"{uuid.uuid4().int % 10**15:015d}"
+        imei_3 = f"{uuid.uuid4().int % 10**15:015d}"
 
         product = _request_json(
             "POST",
@@ -183,9 +184,9 @@ def test_business_flow_end_to_end_with_real_auth():
                 "costo": 9000,
                 "moneda": "Lps",
                 "garantia_meses": 12,
-                "stock_inicial": 2,
+                "stock_inicial": 3,
                 "initial_location_id": from_location["id"],
-                "imeis": [imei_1, imei_2],
+                "imeis": [imei_1, imei_2, imei_3],
             },
             expected_status=201,
         )
@@ -266,35 +267,48 @@ def test_business_flow_end_to_end_with_real_auth():
             expected_status=200,
         )
 
-        returned = _request_json(
+        warranty = _request_json(
             "POST",
             f"{base_url}/api/returns",
             headers=auth_headers,
             json={
                 "order_id": order["id"],
-                "reason": "Prueba de devolución E2E",
+                "reason": "Prueba de cambio por garantía E2E",
                 "items": [
                     {
                         "product_id": product["id"],
                         "quantity": 1,
-                        "condition": "nuevo",
-                        "action": "store_credit",
+                        "condition": "defectuoso",
+                        "action": "warranty_exchange",
                         "imei": imei_1,
+                        "replacement_imei": imei_3,
                     }
                 ],
             },
             expected_status=201,
         )
-        assert returned["order_id"] == order["id"]
+        assert warranty["order_id"] == order["id"]
+        assert warranty["items"][0]["action"] == "warranty_exchange"
+        assert warranty["items"][0]["imei"] == imei_1
+        assert warranty["items"][0]["replacement_imei"] == imei_3
 
-        imei_history = _request_json(
+        defective_history = _request_json(
             "GET",
             f"{base_url}/api/imeis/history?imei={imei_1}",
             headers=auth_headers,
             expected_status=200,
         )
-        history_items = _payload_items(imei_history)
-        assert len(history_items) >= 1
+        defective_history_items = _payload_items(defective_history)
+        assert any(item["event_type"] == "garantia_entrada" for item in defective_history_items)
+
+        replacement_history = _request_json(
+            "GET",
+            f"{base_url}/api/imeis/history?imei={imei_3}",
+            headers=auth_headers,
+            expected_status=200,
+        )
+        replacement_history_items = _payload_items(replacement_history)
+        assert any(item["event_type"] == "warranty_replacement" for item in replacement_history_items)
     finally:
         _stop_backend(process, temp_dir)
 
