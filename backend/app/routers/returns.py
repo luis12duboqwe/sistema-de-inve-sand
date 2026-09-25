@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, Return, ReturnItem, User
+from app.models import Order, Return, ReturnItem, StockHistory, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
 from typing import List
 from types import SimpleNamespace
@@ -173,7 +173,7 @@ def create_return(
         )
         db.add(return_item)
 
-        stock_manager.process_return_stock(
+        returned_stock, _ = stock_manager.process_return_stock(
             product_id=prepared.product.id,
             location_id=source_location.id,
             quantity=prepared.quantity,
@@ -204,6 +204,43 @@ def create_return(
                 original_order_id=order.id,
                 return_id=new_return.id,
                 user_id=user_name,
+            )
+        elif not bool(getattr(prepared.product, "is_serialized", False)):
+            # Un cambio de un artículo no serializado también debe consumir una
+            # unidad física de reemplazo. El artículo defectuoso entra a merma y
+            # nunca se reutiliza como la unidad que sale al cliente.
+            available = int(returned_stock.cantidad_disponible or 0)
+            reserved = int(returned_stock.cantidad_reservada or 0)
+            free_stock = available - reserved
+            if free_stock < prepared.quantity:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"No hay stock libre suficiente para entregar el cambio por garantía de "
+                        f"'{prepared.product.nombre}'. Disponible libre: {free_stock}; "
+                        f"requerido: {prepared.quantity}."
+                    ),
+                )
+
+            previous_stock = available
+            returned_stock.cantidad_disponible = previous_stock - prepared.quantity
+            stock_manager._assert_stock_invariants(
+                returned_stock,
+                context="warranty_exchange_nonserialized",
+            )
+            db.add(
+                StockHistory(
+                    product_id=prepared.product.id,
+                    location_id=source_location.id,
+                    tipo_cambio="garantia_salida",
+                    cantidad=-prepared.quantity,
+                    stock_anterior=previous_stock,
+                    stock_nuevo=returned_stock.cantidad_disponible,
+                    referencia_id=new_return.id,
+                    referencia_tipo="return",
+                    notas=f"Cambio por garantía - Devolución #{new_return.id} (Orden #{order.id})",
+                    usuario=user_name,
+                )
             )
 
     try:
