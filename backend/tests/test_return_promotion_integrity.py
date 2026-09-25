@@ -23,7 +23,7 @@ def _create_paid_plus_gift_order(
     product = seed_product(
         client,
         location.id,
-        stock_inicial=2,
+        stock_inicial=4,
         is_serialized=False,
         categoria="accesorio",
     )
@@ -170,4 +170,5 @@ def test_concurrent_warranty_returns_cannot_return_same_sold_units_twice(
         .first()
     )
     assert stock is not None
-    assert int(stock.cantidad_disponible or 0) == 2
+    assert int(stock.cantidad_disponible or 0) == 0
+    assert int(stock.cantidad_defectuosa or 0) == 2
