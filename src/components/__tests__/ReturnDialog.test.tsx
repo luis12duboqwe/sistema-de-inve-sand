@@ -21,7 +21,7 @@ vi.mock('sonner', () => ({
   },
 }))
 
-describe('ReturnDialog production-critical return flow', () => {
+describe('ReturnDialog warranty-only post-sale flow', () => {
   const order = {
     id: 900,
     customer_name: 'Cliente Prueba',
@@ -54,7 +54,7 @@ describe('ReturnDialog production-critical return flow', () => {
     mockInventoryService.createReturn.mockResolvedValue({ id: 1 })
   })
 
-  it('blocks submitting a return until at least one sold item is selected', async () => {
+  it('shows the no-refund policy and blocks submitting until a sold item is selected', async () => {
     const browserUser = userEvent.setup()
 
     render(
@@ -66,13 +66,17 @@ describe('ReturnDialog production-critical return flow', () => {
       />
     )
 
-    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Devolución' }))
+    expect(screen.getByText(/No se realizan devoluciones de dinero ni/i)).toBeInTheDocument()
+    expect(screen.queryByText('Reembolso')).not.toBeInTheDocument()
+    expect(screen.queryByText('Crédito en Tienda')).not.toBeInTheDocument()
 
-    expect(toast.error).toHaveBeenCalledWith('Selecciona al menos un producto para devolver')
+    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Cambio / Garantía' }))
+
+    expect(toast.error).toHaveBeenCalledWith('Selecciona al menos un producto para procesar la garantía')
     expect(mockInventoryService.createReturn).not.toHaveBeenCalled()
   })
 
-  it('submits the selected sold item and closes after a successful return', async () => {
+  it('submits the selected cellphone as a warranty exchange with both IMEIs', async () => {
     const browserUser = userEvent.setup()
     const onSuccess = vi.fn()
     const onOpenChange = vi.fn()
@@ -87,7 +91,15 @@ describe('ReturnDialog production-critical return flow', () => {
     )
 
     await browserUser.click(screen.getByLabelText('iPhone 15 Pro'))
-    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Devolución' }))
+    await browserUser.type(
+      screen.getByPlaceholderText('Escanea o escribe el IMEI del equipo defectuoso'),
+      '111111111111111'
+    )
+    await browserUser.type(
+      screen.getByPlaceholderText('Escanea o escribe el IMEI del equipo de reemplazo'),
+      '222222222222222'
+    )
+    await browserUser.click(screen.getByRole('button', { name: 'Confirmar Cambio / Garantía' }))
 
     await waitFor(() => {
       expect(mockInventoryService.createReturn).toHaveBeenCalledWith({
@@ -99,14 +111,14 @@ describe('ReturnDialog production-critical return flow', () => {
             product_id: 100,
             quantity: 1,
             condition: 'defectuoso',
-            action: 'refund',
-            imei: undefined,
-            replacement_imei: undefined,
+            action: 'warranty_exchange',
+            imei: '111111111111111',
+            replacement_imei: '222222222222222',
           },
         ],
       })
     })
-    expect(toast.success).toHaveBeenCalledWith('Devolución procesada exitosamente')
+    expect(toast.success).toHaveBeenCalledWith('Cambio por garantía procesado exitosamente')
     expect(onSuccess).toHaveBeenCalledTimes(1)
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
