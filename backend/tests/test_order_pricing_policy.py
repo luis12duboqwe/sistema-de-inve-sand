@@ -45,6 +45,26 @@ def test_unauthenticated_manual_discount_is_rejected():
     assert "sin un usuario autenticado" in str(exc.value.detail)
 
 
+def test_trusted_automation_can_use_three_percent_without_gifts():
+    enforce_sale_price_policy(
+        [_item(sale="9700.00")],
+        current_user=None,
+        trusted_automation=True,
+    )
+
+
+def test_trusted_automation_cannot_use_owner_only_four_percent():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [_item(sale="9600.00")],
+            current_user=None,
+            trusted_automation=True,
+        )
+
+    assert exc.value.status_code == 403
+    assert "requiere aprobación del propietario" in str(exc.value.detail)
+
+
 def test_two_percent_discount_is_allowed_with_accessory_gift():
     enforce_sale_price_policy(
         [
