@@ -45,6 +45,7 @@ def enforce_sale_price_policy(
 
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
+    - sin usuario autenticado no se acepta ningún precio distinto al catálogo;
     - hasta 2% de descuento es automático, incluso con regalos/promociones;
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
     - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
@@ -96,6 +97,14 @@ def enforce_sale_price_policy(
                     detail=f"El producto {product_label} tiene precio de catálogo 0.00",
                 )
             continue
+
+        if current_user is None and sale_price != base_price:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"No se puede aplicar descuento a {product_label} sin un usuario autenticado."
+                ),
+            )
 
         automatic_floor = _minimum_price(base_price, AUTOMATIC_DISCOUNT)
         if sale_price >= automatic_floor:
