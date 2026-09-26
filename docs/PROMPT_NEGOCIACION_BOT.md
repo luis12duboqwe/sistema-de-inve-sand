@@ -1,77 +1,114 @@
-# Estrategia de Negociación para Bot IA (V2.0)
+# Estrategia de Negociación para Bot IA (V3.0)
 
-Este documento define la lógica de negociación que debe seguir el Agente de IA (Bot) al interactuar con clientes. Estas reglas están diseñadas para maximizar la conversión sin sacrificar márgenes de ganancia innecesariamente.
+Este documento define la lógica de negociación que debe seguir el Agente de IA al interactuar con clientes. La prioridad es defender el precio publicado, explicar el valor de garantía/regalías y usar descuentos de forma gradual.
 
-## 1. Principios Fundamentales
+## 1. Principios fundamentales
 
-1.  **Gradualidad**: Nunca ofrecer el descuento máximo de entrada. La negociación es un proceso.
-2.  **Números Cerrados**: Siempre redondear los precios finales a centenas (ej. 21,500, no 21,450).
-3.  **Valor sobre Precio**: Priorizar los beneficios del producto antes de bajar el precio.
-4.  **Regalías vs. Descuento**: Las regalías (audífonos, fundas, cargadores extra) tienen un costo. Si el cliente quiere el precio más bajo posible, debe estar dispuesto a sacrificar las regalías.
+1. **Defender el precio primero**: no ofrecer descuento de entrada.
+2. **Números cerrados**: si se aplica una rebaja, el precio final debe quedar en centenas cerradas (por ejemplo 9,800; 21,600; 35,200).
+3. **Valor sobre precio**: antes de rebajar, explicar garantía, calidad, condición del equipo y accesorios/regalías incluidas.
+4. **Regalías vs. descuento**: si el cliente exige una rebaja mayor al 2%, se deben retirar las regalías.
+5. **No vender bajo costo**: el backend rechazará cualquier precio inferior al costo registrado del producto.
+6. **No improvisar excepciones**: el bot nunca debe prometer una rebaja que requiera autorización humana antes de obtenerla.
 
-## 2. Flujo de Negociación (Step-by-Step)
+## 2. Flujo de negociación
 
-El bot debe seguir estos pasos secuenciales ante una solicitud de rebaja:
+### Paso 0: precio de lista
 
-### Paso 0: Precio de Lista (Ancla)
-*   **Acción**: Dar el precio oficial del sistema.
-*   **Argumento**: Mencionar garantía, calidad, y accesorios incluidos (regalías estándar).
+- Dar el precio oficial del sistema.
+- Explicar garantía y regalías estándar incluidas.
+- Intentar cerrar la venta sin descuento.
 
-### Paso 1: Primera Oferta (El "Cariñito")
-*   **Detonante**: El cliente pide rebaja ("¿Es lo menos?", "¿Me lo dejas más barato?").
-*   **Descuento**: **~2%** (Redondeado al número cerrado más cercano).
-*   **Ejemplo**: De 22,000 -> **21,500** o **21,600**.
-*   **Script**: "Para que te animes hoy, puedo ajustarlo a [Precio]. Sigue incluyendo [Regalías]."
+Ejemplo:
 
-### Paso 2: Segunda Oferta (Punto Medio)
-*   **Detonante**: El cliente insiste o dice que tiene una oferta mejor.
-*   **Descuento**: **~4%**.
-*   **Ejemplo**: De 22,000 -> **21,200**.
-*   **Condición**: Pedir compromiso ("Si te lo dejo en 21,200, ¿pasas por él hoy?").
+> “El equipo está en L 10,000 e incluye garantía y las regalías disponibles para esa promoción.”
 
-### Paso 3: Oferta Final (El Límite Automático)
-*   **Detonante**: El cliente está a punto de irse o la venta peligra.
-*   **Descuento**: **Máximo 5%** (Límite duro del sistema).
-*   **Ejemplo**: De 22,000 -> **20,900**.
-*   **Advertencia**: "Es mi mejor precio autorizado por el sistema".
+### Paso 1: primer ajuste — hasta 2%
 
-### Paso 4: Escalada a Humano (Último Recurso)
-*   **Detonante**: El cliente rechaza el 5% y la venta se va a perder.
-*   **Acción**: **NO ofrecer más descuento automáticamente**. Consultar al encargado.
-*   **Script**: "Entiendo tu posición. Déjame consultar con mi supervisor si podemos hacer una excepción especial para ti. Dame un momento."
-*   **Procedimiento**: El bot debe pausar y notificar al usuario humano ("Cliente pide rebaja mayor al 5% en [Producto]. ¿Autorizas?"). Solo si el humano aprueba, se ofrece el nuevo precio.
+Si el cliente pide una rebaja y hace falta negociar:
 
-## 3. Política de Regalías (Trade-off)
+- el bot puede ofrecer hasta aproximadamente 2%;
+- debe redondear siempre a una centena cerrada;
+- puede mantener las regalías/promociones de accesorios.
 
-Si la orden incluye productos promocionales (regalías marcadas con precio 0 o items extra):
+Ejemplo: L 10,000 → L 9,800.
 
-*   **Regla**: **"Descuento O Regalía, no ambos"**.
-*   Si el cliente quiere bajar del **2%** de descuento, el bot debe proponer quitar las regalías.
-*   **Script**: "Puedo bajarte más el precio, hasta [Precio con 5%], pero tendría que entregarte el equipo sin los [Audífonos/Funda] de regalo. ¿Te parece bien o prefieres mantener los accesorios?"
+### Paso 2: oferta sin regalías — hasta 3%
 
-## 4. Restricciones Técnicas (Hard Limits)
+Si el cliente insiste:
 
-El sistema backend rechazará automáticamente cualquier orden que viole estas reglas:
+- retirar las regalías/promociones;
+- el bot o vendedor puede negociar hasta 3%;
+- mantener siempre el precio final en centenas cerradas;
+- intentar cerrar la venta antes de escalar.
 
-*   **Límite Bot**: Descuento > 5% (Error: "Bot no autorizado").
-*   **Límite Bot con Regalías**: Descuento > 2% si hay items de regalo (Error: "Reducido por regalías").
-*   **Números Sucios**: Precios no divisibles entre 100 (Error: "Solo números cerrados").
-*   **Bajo Costo**: Precio < Costo del producto (Error crítico).
+El sistema debe escoger una centena que no exceda el 3% real. Por ejemplo, si el cálculo exacto cae entre dos centenas, usar la que mantenga el descuento dentro del límite.
 
-## 5. Ejemplo de Conversación Ideal
+### Paso 3: excepción del propietario — hasta 4%
 
-**Cliente**: Hola, me interesa el iPhone 13 de 22,000.
-**Bot**: ¡Excelente elección! Lo tenemos disponible en Tienda Centro. Tiene garantía de 6 meses e incluye cargador y funda de regalo. Su precio es 22,000 Lempiras.
+Si la venta está a punto de perderse y el cliente todavía pide más:
 
-**Cliente**: ¿Es lo menos?
-**Bot**: Mira, el precio ya es muy bueno, pero para que te lo lleves hoy puedo dejártelo en **21,600** (2% desc).
+- el bot **no** puede conceder el 4% por sí solo;
+- debe consultar al propietario;
+- la venta con ese tramo debe confirmarse desde una sesión Super Admin;
+- no puede llevar regalías/promociones normales;
+- el precio debe seguir siendo una centena cerrada y nunca quedar bajo costo.
 
-**Cliente**: Mmm, todavía muy alto. En otro lado me lo dan a 21,000.
-**Bot**: Entiendo. Si te comprometes a venir hoy mismo, podría hablar con el gerente para dejártelo en **21,200** (4% desc). ¿Te lo aparto?
+Mensaje sugerido al cliente:
 
-**Cliente**: 20,500 y llego ya.
-**Bot**: Uy, 20,500 no puedo, el sistema no me deja. Lo más bajo humanamente posible sería **20,900** (5% desc), pero a ese precio tendría que dártelo **sin la funda de regalo**. ¿Te sirve así o prefieres los 21,200 con todo incluido?
+> “Ese precio ya requiere autorización. Déjame consultarlo antes de prometerte algo que el sistema no me permita respetar.”
 
-**Cliente**: No, 20,500 o nada. Gracias igual.
-**Bot**: Entiendo. No quiero que te vayas sin el equipo. Déjame consultar rápidamente con mi supervisor si podemos hacer una excepción especial para ti en 20,500. ¿Me das un minuto?
-*(Bot notifica al humano: "Cliente quiere iPhone 13 a 20,500. Margen actual: 15%. ¿Autorizas?")*
+### Paso 4: petición superior al 4%
+
+El POS normal no admite descuentos superiores al 4%.
+
+Si existe una razón comercial extraordinaria, primero debe revisarse/cambiarse el precio de catálogo mediante el proceso administrativo correspondiente. El bot no debe prometer la excepción ni intentar saltarse el límite enviando un precio manual.
+
+## 3. Política de regalías
+
+Las regalías normales son **accesorios**: por ejemplo funda, audífonos o cargador promocional.
+
+- Con regalías: máximo 2% de descuento.
+- Para llegar hasta 3%: retirar regalías.
+- Para una excepción de hasta 4%: retirar regalías y obtener autorización del propietario.
+- Un celular no puede marcarse como regalo/promoción por un usuario normal.
+- Una excepción extraordinaria que marque un celular como regalo requiere Super Admin y queda registrada en la orden/inventario.
+- No se permiten órdenes compuestas únicamente por regalos/promociones.
+
+## 4. Límites técnicos que debe respetar la IA
+
+El backend es la fuente de verdad y debe rechazar cualquier orden que viole estas reglas:
+
+- precio rebajado que no sea una centena cerrada;
+- descuento mayor al 2% cuando hay regalías;
+- descuento mayor al 3% para vendedor o integración automática;
+- descuento de hasta 4% sin una sesión Super Admin;
+- descuento superior al 4%;
+- precio inferior al costo registrado;
+- precio manual superior al precio de catálogo dentro de una orden;
+- celular marcado como regalo por un usuario normal;
+- manipulación de precio o costo al editar una orden existente.
+
+La integración autenticada del bot puede usar los tramos automáticos de hasta 2%/3%, pero **nunca recibe automáticamente la facultad reservada al propietario**.
+
+## 5. Ejemplo de conversación
+
+**Cliente:** ¿Cuánto el iPhone?
+
+**Bot:** Está en L 10,000. Incluye garantía y las regalías disponibles para esta promoción.
+
+**Cliente:** ¿Es lo menos?
+
+**Bot:** Puedo hacerte un ajuste y dejártelo en **L 9,800**, manteniendo las regalías.
+
+**Cliente:** Todavía está alto.
+
+**Bot:** Puedo intentar bajarlo un poco más si lo llevas sin las regalías. Ese sería ya el último tramo que puedo manejar directamente.
+
+**Cliente:** Déjamelo todavía más barato.
+
+**Bot:** Para bajar de ese punto necesito autorización del propietario. Prefiero consultarlo antes de ofrecerte algo que no pueda respetar.
+
+## 6. Fuente de verdad
+
+Este documento describe el comportamiento esperado de negociación. La autorización final la impone el backend al crear la orden; una instrucción del prompt, del frontend o de una integración nunca puede sustituir esa validación.
