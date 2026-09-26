@@ -10,6 +10,7 @@ Este documento define la lógica de negociación que debe seguir el Agente de IA
 4. **Regalías vs. descuento**: si el cliente exige una rebaja mayor al 2%, se deben retirar las regalías.
 5. **No vender bajo costo**: el backend rechazará cualquier precio inferior al costo registrado del producto.
 6. **No improvisar excepciones**: el bot nunca debe prometer una rebaja que requiera autorización humana antes de obtenerla.
+7. **Una sola moneda para la venta**: las órdenes y pagos se contabilizan en HNL. Si un producto está catalogado en USD, catálogo y costo se convierten a HNL con la tasa del perfil antes de validar descuentos o margen.
 
 ## 2. Flujo de negociación
 
@@ -76,7 +77,19 @@ Las regalías normales son **accesorios**: por ejemplo funda, audífonos o carga
 - Una excepción extraordinaria que marque un celular como regalo requiere Super Admin y queda registrada en la orden/inventario.
 - No se permiten órdenes compuestas únicamente por regalos/promociones.
 
-## 4. Límites técnicos que debe respetar la IA
+## 4. Moneda y tasa de cambio
+
+Las órdenes se totalizan en HNL.
+
+- Productos HNL/Lps: precio y costo se usan directamente.
+- Productos USD: precio de catálogo y costo se convierten a HNL con `exchange_rate` del perfil de venta.
+- Si el perfil no tiene una tasa válida, se conserva el fallback histórico de 25 HNL/USD.
+- Un `precio_unitario` negociado se interpreta en HNL.
+- El costo histórico guardado en la orden también queda en HNL para que margen y reportería comparen cantidades equivalentes.
+
+Ejemplo: producto USD 400, costo USD 250, tasa 25.00 → catálogo HNL 10,000 y costo HNL 6,250. Un precio negociado de HNL 9,800 es un descuento válido de 2%.
+
+## 5. Límites técnicos que debe respetar la IA
 
 El backend es la fuente de verdad y debe rechazar cualquier orden que viole estas reglas:
 
@@ -85,8 +98,8 @@ El backend es la fuente de verdad y debe rechazar cualquier orden que viole esta
 - descuento mayor al 3% para vendedor o integración automática;
 - descuento de hasta 4% sin una sesión Super Admin;
 - descuento superior al 4%;
-- precio inferior al costo registrado;
-- precio manual superior al precio de catálogo dentro de una orden;
+- precio inferior al costo registrado, después de normalizar moneda;
+- precio manual superior al precio de catálogo, después de normalizar moneda;
 - celular marcado como regalo por un usuario normal;
 - manipulación de precio, costo o condición de regalo al editar una orden existente.
 
@@ -94,7 +107,7 @@ La integración autenticada del bot puede usar los tramos automáticos de hasta 
 
 La configuración de IA también está limitada técnicamente a un máximo automático de 3%. Las configuraciones históricas superiores se normalizan al iniciar el backend y se añade una regla canónica al final del contexto del bot. Esa regla prevalece sobre prompts antiguos o personalizados que pudieran mencionar porcentajes incompatibles.
 
-## 5. Edición de órdenes existentes
+## 6. Edición de órdenes existentes
 
 Editar una orden no es un mecanismo para renegociar el precio:
 
@@ -105,7 +118,7 @@ Editar una orden no es un mecanismo para renegociar el precio:
 
 Esto evita tanto perder una condición comercial ya acordada como multiplicarla mediante una edición.
 
-## 6. Ejemplo de conversación
+## 7. Ejemplo de conversación
 
 **Cliente:** ¿Cuánto el iPhone?
 
@@ -123,6 +136,6 @@ Esto evita tanto perder una condición comercial ya acordada como multiplicarla 
 
 **Bot:** Para bajar de ese punto necesito autorización del propietario. Prefiero consultarlo antes de ofrecerte algo que no pueda respetar.
 
-## 7. Fuente de verdad
+## 8. Fuente de verdad
 
 Este documento describe el comportamiento esperado de negociación. La autorización final la impone el backend al crear la orden; una instrucción del prompt, del frontend o de una integración nunca puede sustituir esa validación.
