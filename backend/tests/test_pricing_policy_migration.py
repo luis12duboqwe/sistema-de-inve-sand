@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AIProfileConfig, SalesProfile
 from app.schemas import AIConfigSchema
+from app.utils.ai_sales_policy import POLICY_MARKER
 from app.utils.order_pricing import enforce_sale_price_policy
 from app.utils.pricing_policy_migration import (
     MIGRATION_ID,
@@ -20,9 +21,13 @@ def test_ai_config_schema_caps_new_configuration_at_three_percent():
     valid = AIConfigSchema(
         sales_profile_id=1,
         system_prompt="Vende sin exceder las reglas.",
+        context_rules="Regla personalizada del negocio.",
         max_discount_rate=0.03,
     )
     assert valid.max_discount_rate == 0.03
+    assert valid.context_rules is not None
+    assert "Regla personalizada del negocio." in valid.context_rules
+    assert valid.context_rules.count(POLICY_MARKER) == 1
 
     with pytest.raises(ValidationError):
         AIConfigSchema(
@@ -45,7 +50,8 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
 
     historical = AIProfileConfig(
         sales_profile_id=sales_profile.id,
-        system_prompt="Prompt histórico",
+        system_prompt="Prompt histórico que incluso pudo contener reglas viejas.",
+        context_rules="Conserva esta regla personalizada.",
         max_discount_rate=Decimal("0.1500"),
     )
     db_session.add(historical)
@@ -56,6 +62,10 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
 
     migrated = db_session.query(AIProfileConfig).filter_by(id=historical.id).one()
     assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
+    assert migrated.context_rules is not None
+    assert "Conserva esta regla personalizada." in migrated.context_rules
+    assert migrated.context_rules.count(POLICY_MARKER) == 1
+    rules_after_first_run = migrated.context_rules
 
     ledger_count = db_session.execute(
         text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
@@ -64,6 +74,10 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     assert int(ledger_count) == 1
 
     assert run_pricing_policy_migration() is True
+    db_session.expire_all()
+    migrated_again = db_session.query(AIProfileConfig).filter_by(id=historical.id).one()
+    assert migrated_again.context_rules == rules_after_first_run
+
     ledger_count_after_second_run = db_session.execute(
         text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
         {"migration_id": MIGRATION_ID},
