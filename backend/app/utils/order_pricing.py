@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from app.models import User
 
 CENT = Decimal("0.01")
+HUNDRED = Decimal("100.00")
 AUTOMATIC_DISCOUNT = Decimal("0.02")
 NO_GIFTS_DISCOUNT = Decimal("0.03")
 OWNER_APPROVED_DISCOUNT = Decimal("0.04")
@@ -54,6 +55,7 @@ def enforce_sale_price_policy(
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
     - sin usuario autenticado ni automatización confiable no se aceptan descuentos;
+    - todo precio rebajado debe quedar en centenas cerradas;
     - hasta 2% de descuento es automático, incluso con regalos/promociones;
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
     - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
@@ -126,6 +128,15 @@ def enforce_sale_price_policy(
                 detail=(
                     f"El precio de {product_label} ({sale_price:.2f}) no puede quedar por debajo "
                     f"del costo registrado ({unit_cost:.2f})."
+                ),
+            )
+
+        if sale_price != base_price and sale_price % HUNDRED != Decimal("0.00"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"El precio rebajado de {product_label} debe ser una centena cerrada "
+                    "(por ejemplo 9,800 o 21,600)."
                 ),
             )
 
