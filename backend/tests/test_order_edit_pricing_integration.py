@@ -1,7 +1,7 @@
 from decimal import Decimal
 import json
 
-from app.models import OrderItem
+from app.models import OrderItem, Profile
 
 from .helpers import seed_location_and_sales_profile, seed_product
 
@@ -25,33 +25,22 @@ def test_order_edit_preserves_old_discount_and_catalog_prices_added_quantity(cli
             "customer_name": "Cliente edición segura",
             "customer_phone": "74444444",
             "metodo_pago": "efectivo",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "cantidad": 1,
-                    "precio_unitario": 970,
-                }
-            ],
+            "items": [{"product_id": product["id"], "cantidad": 1, "precio_unitario": 970}],
         },
     )
     assert created.status_code == 201, created.text
     order_id = int(created.json()["id"])
 
-    # Simula un cliente viejo o manipulado: intenta convertir las dos unidades en
-    # regalo y forzar precio L1. El esquema neutraliza esos campos y el endpoint
-    # canónico conserva L970 solo en la unidad ya pactada; la unidad nueva va a catálogo.
     edited = client.put(
         f"/api/orders/{order_id}",
         json={
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "cantidad": 2,
-                    "precio_unitario": 1,
-                    "costo_unitario": 1,
-                    "es_regalo_promocion": True,
-                }
-            ]
+            "items": [{
+                "product_id": product["id"],
+                "cantidad": 2,
+                "precio_unitario": 1,
+                "costo_unitario": 1,
+                "es_regalo_promocion": True,
+            }]
         },
     )
     assert edited.status_code == 200, edited.text
@@ -64,15 +53,10 @@ def test_order_edit_preserves_old_discount_and_catalog_prices_added_quantity(cli
         .all()
     )
     assert len(rows) == 2
-    assert [Decimal(str(row.precio_unitario)) for row in rows] == [
-        Decimal("970.00"),
-        Decimal("1000.00"),
-    ]
+    assert [Decimal(str(row.precio_unitario)) for row in rows] == [Decimal("970.00"), Decimal("1000.00")]
     assert [int(row.cantidad) for row in rows] == [1, 1]
     assert all(not bool(row.es_regalo_promocion) for row in rows)
-
-    payload = edited.json()
-    assert Decimal(str(payload["total"])) == Decimal("1970.00")
+    assert Decimal(str(edited.json()["total"])) == Decimal("1970.00")
 
 
 def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(client, db_session):
@@ -101,12 +85,7 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
             "customer_name": "Cliente edición USD",
             "customer_phone": "75554444",
             "metodo_pago": "efectivo",
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "cantidad": 1,
-                }
-            ],
+            "items": [{"product_id": product["id"], "cantidad": 1}],
         },
     )
     assert created.status_code == 201, created.text
@@ -116,15 +95,13 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
     edited = client.put(
         f"/api/orders/{order_id}",
         json={
-            "items": [
-                {
-                    "product_id": product["id"],
-                    "cantidad": 2,
-                    "precio_unitario": 1,
-                    "costo_unitario": 1,
-                    "es_regalo_promocion": True,
-                }
-            ]
+            "items": [{
+                "product_id": product["id"],
+                "cantidad": 2,
+                "precio_unitario": 1,
+                "costo_unitario": 1,
+                "es_regalo_promocion": True,
+            }]
         },
     )
     assert edited.status_code == 200, edited.text
@@ -137,16 +114,69 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
         .all()
     )
     assert len(rows) == 2
-    assert [Decimal(str(row.precio_unitario)) for row in rows] == [
-        Decimal("2450.00"),
-        Decimal("2450.00"),
-    ]
-    assert [Decimal(str(row.costo_unitario)) for row in rows] == [
-        Decimal("1470.00"),
-        Decimal("1470.00"),
-    ]
+    assert [Decimal(str(row.precio_unitario)) for row in rows] == [Decimal("2450.00"), Decimal("2450.00")]
+    assert [Decimal(str(row.costo_unitario)) for row in rows] == [Decimal("1470.00"), Decimal("1470.00")]
     assert all(not bool(row.es_regalo_promocion) for row in rows)
     assert Decimal(str(edited.json()["total"])) == Decimal("4900.00")
+
+
+def test_legacy_profile_exchange_rate_survives_creation_and_edit(client, db_session):
+    location, _ = seed_location_and_sales_profile(db_session)
+    legacy_profile = Profile(
+        name="Perfil legacy USD",
+        slug="legacy-usd-edit",
+        active=True,
+        settings=json.dumps({"exchangeRate": 24.25}),
+    )
+    db_session.add(legacy_profile)
+    db_session.commit()
+    db_session.refresh(legacy_profile)
+
+    product = seed_product(
+        client,
+        location.id,
+        stock_inicial=3,
+        is_serialized=False,
+        categoria="accesorio",
+        precio=100,
+        costo=60,
+        moneda="USD",
+        sku="LEGACY-USD-001",
+    )
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "profile_slug": legacy_profile.slug,
+            "source_location_id": location.id,
+            "canal": "tienda",
+            "customer_name": "Cliente legacy USD",
+            "customer_phone": "78887777",
+            "metodo_pago": "efectivo",
+            "items": [{"product_id": product["id"], "cantidad": 1}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = int(created.json()["id"])
+    assert Decimal(str(created.json()["total"])) == Decimal("2425.00")
+
+    edited = client.put(
+        f"/api/orders/{order_id}",
+        json={"items": [{"product_id": product["id"], "cantidad": 2}]},
+    )
+    assert edited.status_code == 200, edited.text
+    assert Decimal(str(edited.json()["total"])) == Decimal("4850.00")
+
+    db_session.expire_all()
+    rows = (
+        db_session.query(OrderItem)
+        .filter(OrderItem.order_id == order_id)
+        .order_by(OrderItem.id.asc())
+        .all()
+    )
+    assert len(rows) == 2
+    assert [Decimal(str(row.precio_unitario)) for row in rows] == [Decimal("2425.00"), Decimal("2425.00")]
+    assert [Decimal(str(row.costo_unitario)) for row in rows] == [Decimal("1455.00"), Decimal("1455.00")]
 
 
 def test_order_edit_cannot_leave_only_preserved_gifts(client, db_session):
@@ -182,11 +212,7 @@ def test_order_edit_cannot_leave_only_preserved_gifts(client, db_session):
             "customer_phone": "76665555",
             "metodo_pago": "efectivo",
             "items": [
-                {
-                    "product_id": paid_product["id"],
-                    "cantidad": 1,
-                    "precio_unitario": 1000,
-                },
+                {"product_id": paid_product["id"], "cantidad": 1, "precio_unitario": 1000},
                 {
                     "product_id": gift_product["id"],
                     "cantidad": 1,
@@ -202,14 +228,7 @@ def test_order_edit_cannot_leave_only_preserved_gifts(client, db_session):
 
     edited = client.put(
         f"/api/orders/{order_id}",
-        json={
-            "items": [
-                {
-                    "product_id": gift_product["id"],
-                    "cantidad": 1,
-                }
-            ]
-        },
+        json={"items": [{"product_id": gift_product["id"], "cantidad": 1}]},
     )
     assert edited.status_code == 400, edited.text
     assert "únicamente regalos/promociones" in edited.json()["detail"]
