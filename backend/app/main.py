@@ -55,6 +55,7 @@ from app.utils.demo_seed import seed_demo_data
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
 from app.utils.order_integrity import install_order_integrity_guards
+from app.utils.order_item_currency_integrity import install_order_item_currency_guards
 from app.utils.pricing_policy_migration import run_pricing_policy_migration
 from app.utils.prometheus_metrics import (
     RATE_LIMIT_BLOCK_TOTAL,
@@ -72,6 +73,7 @@ setup_logging()
 initialize_observability()
 init_sentry()
 install_order_integrity_guards()
+install_order_item_currency_guards()
 logger = logging.getLogger(__name__)
 runtime_metrics = RuntimeMetrics()
 
