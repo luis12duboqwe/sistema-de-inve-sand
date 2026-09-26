@@ -24,7 +24,7 @@ _INSTALLED = False
 
 
 def _normalize_new_order_item_cost(session: Session, item: Any) -> None:
-    from app.models import Order, Product, SalesProfile
+    from app.models import Order, Product, Profile, SalesProfile
 
     product = getattr(item, "product", None)
     if product is None and getattr(item, "product_id", None) is not None:
@@ -47,12 +47,15 @@ def _normalize_new_order_item_cost(session: Session, item: Any) -> None:
         with session.no_autoflush:
             order = session.get(Order, int(item.order_id))
 
-    sales_profile = None
+    profile_like = None
     if order is not None and getattr(order, "sales_profile_id", None) is not None:
         with session.no_autoflush:
-            sales_profile = session.get(SalesProfile, int(order.sales_profile_id))
+            profile_like = session.get(SalesProfile, int(order.sales_profile_id))
+    elif order is not None and getattr(order, "profile_id", None) is not None:
+        with session.no_autoflush:
+            profile_like = session.get(Profile, int(order.profile_id))
 
-    exchange_rate = resolve_exchange_rate(sales_profile)
+    exchange_rate = resolve_exchange_rate(profile_like)
     item.costo_unitario = product_amount_in_hnl(
         getattr(product, "costo", 0),
         product,
