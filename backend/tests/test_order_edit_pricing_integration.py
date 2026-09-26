@@ -147,3 +147,75 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
     ]
     assert all(not bool(row.es_regalo_promocion) for row in rows)
     assert Decimal(str(edited.json()["total"])) == Decimal("4900.00")
+
+
+def test_order_edit_cannot_leave_only_preserved_gifts(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    paid_product = seed_product(
+        client,
+        location.id,
+        stock_inicial=2,
+        is_serialized=False,
+        categoria="accesorio",
+        costo=500,
+        precio=1000,
+        sku="PAID-EDIT-001",
+    )
+    gift_product = seed_product(
+        client,
+        location.id,
+        stock_inicial=2,
+        is_serialized=False,
+        categoria="accesorio",
+        costo=100,
+        precio=300,
+        sku="GIFT-EDIT-001",
+    )
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "sales_profile_slug": sales_profile.slug,
+            "source_location_id": location.id,
+            "canal": "tienda",
+            "customer_name": "Cliente edición regalo",
+            "customer_phone": "76665555",
+            "metodo_pago": "efectivo",
+            "items": [
+                {
+                    "product_id": paid_product["id"],
+                    "cantidad": 1,
+                    "precio_unitario": 1000,
+                },
+                {
+                    "product_id": gift_product["id"],
+                    "cantidad": 1,
+                    "precio_unitario": 300,
+                    "es_regalo_promocion": True,
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = int(created.json()["id"])
+    assert Decimal(str(created.json()["total"])) == Decimal("1000.00")
+
+    edited = client.put(
+        f"/api/orders/{order_id}",
+        json={
+            "items": [
+                {
+                    "product_id": gift_product["id"],
+                    "cantidad": 1,
+                }
+            ]
+        },
+    )
+    assert edited.status_code == 400, edited.text
+    assert "únicamente regalos/promociones" in edited.json()["detail"]
+
+    db_session.expire_all()
+    rows = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+    assert len(rows) == 2
+    assert any(not bool(row.es_regalo_promocion) for row in rows)
+    assert any(bool(row.es_regalo_promocion) for row in rows)
