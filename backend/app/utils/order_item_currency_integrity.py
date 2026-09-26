@@ -1,8 +1,9 @@
 """Transaction-boundary currency normalization for historical order-item cost.
 
-Every new OrderItem stores historical cost in HNL so reports never compare an HNL
-sale price against a raw USD product cost. The guard protects normal API writes,
-order edits and future ORM callers alike.
+Every new USD-backed OrderItem stores historical cost in HNL so reports never
+compare an HNL sale price against a raw USD product cost. Missing HNL historical
+costs are also filled from the product. Explicit HNL historical costs are preserved
+for controlled imports/tests.
 """
 
 from __future__ import annotations
@@ -12,7 +13,11 @@ from typing import Any
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app.utils.order_currency import product_amount_in_hnl, resolve_exchange_rate
+from app.utils.order_currency import (
+    is_usd_currency,
+    product_amount_in_hnl,
+    resolve_exchange_rate,
+)
 
 
 _INSTALLED = False
@@ -26,6 +31,15 @@ def _normalize_new_order_item_cost(session: Session, item: Any) -> None:
         with session.no_autoflush:
             product = session.get(Product, int(item.product_id))
     if product is None:
+        return
+
+    # Historical/manual HNL imports can explicitly provide a cost different from
+    # the current product cost. Preserve it. USD items, however, must always be
+    # normalized because a raw USD number is not comparable with an HNL sale.
+    if (
+        not is_usd_currency(getattr(product, "moneda", None))
+        and getattr(item, "costo_unitario", None) is not None
+    ):
         return
 
     order = getattr(item, "order", None)
