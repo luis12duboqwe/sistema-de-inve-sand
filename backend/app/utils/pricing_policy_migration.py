@@ -1,8 +1,9 @@
 """Versioned data migration for the canonical sales discount policy.
 
-This migration is deliberately separate from schema migrations because it only
-normalizes business configuration data. It still records its id in the shared
-``schema_migrations`` ledger so it runs exactly once per database.
+The migration records its id in the shared ``schema_migrations`` ledger, but the
+business invariant is intentionally re-checked on every startup. That makes the
+startup path self-healing if an old/manual integration later writes a discount
+above the automated ceiling or removes the canonical AI context rule.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def _backup_sqlite_if_needed() -> Path | None:
 
 
 def run_pricing_policy_migration() -> bool:
-    """Normalize historical AI discount settings and append the canonical rule."""
+    """Normalize AI discount settings and continuously enforce the canonical rule."""
 
     engine = database.engine
     dialect = engine.dialect.name
@@ -84,10 +85,10 @@ def run_pricing_policy_migration() -> bool:
             {"migration_id": MIGRATION_ID},
         ).first()
 
-    if already_applied:
-        return True
-
-    _backup_sqlite_if_needed()
+    # Only the first application needs a workstation backup. The normalization
+    # itself remains idempotent and is deliberately re-run to enforce the invariant.
+    if not already_applied:
+        _backup_sqlite_if_needed()
 
     with engine.begin() as conn:
         capped = conn.execute(
@@ -135,7 +136,7 @@ def run_pricing_policy_migration() -> bool:
         conn.execute(text(ledger_sql), {"migration_id": MIGRATION_ID})
 
     logger.info(
-        "Normalización de descuentos IA aplicada; %s configuraciones históricas fueron limitadas a %.2f%%",
+        "Política de descuentos IA verificada; %s configuraciones fueron limitadas a %.2f%% en esta ejecución",
         max(int(capped.rowcount or 0), 0),
         MAX_AUTOMATED_DISCOUNT_RATE * 100,
     )
