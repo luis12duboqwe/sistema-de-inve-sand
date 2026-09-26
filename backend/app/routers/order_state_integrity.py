@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import Order, OrderItem, Return, User
+from app.models import Order, OrderItem, Product, Return, SalesProfile, User
 from app.routers.orders import (
     FINAL_ORDER_STATUSES,
     _finalize_order_stock,
@@ -33,6 +33,7 @@ from app.schemas import OrderResponse, OrderStatusUpdate, OrderUpdate
 from app.services.order_service import resolve_user_label
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
+from app.utils.order_currency import product_amount_in_hnl, resolve_exchange_rate
 
 
 logger = logging.getLogger(__name__)
@@ -56,11 +57,12 @@ def _build_financially_safe_edit_items(
 ) -> list[dict[str, Any]]:
     """Preserve existing commercial terms without allowing an edit to expand them.
 
-    The public edit schema rejects price/cost/gift overrides. This helper restores
-    the already-persisted price and gift flag only for the quantity that existed in
-    the order before the edit. If quantity grows, the additional units are prepared
-    as new catalog-price, non-gift units. This keeps a legitimate historical discount
-    or gift intact while preventing a quantity edit from multiplying the benefit.
+    The public edit schema neutralizes client-supplied price/cost/gift overrides.
+    This helper restores the already-persisted price and gift flag only for the
+    quantity that existed in the order before the edit. If quantity grows, the
+    additional units are prepared as new catalog-price, non-gift units. This keeps
+    a legitimate historical discount or gift intact while preventing a quantity
+    edit from multiplying the benefit.
     """
 
     pools: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -125,6 +127,54 @@ def _build_financially_safe_edit_items(
             )
 
     return safe_items
+
+
+def _normalize_new_edit_items_to_hnl(
+    db: Session,
+    *,
+    order: Order,
+    safe_items: list[dict[str, Any]],
+) -> None:
+    """Fill catalog price for newly added edit quantities in canonical HNL."""
+
+    missing_price_ids = {
+        int(item["product_id"])
+        for item in safe_items
+        if item.get("precio_unitario") is None
+    }
+    if not missing_price_ids:
+        return
+
+    products = (
+        db.query(Product)
+        .filter(Product.id.in_(missing_price_ids), Product.activo == True)
+        .all()
+    )
+    products_by_id = {int(product.id): product for product in products}
+    missing_products = missing_price_ids - set(products_by_id)
+    if missing_products:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No se pudo recalcular la edición porque faltan productos activos: "
+                + ", ".join(str(product_id) for product_id in sorted(missing_products))
+            ),
+        )
+
+    sales_profile = None
+    if order.sales_profile_id is not None:
+        sales_profile = db.get(SalesProfile, int(order.sales_profile_id))
+    exchange_rate = resolve_exchange_rate(sales_profile)
+
+    for item in safe_items:
+        if item.get("precio_unitario") is not None:
+            continue
+        product = products_by_id[int(item["product_id"])]
+        item["precio_unitario"] = product_amount_in_hnl(
+            product.precio,
+            product,
+            exchange_rate,
+        )
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
@@ -246,6 +296,7 @@ def update_order_canonical(
             .all()
         )
         safe_items = _build_financially_safe_edit_items(current_items, updates.items)
+        _normalize_new_edit_items_to_hnl(db, order=order, safe_items=safe_items)
         effective_updates = _OrderUpdateProxy(updates, safe_items)
 
     # Reuse the existing handler on the same Session while this transaction still
