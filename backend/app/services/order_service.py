@@ -14,6 +14,7 @@ from app.models import (
     Customer,
     InteractionLog,
     Order,
+    OrderItem,
     Profile,
     SalesProfile,
     User,
@@ -24,7 +25,13 @@ from app.services.stock_transaction_helper import (
     SalePreparationResult,
     StockTransactionHelper,
 )
+from app.utils.order_currency import (
+    is_usd_currency,
+    product_amount_in_hnl,
+    resolve_exchange_rate,
+)
 from app.utils.order_financing import compute_financing_from_payload
+from app.utils.order_pricing import enforce_sale_price_policy
 from app.utils.order_validators import (
     resolve_sales_profile,
     validate_location_and_phone,
@@ -109,6 +116,17 @@ def resolve_user_label(
     return fallback
 
 
+def _is_trusted_automated_sales_profile(sales_profile: Optional[SalesProfile]) -> bool:
+    """Identifica perfiles que representan una integración de venta automatizada."""
+
+    if sales_profile is None:
+        return False
+    profile_type = getattr(sales_profile, "tipo", None)
+    if hasattr(profile_type, "value"):
+        profile_type = profile_type.value
+    return str(profile_type or "").strip().lower() in {"bot_ia", "sistema_automatico"}
+
+
 class OrderService:
     """Orquesta la creación de órdenes aplicando las validaciones V2.0."""
 
@@ -140,6 +158,7 @@ class OrderService:
                 sales_profile_slug=order.sales_profile_slug,
                 profile_slug=order.profile_slug,
             )
+            exchange_rate = resolve_exchange_rate(sales_profile or legacy_profile)
 
             location, customer_phone_str = validate_location_and_phone(
                 db=self.db,
@@ -164,7 +183,20 @@ class OrderService:
                 location_id=location_id_value,
                 allow_pending_imei=False,
             )
+            self._normalize_sale_batch_currency(
+                sale_batch,
+                items_payload=order.items,
+                exchange_rate=exchange_rate,
+            )
             self._ensure_not_only_gifts(sale_batch)
+            enforce_sale_price_policy(
+                sale_batch.items,
+                current_user=current_user,
+                trusted_automation=(
+                    current_user is None and _is_trusted_automated_sales_profile(sales_profile)
+                ),
+                exchange_rate=exchange_rate,
+            )
 
             trade_in_total = self.stock_helper.process_trade_ins(
                 trade_ins_payload=order.trade_ins,
@@ -213,6 +245,11 @@ class OrderService:
                 order_payload=order,
                 user_identifier=user_identifier,
             )
+            self._normalize_persisted_costs(
+                order_id=int(db_order.id),
+                prepared_items=sale_batch.items,
+                exchange_rate=exchange_rate,
+            )
 
             self._link_ai_interaction(
                 db_order,
@@ -246,6 +283,83 @@ class OrderService:
             location_id=location_id,
             allow_pending_imei=allow_pending_imei,
         )
+
+    def _normalize_sale_batch_currency(
+        self,
+        sale_batch: SalePreparationResult,
+        *,
+        items_payload: Sequence[object],
+        exchange_rate: Decimal,
+    ) -> None:
+        """Convierte a HNL los precios de catálogo USD antes de totalizar.
+
+        Un precio personalizado se interpreta en HNL, igual que en el modo local.
+        Si no existe precio personalizado, un producto USD usa su precio de catálogo
+        convertido con la tasa del perfil de venta.
+        """
+
+        if len(sale_batch.items) != len(items_payload):
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo alinear los ítems de la orden para normalizar moneda",
+            )
+
+        for prepared, payload in zip(sale_batch.items, items_payload):
+            if not is_usd_currency(getattr(prepared.product, "moneda", None)):
+                continue
+            custom_price = getattr(payload, "precio_unitario", None)
+            if custom_price is None:
+                prepared.precio_unitario = product_amount_in_hnl(
+                    getattr(prepared.product, "precio", 0),
+                    prepared.product,
+                    exchange_rate,
+                )
+
+        sale_batch.total = sum(
+            (
+                item.precio_unitario * item.cantidad
+                for item in sale_batch.items
+                if not item.es_regalo_promocion
+            ),
+            start=Decimal("0.00"),
+        )
+        sale_batch.gifts_total = sum(
+            (
+                item.precio_unitario * item.cantidad
+                for item in sale_batch.items
+                if item.es_regalo_promocion
+            ),
+            start=Decimal("0.00"),
+        )
+
+    def _normalize_persisted_costs(
+        self,
+        *,
+        order_id: int,
+        prepared_items: Sequence[PreparedSaleItem],
+        exchange_rate: Decimal,
+    ) -> None:
+        """Guarda costo histórico en HNL para que margen/reportería sean comparables."""
+
+        self.db.flush()
+        rows = (
+            self.db.query(OrderItem)
+            .filter(OrderItem.order_id == order_id)
+            .order_by(OrderItem.id.asc())
+            .all()
+        )
+        if len(rows) != len(prepared_items):
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo alinear los costos históricos de la orden",
+            )
+
+        for row, prepared in zip(rows, prepared_items):
+            row.costo_unitario = product_amount_in_hnl(
+                getattr(prepared.product, "costo", 0),
+                prepared.product,
+                exchange_rate,
+            )
 
     def _ensure_not_only_gifts(
         self,
@@ -348,7 +462,6 @@ class OrderService:
             canal=order_payload.canal,
             user_identifier=user_identifier,
         )
-
 
     def _link_ai_interaction(
         self,
