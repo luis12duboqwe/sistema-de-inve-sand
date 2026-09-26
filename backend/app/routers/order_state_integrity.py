@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import Order, OrderItem, Product, Return, SalesProfile, User
+from app.models import Order, OrderItem, Product, Profile, Return, SalesProfile, User
 from app.routers.orders import (
     FINAL_ORDER_STATUSES,
     _finalize_order_stock,
@@ -176,10 +176,12 @@ def _normalize_new_edit_items_to_hnl(
             ),
         )
 
-    sales_profile = None
+    profile_like: SalesProfile | Profile | None = None
     if order.sales_profile_id is not None:
-        sales_profile = db.get(SalesProfile, int(order.sales_profile_id))
-    exchange_rate = resolve_exchange_rate(sales_profile)
+        profile_like = db.get(SalesProfile, int(order.sales_profile_id))
+    elif order.profile_id is not None:
+        profile_like = db.get(Profile, int(order.profile_id))
+    exchange_rate = resolve_exchange_rate(profile_like)
 
     for item in safe_items:
         if item.get("precio_unitario") is not None:
@@ -199,8 +201,6 @@ def update_order_status_canonical(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit")),
 ):
-    # Status transitions may later lock Stock while finalizing a sale. Lock Order
-    # first so completion, cancellation, returns and edits all use one lock order.
     order = (
         db.query(Order)
         .filter(Order.id == order_id)
@@ -221,19 +221,15 @@ def update_order_status_canonical(
             status_code=400,
             detail="Use POST /orders/{order_id}/cancel para cancelar y reconciliar stock/IMEIs correctamente.",
         )
-
     if previous == "cancelada":
         raise HTTPException(status_code=400, detail="No se puede cambiar el estado de una orden cancelada")
-
     if target == "validada":
         raise HTTPException(
             status_code=400,
             detail="Una venta solo pasa a validada mediante el cierre de día /api/daily-close/validate.",
         )
-
     if target not in {"pendiente", "por_entregar", "completada"}:
         raise HTTPException(status_code=400, detail=f"Estado no permitido en este flujo: {target}")
-
     if previous in FINAL_ORDER_STATUSES:
         if previous == target:
             return _serialize_order(order)
@@ -241,10 +237,8 @@ def update_order_status_canonical(
             status_code=409,
             detail="Una venta finalizada no puede volver a un estado operativo. Use devolución o cancelación auditada.",
         )
-
     if previous == "por_entregar" and target == "pendiente":
         raise HTTPException(status_code=409, detail="Una orden por entregar no puede volver a pendiente")
-
     if previous == target:
         return _serialize_order(order)
 
@@ -289,10 +283,6 @@ def update_order_canonical(
     current_user: User = Depends(check_permission("orders:edit")),
 ):
     """Serialize order detail edits and preserve only pre-existing commercial terms."""
-    # The legacy edit implementation contains the mature item/IMEI/payment logic but
-    # historically read Order without a row lock and then locked Stock. Acquiring the
-    # parent lock first prevents Stock->Order / Order->Stock deadlocks and stale edits
-    # that resume after a concurrent cancellation.
     order = (
         db.query(Order)
         .filter(Order.id == order_id)
@@ -315,8 +305,6 @@ def update_order_canonical(
         _normalize_new_edit_items_to_hnl(db, order=order, safe_items=safe_items)
         effective_updates = _OrderUpdateProxy(updates, safe_items)
 
-    # Reuse the existing handler on the same Session while this transaction still
-    # owns the Order lock. It revalidates status/location and performs stock changes.
     return _legacy_update_order(
         order_id=order_id,
         updates=effective_updates,
