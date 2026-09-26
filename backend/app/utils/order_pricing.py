@@ -47,12 +47,13 @@ def enforce_sale_price_policy(
     items: Sequence[Any],
     *,
     current_user: Optional[User],
+    trusted_automation: bool = False,
 ) -> None:
     """Valida precios de venta contra la escalera comercial de Softmobile.
 
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
-    - sin usuario autenticado no se acepta ningún precio distinto al catálogo;
+    - sin usuario autenticado ni automatización confiable no se aceptan descuentos;
     - hasta 2% de descuento es automático, incluso con regalos/promociones;
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
     - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
@@ -62,9 +63,9 @@ def enforce_sale_price_policy(
       aprobación extraordinaria del propietario (Super Admin);
     - una venta normal nunca puede quedar por debajo del costo registrado.
 
-    Los ítems marcados como regalo/promoción no aportan al total de la orden.
-    Su presencia limita la rebaja de los productos cobrados al tramo automático
-    del 2%.
+    ``trusted_automation`` solo debe activarse desde una ruta ya autenticada
+    como integración y asociada a un perfil ``bot_ia`` o ``sistema_automatico``.
+    Nunca concede el tramo reservado al propietario.
     """
 
     has_gifts = any(bool(getattr(item, "es_regalo_promocion", False)) for item in items)
@@ -128,11 +129,12 @@ def enforce_sale_price_policy(
                 ),
             )
 
-        if current_user is None and sale_price != base_price:
+        if current_user is None and not trusted_automation and sale_price != base_price:
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"No se puede aplicar descuento a {product_label} sin un usuario autenticado."
+                    f"No se puede aplicar descuento a {product_label} sin un usuario autenticado "
+                    "o una integración de venta confiable."
                 ),
             )
 
