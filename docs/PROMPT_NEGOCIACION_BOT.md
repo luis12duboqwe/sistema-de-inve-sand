@@ -5,7 +5,7 @@ Este documento define la lógica de negociación que debe seguir el Agente de IA
 ## 1. Principios fundamentales
 
 1. **Defender el precio primero**: no ofrecer descuento de entrada.
-2. **Números cerrados**: si se aplica una rebaja, el precio final debe quedar en centenas cerradas (por ejemplo 9,800; 21,600; 35,200).
+2. **Números cerrados en celulares**: si se rebaja un celular, el precio final debe quedar en centenas cerradas (por ejemplo 9,800; 21,600; 35,200). Esta restricción no se fuerza sobre accesorios de bajo valor.
 3. **Valor sobre precio**: antes de rebajar, explicar garantía, calidad, condición del equipo y accesorios/regalías incluidas.
 4. **Regalías vs. descuento**: si el cliente exige una rebaja mayor al 2%, se deben retirar las regalías.
 5. **No vender bajo costo**: el backend rechazará cualquier precio inferior al costo registrado del producto.
@@ -28,7 +28,7 @@ Ejemplo:
 Si el cliente pide una rebaja y hace falta negociar:
 
 - el bot puede ofrecer hasta aproximadamente 2%;
-- debe redondear siempre a una centena cerrada;
+- si se trata de un celular, debe redondear a una centena cerrada;
 - puede mantener las regalías/promociones de accesorios.
 
 Ejemplo: L 10,000 → L 9,800.
@@ -39,10 +39,10 @@ Si el cliente insiste:
 
 - retirar las regalías/promociones;
 - el bot o vendedor puede negociar hasta 3%;
-- mantener siempre el precio final en centenas cerradas;
+- en celulares, mantener siempre el precio final en centenas cerradas;
 - intentar cerrar la venta antes de escalar.
 
-El sistema debe escoger una centena que no exceda el 3% real. Por ejemplo, si el cálculo exacto cae entre dos centenas, usar la que mantenga el descuento dentro del límite.
+Para celulares, el sistema debe escoger una centena que no exceda el 3% real. Por ejemplo, si el cálculo exacto cae entre dos centenas, usar la que mantenga el descuento dentro del límite.
 
 ### Paso 3: excepción del propietario — hasta 4%
 
@@ -52,7 +52,8 @@ Si la venta está a punto de perderse y el cliente todavía pide más:
 - debe consultar al propietario;
 - la venta con ese tramo debe confirmarse desde una sesión Super Admin;
 - no puede llevar regalías/promociones normales;
-- el precio debe seguir siendo una centena cerrada y nunca quedar bajo costo.
+- si es un celular, el precio debe seguir siendo una centena cerrada;
+- ningún precio puede quedar bajo costo.
 
 Mensaje sugerido al cliente:
 
@@ -79,7 +80,7 @@ Las regalías normales son **accesorios**: por ejemplo funda, audífonos o carga
 
 El backend es la fuente de verdad y debe rechazar cualquier orden que viole estas reglas:
 
-- precio rebajado que no sea una centena cerrada;
+- celular rebajado cuyo precio no sea una centena cerrada;
 - descuento mayor al 2% cuando hay regalías;
 - descuento mayor al 3% para vendedor o integración automática;
 - descuento de hasta 4% sin una sesión Super Admin;
@@ -87,11 +88,24 @@ El backend es la fuente de verdad y debe rechazar cualquier orden que viole esta
 - precio inferior al costo registrado;
 - precio manual superior al precio de catálogo dentro de una orden;
 - celular marcado como regalo por un usuario normal;
-- manipulación de precio o costo al editar una orden existente.
+- manipulación de precio, costo o condición de regalo al editar una orden existente.
 
 La integración autenticada del bot puede usar los tramos automáticos de hasta 2%/3%, pero **nunca recibe automáticamente la facultad reservada al propietario**.
 
-## 5. Ejemplo de conversación
+La configuración de IA también está limitada técnicamente a un máximo automático de 3%. Las configuraciones históricas superiores se normalizan al iniciar el backend y se añade una regla canónica al final del contexto del bot. Esa regla prevalece sobre prompts antiguos o personalizados que pudieran mencionar porcentajes incompatibles.
+
+## 5. Edición de órdenes existentes
+
+Editar una orden no es un mecanismo para renegociar el precio:
+
+- el cliente/API no puede inyectar un nuevo precio, costo o bandera de regalo;
+- si el producto ya existía en la orden, se conserva su precio/regalía original hasta la cantidad que ya estaba pactada;
+- si se aumenta la cantidad, las unidades adicionales entran a precio de catálogo y sin regalías heredadas;
+- si se añade otro producto, entra a precio de catálogo y sin regalías heredadas.
+
+Esto evita tanto perder una condición comercial ya acordada como multiplicarla mediante una edición.
+
+## 6. Ejemplo de conversación
 
 **Cliente:** ¿Cuánto el iPhone?
 
@@ -109,6 +123,6 @@ La integración autenticada del bot puede usar los tramos automáticos de hasta 
 
 **Bot:** Para bajar de ese punto necesito autorización del propietario. Prefiero consultarlo antes de ofrecerte algo que no pueda respetar.
 
-## 6. Fuente de verdad
+## 7. Fuente de verdad
 
 Este documento describe el comportamiento esperado de negociación. La autorización final la impone el backend al crear la orden; una instrucción del prompt, del frontend o de una integración nunca puede sustituir esa validación.
