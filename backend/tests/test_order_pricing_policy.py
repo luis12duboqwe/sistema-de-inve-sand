@@ -45,6 +45,20 @@ def test_unauthenticated_manual_discount_is_rejected():
     assert "sin un usuario autenticado" in str(exc.value.detail)
 
 
+def test_unauthenticated_gift_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [
+                _item(),
+                _item(base="500.00", sale="500.00", cost="200.00", gift=True, category="accesorio"),
+            ],
+            current_user=None,
+        )
+
+    assert exc.value.status_code == 403
+    assert "No se puede autorizar la regalía" in str(exc.value.detail)
+
+
 def test_trusted_automation_can_use_three_percent_without_gifts():
     enforce_sale_price_policy(
         [_item(sale="9700.00")],
@@ -187,3 +201,25 @@ def test_sale_below_registered_cost_is_rejected():
 
     assert exc.value.status_code == 403
     assert "por debajo del costo registrado" in str(exc.value.detail)
+
+
+def test_zero_catalog_price_cannot_bypass_positive_cost_guard():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [_item(base="0.00", sale="0.00", cost="500.00")],
+            current_user=_user(owner=True),
+        )
+
+    assert exc.value.status_code == 403
+    assert "por debajo del costo registrado" in str(exc.value.detail)
+
+
+def test_negative_sale_price_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [_item(base="1000.00", sale="-1.00", cost="0.00", category="accesorio")],
+            current_user=_user(owner=True),
+        )
+
+    assert exc.value.status_code == 400
+    assert "Precio de venta inválido" in str(exc.value.detail)
