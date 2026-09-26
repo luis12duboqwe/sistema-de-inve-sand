@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.models import AIProfileConfig, SalesProfile
 from app.schemas import AIConfigSchema
-from app.utils.ai_sales_policy import POLICY_MARKER
+from app.utils.ai_sales_policy import (
+    CANONICAL_DISCOUNT_CONTEXT_RULE,
+    POLICY_MARKER,
+    ensure_canonical_discount_context_rules,
+)
 from app.utils.order_pricing import enforce_sale_price_policy
 from app.utils.pricing_policy_migration import (
     MIGRATION_ID,
@@ -37,6 +41,21 @@ def test_ai_config_schema_caps_new_configuration_at_three_percent():
         )
 
 
+def test_canonical_policy_preserves_custom_rules_before_and_after_existing_block():
+    raw = (
+        "Regla personalizada antes.\n\n"
+        f"{CANONICAL_DISCOUNT_CONTEXT_RULE}\n\n"
+        "Regla personalizada después."
+    )
+
+    normalized = ensure_canonical_discount_context_rules(raw)
+
+    assert "Regla personalizada antes." in normalized
+    assert "Regla personalizada después." in normalized
+    assert normalized.count(POLICY_MARKER) == 1
+    assert normalized.endswith(CANONICAL_DISCOUNT_CONTEXT_RULE)
+
+
 def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session: Session):
     sales_profile = SalesProfile(
         name="Bot histórico pricing",
@@ -51,7 +70,11 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     historical = AIProfileConfig(
         sales_profile_id=sales_profile.id,
         system_prompt="Prompt histórico que incluso pudo contener reglas viejas.",
-        context_rules="Conserva esta regla personalizada.",
+        context_rules=(
+            "Conserva esta regla personalizada antes.\n\n"
+            f"{CANONICAL_DISCOUNT_CONTEXT_RULE}\n\n"
+            "Conserva también esta regla personalizada después."
+        ),
         max_discount_rate=Decimal("0.1500"),
     )
     db_session.add(historical)
@@ -63,7 +86,8 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     migrated = db_session.query(AIProfileConfig).filter_by(id=historical.id).one()
     assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
     assert migrated.context_rules is not None
-    assert "Conserva esta regla personalizada." in migrated.context_rules
+    assert "Conserva esta regla personalizada antes." in migrated.context_rules
+    assert "Conserva también esta regla personalizada después." in migrated.context_rules
     assert migrated.context_rules.count(POLICY_MARKER) == 1
     rules_after_first_run = migrated.context_rules
 
