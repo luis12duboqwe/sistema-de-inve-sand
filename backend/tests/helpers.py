@@ -38,8 +38,10 @@ def seed_product(
     is_serialized: bool = True,
     categoria: str = "celular",
     costo: float = 500,
+    precio: float = 1000,
+    moneda: str = "Lps",
 ) -> dict[str, Any]:
-    """Crea un producto de prueba permitiendo ajustar stock, categoría, costo e IMEIs."""
+    """Crea un producto de prueba permitiendo ajustar stock, precios, moneda e IMEIs."""
 
     if is_serialized:
         imei_list = imei_values or ["111111111111111"]
@@ -59,9 +61,9 @@ def seed_product(
         "marca": "MarcaX",
         "modelo": "ModeloY",
         "condicion": "nuevo",
-        "precio": 1000,
+        "precio": precio,
         "costo": costo,
-        "moneda": "Lps",
+        "moneda": moneda,
         "garantia_meses": 12,
         "stock_inicial": stock_value,
         "initial_location_id": location_id,
