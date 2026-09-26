@@ -59,6 +59,7 @@ def enforce_sale_price_policy(
     perfil de venta antes de comparar el precio negociado.
 
     Reglas:
+    - un ítem cobrable debe tener precio de catálogo mayor a cero;
     - precio de catálogo como techo; no se permiten recargos manuales;
     - sin usuario autenticado ni automatización confiable no se aceptan descuentos
       ni regalías;
@@ -115,10 +116,13 @@ def enforce_sale_price_policy(
         sale_price = _money(getattr(item, "precio_unitario", 0))
         unit_cost = product_amount_in_hnl(getattr(product, "costo", 0), product, exchange_rate)
 
-        if base_price < Decimal("0.00"):
+        if base_price <= Decimal("0.00"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Precio de catálogo inválido para {product_label}",
+                detail=(
+                    f"El producto {product_label} no puede venderse como ítem normal con "
+                    "precio de catálogo 0.00. Corrija el catálogo o use el flujo de regalía autorizado."
+                ),
             )
 
         if unit_cost < Decimal("0.00"):
@@ -150,14 +154,6 @@ def enforce_sale_price_policy(
                     f"del costo registrado en HNL ({unit_cost:.2f})."
                 ),
             )
-
-        if base_price == Decimal("0.00"):
-            if sale_price != Decimal("0.00"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"El producto {product_label} tiene precio de catálogo 0.00",
-                )
-            continue
 
         if (
             product_category == "celular"
