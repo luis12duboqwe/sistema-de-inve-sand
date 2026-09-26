@@ -55,6 +55,7 @@ from app.utils.demo_seed import seed_demo_data
 from app.utils.logging_config import setup_logging
 from app.utils.observability import initialize_observability
 from app.utils.order_integrity import install_order_integrity_guards
+from app.utils.pricing_policy_migration import run_pricing_policy_migration
 from app.utils.prometheus_metrics import (
     RATE_LIMIT_BLOCK_TOTAL,
     REQUEST_LATENCY_SECONDS,
@@ -97,6 +98,7 @@ async def lifespan(app: FastAPI):
     with startup_schema_lock():
         init_db()
         run_auto_migrations()
+        run_pricing_policy_migration()
 
     app.state.forecast_cache = None
 
