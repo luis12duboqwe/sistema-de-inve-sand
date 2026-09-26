@@ -22,11 +22,19 @@ CANONICAL_DISCOUNT_CONTEXT_RULE = (
 
 
 def ensure_canonical_discount_context_rules(value: object | None) -> str:
-    """Append exactly one canonical policy block after any custom context rules."""
+    """Append exactly one canonical block while preserving all custom instructions.
+
+    Previous implementations truncated everything after the first policy marker. We
+    instead remove only the exact generated canonical block; custom text before or
+    after it survives normalization. A lone marker left by a malformed/old writer is
+    removed without discarding adjacent custom content.
+    """
 
     raw = str(value or "").strip()
-    if POLICY_MARKER in raw:
-        raw = raw.split(POLICY_MARKER, 1)[0].rstrip()
+    if raw:
+        raw = raw.replace(CANONICAL_DISCOUNT_CONTEXT_RULE, "")
+        raw = raw.replace(POLICY_MARKER, "")
+        raw = "\n".join(line.rstrip() for line in raw.splitlines()).strip()
 
     if not raw:
         return CANONICAL_DISCOUNT_CONTEXT_RULE
