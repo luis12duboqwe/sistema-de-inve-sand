@@ -55,7 +55,7 @@ def enforce_sale_price_policy(
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
     - sin usuario autenticado ni automatización confiable no se aceptan descuentos;
-    - todo precio rebajado debe quedar en centenas cerradas;
+    - todo celular rebajado debe quedar en centenas cerradas;
     - hasta 2% de descuento es automático, incluso con regalos/promociones;
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
     - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
@@ -82,10 +82,11 @@ def enforce_sale_price_policy(
             )
 
         product_label = str(getattr(product, "nombre", None) or getattr(product, "sku", None) or "producto")
+        product_category = _category_value(product)
         is_gift = bool(getattr(item, "es_regalo_promocion", False))
 
         if is_gift:
-            if _category_value(product) != "accesorio" and not owner_approved:
+            if product_category != "accesorio" and not owner_approved:
                 raise HTTPException(
                     status_code=403,
                     detail=(
@@ -131,7 +132,11 @@ def enforce_sale_price_policy(
                 ),
             )
 
-        if sale_price != base_price and sale_price % HUNDRED != Decimal("0.00"):
+        if (
+            product_category == "celular"
+            and sale_price != base_price
+            and sale_price % HUNDRED != Decimal("0.00")
+        ):
             raise HTTPException(
                 status_code=400,
                 detail=(
