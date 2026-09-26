@@ -7,11 +7,20 @@ from fastapi import HTTPException
 from app.utils.order_pricing import enforce_sale_price_policy
 
 
-def _item(*, base: str = "10000.00", sale: str = "10000.00", gift: bool = False):
+def _item(
+    *,
+    base: str = "10000.00",
+    sale: str = "10000.00",
+    cost: str = "7000.00",
+    gift: bool = False,
+    category: str = "celular",
+):
     product = SimpleNamespace(
         precio=Decimal(base),
-        nombre="iPhone de prueba",
+        costo=Decimal(cost),
+        nombre="Producto de prueba",
         sku="TEST-001",
+        categoria=category,
     )
     return SimpleNamespace(
         product=product,
@@ -36,11 +45,11 @@ def test_unauthenticated_manual_discount_is_rejected():
     assert "sin un usuario autenticado" in str(exc.value.detail)
 
 
-def test_two_percent_discount_is_allowed_with_gift():
+def test_two_percent_discount_is_allowed_with_accessory_gift():
     enforce_sale_price_policy(
         [
             _item(sale="9800.00"),
-            _item(base="500.00", sale="500.00", gift=True),
+            _item(base="500.00", sale="500.00", cost="200.00", gift=True, category="accesorio"),
         ],
         current_user=_user(),
     )
@@ -51,13 +60,37 @@ def test_more_than_two_percent_is_rejected_when_order_has_gift():
         enforce_sale_price_policy(
             [
                 _item(sale="9700.00"),
-                _item(base="500.00", sale="500.00", gift=True),
+                _item(base="500.00", sale="500.00", cost="200.00", gift=True, category="accesorio"),
             ],
             current_user=_user(),
         )
 
     assert exc.value.status_code == 403
     assert "solo admite hasta 2%" in str(exc.value.detail)
+
+
+def test_phone_cannot_be_marked_as_gift_by_regular_user():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [
+                _item(),
+                _item(gift=True, category="celular"),
+            ],
+            current_user=_user(),
+        )
+
+    assert exc.value.status_code == 403
+    assert "regalías normales deben ser accesorios" in str(exc.value.detail)
+
+
+def test_owner_can_authorize_extraordinary_phone_gift():
+    enforce_sale_price_policy(
+        [
+            _item(),
+            _item(gift=True, category="celular"),
+        ],
+        current_user=_user(owner=True),
+    )
 
 
 def test_three_percent_discount_is_allowed_without_gifts():
@@ -109,3 +142,14 @@ def test_manual_price_above_catalog_is_rejected():
 
     assert exc.value.status_code == 400
     assert "no puede superar el precio de catálogo" in str(exc.value.detail)
+
+
+def test_sale_below_registered_cost_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [_item(base="100.00", sale="96.00", cost="98.00")],
+            current_user=_user(owner=True),
+        )
+
+    assert exc.value.status_code == 403
+    assert "por debajo del costo registrado" in str(exc.value.detail)
