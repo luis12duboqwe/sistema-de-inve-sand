@@ -36,6 +36,13 @@ def _is_owner_approval(current_user: Optional[User]) -> bool:
     return bool(current_user and getattr(current_user, "is_superuser", False))
 
 
+def _category_value(product: Any) -> str:
+    category = getattr(product, "categoria", "")
+    if hasattr(category, "value"):
+        category = category.value
+    return str(category or "").strip().lower()
+
+
 def enforce_sale_price_policy(
     items: Sequence[Any],
     *,
@@ -50,20 +57,20 @@ def enforce_sale_price_policy(
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
     - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
       representada por una sesión Super Admin;
-    - más de 4% nunca se acepta desde el POS normal.
+    - más de 4% nunca se acepta desde el POS normal;
+    - un regalo normal debe ser un accesorio; regalar un celular requiere
+      aprobación extraordinaria del propietario (Super Admin);
+    - una venta normal nunca puede quedar por debajo del costo registrado.
 
-    Los ítems marcados como regalo/promoción no aportan al total de la orden y
-    se excluyen del cálculo de descuento, aunque su presencia limita la rebaja
-    de los productos cobrados al tramo automático del 2%.
+    Los ítems marcados como regalo/promoción no aportan al total de la orden.
+    Su presencia limita la rebaja de los productos cobrados al tramo automático
+    del 2%.
     """
 
     has_gifts = any(bool(getattr(item, "es_regalo_promocion", False)) for item in items)
     owner_approved = _is_owner_approval(current_user)
 
     for item in items:
-        if bool(getattr(item, "es_regalo_promocion", False)):
-            continue
-
         product = getattr(item, "product", None)
         if product is None:
             raise HTTPException(
@@ -71,9 +78,23 @@ def enforce_sale_price_policy(
                 detail="No se pudo validar el precio: el producto no está disponible",
             )
 
+        product_label = str(getattr(product, "nombre", None) or getattr(product, "sku", None) or "producto")
+        is_gift = bool(getattr(item, "es_regalo_promocion", False))
+
+        if is_gift:
+            if _category_value(product) != "accesorio" and not owner_approved:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"{product_label} no puede marcarse como regalo/promoción. "
+                        "Las regalías normales deben ser accesorios; una excepción requiere aprobación del propietario."
+                    ),
+                )
+            continue
+
         base_price = _money(getattr(product, "precio", 0))
         sale_price = _money(getattr(item, "precio_unitario", 0))
-        product_label = str(getattr(product, "nombre", None) or getattr(product, "sku", None) or "producto")
+        unit_cost = _money(getattr(product, "costo", 0))
 
         if base_price < Decimal("0.00"):
             raise HTTPException(
@@ -97,6 +118,15 @@ def enforce_sale_price_policy(
                     detail=f"El producto {product_label} tiene precio de catálogo 0.00",
                 )
             continue
+
+        if sale_price < unit_cost:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"El precio de {product_label} ({sale_price:.2f}) no puede quedar por debajo "
+                    f"del costo registrado ({unit_cost:.2f})."
+                ),
+            )
 
         if current_user is None and sale_price != base_price:
             raise HTTPException(
