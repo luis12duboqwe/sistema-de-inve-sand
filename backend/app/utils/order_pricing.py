@@ -12,6 +12,7 @@ from typing import Any, Optional, Sequence
 from fastapi import HTTPException
 
 from app.models import User
+from app.utils.order_currency import DEFAULT_HNL_PER_USD, product_amount_in_hnl
 
 CENT = Decimal("0.01")
 HUNDRED = Decimal("100.00")
@@ -49,8 +50,13 @@ def enforce_sale_price_policy(
     *,
     current_user: Optional[User],
     trusted_automation: bool = False,
+    exchange_rate: Decimal = DEFAULT_HNL_PER_USD,
 ) -> None:
     """Valida precios de venta contra la escalera comercial de Softmobile.
+
+    Todas las comparaciones financieras se realizan en HNL. Para productos
+    catalogados en USD, precio de catálogo y costo se convierten con la tasa del
+    perfil de venta antes de comparar el precio negociado.
 
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
@@ -105,9 +111,9 @@ def enforce_sale_price_policy(
                 )
             continue
 
-        base_price = _money(getattr(product, "precio", 0))
+        base_price = product_amount_in_hnl(getattr(product, "precio", 0), product, exchange_rate)
         sale_price = _money(getattr(item, "precio_unitario", 0))
-        unit_cost = _money(getattr(product, "costo", 0))
+        unit_cost = product_amount_in_hnl(getattr(product, "costo", 0), product, exchange_rate)
 
         if base_price < Decimal("0.00"):
             raise HTTPException(
@@ -132,7 +138,7 @@ def enforce_sale_price_policy(
                 status_code=400,
                 detail=(
                     f"El precio de {product_label} no puede superar el precio de catálogo "
-                    f"({base_price:.2f}) desde una orden. Actualice el precio del producto primero."
+                    f"en HNL ({base_price:.2f}) desde una orden. Actualice el precio del producto primero."
                 ),
             )
 
@@ -141,7 +147,7 @@ def enforce_sale_price_policy(
                 status_code=403,
                 detail=(
                     f"El precio de {product_label} ({sale_price:.2f}) no puede quedar por debajo "
-                    f"del costo registrado ({unit_cost:.2f})."
+                    f"del costo registrado en HNL ({unit_cost:.2f})."
                 ),
             )
 
@@ -190,12 +196,12 @@ def enforce_sale_price_policy(
         if sale_price < owner_floor:
             detail = (
                 f"El descuento de {product_label} supera el máximo permitido del 4%. "
-                f"Precio mínimo: {owner_floor:.2f}."
+                f"Precio mínimo en HNL: {owner_floor:.2f}."
             )
         elif has_gifts:
             detail = (
                 f"Con regalos/promociones, {product_label} solo admite hasta 2% de descuento. "
-                f"Precio mínimo: {automatic_floor:.2f}."
+                f"Precio mínimo en HNL: {automatic_floor:.2f}."
             )
         else:
             detail = (
