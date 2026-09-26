@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.utils.ai_sales_policy import (
+    MAX_AUTOMATED_DISCOUNT_RATE,
+    ensure_canonical_discount_context_rules,
+)
 
 
 class AIContextRequest(BaseModel):
@@ -88,8 +93,17 @@ class AIConfigSchema(BaseModel):
     business_description: Optional[str] = None
     sales_goal: Optional[str] = None
     negotiation_style: Optional[str] = None
-    max_discount_rate: Optional[float] = Field(default=0.0, ge=0.0, le=0.03)
+    max_discount_rate: Optional[float] = Field(
+        default=0.0,
+        ge=0.0,
+        le=MAX_AUTOMATED_DISCOUNT_RATE,
+    )
     fallback_human_trigger: Optional[str] = None
+
+    @model_validator(mode="after")
+    def append_canonical_sales_policy(self):
+        self.context_rules = ensure_canonical_discount_context_rules(self.context_rules)
+        return self
 
     model_config = ConfigDict(from_attributes=True)
 
