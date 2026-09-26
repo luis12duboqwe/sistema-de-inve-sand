@@ -110,6 +110,17 @@ def resolve_user_label(
     return fallback
 
 
+def _is_trusted_automated_sales_profile(sales_profile: Optional[SalesProfile]) -> bool:
+    """Identifica perfiles que representan una integración de venta automatizada."""
+
+    if sales_profile is None:
+        return False
+    profile_type = getattr(sales_profile, "tipo", None)
+    if hasattr(profile_type, "value"):
+        profile_type = profile_type.value
+    return str(profile_type or "").strip().lower() in {"bot_ia", "sistema_automatico"}
+
+
 class OrderService:
     """Orquesta la creación de órdenes aplicando las validaciones V2.0."""
 
@@ -166,7 +177,13 @@ class OrderService:
                 allow_pending_imei=False,
             )
             self._ensure_not_only_gifts(sale_batch)
-            enforce_sale_price_policy(sale_batch.items, current_user=current_user)
+            enforce_sale_price_policy(
+                sale_batch.items,
+                current_user=current_user,
+                trusted_automation=(
+                    current_user is None and _is_trusted_automated_sales_profile(sales_profile)
+                ),
+            )
 
             trade_in_total = self.stock_helper.process_trade_ins(
                 trade_ins_payload=order.trade_ins,
