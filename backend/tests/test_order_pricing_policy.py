@@ -28,6 +28,14 @@ def test_catalog_price_is_allowed():
     enforce_sale_price_policy([_item()], current_user=_user())
 
 
+def test_unauthenticated_manual_discount_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy([_item(sale="9800.00")], current_user=None)
+
+    assert exc.value.status_code == 403
+    assert "sin un usuario autenticado" in str(exc.value.detail)
+
+
 def test_two_percent_discount_is_allowed_with_gift():
     enforce_sale_price_policy(
         [
