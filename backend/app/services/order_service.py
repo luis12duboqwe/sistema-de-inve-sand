@@ -158,7 +158,7 @@ class OrderService:
                 sales_profile_slug=order.sales_profile_slug,
                 profile_slug=order.profile_slug,
             )
-            exchange_rate = resolve_exchange_rate(sales_profile)
+            exchange_rate = resolve_exchange_rate(sales_profile or legacy_profile)
 
             location, customer_phone_str = validate_location_and_phone(
                 db=self.db,
