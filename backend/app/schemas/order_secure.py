@@ -1,9 +1,9 @@
 """Esquemas endurecidos para edición de órdenes.
 
-La edición operativa permite cambiar productos, cantidades e IMEIs, pero no
-acepta precio, costo ni condición de regalo/promoción inyectados por el cliente.
-Los precios se reconstruyen siempre desde el catálogo del backend. Los descuentos
-y regalías se autorizan al crear la venta, donde pasan por la política central.
+La edición operativa permite cambiar productos, cantidades e IMEIs. Los campos
+financieros enviados por clientes antiguos se aceptan por compatibilidad pero se
+neutralizan antes de entrar al flujo de stock. El endpoint canónico reconstruye
+los términos válidos desde la orden persistida y el catálogo del backend.
 """
 
 from __future__ import annotations
@@ -17,24 +17,16 @@ from .order import OrderUpdate as BaseOrderUpdate
 
 
 class OrderItemUpdate(BaseOrderItemUpdate):
-    """Ítem editable sin capacidad de alterar precio, costo o regalías."""
+    """Ítem editable cuyos overrides financieros del cliente no tienen efecto."""
 
     @model_validator(mode="after")
-    def reject_client_financial_overrides(self):
-        if self.precio_unitario is not None:
-            raise ValueError(
-                "precio_unitario no puede modificarse al editar una orden; "
-                "el backend usa el precio vigente de catálogo"
-            )
-        if self.costo_unitario is not None:
-            raise ValueError(
-                "costo_unitario no puede modificarse desde la edición de órdenes"
-            )
-        if self.es_regalo_promocion:
-            raise ValueError(
-                "es_regalo_promocion no puede activarse al editar una orden; "
-                "las regalías deben autorizarse al crear la venta"
-            )
+    def neutralize_client_financial_overrides(self):
+        # Compatibilidad: clientes antiguos todavía pueden enviar estos campos.
+        # No fallamos la petición, pero tampoco permitimos que controlen el precio,
+        # el costo o la condición de regalo de la orden persistida.
+        self.precio_unitario = None
+        self.costo_unitario = None
+        self.es_regalo_promocion = False
         return self
 
 
