@@ -11,16 +11,17 @@ so all competing operations use the same Order -> Stock lock order.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import UTC, datetime
 import logging
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import check_permission
 from app.database import get_db
-from app.models import Order, Return, User
+from app.models import Order, OrderItem, Return, User
 from app.routers.orders import (
     FINAL_ORDER_STATUSES,
     _finalize_order_stock,
@@ -36,6 +37,94 @@ from app.utils.location_access import require_location_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+
+class _OrderUpdateProxy:
+    """Expose a validated OrderUpdate while replacing only its internal item payload."""
+
+    def __init__(self, base: OrderUpdate, items: Sequence[dict[str, Any]]) -> None:
+        self._base = base
+        self.items = list(items)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+
+def _build_financially_safe_edit_items(
+    current_items: Sequence[OrderItem],
+    requested_items: Sequence[Any],
+) -> list[dict[str, Any]]:
+    """Preserve existing commercial terms without allowing an edit to expand them.
+
+    The public edit schema rejects price/cost/gift overrides. This helper restores
+    the already-persisted price and gift flag only for the quantity that existed in
+    the order before the edit. If quantity grows, the additional units are prepared
+    as new catalog-price, non-gift units. This keeps a legitimate historical discount
+    or gift intact while preventing a quantity edit from multiplying the benefit.
+    """
+
+    pools: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for item in current_items:
+        pools[int(item.product_id)].append(
+            {
+                "remaining": int(item.cantidad),
+                "precio_unitario": item.precio_unitario,
+                "es_regalo_promocion": bool(item.es_regalo_promocion),
+            }
+        )
+
+    safe_items: list[dict[str, Any]] = []
+
+    for requested in requested_items:
+        product_id = int(getattr(requested, "product_id"))
+        quantity = int(getattr(requested, "cantidad"))
+        requested_imeis = list(getattr(requested, "imeis", None) or [])
+        imei_cursor = 0
+        remaining_requested = quantity
+
+        for previous in pools.get(product_id, []):
+            if remaining_requested <= 0:
+                break
+            previous_remaining = int(previous["remaining"])
+            if previous_remaining <= 0:
+                continue
+
+            retained_quantity = min(remaining_requested, previous_remaining)
+            retained_imeis = (
+                requested_imeis[imei_cursor:imei_cursor + retained_quantity]
+                if requested_imeis
+                else None
+            )
+            safe_items.append(
+                {
+                    "product_id": product_id,
+                    "cantidad": retained_quantity,
+                    "precio_unitario": previous["precio_unitario"],
+                    "es_regalo_promocion": previous["es_regalo_promocion"],
+                    "imeis": retained_imeis,
+                }
+            )
+            previous["remaining"] = previous_remaining - retained_quantity
+            remaining_requested -= retained_quantity
+            imei_cursor += retained_quantity
+
+        if remaining_requested > 0:
+            additional_imeis = (
+                requested_imeis[imei_cursor:imei_cursor + remaining_requested]
+                if requested_imeis
+                else None
+            )
+            safe_items.append(
+                {
+                    "product_id": product_id,
+                    "cantidad": remaining_requested,
+                    "precio_unitario": None,
+                    "es_regalo_promocion": False,
+                    "imeis": additional_imeis,
+                }
+            )
+
+    return safe_items
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
@@ -134,7 +223,7 @@ def update_order_canonical(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit")),
 ):
-    """Serialize order detail edits with cancellation/completion before stock changes."""
+    """Serialize order detail edits and preserve only pre-existing commercial terms."""
     # The legacy edit implementation contains the mature item/IMEI/payment logic but
     # historically read Order without a row lock and then locked Stock. Acquiring the
     # parent lock first prevents Stock->Order / Order->Stock deadlocks and stale edits
@@ -148,11 +237,22 @@ def update_order_canonical(
     if not order:
         raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
 
+    effective_updates: Any = updates
+    if updates.items is not None:
+        current_items = (
+            db.query(OrderItem)
+            .filter(OrderItem.order_id == order_id)
+            .order_by(OrderItem.id.asc())
+            .all()
+        )
+        safe_items = _build_financially_safe_edit_items(current_items, updates.items)
+        effective_updates = _OrderUpdateProxy(updates, safe_items)
+
     # Reuse the existing handler on the same Session while this transaction still
     # owns the Order lock. It revalidates status/location and performs stock changes.
     return _legacy_update_order(
         order_id=order_id,
-        updates=updates,
+        updates=effective_updates,
         db=db,
         current_user=current_user,
     )
