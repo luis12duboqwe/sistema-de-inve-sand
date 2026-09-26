@@ -25,6 +25,7 @@ from app.services.stock_transaction_helper import (
     StockTransactionHelper,
 )
 from app.utils.order_financing import compute_financing_from_payload
+from app.utils.order_pricing import enforce_sale_price_policy
 from app.utils.order_validators import (
     resolve_sales_profile,
     validate_location_and_phone,
@@ -165,6 +166,7 @@ class OrderService:
                 allow_pending_imei=False,
             )
             self._ensure_not_only_gifts(sale_batch)
+            enforce_sale_price_policy(sale_batch.items, current_user=current_user)
 
             trade_in_total = self.stock_helper.process_trade_ins(
                 trade_ins_payload=order.trade_ins,
