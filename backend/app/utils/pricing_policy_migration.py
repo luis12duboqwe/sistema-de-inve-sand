@@ -15,12 +15,15 @@ import sqlite3
 from sqlalchemy import inspect, text
 
 import app.database as database
+from app.utils.ai_sales_policy import (
+    MAX_AUTOMATED_DISCOUNT_RATE,
+    ensure_canonical_discount_context_rules,
+)
 
 
 logger = logging.getLogger(__name__)
 
-MIGRATION_ID = "20260925_01_ai_discount_policy_cap"
-MAX_AUTOMATED_DISCOUNT = 0.03
+MIGRATION_ID = "20260925_02_ai_discount_policy_cap_and_context"
 
 
 def _backup_sqlite_if_needed() -> Path | None:
@@ -48,7 +51,7 @@ def _backup_sqlite_if_needed() -> Path | None:
 
 
 def run_pricing_policy_migration() -> bool:
-    """Clamp historical AI discount configuration to the automated 3% ceiling."""
+    """Normalize historical AI discount settings and append the canonical rule."""
 
     engine = database.engine
     dialect = engine.dialect.name
@@ -87,14 +90,14 @@ def run_pricing_policy_migration() -> bool:
     _backup_sqlite_if_needed()
 
     with engine.begin() as conn:
-        result = conn.execute(
+        capped = conn.execute(
             text(
                 "UPDATE ai_profile_configs "
                 "SET max_discount_rate = :max_discount "
                 "WHERE max_discount_rate IS NOT NULL "
                 "AND max_discount_rate > :max_discount"
             ),
-            {"max_discount": MAX_AUTOMATED_DISCOUNT},
+            {"max_discount": MAX_AUTOMATED_DISCOUNT_RATE},
         )
         conn.execute(
             text(
@@ -102,6 +105,23 @@ def run_pricing_policy_migration() -> bool:
                 "WHERE max_discount_rate IS NOT NULL AND max_discount_rate < 0"
             )
         )
+
+        rows = conn.execute(
+            text("SELECT id, context_rules FROM ai_profile_configs ORDER BY id")
+        ).mappings().all()
+        for row in rows:
+            normalized_rules = ensure_canonical_discount_context_rules(row["context_rules"])
+            if normalized_rules != str(row["context_rules"] or ""):
+                conn.execute(
+                    text(
+                        "UPDATE ai_profile_configs SET context_rules = :context_rules "
+                        "WHERE id = :config_id"
+                    ),
+                    {
+                        "context_rules": normalized_rules,
+                        "config_id": int(row["id"]),
+                    },
+                )
 
         if dialect == "sqlite":
             ledger_sql = (
@@ -116,10 +136,10 @@ def run_pricing_policy_migration() -> bool:
 
     logger.info(
         "Normalización de descuentos IA aplicada; %s configuraciones históricas fueron limitadas a %.2f%%",
-        max(int(result.rowcount or 0), 0),
-        MAX_AUTOMATED_DISCOUNT * 100,
+        max(int(capped.rowcount or 0), 0),
+        MAX_AUTOMATED_DISCOUNT_RATE * 100,
     )
     return True
 
 
-__all__ = ["MAX_AUTOMATED_DISCOUNT", "MIGRATION_ID", "run_pricing_policy_migration"]
+__all__ = ["MIGRATION_ID", "run_pricing_policy_migration"]
