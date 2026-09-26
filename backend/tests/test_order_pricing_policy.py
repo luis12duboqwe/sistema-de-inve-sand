@@ -79,7 +79,7 @@ def test_more_than_two_percent_is_rejected_when_order_has_gift():
     with pytest.raises(HTTPException) as exc:
         enforce_sale_price_policy(
             [
-                _item(sale="9700.00"),
+                _item(base="20000.00", sale="19400.00", cost="14000.00"),
                 _item(base="500.00", sale="500.00", cost="200.00", gift=True, category="accesorio"),
             ],
             current_user=_user(),
@@ -119,7 +119,10 @@ def test_three_percent_discount_is_allowed_without_gifts():
 
 def test_discount_above_three_percent_requires_owner():
     with pytest.raises(HTTPException) as exc:
-        enforce_sale_price_policy([_item(sale="9699.00")], current_user=_user())
+        enforce_sale_price_policy(
+            [_item(base="20000.00", sale="19300.00", cost="14000.00")],
+            current_user=_user(),
+        )
 
     assert exc.value.status_code == 403
     assert "requiere aprobación del propietario" in str(exc.value.detail)
@@ -145,12 +148,23 @@ def test_four_percent_discount_is_rejected_for_non_owner():
 def test_discount_above_four_percent_is_rejected_even_for_owner():
     with pytest.raises(HTTPException) as exc:
         enforce_sale_price_policy(
-            [_item(sale="9599.00")],
+            [_item(base="20000.00", sale="19000.00", cost="14000.00")],
             current_user=_user(owner=True),
         )
 
     assert exc.value.status_code == 403
     assert "máximo permitido del 4%" in str(exc.value.detail)
+
+
+def test_discounted_price_must_be_closed_hundred():
+    with pytest.raises(HTTPException) as exc:
+        enforce_sale_price_policy(
+            [_item(base="22000.00", sale="21560.00", cost="15000.00")],
+            current_user=_user(),
+        )
+
+    assert exc.value.status_code == 400
+    assert "centena cerrada" in str(exc.value.detail)
 
 
 def test_manual_price_above_catalog_is_rejected():
