@@ -40,6 +40,7 @@ def seed_product(
     costo: float = 500,
     precio: float = 1000,
     moneda: str = "Lps",
+    sku: str = "TEST-DEVICE-001",
 ) -> dict[str, Any]:
     """Crea un producto de prueba permitiendo ajustar stock, precios, moneda e IMEIs."""
 
@@ -55,7 +56,7 @@ def seed_product(
         stock_value = stock_inicial
 
     payload = {
-        "sku": "TEST-DEVICE-001",
+        "sku": sku,
         "nombre": "Telefono Test",
         "categoria": categoria,
         "marca": "MarcaX",
