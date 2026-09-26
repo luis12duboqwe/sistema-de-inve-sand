@@ -203,15 +203,16 @@ def test_sale_below_registered_cost_is_rejected():
     assert "por debajo del costo registrado" in str(exc.value.detail)
 
 
-def test_zero_catalog_price_cannot_bypass_positive_cost_guard():
+@pytest.mark.parametrize("cost", ["0.00", "500.00"])
+def test_zero_catalog_price_cannot_be_sold_as_regular_item(cost: str):
     with pytest.raises(HTTPException) as exc:
         enforce_sale_price_policy(
-            [_item(base="0.00", sale="0.00", cost="500.00")],
+            [_item(base="0.00", sale="0.00", cost=cost)],
             current_user=_user(owner=True),
         )
 
-    assert exc.value.status_code == 403
-    assert "por debajo del costo registrado" in str(exc.value.detail)
+    assert exc.value.status_code == 400
+    assert "precio de catálogo 0.00" in str(exc.value.detail)
 
 
 def test_negative_sale_price_is_rejected():
