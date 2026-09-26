@@ -54,7 +54,8 @@ def enforce_sale_price_policy(
 
     Reglas:
     - precio de catálogo como techo; no se permiten recargos manuales;
-    - sin usuario autenticado ni automatización confiable no se aceptan descuentos;
+    - sin usuario autenticado ni automatización confiable no se aceptan descuentos
+      ni regalías;
     - todo celular rebajado debe quedar en centenas cerradas;
     - hasta 2% de descuento es automático, incluso con regalos/promociones;
     - hasta 3% solo cuando la orden no incluye regalos/promociones;
@@ -86,6 +87,14 @@ def enforce_sale_price_policy(
         is_gift = bool(getattr(item, "es_regalo_promocion", False))
 
         if is_gift:
+            if current_user is None and not trusted_automation:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"No se puede autorizar la regalía {product_label} sin un usuario autenticado "
+                        "o una integración de venta confiable."
+                    ),
+                )
             if product_category != "accesorio" and not owner_approved:
                 raise HTTPException(
                     status_code=403,
@@ -106,12 +115,33 @@ def enforce_sale_price_policy(
                 detail=f"Precio de catálogo inválido para {product_label}",
             )
 
+        if unit_cost < Decimal("0.00"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Costo registrado inválido para {product_label}",
+            )
+
+        if sale_price < Decimal("0.00"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Precio de venta inválido para {product_label}",
+            )
+
         if sale_price > base_price:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     f"El precio de {product_label} no puede superar el precio de catálogo "
                     f"({base_price:.2f}) desde una orden. Actualice el precio del producto primero."
+                ),
+            )
+
+        if sale_price < unit_cost:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"El precio de {product_label} ({sale_price:.2f}) no puede quedar por debajo "
+                    f"del costo registrado ({unit_cost:.2f})."
                 ),
             )
 
@@ -122,15 +152,6 @@ def enforce_sale_price_policy(
                     detail=f"El producto {product_label} tiene precio de catálogo 0.00",
                 )
             continue
-
-        if sale_price < unit_cost:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"El precio de {product_label} ({sale_price:.2f}) no puede quedar por debajo "
-                    f"del costo registrado ({unit_cost:.2f})."
-                ),
-            )
 
         if (
             product_category == "celular"
