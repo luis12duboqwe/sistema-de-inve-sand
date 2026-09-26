@@ -22,6 +22,7 @@ def test_order_update_accepts_operational_item_fields_without_price():
     assert update.items[0].cantidad == 2
     assert update.items[0].precio_unitario is None
     assert update.items[0].costo_unitario is None
+    assert update.items[0].es_regalo_promocion is False
 
 
 def test_order_update_rejects_client_supplied_unit_price():
@@ -56,3 +57,20 @@ def test_order_update_rejects_client_supplied_unit_cost():
         )
 
     assert "costo_unitario no puede modificarse" in str(exc.value)
+
+
+def test_order_update_rejects_gift_flag_injection():
+    with pytest.raises(ValidationError) as exc:
+        OrderUpdate.model_validate(
+            {
+                "items": [
+                    {
+                        "product_id": 10,
+                        "cantidad": 1,
+                        "es_regalo_promocion": True,
+                    }
+                ]
+            }
+        )
+
+    assert "es_regalo_promocion no puede activarse" in str(exc.value)
