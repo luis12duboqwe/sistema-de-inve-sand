@@ -129,6 +129,21 @@ def _build_financially_safe_edit_items(
     return safe_items
 
 
+def _ensure_edit_has_regular_item(safe_items: Sequence[dict[str, Any]]) -> None:
+    """An edit may preserve gifts, but it may never leave a gift-only order."""
+
+    if safe_items and not any(
+        not bool(item.get("es_regalo_promocion", False)) for item in safe_items
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "La orden debe conservar al menos un producto con valor. "
+                "No se puede editar una orden para dejar únicamente regalos/promociones."
+            ),
+        )
+
+
 def _normalize_new_edit_items_to_hnl(
     db: Session,
     *,
@@ -296,6 +311,7 @@ def update_order_canonical(
             .all()
         )
         safe_items = _build_financially_safe_edit_items(current_items, updates.items)
+        _ensure_edit_has_regular_item(safe_items)
         _normalize_new_edit_items_to_hnl(db, order=order, safe_items=safe_items)
         effective_updates = _OrderUpdateProxy(updates, safe_items)
 
