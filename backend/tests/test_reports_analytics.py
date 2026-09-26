@@ -164,6 +164,7 @@ def test_sales_report_allocates_legacy_refund_once_across_duplicate_product_line
         stock_inicial=3,
         is_serialized=False,
         categoria="accesorio",
+        costo=50,
     )
 
     order_payload = {
