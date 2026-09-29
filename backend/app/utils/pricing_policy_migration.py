@@ -9,6 +9,7 @@ above the automated ceiling or removes the canonical AI context rule.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 import logging
 import sqlite3
@@ -51,6 +52,48 @@ def _backup_sqlite_if_needed() -> Path | None:
     return destination
 
 
+def _normalize_ai_configs() -> int:
+    """Enforce the invariant through the configured ORM session.
+
+    Using ``SessionLocal`` keeps the data migration on the exact application/test
+    database binding and avoids subtle connection/search-path drift while remaining
+    fully idempotent.
+    """
+
+    from app.models import AIProfileConfig
+
+    session = database.SessionLocal()
+    capped_count = 0
+    try:
+        configs = session.query(AIProfileConfig).order_by(AIProfileConfig.id.asc()).all()
+        max_discount = Decimal(str(MAX_AUTOMATED_DISCOUNT_RATE))
+        zero = Decimal("0")
+
+        for config in configs:
+            current_discount = (
+                Decimal(str(config.max_discount_rate))
+                if config.max_discount_rate is not None
+                else zero
+            )
+            if current_discount > max_discount:
+                config.max_discount_rate = max_discount
+                capped_count += 1
+            elif current_discount < zero:
+                config.max_discount_rate = zero
+
+            normalized_rules = ensure_canonical_discount_context_rules(config.context_rules)
+            if normalized_rules != str(config.context_rules or ""):
+                config.context_rules = normalized_rules
+
+        session.commit()
+        return capped_count
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def run_pricing_policy_migration() -> bool:
     """Normalize AI discount settings and continuously enforce the canonical rule."""
 
@@ -90,40 +133,9 @@ def run_pricing_policy_migration() -> bool:
     if not already_applied:
         _backup_sqlite_if_needed()
 
+    capped_count = _normalize_ai_configs()
+
     with engine.begin() as conn:
-        capped = conn.execute(
-            text(
-                "UPDATE ai_profile_configs "
-                "SET max_discount_rate = :max_discount "
-                "WHERE max_discount_rate IS NOT NULL "
-                "AND max_discount_rate > :max_discount"
-            ),
-            {"max_discount": MAX_AUTOMATED_DISCOUNT_RATE},
-        )
-        conn.execute(
-            text(
-                "UPDATE ai_profile_configs SET max_discount_rate = 0 "
-                "WHERE max_discount_rate IS NOT NULL AND max_discount_rate < 0"
-            )
-        )
-
-        rows = conn.execute(
-            text("SELECT id, context_rules FROM ai_profile_configs ORDER BY id")
-        ).mappings().all()
-        for row in rows:
-            normalized_rules = ensure_canonical_discount_context_rules(row["context_rules"])
-            if normalized_rules != str(row["context_rules"] or ""):
-                conn.execute(
-                    text(
-                        "UPDATE ai_profile_configs SET context_rules = :context_rules "
-                        "WHERE id = :config_id"
-                    ),
-                    {
-                        "context_rules": normalized_rules,
-                        "config_id": int(row["id"]),
-                    },
-                )
-
         if dialect == "sqlite":
             ledger_sql = (
                 "INSERT OR IGNORE INTO schema_migrations (id) VALUES (:migration_id)"
@@ -137,7 +149,7 @@ def run_pricing_policy_migration() -> bool:
 
     logger.info(
         "Política de descuentos IA verificada; %s configuraciones fueron limitadas a %.2f%% en esta ejecución",
-        max(int(capped.rowcount or 0), 0),
+        capped_count,
         MAX_AUTOMATED_DISCOUNT_RATE * 100,
     )
     return True
