@@ -33,8 +33,6 @@ def _minimum_price(base_price: Decimal, discount: Decimal) -> Decimal:
 
 
 def _is_owner_approval(current_user: Optional[User]) -> bool:
-    """El Super Admin representa la aprobación explícita del propietario."""
-
     return bool(current_user and getattr(current_user, "is_superuser", False))
 
 
@@ -45,11 +43,26 @@ def _category_value(product: Any) -> str:
     return str(category or "").strip().lower()
 
 
+def _bounded_automation_discount(
+    configured: Optional[Decimal],
+    *,
+    has_gifts: bool,
+) -> Decimal:
+    """Return the effective trusted-automation ceiling for this order."""
+
+    ceiling = NO_GIFTS_DISCOUNT if configured is None else Decimal(str(configured))
+    ceiling = max(Decimal("0.00"), min(ceiling, NO_GIFTS_DISCOUNT))
+    if has_gifts:
+        ceiling = min(ceiling, AUTOMATIC_DISCOUNT)
+    return ceiling
+
+
 def enforce_sale_price_policy(
     items: Sequence[Any],
     *,
     current_user: Optional[User],
     trusted_automation: bool = False,
+    trusted_automation_max_discount: Optional[Decimal] = None,
     exchange_rate: Decimal = DEFAULT_HNL_PER_USD,
 ) -> None:
     """Valida precios de venta contra la escalera comercial de Softmobile.
@@ -58,28 +71,20 @@ def enforce_sale_price_policy(
     catalogados en USD, precio de catálogo y costo se convierten con la tasa del
     perfil de venta antes de comparar el precio negociado.
 
-    Reglas:
-    - un ítem cobrable debe tener precio de catálogo mayor a cero;
-    - precio de catálogo como techo; no se permiten recargos manuales;
-    - sin usuario autenticado ni automatización confiable no se aceptan descuentos
-      ni regalías;
-    - todo celular rebajado debe quedar en centenas cerradas;
-    - hasta 2% de descuento es automático, incluso con regalos/promociones;
-    - hasta 3% solo cuando la orden no incluye regalos/promociones;
-    - hasta 4% solo sin regalos/promociones y con aprobación del propietario,
-      representada por una sesión Super Admin;
-    - más de 4% nunca se acepta desde el POS normal;
-    - un regalo normal debe ser un accesorio; regalar un celular requiere
-      aprobación extraordinaria del propietario (Super Admin);
-    - una venta normal nunca puede quedar por debajo del costo registrado.
-
-    ``trusted_automation`` solo debe activarse desde una ruta ya autenticada
-    como integración y asociada a un perfil ``bot_ia`` o ``sistema_automatico``.
-    Nunca concede el tramo reservado al propietario.
+    ``trusted_automation_max_discount`` permite que cada bot tenga un techo menor
+    al máximo global de 3%. Con regalías, el techo efectivo nunca supera 2%.
     """
 
     has_gifts = any(bool(getattr(item, "es_regalo_promocion", False)) for item in items)
     owner_approved = _is_owner_approval(current_user)
+    automation_ceiling = (
+        _bounded_automation_discount(
+            trusted_automation_max_discount,
+            has_gifts=has_gifts,
+        )
+        if trusted_automation
+        else None
+    )
 
     for item in items:
         product = getattr(item, "product", None)
@@ -89,7 +94,11 @@ def enforce_sale_price_policy(
                 detail="No se pudo validar el precio: el producto no está disponible",
             )
 
-        product_label = str(getattr(product, "nombre", None) or getattr(product, "sku", None) or "producto")
+        product_label = str(
+            getattr(product, "nombre", None)
+            or getattr(product, "sku", None)
+            or "producto"
+        )
         product_category = _category_value(product)
         is_gift = bool(getattr(item, "es_regalo_promocion", False))
 
@@ -112,9 +121,13 @@ def enforce_sale_price_policy(
                 )
             continue
 
-        base_price = product_amount_in_hnl(getattr(product, "precio", 0), product, exchange_rate)
+        base_price = product_amount_in_hnl(
+            getattr(product, "precio", 0), product, exchange_rate
+        )
         sale_price = _money(getattr(item, "precio_unitario", 0))
-        unit_cost = product_amount_in_hnl(getattr(product, "costo", 0), product, exchange_rate)
+        unit_cost = product_amount_in_hnl(
+            getattr(product, "costo", 0), product, exchange_rate
+        )
 
         if base_price <= Decimal("0.00"):
             raise HTTPException(
@@ -176,6 +189,22 @@ def enforce_sale_price_policy(
                     "o una integración de venta confiable."
                 ),
             )
+
+        if (
+            trusted_automation
+            and automation_ceiling is not None
+            and sale_price != base_price
+        ):
+            automation_floor = _minimum_price(base_price, automation_ceiling)
+            if sale_price < automation_floor:
+                percentage = (automation_ceiling * Decimal("100")).normalize()
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"El perfil automático solo está autorizado hasta {percentage}% de descuento "
+                        f"para {product_label}. Precio mínimo en HNL: {automation_floor:.2f}."
+                    ),
+                )
 
         automatic_floor = _minimum_price(base_price, AUTOMATIC_DISCOUNT)
         if sale_price >= automatic_floor:
