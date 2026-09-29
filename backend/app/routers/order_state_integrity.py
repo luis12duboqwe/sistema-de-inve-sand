@@ -34,6 +34,10 @@ from app.services.order_service import resolve_user_label
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
 from app.utils.order_currency import product_amount_in_hnl, resolve_exchange_rate
+from app.utils.order_item_currency_integrity import (
+    clear_order_item_cost_overrides,
+    install_order_item_cost_overrides,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -55,14 +59,11 @@ def _build_financially_safe_edit_items(
     current_items: Sequence[OrderItem],
     requested_items: Sequence[Any],
 ) -> list[dict[str, Any]]:
-    """Preserve existing commercial terms without allowing an edit to expand them.
+    """Preserve existing terms without allowing an edit to expand them.
 
-    The public edit schema neutralizes client-supplied price/cost/gift overrides.
-    This helper restores the already-persisted price and gift flag only for the
-    quantity that existed in the order before the edit. If quantity grows, the
-    additional units are prepared as new catalog-price, non-gift units. This keeps
-    a legitimate historical discount or gift intact while preventing a quantity
-    edit from multiplying the benefit.
+    For duplicate product lines, paid units are retained before promotional units
+    when the requested quantity shrinks. Retained quantities carry their original
+    HNL historical cost; newly added quantities receive current catalog terms.
     """
 
     pools: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -72,8 +73,14 @@ def _build_financially_safe_edit_items(
                 "remaining": int(item.cantidad),
                 "precio_unitario": item.precio_unitario,
                 "es_regalo_promocion": bool(item.es_regalo_promocion),
+                "_historical_cost_hnl": item.costo_unitario,
             }
         )
+
+    # If the same product has paid and promotional rows, a quantity reduction
+    # should preserve the paid sale first regardless of insertion/order-item ID.
+    for product_pool in pools.values():
+        product_pool.sort(key=lambda entry: bool(entry["es_regalo_promocion"]))
 
     safe_items: list[dict[str, Any]] = []
 
@@ -104,6 +111,7 @@ def _build_financially_safe_edit_items(
                     "precio_unitario": previous["precio_unitario"],
                     "es_regalo_promocion": previous["es_regalo_promocion"],
                     "imeis": retained_imeis,
+                    "_historical_cost_hnl": previous["_historical_cost_hnl"],
                 }
             )
             previous["remaining"] = previous_remaining - retained_quantity
@@ -123,6 +131,7 @@ def _build_financially_safe_edit_items(
                     "precio_unitario": None,
                     "es_regalo_promocion": False,
                     "imeis": additional_imeis,
+                    "_historical_cost_hnl": None,
                 }
             )
 
@@ -130,8 +139,6 @@ def _build_financially_safe_edit_items(
 
 
 def _ensure_edit_has_regular_item(safe_items: Sequence[dict[str, Any]]) -> None:
-    """An edit may preserve gifts, but it may never leave a gift-only order."""
-
     if safe_items and not any(
         not bool(item.get("es_regalo_promocion", False)) for item in safe_items
     ):
@@ -282,7 +289,7 @@ def update_order_canonical(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit")),
 ):
-    """Serialize order detail edits and preserve only pre-existing commercial terms."""
+    """Serialize order detail edits and preserve pre-existing commercial terms."""
     order = (
         db.query(Order)
         .filter(Order.id == order_id)
@@ -293,6 +300,7 @@ def update_order_canonical(
         raise HTTPException(status_code=404, detail=f"La orden con ID {order_id} no fue encontrada")
 
     effective_updates: Any = updates
+    safe_items: list[dict[str, Any]] | None = None
     if updates.items is not None:
         current_items = (
             db.query(OrderItem)
@@ -304,13 +312,22 @@ def update_order_canonical(
         _ensure_edit_has_regular_item(safe_items)
         _normalize_new_edit_items_to_hnl(db, order=order, safe_items=safe_items)
         effective_updates = _OrderUpdateProxy(updates, safe_items)
+        install_order_item_cost_overrides(
+            db,
+            order_id=order_id,
+            items=safe_items,
+        )
 
-    return _legacy_update_order(
-        order_id=order_id,
-        updates=effective_updates,
-        db=db,
-        current_user=current_user,
-    )
+    try:
+        return _legacy_update_order(
+            order_id=order_id,
+            updates=effective_updates,
+            db=db,
+            current_user=current_user,
+        )
+    finally:
+        if safe_items is not None:
+            clear_order_item_cost_overrides(db)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderResponse)
