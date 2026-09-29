@@ -39,6 +39,7 @@ def test_cancel_and_warranty_are_serialized_without_double_restock(
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=100,
     )
 
     created = client.post(
@@ -178,6 +179,7 @@ def test_completion_and_cancellation_share_order_before_stock_lock_order(
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=100,
     )
 
     created = client.post(
@@ -279,6 +281,7 @@ def test_runtime_cancel_rejects_order_with_existing_warranty_return(
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=100,
     )
 
     created = client.post(
