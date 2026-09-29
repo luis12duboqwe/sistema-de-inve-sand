@@ -174,10 +174,11 @@ class OrderService:
                 profile_slug=order.profile_slug,
             )
             exchange_rate = resolve_exchange_rate(sales_profile or legacy_profile)
-            trusted_automation = (
-                current_user is None
-                and _is_trusted_automated_sales_profile(sales_profile)
-            )
+
+            # Any order attributed to an automated sales profile must obey that
+            # profile's configured automatic ceiling, regardless of whether the
+            # AI integration authenticated with a service token or a JWT user.
+            trusted_automation = _is_trusted_automated_sales_profile(sales_profile)
             trusted_automation_max_discount = (
                 _trusted_automation_discount_ceiling(self.db, sales_profile)
                 if trusted_automation
@@ -323,8 +324,17 @@ class OrderService:
         for prepared, payload in zip(sale_batch.items, items_payload):
             if not is_usd_currency(getattr(prepared.product, "moneda", None)):
                 continue
+
             custom_price = getattr(payload, "precio_unitario", None)
-            if custom_price is None:
+            raw_catalog = Decimal(str(getattr(prepared.product, "precio", 0) or 0))
+            custom_decimal = (
+                Decimal(str(custom_price)) if custom_price is not None else None
+            )
+
+            # Compatibility with older POS clients: historically they populated
+            # precio_unitario with the raw catalog number even for USD products.
+            # Treat an exact raw-catalog echo as "no override" and convert it to HNL.
+            if custom_price is None or custom_decimal == raw_catalog:
                 prepared.precio_unitario = product_amount_in_hnl(
                     getattr(prepared.product, "precio", 0),
                     prepared.product,
