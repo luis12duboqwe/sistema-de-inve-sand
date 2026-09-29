@@ -11,6 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Sequence
 
+from fastapi import HTTPException
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
@@ -82,18 +83,6 @@ def _normalize_new_order_item_cost(session: Session, item: Any) -> None:
         order_id=order_id,
         product_id=product_id,
     )
-    if has_override and historical_cost is not None:
-        item.costo_unitario = Decimal(str(historical_cost))
-        return
-
-    # Historical/manual HNL imports can explicitly provide a cost different from
-    # the current product cost. Preserve it. USD rows without an edit-time
-    # historical override must be normalized because raw USD is not comparable HNL.
-    if (
-        not is_usd_currency(getattr(product, "moneda", None))
-        and getattr(item, "costo_unitario", None) is not None
-    ):
-        return
 
     order = getattr(item, "order", None)
     if order is None and order_id:
@@ -109,11 +98,40 @@ def _normalize_new_order_item_cost(session: Session, item: Any) -> None:
             profile_like = session.get(Profile, int(order.profile_id))
 
     exchange_rate = resolve_exchange_rate(profile_like)
-    item.costo_unitario = product_amount_in_hnl(
+    current_cost_hnl = product_amount_in_hnl(
         getattr(product, "costo", 0),
         product,
         exchange_rate,
     )
+
+    # Edits must preserve historical margin data, but may not use that historical
+    # cost to bypass today's below-cost protection. Validate the sale price against
+    # the current cost before recreating any paid row.
+    if has_override and not bool(getattr(item, "es_regalo_promocion", False)):
+        sale_price = Decimal(str(getattr(item, "precio_unitario", 0) or 0))
+        if sale_price < current_cost_hnl:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"El precio de {getattr(product, 'nombre', 'producto')} ({sale_price:.2f}) "
+                    f"no puede quedar por debajo del costo actual en HNL ({current_cost_hnl:.2f})."
+                ),
+            )
+
+    if has_override and historical_cost is not None:
+        item.costo_unitario = Decimal(str(historical_cost))
+        return
+
+    # Historical/manual HNL imports can explicitly provide a cost different from
+    # the current product cost. Preserve it. USD rows without an edit-time
+    # historical override must be normalized because raw USD is not comparable HNL.
+    if (
+        not is_usd_currency(getattr(product, "moneda", None))
+        and getattr(item, "costo_unitario", None) is not None
+    ):
+        return
+
+    item.costo_unitario = current_cost_hnl
 
 
 def _before_flush(session: Session, flush_context: Any, instances: Any) -> None:  # noqa: ARG001
