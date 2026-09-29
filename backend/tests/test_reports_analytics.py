@@ -56,7 +56,6 @@ def _create_order(
 
 
 def test_reports_dashboard_rejects_unknown_location(client, db_session):
-    # No crear ubicación con ese ID
     res = client.get("/api/reports/dashboard?location_id=9999")
     assert res.status_code == 404
 
@@ -71,7 +70,6 @@ def test_analytics_dashboard_excludes_cancelled_orders(client, db_session):
         imei_values=imeis,
     )
 
-    # Crear tres órdenes: una venta final, una cancelada y una pendiente.
     order_a = _create_order(
         client,
         sales_profile.slug,
@@ -104,12 +102,8 @@ def test_analytics_dashboard_excludes_cancelled_orders(client, db_session):
     assert cancel_res.status_code == 200, cancel_res.text
 
     dash = client.get("/api/analytics/dashboard").json()
-
-    # Solo una venta final debe contarse en el día.
     assert dash["total_orders_today"] == 1
     assert dash["total_revenue_today"] == 1000
-
-    # Inventario usa costo (500) * stock disponible (1) -> 500.
     assert dash["total_inventory_value"] == 500
 
 
@@ -165,6 +159,7 @@ def test_sales_report_allocates_legacy_refund_once_across_duplicate_product_line
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=300,
     )
 
     order_payload = {
@@ -178,7 +173,7 @@ def test_sales_report_allocates_legacy_refund_once_across_duplicate_product_line
             {
                 "product_id": product["id"],
                 "cantidad": 1,
-                "precio_unitario": 100,
+                "precio_unitario": 294,
             },
             {
                 "product_id": product["id"],
@@ -197,20 +192,18 @@ def test_sales_report_allocates_legacy_refund_once_across_duplicate_product_line
     )
     assert completed.status_code == 200, completed.text
 
-    # La API actual ya no permite reembolsos. Se inserta un registro histórico para
-    # demostrar que los reportes siguen interpretando correctamente datos legados.
     _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
 
     report_response = client.get("/api/reports/sales")
     assert report_response.status_code == 200, report_response.text
     report = report_response.json()
 
-    # Base histórica: 1x100 + 1x300 = 400. Una unidad reembolsada se asigna
-    # al promedio ponderado de 200; nunca se multiplica por las dos líneas.
-    assert Decimal(str(report["total_revenue"])) == Decimal("200.00")
+    # Base histórica: 1x294 + 1x300 = 594. Una unidad reembolsada se asigna
+    # al promedio ponderado de 297; nunca se multiplica por las dos líneas.
+    assert Decimal(str(report["total_revenue"])) == Decimal("297.00")
     top = next(item for item in report["top_products"] if item["product_id"] == product["id"])
     assert top["units_sold"] == 1
-    assert Decimal(str(top["total_revenue"])) == Decimal("200.00")
+    assert Decimal(str(top["total_revenue"])) == Decimal("297.00")
 
     _record_legacy_refund(db_session, order_id=order["id"], product_id=product["id"])
 
