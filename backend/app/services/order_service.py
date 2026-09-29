@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AIProfileConfig,
     Customer,
     InteractionLog,
     Order,
@@ -31,7 +32,7 @@ from app.utils.order_currency import (
     resolve_exchange_rate,
 )
 from app.utils.order_financing import compute_financing_from_payload
-from app.utils.order_pricing import enforce_sale_price_policy
+from app.utils.order_pricing import NO_GIFTS_DISCOUNT, enforce_sale_price_policy
 from app.utils.order_validators import (
     resolve_sales_profile,
     validate_location_and_phone,
@@ -42,13 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_transfer_reference(reference: Optional[str]) -> Optional[str]:
-    """Normaliza referencia para comparación anti-duplicados.
-
-    Reglas:
-    - Trim
-    - Uppercase
-    - Solo alfanumérico (remueve espacios, guiones y símbolos)
-    """
+    """Normaliza referencia para comparación anti-duplicados."""
     if reference is None:
         return None
     raw = str(reference).strip().upper()
@@ -64,7 +59,6 @@ def ensure_unique_transfer_reference(
     *,
     exclude_order_id: Optional[int] = None,
 ) -> None:
-    """Valida que la referencia de transferencia no exista en otra orden."""
     if not normalized_reference:
         return
 
@@ -106,7 +100,6 @@ def resolve_user_label(
     profile: Optional[Profile] = None,
     fallback: str = "Sistema",
 ) -> str:
-    """Devuelve un identificador legible para logs/auditoría."""
     if current_user and getattr(current_user, "username", None):
         return str(current_user.username)  # type: ignore[attr-defined]
     if sales_profile and getattr(sales_profile, "name", None):
@@ -117,14 +110,37 @@ def resolve_user_label(
 
 
 def _is_trusted_automated_sales_profile(sales_profile: Optional[SalesProfile]) -> bool:
-    """Identifica perfiles que representan una integración de venta automatizada."""
-
     if sales_profile is None:
         return False
     profile_type = getattr(sales_profile, "tipo", None)
     if hasattr(profile_type, "value"):
         profile_type = profile_type.value
     return str(profile_type or "").strip().lower() in {"bot_ia", "sistema_automatico"}
+
+
+def _trusted_automation_discount_ceiling(
+    db: Session,
+    sales_profile: Optional[SalesProfile],
+) -> Optional[Decimal]:
+    """Resolve a bot-specific ceiling without ever exceeding the global 3%."""
+
+    if not _is_trusted_automated_sales_profile(sales_profile) or sales_profile is None:
+        return None
+
+    config = (
+        db.query(AIProfileConfig)
+        .filter(AIProfileConfig.sales_profile_id == sales_profile.id)
+        .first()
+    )
+    if config is None:
+        return NO_GIFTS_DISCOUNT
+
+    negotiation_style = str(getattr(config, "negotiation_style", None) or "").strip().lower()
+    if negotiation_style and negotiation_style != "flexible":
+        return Decimal("0.00")
+
+    configured = Decimal(str(getattr(config, "max_discount_rate", 0) or 0))
+    return max(Decimal("0.00"), min(configured, NO_GIFTS_DISCOUNT))
 
 
 class OrderService:
@@ -146,7 +162,6 @@ class OrderService:
         *,
         current_user: Optional[User] = None,
     ) -> Order:
-        """Crea una orden completa y devuelve el modelo persistido."""
         try:
             (
                 sales_profile,
@@ -159,6 +174,15 @@ class OrderService:
                 profile_slug=order.profile_slug,
             )
             exchange_rate = resolve_exchange_rate(sales_profile or legacy_profile)
+            trusted_automation = (
+                current_user is None
+                and _is_trusted_automated_sales_profile(sales_profile)
+            )
+            trusted_automation_max_discount = (
+                _trusted_automation_discount_ceiling(self.db, sales_profile)
+                if trusted_automation
+                else None
+            )
 
             location, customer_phone_str = validate_location_and_phone(
                 db=self.db,
@@ -192,9 +216,8 @@ class OrderService:
             enforce_sale_price_policy(
                 sale_batch.items,
                 current_user=current_user,
-                trusted_automation=(
-                    current_user is None and _is_trusted_automated_sales_profile(sales_profile)
-                ),
+                trusted_automation=trusted_automation,
+                trusted_automation_max_discount=trusted_automation_max_discount,
                 exchange_rate=exchange_rate,
             )
 
@@ -291,13 +314,6 @@ class OrderService:
         items_payload: Sequence[object],
         exchange_rate: Decimal,
     ) -> None:
-        """Convierte a HNL los precios de catálogo USD antes de totalizar.
-
-        Un precio personalizado se interpreta en HNL, igual que en el modo local.
-        Si no existe precio personalizado, un producto USD usa su precio de catálogo
-        convertido con la tasa del perfil de venta.
-        """
-
         if len(sale_batch.items) != len(items_payload):
             raise HTTPException(
                 status_code=500,
@@ -339,8 +355,6 @@ class OrderService:
         prepared_items: Sequence[PreparedSaleItem],
         exchange_rate: Decimal,
     ) -> None:
-        """Guarda costo histórico en HNL para que margen/reportería sean comparables."""
-
         self.db.flush()
         rows = (
             self.db.query(OrderItem)
