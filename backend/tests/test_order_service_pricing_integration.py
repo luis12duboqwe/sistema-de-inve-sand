@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Location, Order, Product, SalesProfile, Stock
+from app.models import AIProfileConfig, Location, Order, Product, SalesProfile, Stock
 from app.schemas import OrderCreate
 from app.services.order_service import OrderService
 
@@ -132,6 +132,36 @@ def test_order_service_allows_trusted_bot_three_percent_but_not_owner_tier(db_se
     assert stock.cantidad_disponible == 4
 
 
+def test_trusted_bot_honors_its_configured_one_percent_ceiling(db_session: Session):
+    location, sales_profile, product, stock = _seed_sale_context(db_session, profile_type="bot_ia")
+    db_session.add(
+        AIProfileConfig(
+            sales_profile_id=sales_profile.id,
+            system_prompt="Bot con margen limitado",
+            negotiation_style="flexible",
+            max_discount_rate=Decimal("0.0100"),
+        )
+    )
+    db_session.commit()
+
+    allowed = OrderService(db_session).create_order(
+        _order_payload(location, sales_profile, product, "9900.00"),
+        current_user=None,
+    )
+    assert allowed.total == Decimal("9900.00")
+
+    with pytest.raises(HTTPException) as exc:
+        OrderService(db_session).create_order(
+            _order_payload(location, sales_profile, product, "9800.00"),
+            current_user=None,
+        )
+
+    assert exc.value.status_code == 403
+    assert "solo está autorizado hasta 1%" in str(exc.value.detail)
+    db_session.refresh(stock)
+    assert stock.cantidad_disponible == 4
+
+
 def test_usd_custom_hnl_price_is_compared_after_currency_normalization(db_session: Session):
     location, sales_profile, product, stock = _seed_sale_context(
         db_session,
@@ -145,10 +175,8 @@ def test_usd_custom_hnl_price_is_compared_after_currency_normalization(db_sessio
 
     created = OrderService(db_session).create_order(order, current_user=user)
 
-    # USD 400 * 25 = HNL 10,000; HNL 9,800 is a valid 2% negotiated price.
     assert created.total == Decimal("9800.00")
     assert created.items[0].precio_unitario == Decimal("9800.00")
-    # Historical cost must also be HNL: USD 250 * 25 = HNL 6,250.
     assert created.items[0].costo_unitario == Decimal("6250.00")
     db_session.refresh(stock)
     assert stock.cantidad_disponible == 4
