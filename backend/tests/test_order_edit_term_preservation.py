@@ -4,12 +4,21 @@ from types import SimpleNamespace
 from app.routers.order_state_integrity import _build_financially_safe_edit_items
 
 
-def _current_item(*, item_id: int, product_id: int, quantity: int, price: str, gift: bool):
+def _current_item(
+    *,
+    item_id: int,
+    product_id: int,
+    quantity: int,
+    price: str,
+    gift: bool,
+    cost: str = "7000.00",
+):
     return SimpleNamespace(
         id=item_id,
         product_id=product_id,
         cantidad=quantity,
         precio_unitario=Decimal(price),
+        costo_unitario=Decimal(cost),
         es_regalo_promocion=gift,
     )
 
@@ -22,7 +31,7 @@ def _requested_item(*, product_id: int, quantity: int, imeis=None):
     )
 
 
-def test_edit_preserves_existing_discount_but_not_for_added_quantity():
+def test_edit_preserves_existing_discount_and_cost_but_not_for_added_quantity():
     safe = _build_financially_safe_edit_items(
         [
             _current_item(
@@ -31,6 +40,7 @@ def test_edit_preserves_existing_discount_but_not_for_added_quantity():
                 quantity=1,
                 price="9600.00",
                 gift=False,
+                cost="7200.00",
             )
         ],
         [
@@ -47,11 +57,13 @@ def test_edit_preserves_existing_discount_but_not_for_added_quantity():
     assert safe[0]["precio_unitario"] == Decimal("9600.00")
     assert safe[0]["es_regalo_promocion"] is False
     assert safe[0]["imeis"] == ["111111111111111"]
+    assert safe[0]["_historical_cost_hnl"] == Decimal("7200.00")
 
     assert safe[1]["cantidad"] == 1
     assert safe[1]["precio_unitario"] is None
     assert safe[1]["es_regalo_promocion"] is False
     assert safe[1]["imeis"] == ["222222222222222"]
+    assert safe[1]["_historical_cost_hnl"] is None
 
 
 def test_edit_preserves_existing_gift_but_does_not_multiply_it():
@@ -63,6 +75,7 @@ def test_edit_preserves_existing_gift_but_does_not_multiply_it():
                 quantity=1,
                 price="500.00",
                 gift=True,
+                cost="200.00",
             )
         ],
         [_requested_item(product_id=20, quantity=3)],
@@ -71,10 +84,41 @@ def test_edit_preserves_existing_gift_but_does_not_multiply_it():
     assert safe[0]["cantidad"] == 1
     assert safe[0]["es_regalo_promocion"] is True
     assert safe[0]["precio_unitario"] == Decimal("500.00")
+    assert safe[0]["_historical_cost_hnl"] == Decimal("200.00")
 
     assert safe[1]["cantidad"] == 2
     assert safe[1]["es_regalo_promocion"] is False
     assert safe[1]["precio_unitario"] is None
+    assert safe[1]["_historical_cost_hnl"] is None
+
+
+def test_quantity_reduction_prefers_paid_line_even_if_gift_was_inserted_first():
+    safe = _build_financially_safe_edit_items(
+        [
+            _current_item(
+                item_id=1,
+                product_id=30,
+                quantity=1,
+                price="300.00",
+                gift=True,
+                cost="100.00",
+            ),
+            _current_item(
+                item_id=2,
+                product_id=30,
+                quantity=1,
+                price="300.00",
+                gift=False,
+                cost="100.00",
+            ),
+        ],
+        [_requested_item(product_id=30, quantity=1)],
+    )
+
+    assert len(safe) == 1
+    assert safe[0]["es_regalo_promocion"] is False
+    assert safe[0]["precio_unitario"] == Decimal("300.00")
+    assert safe[0]["_historical_cost_hnl"] == Decimal("100.00")
 
 
 def test_new_product_never_inherits_terms_from_another_product():
@@ -98,5 +142,6 @@ def test_new_product_never_inherits_terms_from_another_product():
             "precio_unitario": None,
             "es_regalo_promocion": False,
             "imeis": None,
+            "_historical_cost_hnl": None,
         }
     ]
