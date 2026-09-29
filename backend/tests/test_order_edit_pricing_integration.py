@@ -59,7 +59,7 @@ def test_order_edit_preserves_old_discount_and_catalog_prices_added_quantity(cli
     assert Decimal(str(edited.json()["total"])) == Decimal("1970.00")
 
 
-def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(client, db_session):
+def test_order_edit_preserves_old_usd_cost_when_exchange_rate_changes(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     sales_profile.configuracion = json.dumps({"exchange_rate": 24.5})
     db_session.commit()
@@ -91,6 +91,12 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
     assert created.status_code == 201, created.text
     order_id = int(created.json()["id"])
     assert Decimal(str(created.json()["total"])) == Decimal("2450.00")
+    assert Decimal(str(created.json()["items"][0]["costo_unitario"])) == Decimal("1470.00")
+
+    # Change today's exchange rate before editing. The retained unit must keep its
+    # original historical HNL cost/price; only the newly added unit uses today's rate.
+    sales_profile.configuracion = json.dumps({"exchange_rate": 26.0})
+    db_session.commit()
 
     edited = client.put(
         f"/api/orders/{order_id}",
@@ -114,10 +120,10 @@ def test_order_edit_added_usd_quantity_uses_hnl_catalog_and_historical_cost(clie
         .all()
     )
     assert len(rows) == 2
-    assert [Decimal(str(row.precio_unitario)) for row in rows] == [Decimal("2450.00"), Decimal("2450.00")]
-    assert [Decimal(str(row.costo_unitario)) for row in rows] == [Decimal("1470.00"), Decimal("1470.00")]
+    assert [Decimal(str(row.precio_unitario)) for row in rows] == [Decimal("2450.00"), Decimal("2600.00")]
+    assert [Decimal(str(row.costo_unitario)) for row in rows] == [Decimal("1470.00"), Decimal("1560.00")]
     assert all(not bool(row.es_regalo_promocion) for row in rows)
-    assert Decimal(str(edited.json()["total"])) == Decimal("4900.00")
+    assert Decimal(str(edited.json()["total"])) == Decimal("5050.00")
 
 
 def test_legacy_profile_exchange_rate_survives_creation_and_edit(client, db_session):
