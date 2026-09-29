@@ -46,6 +46,7 @@ def _create_completed_refunded_order(
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=100,
     )
 
     created = client.post(
@@ -91,6 +92,7 @@ def test_refund_does_not_make_current_period_negative_for_old_sale(
         is_serialized=False,
         categoria="accesorio",
         costo=50,
+        precio=100,
     )
 
     created = client.post(
