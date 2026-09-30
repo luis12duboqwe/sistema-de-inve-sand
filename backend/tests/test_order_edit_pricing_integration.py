@@ -59,6 +59,53 @@ def test_order_edit_preserves_old_discount_and_catalog_prices_added_quantity(cli
     assert Decimal(str(edited.json()["total"])) == Decimal("1970.00")
 
 
+def test_order_edit_rejects_retained_price_when_current_cost_has_risen_above_it(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(
+        client,
+        location.id,
+        stock_inicial=2,
+        is_serialized=False,
+        categoria="accesorio",
+        precio=1000,
+        costo=700,
+        sku="EDIT-COST-GUARD-001",
+    )
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "sales_profile_slug": sales_profile.slug,
+            "source_location_id": location.id,
+            "canal": "tienda",
+            "customer_name": "Cliente costo actualizado",
+            "customer_phone": "74445555",
+            "metodo_pago": "efectivo",
+            "items": [{"product_id": product["id"], "cantidad": 1, "precio_unitario": 980}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = int(created.json()["id"])
+
+    # Simula una reposición/cambio de costo posterior a la venta original.
+    db_product = db_session.get(__import__("app.models", fromlist=["Product"]).Product, product["id"])
+    db_product.costo = Decimal("990.00")
+    db_session.commit()
+
+    edited = client.put(
+        f"/api/orders/{order_id}",
+        json={"items": [{"product_id": product["id"], "cantidad": 1}]},
+    )
+    assert edited.status_code == 403, edited.text
+    assert "por debajo del costo actual" in edited.json()["detail"]
+
+    db_session.expire_all()
+    rows = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+    assert len(rows) == 1
+    assert Decimal(str(rows[0].precio_unitario)) == Decimal("980.00")
+    assert Decimal(str(rows[0].costo_unitario)) == Decimal("700.00")
+
+
 def test_order_edit_preserves_old_usd_cost_when_exchange_rate_changes(client, db_session):
     location, sales_profile = seed_location_and_sales_profile(db_session)
     sales_profile.configuracion = json.dumps({"exchange_rate": 24.5})
@@ -93,8 +140,6 @@ def test_order_edit_preserves_old_usd_cost_when_exchange_rate_changes(client, db
     assert Decimal(str(created.json()["total"])) == Decimal("2450.00")
     assert Decimal(str(created.json()["items"][0]["costo_unitario"])) == Decimal("1470.00")
 
-    # Change today's exchange rate before editing. The retained unit must keep its
-    # original historical HNL cost/price; only the newly added unit uses today's rate.
     sales_profile.configuracion = json.dumps({"exchange_rate": 26.0})
     db_session.commit()
 
