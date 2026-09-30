@@ -132,7 +132,7 @@ def test_order_service_allows_trusted_bot_three_percent_but_not_owner_tier(db_se
     assert stock.cantidad_disponible == 4
 
 
-def test_trusted_bot_honors_its_configured_one_percent_ceiling(db_session: Session):
+def test_trusted_bot_honors_its_configured_one_percent_ceiling_with_jwt_user(db_session: Session):
     location, sales_profile, product, stock = _seed_sale_context(db_session, profile_type="bot_ia")
     db_session.add(
         AIProfileConfig(
@@ -144,16 +144,17 @@ def test_trusted_bot_honors_its_configured_one_percent_ceiling(db_session: Sessi
     )
     db_session.commit()
 
+    jwt_user = SimpleNamespace(username="ai-jwt-user", is_superuser=False)
     allowed = OrderService(db_session).create_order(
         _order_payload(location, sales_profile, product, "9900.00"),
-        current_user=None,
+        current_user=jwt_user,
     )
     assert allowed.total == Decimal("9900.00")
 
     with pytest.raises(HTTPException) as exc:
         OrderService(db_session).create_order(
             _order_payload(location, sales_profile, product, "9800.00"),
-            current_user=None,
+            current_user=jwt_user,
         )
 
     assert exc.value.status_code == 403
@@ -194,6 +195,28 @@ def test_usd_catalog_without_custom_price_is_totaled_in_hnl(db_session: Session)
     user = SimpleNamespace(username="vendedor-usd", is_superuser=False)
 
     created = OrderService(db_session).create_order(order, current_user=user)
+
+    assert created.total == Decimal("2450.00")
+    assert created.items[0].precio_unitario == Decimal("2450.00")
+    assert created.items[0].costo_unitario == Decimal("1470.00")
+    db_session.refresh(stock)
+    assert stock.cantidad_disponible == 4
+
+
+def test_legacy_pos_raw_usd_catalog_override_is_treated_as_default_catalog(db_session: Session):
+    location, sales_profile, product, stock = _seed_sale_context(
+        db_session,
+        currency="USD",
+        catalog_price="100.00",
+        cost="60.00",
+        exchange_rate="24.50",
+    )
+    user = SimpleNamespace(username="legacy-pos", is_superuser=False)
+
+    created = OrderService(db_session).create_order(
+        _order_payload(location, sales_profile, product, "100.00"),
+        current_user=user,
+    )
 
     assert created.total == Decimal("2450.00")
     assert created.items[0].precio_unitario == Decimal("2450.00")
