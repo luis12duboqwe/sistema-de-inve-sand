@@ -81,12 +81,13 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     db_session.commit()
 
     historical_id = historical.id
-    assert run_pricing_policy_migration() is True
+    test_engine = db_session.get_bind()
+    assert run_pricing_policy_migration(bind=test_engine) is True
 
     verification_session_factory = sessionmaker(
         autocommit=False,
         autoflush=False,
-        bind=db_session.get_bind(),
+        bind=test_engine,
     )
     with verification_session_factory() as verification_session:
         migrated = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
@@ -103,7 +104,7 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
         ).scalar_one()
         assert int(ledger_count) == 1
 
-    assert run_pricing_policy_migration() is True
+    assert run_pricing_policy_migration(bind=test_engine) is True
     with verification_session_factory() as verification_session:
         migrated_again = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
         assert Decimal(str(migrated_again.max_discount_rate)) == Decimal("0.0300")

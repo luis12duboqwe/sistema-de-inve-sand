@@ -14,6 +14,7 @@ import logging
 import sqlite3
 
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 
 import app.database as database
 from app.utils.ai_sales_policy import (
@@ -51,10 +52,10 @@ def _backup_sqlite_if_needed() -> Path | None:
     return destination
 
 
-def run_pricing_policy_migration() -> bool:
+def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
     """Normalize AI discount settings and continuously enforce the canonical rule."""
 
-    engine = database.engine
+    engine = bind or database.engine
     dialect = engine.dialect.name
     if dialect not in {"postgresql", "sqlite"}:
         logger.info(
