@@ -246,6 +246,24 @@ export function NewOrderDialog({
   }, [open, salesProfiles, locations, salesProfileSlug, sourceLocationId])
 
   const selectedSalesProfile = salesProfiles.find(profile => profile.slug === salesProfileSlug)
+  const selectedExchangeRate = (() => {
+    const rawConfig = selectedSalesProfile?.configuracion
+    let config: Record<string, unknown> = {}
+    if (typeof rawConfig === 'string') {
+      try { config = JSON.parse(rawConfig) as Record<string, unknown> } catch { config = {} }
+    } else if (rawConfig && typeof rawConfig === 'object') {
+      config = rawConfig as Record<string, unknown>
+    }
+    const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
+    return Number.isFinite(candidate) && candidate > 0 ? candidate : 25
+  })()
+  const productPriceInHnl = (product: ProductWithStock): number => {
+    const rawPrice = parseFlexibleNumber(product.precio) ?? 0
+    const currency = String(product.moneda || '').trim().toUpperCase()
+    return ['USD', 'US$', '$'].includes(currency)
+      ? Number((rawPrice * selectedExchangeRate).toFixed(2))
+      : rawPrice
+  }
   const allowedChannels = selectedSalesProfile?.canales?.length
     ? selectedSalesProfile.canales
     : ALL_ORDER_CHANNELS
@@ -338,7 +356,7 @@ export function NewOrderDialog({
       return
     }
 
-    const currentPrice = parseFlexibleNumber(product.precio) ?? 0
+    const currentPrice = productPriceInHnl(product)
     const nextItems = items.length === 1 && items[0].product_id === 0 ? [] : [...items]
     const existingIndex = nextItems.findIndex(item => item.product_id === product.id)
 
@@ -491,7 +509,7 @@ export function NewOrderDialog({
         
         // V2.1: Establecer precio por defecto al seleccionar producto
         if (product) {
-          newItems[index].precio_unitario = parseFlexibleNumber(product.precio) ?? 0
+          newItems[index].precio_unitario = productPriceInHnl(product)
         }
 
         const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
@@ -573,7 +591,7 @@ export function NewOrderDialog({
         const product = products.find(p => p.id === item.product_id)
         if (!product) return total
         // V2.1: Usar precio personalizado si existe
-        const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
+        const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
         return total + price * item.cantidad
       }, 0)
 
@@ -775,7 +793,7 @@ export function NewOrderDialog({
     const itemsTotal = validItems.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
       if (!product) return total
-      const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
+      const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
       return total + price * item.cantidad
     }, 0)
     const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)

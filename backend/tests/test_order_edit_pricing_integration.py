@@ -289,3 +289,74 @@ def test_order_edit_cannot_leave_only_preserved_gifts(client, db_session):
     assert len(rows) == 2
     assert any(not bool(row.es_regalo_promocion) for row in rows)
     assert any(bool(row.es_regalo_promocion) for row in rows)
+
+
+def test_order_edit_rejects_new_product_when_current_catalog_is_below_cost(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    existing = seed_product(
+        client, location.id, stock_inicial=2, is_serialized=False,
+        categoria="accesorio", precio=1000, costo=700, sku="EDIT-BASE-001",
+    )
+    added = seed_product(
+        client, location.id, stock_inicial=2, is_serialized=False,
+        categoria="accesorio", precio=1000, costo=700, sku="EDIT-ADDED-COST-001",
+    )
+    created = client.post(
+        "/api/orders",
+        json={
+            "sales_profile_slug": sales_profile.slug, "source_location_id": location.id,
+            "canal": "tienda", "customer_name": "Cliente agregado costo",
+            "customer_phone": "74446666", "metodo_pago": "efectivo",
+            "items": [{"product_id": existing["id"], "cantidad": 1}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = int(created.json()["id"])
+
+    Product = __import__("app.models", fromlist=["Product"]).Product
+    added_db = db_session.get(Product, added["id"])
+    added_db.costo = Decimal("1100.00")
+    db_session.commit()
+
+    edited = client.put(
+        f"/api/orders/{order_id}",
+        json={"items": [
+            {"product_id": existing["id"], "cantidad": 1},
+            {"product_id": added["id"], "cantidad": 1},
+        ]},
+    )
+    assert edited.status_code == 403, edited.text
+    assert "por debajo del costo actual" in edited.json()["detail"]
+
+
+def test_order_edit_normalizes_pre_fix_raw_usd_catalog_price(client, db_session):
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    sales_profile.configuracion = json.dumps({"exchange_rate": 24.5})
+    db_session.commit()
+    product = seed_product(
+        client, location.id, stock_inicial=2, is_serialized=False,
+        categoria="accesorio", precio=100, costo=60, moneda="USD", sku="LEGACY-RAW-USD-001",
+    )
+    created = client.post(
+        "/api/orders",
+        json={
+            "sales_profile_slug": sales_profile.slug, "source_location_id": location.id,
+            "canal": "tienda", "customer_name": "Cliente legacy USD",
+            "customer_phone": "74447777", "metodo_pago": "efectivo",
+            "items": [{"product_id": product["id"], "cantidad": 1}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = int(created.json()["id"])
+
+    row = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).one()
+    row.precio_unitario = Decimal("100.00")
+    row.costo_unitario = Decimal("60.00")
+    db_session.commit()
+
+    edited = client.put(
+        f"/api/orders/{order_id}",
+        json={"items": [{"product_id": product["id"], "cantidad": 1}]},
+    )
+    assert edited.status_code == 200, edited.text
+    assert Decimal(str(edited.json()["items"][0]["precio_unitario"])) == Decimal("2450.00")

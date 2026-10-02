@@ -12,6 +12,7 @@ so all competing operations use the same Order -> Stock lock order.
 from __future__ import annotations
 
 from collections import defaultdict
+from decimal import Decimal
 from datetime import UTC, datetime
 import logging
 from typing import Any, Optional, Sequence
@@ -33,7 +34,7 @@ from app.schemas import OrderResponse, OrderStatusUpdate, OrderUpdate
 from app.services.order_service import resolve_user_label
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
-from app.utils.order_currency import product_amount_in_hnl, resolve_exchange_rate
+from app.utils.order_currency import is_usd_currency, product_amount_in_hnl, resolve_exchange_rate
 from app.utils.order_item_currency_integrity import (
     clear_order_item_cost_overrides,
     install_order_item_cost_overrides,
@@ -159,21 +160,17 @@ def _normalize_new_edit_items_to_hnl(
 ) -> None:
     """Fill catalog price for newly added edit quantities in canonical HNL."""
 
-    missing_price_ids = {
-        int(item["product_id"])
-        for item in safe_items
-        if item.get("precio_unitario") is None
-    }
-    if not missing_price_ids:
+    product_ids = {int(item["product_id"]) for item in safe_items}
+    if not product_ids:
         return
 
     products = (
         db.query(Product)
-        .filter(Product.id.in_(missing_price_ids), Product.activo == True)
+        .filter(Product.id.in_(product_ids), Product.activo == True)
         .all()
     )
     products_by_id = {int(product.id): product for product in products}
-    missing_products = missing_price_ids - set(products_by_id)
+    missing_products = product_ids - set(products_by_id)
     if missing_products:
         raise HTTPException(
             status_code=404,
@@ -191,14 +188,30 @@ def _normalize_new_edit_items_to_hnl(
     exchange_rate = resolve_exchange_rate(profile_like)
 
     for item in safe_items:
-        if item.get("precio_unitario") is not None:
-            continue
         product = products_by_id[int(item["product_id"])]
-        item["precio_unitario"] = product_amount_in_hnl(
-            product.precio,
-            product,
-            exchange_rate,
-        )
+        raw_catalog = Decimal(str(getattr(product, "precio", 0) or 0))
+        catalog_hnl = product_amount_in_hnl(product.precio, product, exchange_rate)
+        current_cost_hnl = product_amount_in_hnl(product.costo, product, exchange_rate)
+
+        if item.get("precio_unitario") is None:
+            # Newly added quantities always use today's canonical HNL catalog terms.
+            if catalog_hnl < current_cost_hnl:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"El precio de {product.nombre} ({catalog_hnl:.2f}) no puede quedar "
+                        f"por debajo del costo actual en HNL ({current_cost_hnl:.2f})."
+                    ),
+                )
+            item["precio_unitario"] = catalog_hnl
+            continue
+
+        # Pre-fix POS versions persisted the raw USD catalog number as though it
+        # were HNL. On the first edit, normalize that unambiguous legacy shape so
+        # current HNL cost checks and future accounting compare like currencies.
+        existing_price = Decimal(str(item["precio_unitario"] or 0))
+        if is_usd_currency(getattr(product, "moneda", None)) and existing_price == raw_catalog:
+            item["precio_unitario"] = catalog_hnl
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)
