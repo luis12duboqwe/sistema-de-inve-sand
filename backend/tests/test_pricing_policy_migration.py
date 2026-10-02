@@ -17,6 +17,7 @@ from app.utils.ai_sales_policy import (
 from app.utils.order_pricing import enforce_sale_price_policy
 from app.utils.pricing_policy_migration import (
     MIGRATION_ID,
+    ORDER_CURRENCY_MIGRATION_ID,
     run_pricing_policy_migration,
 )
 
@@ -136,3 +137,83 @@ def test_accessory_discount_does_not_require_closed_hundreds():
         enforce_sale_price_policy([item], current_user=user)
     except HTTPException as exc:  # pragma: no cover - assertion gives clearer failure
         pytest.fail(f"El accesorio no debe heredar el redondeo de celulares: {exc.detail}")
+
+
+def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Session):
+    from app.models import Location, Order, OrderItem, Product
+
+    location = Location(nombre="Migracion USD", direccion="Prueba", active=True)
+    profile = SalesProfile(
+        name="Perfil USD historico",
+        slug="perfil-usd-historico",
+        tipo="humano",
+        canales='["tienda"]',
+        active=True,
+        configuracion='{"exchange_rate": 24.50}',
+    )
+    product = Product(
+        sku="USD-MIG-001",
+        nombre="Telefono USD historico",
+        categoria="celular",
+        marca="Test",
+        modelo="USD",
+        condicion="nuevo",
+        precio=Decimal("100.00"),
+        costo=Decimal("60.00"),
+        moneda="USD",
+        activo=True,
+    )
+    db_session.add_all([location, profile, product])
+    db_session.flush()
+    order = Order(
+        sales_profile_id=profile.id,
+        source_location_id=location.id,
+        customer_name="Cliente historico",
+        customer_phone="99999999",
+        canal="tienda",
+        metodo_pago="efectivo",
+        payment_breakdown='[{"method":"efectivo","amount":100.0}]',
+        financing_details='{"down_payment":20.0,"financed_amount":80.0,"monthly_payment":20.0,"surcharge":0.0}',
+        total=Decimal("100.00"),
+        estado="completada",
+    )
+    db_session.add(order)
+    db_session.flush()
+    db_session.add(OrderItem(
+        order_id=order.id,
+        product_id=product.id,
+        cantidad=1,
+        precio_unitario=Decimal("100.00"),
+        costo_unitario=Decimal("60.00"),
+        es_regalo_promocion=False,
+    ))
+    db_session.commit()
+    order_id = order.id
+    engine = db_session.get_bind()
+
+    assert run_pricing_policy_migration(bind=engine) is True
+    with engine.connect() as conn:
+        migrated = conn.execute(text(
+            "SELECT o.total, o.payment_breakdown, o.financing_details, "
+            "oi.precio_unitario, oi.costo_unitario "
+            "FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.id=:id"
+        ), {"id": order_id}).mappings().one()
+        assert Decimal(str(migrated["total"])) == Decimal("2450.00")
+        assert Decimal(str(migrated["precio_unitario"])) == Decimal("2450.00")
+        assert Decimal(str(migrated["costo_unitario"])) == Decimal("1470.00")
+        assert '"amount": 2450.0' in migrated["payment_breakdown"]
+        assert '"down_payment": 490.0' in migrated["financing_details"]
+        assert conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE id=:id"),
+            {"id": ORDER_CURRENCY_MIGRATION_ID},
+        ).scalar_one() == 1
+
+    assert run_pricing_policy_migration(bind=engine) is True
+    with engine.connect() as conn:
+        again = conn.execute(text(
+            "SELECT o.total, oi.precio_unitario, oi.costo_unitario "
+            "FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.id=:id"
+        ), {"id": order_id}).mappings().one()
+        assert Decimal(str(again["total"])) == Decimal("2450.00")
+        assert Decimal(str(again["precio_unitario"])) == Decimal("2450.00")
+        assert Decimal(str(again["costo_unitario"])) == Decimal("1470.00")

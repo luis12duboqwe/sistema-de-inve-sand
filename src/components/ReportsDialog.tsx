@@ -13,9 +13,8 @@ interface ReportsDialogProps {
   profile: Profile
 }
 
-export function ReportsDialog({ open, onOpenChange, reportData, profile }: ReportsDialogProps) {
-  const currency = profile.settings?.currency || 'USD'
-  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '$'
+export function ReportsDialog({ open, onOpenChange, reportData }: ReportsDialogProps) {
+  const currencySymbol = 'L'
 
   const formatCurrency = (value: number) => {
     return `${currencySymbol}${value.toLocaleString('es-ES', {

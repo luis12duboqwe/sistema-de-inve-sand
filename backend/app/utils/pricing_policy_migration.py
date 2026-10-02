@@ -9,6 +9,8 @@ above the automated ceiling or removes the canonical AI context rule.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
+import json
 from pathlib import Path
 import logging
 import sqlite3
@@ -26,6 +28,46 @@ from app.utils.ai_sales_policy import (
 logger = logging.getLogger(__name__)
 
 MIGRATION_ID = "20260925_02_ai_discount_policy_cap_and_context"
+ORDER_CURRENCY_MIGRATION_ID = "20261002_01_legacy_usd_orders_to_hnl"
+CENT = Decimal("0.01")
+
+
+def _q(value: object) -> Decimal:
+    return Decimal(str(value or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _rate_from_config(raw: object) -> Decimal:
+    try:
+        config = raw if isinstance(raw, dict) else json.loads(str(raw or "{}"))
+        value = config.get("exchange_rate", config.get("exchangeRate", 25))
+        rate = Decimal(str(value))
+        if rate.is_finite() and rate > 0:
+            return rate.quantize(CENT, rounding=ROUND_HALF_UP)
+    except (TypeError, ValueError, json.JSONDecodeError, ArithmeticError, AttributeError):
+        pass
+    return Decimal("25.00")
+
+
+def _scale_json_money(raw: object, rate: Decimal, keys: set[str]) -> object:
+    if not raw:
+        return raw
+    try:
+        data = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return raw
+    def walk(value):
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                if key in keys and isinstance(item, (int, float)):
+                    result[key] = float((_q(item) * rate).quantize(CENT, rounding=ROUND_HALF_UP))
+                else:
+                    result[key] = walk(item)
+            return result
+        return value
+    return json.dumps(walk(data), ensure_ascii=False)
 
 
 def _backup_sqlite_if_needed() -> Path | None:
@@ -91,6 +133,75 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
     if not already_applied:
         _backup_sqlite_if_needed()
 
+    # One-time normalization of legacy USD-backed sales. Before this policy,
+    # order item price/cost and order totals could persist the raw USD catalog
+    # number. Convert only rows whose USD item price still has the legacy shape
+    # (at or below the raw USD catalog ceiling); HNL-normalized rows are larger
+    # and therefore remain untouched. The ledger makes the operation one-shot.
+    if {"orders", "order_items", "products"}.issubset(table_names):
+        with engine.begin() as conn:
+            currency_applied = conn.execute(
+                text("SELECT 1 FROM schema_migrations WHERE id = :migration_id"),
+                {"migration_id": ORDER_CURRENCY_MIGRATION_ID},
+            ).first()
+            if not currency_applied:
+                rows = conn.execute(text("""
+                    SELECT oi.id AS item_id, oi.order_id, oi.precio_unitario, oi.costo_unitario,
+                           p.precio AS catalog_price, p.costo AS catalog_cost, p.moneda,
+                           o.sales_profile_id, o.profile_id
+                    FROM order_items oi
+                    JOIN products p ON p.id = oi.product_id
+                    JOIN orders o ON o.id = oi.order_id
+                    WHERE UPPER(TRIM(COALESCE(p.moneda, ''))) IN ('USD', 'US$', '$')
+                """)).mappings().all()
+                legacy_orders: dict[int, Decimal] = {}
+                for row in rows:
+                    price = _q(row["precio_unitario"])
+                    catalog = _q(row["catalog_price"])
+                    if price > catalog and price != Decimal("0.00"):
+                        continue
+                    raw_config = None
+                    if row["sales_profile_id"] is not None and "sales_profiles" in table_names:
+                        raw_config = conn.execute(
+                            text("SELECT configuracion FROM sales_profiles WHERE id=:id"),
+                            {"id": row["sales_profile_id"]},
+                        ).scalar()
+                    elif row["profile_id"] is not None and "profiles" in table_names:
+                        raw_config = conn.execute(
+                            text("SELECT settings FROM profiles WHERE id=:id"),
+                            {"id": row["profile_id"]},
+                        ).scalar()
+                    rate = _rate_from_config(raw_config)
+                    legacy_orders[int(row["order_id"])] = rate
+                    new_price = (price * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                    cost = row["costo_unitario"]
+                    new_cost = None if cost is None else (_q(cost) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                    conn.execute(
+                        text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
+                        {"price": new_price, "cost": new_cost, "id": row["item_id"]},
+                    )
+                for order_id, rate in legacy_orders.items():
+                    order_row = conn.execute(
+                        text("SELECT total, payment_breakdown, financing_details FROM orders WHERE id=:id"),
+                        {"id": order_id},
+                    ).mappings().one()
+                    money_keys = {"amount", "down_payment", "prima", "financed_amount", "surcharge", "monthly_payment", "total_with_surcharge"}
+                    conn.execute(
+                        text("UPDATE orders SET total=:total, payment_breakdown=:payments, financing_details=:financing WHERE id=:id"),
+                        {
+                            "total": (_q(order_row["total"]) * rate).quantize(CENT, rounding=ROUND_HALF_UP),
+                            "payments": _scale_json_money(order_row["payment_breakdown"], rate, money_keys),
+                            "financing": _scale_json_money(order_row["financing_details"], rate, money_keys),
+                            "id": order_id,
+                        },
+                    )
+                ledger_sql = (
+                    "INSERT OR IGNORE INTO schema_migrations (id) VALUES (:migration_id)"
+                    if dialect == "sqlite"
+                    else "INSERT INTO schema_migrations (id) VALUES (:migration_id) ON CONFLICT (id) DO NOTHING"
+                )
+                conn.execute(text(ledger_sql), {"migration_id": ORDER_CURRENCY_MIGRATION_ID})
+
     with engine.begin() as conn:
         capped = conn.execute(
             text(
@@ -144,4 +255,4 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
     return True
 
 
-__all__ = ["MIGRATION_ID", "run_pricing_policy_migration"]
+__all__ = ["MIGRATION_ID", "ORDER_CURRENCY_MIGRATION_ID", "run_pricing_policy_migration"]
