@@ -202,7 +202,8 @@ def enforce_sale_price_policy(
                     status_code=403,
                     detail=(
                         f"El perfil automático solo está autorizado hasta {percentage}% de descuento "
-                        f"para {product_label}. Precio mínimo en HNL: {automation_floor:.2f}."
+                        f"para {product_label}; un descuento mayor requiere aprobación del propietario. "
+                        f"Precio mínimo en HNL: {automation_floor:.2f}."
                     ),
                 )
 
