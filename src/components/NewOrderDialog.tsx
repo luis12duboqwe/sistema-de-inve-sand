@@ -255,7 +255,7 @@ export function NewOrderDialog({
       config = rawConfig as Record<string, unknown>
     }
     const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
-    return Number.isFinite(candidate) && candidate > 0 ? candidate : 25
+    return Number.isFinite(candidate) && candidate > 0 ? Number(candidate.toFixed(2)) : 25
   })()
   const productPriceInHnl = (product: ProductWithStock): number => {
     const rawPrice = parseFlexibleNumber(product.precio) ?? 0
@@ -873,7 +873,7 @@ export function NewOrderDialog({
                     config = rawConfig as Record<string, unknown>
                   }
                   const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
-                  return Number.isFinite(candidate) && candidate > 0 ? candidate : 25
+                  return Number.isFinite(candidate) && candidate > 0 ? Number(candidate.toFixed(2)) : 25
                 }
                 const previousRate = readRate(previousProfile)
                 const nextRate = readRate(nextProfile)
@@ -1091,7 +1091,7 @@ export function NewOrderDialog({
                                     </CommandEmpty>
                                     {filteredProducts.map(product => {
                                       const stockDisplay = getAvailableStockForProduct(product)
-                                      const price = parseFlexibleNumber(product.precio) ?? 0
+                                      const price = productPriceInHnl(product)
                                       const isSelected = item.product_id === product.id
 
                                       return (
@@ -1141,7 +1141,7 @@ export function NewOrderDialog({
                             }
                             placeholder={(() => {
                               const product = products.find(p => p.id === item.product_id)
-                              return product ? String(parseFlexibleNumber(product.precio) ?? '') : 'Precio'
+                              return product ? String(productPriceInHnl(product)) : 'Precio'
                             })()}
                             title="Precio unitario (dejar vacío para usar precio de lista)"
                           />
@@ -1719,7 +1719,7 @@ export function NewOrderDialog({
                           const itemsTotal = items.reduce((total, item) => {
                              const product = products.find(p => p.id === item.product_id)
                              if (!product) return total
-                             const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+                             const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
                              return total + price * item.cantidad
                           }, 0)
                           const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
