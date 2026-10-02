@@ -212,6 +212,14 @@ def _normalize_new_edit_items_to_hnl(
         existing_price = Decimal(str(item["precio_unitario"] or 0))
         if is_usd_currency(getattr(product, "moneda", None)) and existing_price == raw_catalog:
             item["precio_unitario"] = catalog_hnl
+            historical_cost = item.get("_historical_cost_hnl")
+            raw_cost = Decimal(str(getattr(product, "costo", 0) or 0))
+            if historical_cost is not None and Decimal(str(historical_cost)) == raw_cost:
+                item["_historical_cost_hnl"] = product_amount_in_hnl(
+                    historical_cost,
+                    product,
+                    exchange_rate,
+                )
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse)

@@ -862,6 +862,38 @@ export function NewOrderDialog({
             <Select
               value={salesProfileSlug}
               onValueChange={value => {
+                const previousProfile = selectedSalesProfile
+                const nextProfile = salesProfiles.find(profile => profile.slug === value)
+                const readRate = (profile: typeof previousProfile): number => {
+                  const rawConfig = profile?.configuracion
+                  let config: Record<string, unknown> = {}
+                  if (typeof rawConfig === 'string') {
+                    try { config = JSON.parse(rawConfig) as Record<string, unknown> } catch { config = {} }
+                  } else if (rawConfig && typeof rawConfig === 'object') {
+                    config = rawConfig as Record<string, unknown>
+                  }
+                  const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
+                  return Number.isFinite(candidate) && candidate > 0 ? candidate : 25
+                }
+                const previousRate = readRate(previousProfile)
+                const nextRate = readRate(nextProfile)
+
+                setItems(currentItems => currentItems.map(item => {
+                  const product = products.find(candidate => candidate.id === item.product_id)
+                  if (!product || !['USD', 'US$', '$'].includes(String(product.moneda || '').trim().toUpperCase())) {
+                    return item
+                  }
+                  const rawPrice = parseFlexibleNumber(product.precio) ?? 0
+                  const previousDefault = Number((rawPrice * previousRate).toFixed(2))
+                  const currentPrice = parseFlexibleNumber(item.precio_unitario)
+                  if (currentPrice === null || Math.abs(currentPrice - previousDefault) > 0.005) {
+                    return item
+                  }
+                  return {
+                    ...item,
+                    precio_unitario: Number((rawPrice * nextRate).toFixed(2)),
+                  }
+                }))
                 setSalesProfileSlug(value)
                 clearFieldError('salesProfileSlug')
               }}

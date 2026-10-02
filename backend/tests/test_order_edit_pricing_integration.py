@@ -360,3 +360,6 @@ def test_order_edit_normalizes_pre_fix_raw_usd_catalog_price(client, db_session)
     )
     assert edited.status_code == 200, edited.text
     assert Decimal(str(edited.json()["items"][0]["precio_unitario"])) == Decimal("2450.00")
+    db_session.expire_all()
+    edited_row = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).one()
+    assert Decimal(str(edited_row.costo_unitario)) == Decimal("1470.00")
