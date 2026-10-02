@@ -248,5 +248,15 @@ def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: 
 
     assert run_pricing_policy_migration(bind=engine) is True
     with engine.connect() as conn:
-        total = conn.execute(text("SELECT total FROM orders WHERE id=:id"), {"id": order_id}).scalar_one()
-        assert Decimal(str(total)) == Decimal("3450.00")
+        row = conn.execute(text(
+            "SELECT o.total, usd.precio_unitario AS usd_price, hnl.precio_unitario AS hnl_price "
+            "FROM orders o "
+            "JOIN order_items usd ON usd.order_id=o.id AND usd.product_id=:usd_id "
+            "JOIN order_items hnl ON hnl.order_id=o.id AND hnl.product_id=:hnl_id "
+            "WHERE o.id=:id"
+        ), {"id": order_id, "usd_id": usd.id, "hnl_id": hnl.id}).mappings().one()
+        # Mixed historical currency is ambiguous at the payment-allocation level;
+        # automatic migration must leave the entire order untouched.
+        assert Decimal(str(row["total"])) == Decimal("1100.00")
+        assert Decimal(str(row["usd_price"])) == Decimal("100.00")
+        assert Decimal(str(row["hnl_price"])) == Decimal("1000.00")

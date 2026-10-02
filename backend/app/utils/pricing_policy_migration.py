@@ -159,64 +159,64 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                     JOIN orders o ON o.id = oi.order_id
                     WHERE UPPER(TRIM(COALESCE(p.moneda, ''))) IN ('USD', 'US$', '$')
                 """)).mappings().all()
-                legacy_orders: dict[int, dict[str, object]] = {}
+                candidates: dict[int, list[dict[str, object]]] = {}
                 for row in rows:
                     price = _q(row["precio_unitario"])
                     catalog = _q(row["catalog_price"])
                     if price > catalog and price != Decimal("0.00"):
                         continue
-                    raw_config = None
-                    if row["sales_profile_id"] is not None and "sales_profiles" in table_names:
-                        raw_config = conn.execute(
-                            text("SELECT configuracion FROM sales_profiles WHERE id=:id"),
-                            {"id": row["sales_profile_id"]},
-                        ).scalar()
-                    elif row["profile_id"] is not None and "profiles" in table_names:
-                        raw_config = conn.execute(
-                            text("SELECT settings FROM profiles WHERE id=:id"),
-                            {"id": row["profile_id"]},
-                        ).scalar()
-                    rate = _rate_from_config(raw_config)
-                    order_id = int(row["order_id"])
-                    state = legacy_orders.setdefault(
-                        order_id,
-                        {"rate": rate, "delta": Decimal("0.00"), "converted_items": 0},
-                    )
-                    new_price = (price * rate).quantize(CENT, rounding=ROUND_HALF_UP)
-                    quantity = int(conn.execute(
-                        text("SELECT cantidad FROM order_items WHERE id=:id"),
-                        {"id": row["item_id"]},
-                    ).scalar_one())
-                    state["delta"] = Decimal(str(state["delta"])) + ((new_price - price) * quantity)
-                    state["converted_items"] = int(state["converted_items"]) + 1
-                    cost = row["costo_unitario"]
-                    new_cost = None if cost is None else (_q(cost) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
-                    conn.execute(
-                        text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
-                        {"price": new_price, "cost": new_cost, "id": row["item_id"]},
-                    )
-                for order_id, state in legacy_orders.items():
-                    rate = Decimal(str(state["rate"]))
-                    order_row = conn.execute(
-                        text("SELECT total, payment_breakdown, financing_details FROM orders WHERE id=:id"),
-                        {"id": order_id},
-                    ).mappings().one()
+                    candidates.setdefault(int(row["order_id"]), []).append(dict(row))
+
+                for order_id, order_rows in candidates.items():
                     item_count = int(conn.execute(
                         text("SELECT COUNT(*) FROM order_items WHERE order_id=:id"),
                         {"id": order_id},
                     ).scalar_one())
-                    all_items_converted = int(state["converted_items"]) == item_count
-                    delta = Decimal(str(state["delta"])).quantize(CENT, rounding=ROUND_HALF_UP)
-                    new_total = (_q(order_row["total"]) + delta).quantize(CENT, rounding=ROUND_HALF_UP)
+                    # Mixed historical orders are ambiguous: their aggregate
+                    # payment/financing payload does not record which portion was
+                    # raw USD versus already-HNL. Never guess and corrupt ledger
+                    # allocations. Only normalize an order when every item has
+                    # the unambiguous legacy-USD shape.
+                    if len(order_rows) != item_count:
+                        continue
+
+                    first = order_rows[0]
+                    raw_config = None
+                    if first["sales_profile_id"] is not None and "sales_profiles" in table_names:
+                        raw_config = conn.execute(
+                            text("SELECT configuracion FROM sales_profiles WHERE id=:id"),
+                            {"id": first["sales_profile_id"]},
+                        ).scalar()
+                    elif first["profile_id"] is not None and "profiles" in table_names:
+                        raw_config = conn.execute(
+                            text("SELECT settings FROM profiles WHERE id=:id"),
+                            {"id": first["profile_id"]},
+                        ).scalar()
+                    rate = _rate_from_config(raw_config)
+
+                    for row in order_rows:
+                        price = _q(row["precio_unitario"])
+                        new_price = (price * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                        cost = row["costo_unitario"]
+                        new_cost = None if cost is None else (_q(cost) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                        conn.execute(
+                            text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
+                            {"price": new_price, "cost": new_cost, "id": row["item_id"]},
+                        )
+
+                    order_row = conn.execute(
+                        text("SELECT total, payment_breakdown, financing_details FROM orders WHERE id=:id"),
+                        {"id": order_id},
+                    ).mappings().one()
                     money_keys = {"amount", "down_payment", "prima", "financed_amount", "surcharge", "monthly_payment", "total_with_surcharge"}
-                    payments = order_row["payment_breakdown"]
-                    financing = order_row["financing_details"]
-                    if all_items_converted:
-                        payments = _scale_json_money(payments, rate, money_keys)
-                        financing = _scale_json_money(financing, rate, money_keys)
                     conn.execute(
                         text("UPDATE orders SET total=:total, payment_breakdown=:payments, financing_details=:financing WHERE id=:id"),
-                        {"total": new_total, "payments": payments, "financing": financing, "id": order_id},
+                        {
+                            "total": (_q(order_row["total"]) * rate).quantize(CENT, rounding=ROUND_HALF_UP),
+                            "payments": _scale_json_money(order_row["payment_breakdown"], rate, money_keys),
+                            "financing": _scale_json_money(order_row["financing_details"], rate, money_keys),
+                            "id": order_id,
+                        },
                     )
                 ledger_sql = (
                     "INSERT OR IGNORE INTO schema_migrations (id) VALUES (:migration_id)"
