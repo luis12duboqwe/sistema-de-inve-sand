@@ -5,9 +5,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-import app.database as database
 from app.models import AIProfileConfig, SalesProfile
 from app.schemas import AIConfigSchema
 from app.utils.ai_sales_policy import (
@@ -84,7 +83,12 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     historical_id = historical.id
     assert run_pricing_policy_migration() is True
 
-    with database.SessionLocal() as verification_session:
+    verification_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=db_session.get_bind(),
+    )
+    with verification_session_factory() as verification_session:
         migrated = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
         assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
         assert migrated.context_rules is not None
@@ -100,7 +104,7 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
         assert int(ledger_count) == 1
 
     assert run_pricing_policy_migration() is True
-    with database.SessionLocal() as verification_session:
+    with verification_session_factory() as verification_session:
         migrated_again = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
         assert Decimal(str(migrated_again.max_discount_rate)) == Decimal("0.0300")
         assert migrated_again.context_rules == rules_after_first_run
