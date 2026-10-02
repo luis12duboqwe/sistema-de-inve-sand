@@ -102,10 +102,10 @@ export function NewOrderDialog({
     whatsapp: 'WhatsApp',
     facebook: 'Facebook',
     instagram: 'Instagram',
-    tienda: 'Tienda FÃ­sica'
+    tienda: 'Tienda Física'
   }
 
-  // V2.0: Sistema Ãºnico con mÃºltiples canales de venta y ubicaciones
+  // V2.0: Sistema único con múltiples canales de venta y ubicaciones
   const [salesProfileSlug, setSalesProfileSlug] = useState(() => localStorage.getItem('last_sales_profile_slug') || '')
   const [sourceLocationId, setSourceLocationId] = useState<number | null>(() => {
     const saved = localStorage.getItem('last_source_location_id')
@@ -132,7 +132,7 @@ export function NewOrderDialog({
     color?: string
     capacidad?: string
     imei: string
-    condicion: 'usado' | 'daÃ±ado' | 'para_repuestos'
+    condicion: 'usado' | 'dañado' | 'para_repuestos'
     valor_estimado: number
     precio_venta?: number
     notas: string
@@ -177,7 +177,7 @@ export function NewOrderDialog({
     loadBanks()
   }, [open]) // Reload when dialog opens to get latest config
 
-  // Persistir selecciÃ³n en localStorage
+  // Persistir selección en localStorage
   useEffect(() => {
     if (salesProfileSlug) localStorage.setItem('last_sales_profile_slug', salesProfileSlug)
   }, [salesProfileSlug])
@@ -186,13 +186,13 @@ export function NewOrderDialog({
     if (sourceLocationId) localStorage.setItem('last_source_location_id', sourceLocationId.toString())
   }, [sourceLocationId])
 
-  // ðŸ”’ BUG FIX: Limpiar IMEIs seleccionados al cambiar de ubicaciÃ³n para evitar inconsistencias
+  // 🔒 BUG FIX: Limpiar IMEIs seleccionados al cambiar de ubicación para evitar inconsistencias
   useEffect(() => {
     setAvailableIMEIs({})
     setItems(prev => prev.map(item => ({ ...item, imeis: [] })))
   }, [sourceLocationId])
 
-  // FunciÃ³n para resetear el formulario
+  // Función para resetear el formulario
   const resetForm = () => {
     setCustomerName('')
     setCustomerPhone('')
@@ -209,7 +209,7 @@ export function NewOrderDialog({
     setNotas('')
     setDeliveryDate('')
     setIsSubmitting(false)
-    // NO resetear salesProfileSlug y sourceLocationId para mantener selecciÃ³n entre ventas
+    // NO resetear salesProfileSlug y sourceLocationId para mantener selección entre ventas
     setAvailableIMEIs({})
     setSelectedBankId(null)
     setSelectedMonths(null)
@@ -230,7 +230,7 @@ export function NewOrderDialog({
     requestAnimationFrame(() => scannerInputRef.current?.focus())
   }, [open])
 
-  // Establecer valores por defecto al abrir si no hay selecciÃ³n previa
+  // Establecer valores por defecto al abrir si no hay selección previa
   useEffect(() => {
     if (!open) return
     
@@ -288,15 +288,15 @@ export function NewOrderDialog({
     }
   }, [salesProfileSlug, salesProfiles, canal])
 
-  // Filtrar productos: solo mostrar los que tienen stock en la ubicaciÃ³n seleccionada
+  // Filtrar productos: solo mostrar los que tienen stock en la ubicación seleccionada
   const availableProducts = products.filter(product => {
-    // Si no hay ubicaciÃ³n seleccionada, no mostrar nada
+    // Si no hay ubicación seleccionada, no mostrar nada
     if (!sourceLocationId) return false
     
     // V2.0: Verificar stock_items (tabla Stock)
     if (product.stock_items && product.stock_items.length > 0) {
       const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
-      // ðŸ”’ Bug #8: Considerar stock_reservada en el cÃ¡lculo
+      // 🔒 Bug #8: Considerar stock_reservada en el cálculo
       const stockLibre = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
       const hasStock = stockInLocation && stockLibre > 0
       
@@ -304,7 +304,7 @@ export function NewOrderDialog({
       return hasStock
     }
     
-    // Si no tiene stock_items, NO mostrar (requiere migraciÃ³n a V2.0)
+    // Si no tiene stock_items, NO mostrar (requiere migración a V2.0)
     return false
   })
 
@@ -342,7 +342,7 @@ export function NewOrderDialog({
   const addScannedProductToOrder = async (product: ProductWithStock, scannedImei?: string) => {
     const availableStock = getAvailableStockForProduct(product)
     if (availableStock <= 0) {
-      toast.error(`No hay stock disponible para "${product.nombre}" en esta ubicaciÃ³n`)
+      toast.error(`No hay stock disponible para "${product.nombre}" en esta ubicación`)
       return
     }
 
@@ -352,7 +352,7 @@ export function NewOrderDialog({
       : []
 
     if (scannedImei && isSerialized && !availableImeisForProduct.includes(scannedImei)) {
-      toast.error('El IMEI escaneado no estÃ¡ disponible en la ubicaciÃ³n seleccionada')
+      toast.error('El IMEI escaneado no está disponible en la ubicación seleccionada')
       return
     }
 
@@ -416,12 +416,12 @@ export function NewOrderDialog({
     const scannedValue = normalizeScannerValue(scanInput)
 
     if (!scannedValue) {
-      toast.error('Escanea o escribe un SKU o IMEI vÃ¡lido')
+      toast.error('Escanea o escribe un SKU o IMEI válido')
       return
     }
 
     if (!sourceLocationId) {
-      toast.error('Selecciona primero una ubicaciÃ³n origen')
+      toast.error('Selecciona primero una ubicación origen')
       return
     }
 
@@ -444,7 +444,7 @@ export function NewOrderDialog({
       }
     }
 
-    toast.error('No se encontrÃ³ un producto disponible con ese SKU o IMEI')
+    toast.error('No se encontró un producto disponible con ese SKU o IMEI')
     setScanInput('')
     requestAnimationFrame(() => scannerInputRef.current?.focus())
   }
@@ -493,14 +493,14 @@ export function NewOrderDialog({
   const handleItemChange = async (index: number, field: keyof OrderItemForm, value: any) => {
     const newItems = [...items]
     
-    // Si cambia el producto, validar que no estÃ© duplicado
+    // Si cambia el producto, validar que no esté duplicado
     if (field === 'product_id') {
       const productId = value as number
       if (productId > 0) {
         const isDuplicate = newItems.some((item, i) => i !== index && item.product_id === productId)
         if (isDuplicate) {
           const product = products.find(p => p.id === productId)
-          toast.error(`âŒ "${product?.nombre}" ya estÃ¡ en la orden. Usa el campo cantidad para pedir mÃ¡s unidades.`)
+          toast.error(`❌ "${product?.nombre}" ya está en la orden. Usa el campo cantidad para pedir más unidades.`)
           return // No permitir el cambio
         }
 
@@ -539,7 +539,7 @@ export function NewOrderDialog({
         // Determinar stock disponible (V2.0 con ubicaciones o legacy global)
         let available = 0
         if (product?.stock_items && product.stock_items.length > 0) {
-          // V2.0: Usar stock de la ubicaciÃ³n especÃ­fica
+          // V2.0: Usar stock de la ubicación específica
           const stockInLocation = product.stock_items.find(s => s.location_id === sourceLocationId)
           available = (stockInLocation?.cantidad_disponible || 0) - (stockInLocation?.cantidad_reservada || 0)
         } else {
@@ -549,7 +549,7 @@ export function NewOrderDialog({
         
         // Limitar al stock disponible
         if (normalizedVal > available) {
-          toast.error(`âš ï¸ Solo hay ${available} unidades de "${product?.nombre}" ${product?.stock_items?.length ? 'en esta ubicaciÃ³n' : 'disponibles'}`)
+          toast.error(`⚠️ Solo hay ${available} unidades de "${product?.nombre}" ${product?.stock_items?.length ? 'en esta ubicación' : 'disponibles'}`)
           newItems[index].cantidad = available
         } else {
           newItems[index].cantidad = normalizedVal
@@ -572,7 +572,7 @@ export function NewOrderDialog({
        } else {
          const numericValue = parseFlexibleNumber(value)
          if (numericValue === undefined) {
-           toast.error('El precio unitario debe ser numÃ©rico')
+           toast.error('El precio unitario debe ser numérico')
            return
          }
          if (numericValue < 0) {
@@ -704,8 +704,8 @@ export function NewOrderDialog({
         return
       }
       if (!transferReference.trim()) {
-        setFormErrors(prev => ({ ...prev, transferReference: 'Ingresa el nÃºmero de referencia de la transferencia' }))
-        toast.error('Ingresa el nÃºmero de referencia de la transferencia')
+        setFormErrors(prev => ({ ...prev, transferReference: 'Ingresa el número de referencia de la transferencia' }))
+        toast.error('Ingresa el número de referencia de la transferencia')
         return
       }
     }
@@ -853,7 +853,7 @@ export function NewOrderDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Perfil de Venta y UbicaciÃ³n */}
+          {/* Perfil de Venta y Ubicación */}
           <div className="space-y-2">
             <Label htmlFor="sales-profile" className="flex items-center gap-2">
               <Robot className="w-4 h-4" />
@@ -886,10 +886,7 @@ export function NewOrderDialog({
                   const rawPrice = parseFlexibleNumber(product.precio) ?? 0
                   const previousDefault = Number((rawPrice * previousRate).toFixed(2))
                   const currentPrice = parseFlexibleNumber(item.precio_unitario)
-                  if (typeof currentPrice !== 'number') {
-                    return item
-                  }
-                  if (Math.abs(currentPrice - previousDefault) > 0.005) {
+                  if (currentPrice === null || Math.abs(currentPrice - previousDefault) > 0.005) {
                     return item
                   }
                   return {
@@ -913,7 +910,7 @@ export function NewOrderDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              QuiÃ©n realiza la venta (bot, vendedor, sistema)
+              Quién realiza la venta (bot, vendedor, sistema)
             </p>
             {selectedSalesProfile?.canales?.length ? (
               <p className="text-xs text-muted-foreground">
@@ -928,7 +925,7 @@ export function NewOrderDialog({
           <div className="space-y-2">
             <Label htmlFor="location" className="flex items-center gap-2">
               <MapPin className="w-4 h-4" />
-              UbicaciÃ³n Origen del Stock *
+              Ubicación Origen del Stock *
             </Label>
             <Select 
               value={sourceLocationId?.toString() || ''} 
@@ -938,7 +935,7 @@ export function NewOrderDialog({
               }}
             >
               <SelectTrigger id="location">
-                <SelectValue placeholder="Seleccionar ubicaciÃ³n" />
+                <SelectValue placeholder="Seleccionar ubicación" />
               </SelectTrigger>
               <SelectContent>
                 {locations.map(location => (
@@ -950,8 +947,8 @@ export function NewOrderDialog({
             </Select>
             <p className="text-xs text-muted-foreground">
               {canal === 'tienda'
-                ? 'Esta ubicaciÃ³n quedarÃ¡ reportada como la tienda fÃ­sica donde se registrÃ³ la venta'
-                : 'De quÃ© tienda/bodega se tomarÃ¡ el stock'}
+                ? 'Esta ubicación quedará reportada como la tienda física donde se registró la venta'
+                : 'De qué tienda/bodega se tomará el stock'}
             </p>
             {formErrors.sourceLocationId && (
               <p className="text-xs text-red-600">{formErrors.sourceLocationId}</p>
@@ -969,7 +966,7 @@ export function NewOrderDialog({
                   setCustomerName(e.target.value)
                   clearFieldError('customerName')
                 }}
-                placeholder="Juan PÃ©rez"
+                placeholder="Juan Pérez"
               />
               {formErrors.customerName && (
                 <p className="text-xs text-red-600">{formErrors.customerName}</p>
@@ -977,7 +974,7 @@ export function NewOrderDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="customer-phone">TelÃ©fono</Label>
+              <Label htmlFor="customer-phone">Teléfono</Label>
               <Input
                 id="customer-phone"
                 type="tel"
@@ -1022,27 +1019,27 @@ export function NewOrderDialog({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Puedes escanear el SKU para sumar el producto o el IMEI para agregar automÃ¡ticamente una unidad serializada.
+                  Puedes escanear el SKU para sumar el producto o el IMEI para agregar automáticamente una unidad serializada.
                 </p>
               </div>
 
-              {/* Alerta de filtrado por ubicaciÃ³n */}
+              {/* Alerta de filtrado por ubicación */}
               {sourceLocationId && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-sm">
                   <p className="text-blue-800">
-                    ðŸ“ Mostrando solo productos con stock en{' '}
+                    📍 Mostrando solo productos con stock en{' '}
                     <strong>{locations.find(l => l.id === sourceLocationId)?.nombre}</strong>
                   </p>
                   {availableProducts.length === 0 && (
                     <p className="text-blue-700 mt-1 text-xs">
-                      âš ï¸ Esta ubicaciÃ³n no tiene productos con stock. Selecciona otra ubicaciÃ³n o transfiere stock primero.
+                      ⚠️ Esta ubicación no tiene productos con stock. Selecciona otra ubicación o transfiere stock primero.
                     </p>
                   )}
                 </div>
               )}
               {!sourceLocationId && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm text-amber-800">
-                  âš ï¸ Selecciona primero una ubicaciÃ³n origen para ver los productos disponibles
+                  ⚠️ Selecciona primero una ubicación origen para ver los productos disponibles
                 </div>
               )}
 
@@ -1070,7 +1067,7 @@ export function NewOrderDialog({
                                 >
                                   <span className="truncate text-left">
                                     {selectedProduct
-                                      ? `${selectedProduct.nombre} Â· ${selectedProduct.sku || 'Sin SKU'}`
+                                      ? `${selectedProduct.nombre} · ${selectedProduct.sku || 'Sin SKU'}`
                                       : 'Buscar producto por modelo, marca o SKU'}
                                   </span>
                                   <CaretUpDown size={16} className="ml-2 shrink-0 opacity-50" />
@@ -1087,7 +1084,7 @@ export function NewOrderDialog({
                                     <CommandEmpty>
                                       {sourceLocationId
                                         ? 'No se encontraron productos con stock.'
-                                        : 'Selecciona primero una ubicaciÃ³n.'}
+                                        : 'Selecciona primero una ubicación.'}
                                     </CommandEmpty>
                                     {filteredProducts.map(product => {
                                       const stockDisplay = getAvailableStockForProduct(product)
@@ -1107,7 +1104,7 @@ export function NewOrderDialog({
                                             <div className="min-w-0">
                                               <p className="truncate font-medium">{product.nombre}</p>
                                               <p className="truncate text-xs text-muted-foreground">
-                                                {product.marca || 'Sin marca'} {product.modelo || ''} Â· {product.color || 'Sin color'} Â· {product.capacidad || 'Sin capacidad'} Â· SKU: {product.sku || 'Sin SKU'}
+                                                {product.marca || 'Sin marca'} {product.modelo || ''} · {product.color || 'Sin color'} · {product.capacidad || 'Sin capacidad'} · SKU: {product.sku || 'Sin SKU'}
                                               </p>
                                             </div>
                                             <div className="shrink-0 text-right text-xs">
@@ -1143,7 +1140,7 @@ export function NewOrderDialog({
                               const product = products.find(p => p.id === item.product_id)
                               return product ? String(parseFlexibleNumber(product.precio) ?? '') : 'Precio'
                             })()}
-                            title="Precio unitario (dejar vacÃ­o para usar precio de lista)"
+                            title="Precio unitario (dejar vacío para usar precio de lista)"
                           />
                         </div>
 
@@ -1198,7 +1195,7 @@ export function NewOrderDialog({
                             
                             {imeis.length === 0 ? (
                               <div className="text-xs text-muted-foreground italic">
-                                No hay IMEIs disponibles en esta ubicaciÃ³n.
+                                No hay IMEIs disponibles en esta ubicación.
                               </div>
                             ) : (
                               <div className="flex flex-wrap gap-2">
@@ -1335,9 +1332,9 @@ export function NewOrderDialog({
                               try {
                                 const check = calculateLuhnCheckDigit(val)
                                 finalVal = val + check
-                                toast.success(`DÃ­gito verificador generado: ${check}`)
+                                toast.success(`Dígito verificador generado: ${check}`)
                               } catch (err) {
-                                console.error('Error calculando dÃ­gito IMEI', err)
+                                console.error('Error calculando dígito IMEI', err)
                               }
                           }
                           const newTradeIns = [...tradeIns]
@@ -1355,11 +1352,11 @@ export function NewOrderDialog({
                         }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="CondiciÃ³n" />
+                          <SelectValue placeholder="Condición" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="usado">Usado</SelectItem>
-                          <SelectItem value="daÃ±ado">DaÃ±ado</SelectItem>
+                          <SelectItem value="dañado">Dañado</SelectItem>
                           <SelectItem value="para_repuestos">Para Repuestos</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1392,7 +1389,7 @@ export function NewOrderDialog({
                           } else {
                             const parsed = parseFloat(rawValue)
                             if (Number.isNaN(parsed) || parsed <= 0) {
-                              toast.error('El precio de venta sugerido debe ser mayor a 0 o dejarse vacÃ­o')
+                              toast.error('El precio de venta sugerido debe ser mayor a 0 o dejarse vacío')
                               return
                             }
                             newTradeIns[index].precio_venta = parsed
@@ -1454,12 +1451,12 @@ export function NewOrderDialog({
                 </Select>
                 {canal === 'tienda' && sourceLocationId && (
                   <p className="text-xs text-muted-foreground">
-                    La venta se reportarÃ¡ en <strong>{locations.find(l => l.id === sourceLocationId)?.nombre || 'la tienda seleccionada'}</strong>.
+                    La venta se reportará en <strong>{locations.find(l => l.id === sourceLocationId)?.nombre || 'la tienda seleccionada'}</strong>.
                   </p>
                 )}
                 {selectedSalesProfile?.canales?.includes('tienda') && canal === 'tienda' && (
                   <p className="text-xs text-emerald-700">
-                    Este perfil estÃ¡ configurado para venta fÃ­sica; el canal se ajustÃ³ automÃ¡ticamente.
+                    Este perfil está configurado para venta física; el canal se ajustó automáticamente.
                   </p>
                 )}
               </div>
@@ -1483,7 +1480,7 @@ export function NewOrderDialog({
                     </Button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">Puedes activar mÃ¡s de una forma de pago para dividir la venta.</p>
+                <p className="text-xs text-muted-foreground">Puedes activar más de una forma de pago para dividir la venta.</p>
               </div>
             </div>
 
@@ -1579,7 +1576,7 @@ export function NewOrderDialog({
                       setTransferBankName(e.target.value)
                       clearFieldError('transferBankName')
                     }}
-                    placeholder="Ej: BAC, Ficohsa, AtlÃ¡ntida"
+                    placeholder="Ej: BAC, Ficohsa, Atlántida"
                     maxLength={120}
                   />
                   <datalist id="transfer-bank-options">
@@ -1593,7 +1590,7 @@ export function NewOrderDialog({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="transfer-reference">NÃºmero de referencia</Label>
+                  <Label htmlFor="transfer-reference">Número de referencia</Label>
                   <Input
                     id="transfer-reference"
                     value={transferReference}
@@ -1729,7 +1726,7 @@ export function NewOrderDialog({
                           // V2.1: Split Payment Logic
                           const downPayment = parseFloat(cashDownPayment) || 0
                           
-                          // Base para cÃ¡lculo de intereses = Total Productos - TradeIns - Prima
+                          // Base para cálculo de intereses = Total Productos - TradeIns - Prima
                           const financedAmount = Math.max(0, itemsTotal - tradeInsTotal - downPayment)
 
                           let surcharge = 0
@@ -1837,11 +1834,11 @@ export function NewOrderDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          {/* ðŸ”’ Bug #9: Validar que ubicaciÃ³n estÃ© seleccionada */}
+          {/* 🔒 Bug #9: Validar que ubicación esté seleccionada */}
           <Button 
             onClick={handleSubmit} 
             disabled={isSubmitting || !sourceLocationId || !salesProfileSlug || items.length === 0}
-            title={!sourceLocationId ? 'Selecciona una ubicaciÃ³n' : !salesProfileSlug ? 'Selecciona un perfil de ventas' : ''}
+            title={!sourceLocationId ? 'Selecciona una ubicación' : !salesProfileSlug ? 'Selecciona un perfil de ventas' : ''}
           >
             {isSubmitting ? 'Creando...' : 'Crear Orden'}
           </Button>
