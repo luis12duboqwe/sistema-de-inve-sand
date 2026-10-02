@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import app.database as database
 from app.models import AIProfileConfig, SalesProfile
 from app.schemas import AIConfigSchema
 from app.utils.ai_sales_policy import (
@@ -80,33 +81,35 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
     db_session.add(historical)
     db_session.commit()
 
+    historical_id = historical.id
     assert run_pricing_policy_migration() is True
-    db_session.expire_all()
 
-    migrated = db_session.query(AIProfileConfig).filter_by(id=historical.id).one()
-    assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
-    assert migrated.context_rules is not None
-    assert "Conserva esta regla personalizada antes." in migrated.context_rules
-    assert "Conserva también esta regla personalizada después." in migrated.context_rules
-    assert migrated.context_rules.count(POLICY_MARKER) == 1
-    rules_after_first_run = migrated.context_rules
+    with database.SessionLocal() as verification_session:
+        migrated = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
+        assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
+        assert migrated.context_rules is not None
+        assert "Conserva esta regla personalizada antes." in migrated.context_rules
+        assert "Conserva también esta regla personalizada después." in migrated.context_rules
+        assert migrated.context_rules.count(POLICY_MARKER) == 1
+        rules_after_first_run = migrated.context_rules
 
-    ledger_count = db_session.execute(
-        text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
-        {"migration_id": MIGRATION_ID},
-    ).scalar_one()
-    assert int(ledger_count) == 1
+        ledger_count = verification_session.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
+            {"migration_id": MIGRATION_ID},
+        ).scalar_one()
+        assert int(ledger_count) == 1
 
     assert run_pricing_policy_migration() is True
-    db_session.expire_all()
-    migrated_again = db_session.query(AIProfileConfig).filter_by(id=historical.id).one()
-    assert migrated_again.context_rules == rules_after_first_run
+    with database.SessionLocal() as verification_session:
+        migrated_again = verification_session.query(AIProfileConfig).filter_by(id=historical_id).one()
+        assert Decimal(str(migrated_again.max_discount_rate)) == Decimal("0.0300")
+        assert migrated_again.context_rules == rules_after_first_run
 
-    ledger_count_after_second_run = db_session.execute(
-        text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
-        {"migration_id": MIGRATION_ID},
-    ).scalar_one()
-    assert int(ledger_count_after_second_run) == 1
+        ledger_count_after_second_run = verification_session.execute(
+            text("SELECT COUNT(*) FROM schema_migrations WHERE id = :migration_id"),
+            {"migration_id": MIGRATION_ID},
+        ).scalar_one()
+        assert int(ledger_count_after_second_run) == 1
 
 
 def test_accessory_discount_does_not_require_closed_hundreds():
