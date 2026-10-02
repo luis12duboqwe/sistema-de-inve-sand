@@ -886,7 +886,10 @@ export function NewOrderDialog({
                   const rawPrice = parseFlexibleNumber(product.precio) ?? 0
                   const previousDefault = Number((rawPrice * previousRate).toFixed(2))
                   const currentPrice = parseFlexibleNumber(item.precio_unitario)
-                  if (currentPrice === null || Math.abs(currentPrice - previousDefault) > 0.005) {
+                  if (typeof currentPrice !== 'number') {
+                    return item
+                  }
+                  if (Math.abs(currentPrice - previousDefault) > 0.005) {
                     return item
                   }
                   return {
