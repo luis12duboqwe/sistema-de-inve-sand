@@ -61,8 +61,13 @@ def _scale_json_money(raw: object, rate: Decimal, keys: set[str]) -> object:
         if isinstance(value, dict):
             result = {}
             for key, item in value.items():
-                if key in keys and isinstance(item, (int, float)):
-                    result[key] = float((_q(item) * rate).quantize(CENT, rounding=ROUND_HALF_UP))
+                if key in keys and isinstance(item, (int, float, str)):
+                    try:
+                        scaled = (_q(item) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                    except (ArithmeticError, ValueError):
+                        result[key] = walk(item)
+                    else:
+                        result[key] = str(scaled) if isinstance(item, str) else float(scaled)
                 else:
                     result[key] = walk(item)
             return result
@@ -154,7 +159,7 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                     JOIN orders o ON o.id = oi.order_id
                     WHERE UPPER(TRIM(COALESCE(p.moneda, ''))) IN ('USD', 'US$', '$')
                 """)).mappings().all()
-                legacy_orders: dict[int, Decimal] = {}
+                legacy_orders: dict[int, dict[str, object]] = {}
                 for row in rows:
                     price = _q(row["precio_unitario"])
                     catalog = _q(row["catalog_price"])
@@ -172,28 +177,46 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                             {"id": row["profile_id"]},
                         ).scalar()
                     rate = _rate_from_config(raw_config)
-                    legacy_orders[int(row["order_id"])] = rate
+                    order_id = int(row["order_id"])
+                    state = legacy_orders.setdefault(
+                        order_id,
+                        {"rate": rate, "delta": Decimal("0.00"), "converted_items": 0},
+                    )
                     new_price = (price * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                    quantity = int(conn.execute(
+                        text("SELECT cantidad FROM order_items WHERE id=:id"),
+                        {"id": row["item_id"]},
+                    ).scalar_one())
+                    state["delta"] = Decimal(str(state["delta"])) + ((new_price - price) * quantity)
+                    state["converted_items"] = int(state["converted_items"]) + 1
                     cost = row["costo_unitario"]
                     new_cost = None if cost is None else (_q(cost) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
                     conn.execute(
                         text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
                         {"price": new_price, "cost": new_cost, "id": row["item_id"]},
                     )
-                for order_id, rate in legacy_orders.items():
+                for order_id, state in legacy_orders.items():
+                    rate = Decimal(str(state["rate"]))
                     order_row = conn.execute(
                         text("SELECT total, payment_breakdown, financing_details FROM orders WHERE id=:id"),
                         {"id": order_id},
                     ).mappings().one()
+                    item_count = int(conn.execute(
+                        text("SELECT COUNT(*) FROM order_items WHERE order_id=:id"),
+                        {"id": order_id},
+                    ).scalar_one())
+                    all_items_converted = int(state["converted_items"]) == item_count
+                    delta = Decimal(str(state["delta"])).quantize(CENT, rounding=ROUND_HALF_UP)
+                    new_total = (_q(order_row["total"]) + delta).quantize(CENT, rounding=ROUND_HALF_UP)
                     money_keys = {"amount", "down_payment", "prima", "financed_amount", "surcharge", "monthly_payment", "total_with_surcharge"}
+                    payments = order_row["payment_breakdown"]
+                    financing = order_row["financing_details"]
+                    if all_items_converted:
+                        payments = _scale_json_money(payments, rate, money_keys)
+                        financing = _scale_json_money(financing, rate, money_keys)
                     conn.execute(
                         text("UPDATE orders SET total=:total, payment_breakdown=:payments, financing_details=:financing WHERE id=:id"),
-                        {
-                            "total": (_q(order_row["total"]) * rate).quantize(CENT, rounding=ROUND_HALF_UP),
-                            "payments": _scale_json_money(order_row["payment_breakdown"], rate, money_keys),
-                            "financing": _scale_json_money(order_row["financing_details"], rate, money_keys),
-                            "id": order_id,
-                        },
+                        {"total": new_total, "payments": payments, "financing": financing, "id": order_id},
                     )
                 ledger_sql = (
                     "INSERT OR IGNORE INTO schema_migrations (id) VALUES (:migration_id)"
