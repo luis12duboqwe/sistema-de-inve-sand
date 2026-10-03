@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -37,7 +37,7 @@ def test_ai_config_schema_caps_new_configuration_at_three_percent():
     with pytest.raises(ValidationError):
         AIConfigSchema(
             sales_profile_id=1,
-            system_prompt="No vÃ¡lido",
+            system_prompt="No vÃƒÂ¡lido",
             max_discount_rate=0.031,
         )
 
@@ -46,35 +46,35 @@ def test_canonical_policy_preserves_custom_rules_before_and_after_existing_block
     raw = (
         "Regla personalizada antes.\n\n"
         f"{CANONICAL_DISCOUNT_CONTEXT_RULE}\n\n"
-        "Regla personalizada despuÃ©s."
+        "Regla personalizada despuÃƒÂ©s."
     )
 
     normalized = ensure_canonical_discount_context_rules(raw)
 
     assert "Regla personalizada antes." in normalized
-    assert "Regla personalizada despuÃ©s." in normalized
+    assert "Regla personalizada despuÃƒÂ©s." in normalized
     assert normalized.count(POLICY_MARKER) == 1
     assert normalized.endswith(CANONICAL_DISCOUNT_CONTEXT_RULE)
 
 
 def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session: Session):
     sales_profile = SalesProfile(
-        name="Bot histÃ³rico pricing",
+        name="Bot histÃƒÂ³rico pricing",
         slug="bot-historico-pricing",
         tipo="bot_ia",
         canales='["whatsapp"]',
-        active=True,
+        activo=True,
     )
     db_session.add(sales_profile)
     db_session.flush()
 
     historical = AIProfileConfig(
         sales_profile_id=sales_profile.id,
-        system_prompt="Prompt histÃ³rico que incluso pudo contener reglas viejas.",
+        system_prompt="Prompt histÃƒÂ³rico que incluso pudo contener reglas viejas.",
         context_rules=(
             "Conserva esta regla personalizada antes.\n\n"
             f"{CANONICAL_DISCOUNT_CONTEXT_RULE}\n\n"
-            "Conserva tambiÃ©n esta regla personalizada despuÃ©s."
+            "Conserva tambiÃƒÂ©n esta regla personalizada despuÃƒÂ©s."
         ),
         max_discount_rate=Decimal("0.1500"),
     )
@@ -95,7 +95,7 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
         assert Decimal(str(migrated.max_discount_rate)) == Decimal("0.0300")
         assert migrated.context_rules is not None
         assert "Conserva esta regla personalizada antes." in migrated.context_rules
-        assert "Conserva tambiÃ©n esta regla personalizada despuÃ©s." in migrated.context_rules
+        assert "Conserva tambiÃƒÂ©n esta regla personalizada despuÃƒÂ©s." in migrated.context_rules
         assert migrated.context_rules.count(POLICY_MARKER) == 1
         rules_after_first_run = migrated.context_rules
 
@@ -142,13 +142,13 @@ def test_accessory_discount_does_not_require_closed_hundreds():
 def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Session):
     from app.models import Location, Order, OrderItem, Product
 
-    location = Location(nombre="Migracion USD", direccion="Prueba", active=True)
+    location = Location(nombre="Migracion USD", direccion="Prueba", activo=True)
     profile = SalesProfile(
         name="Perfil USD historico",
         slug="perfil-usd-historico",
         tipo="humano",
         canales='["tienda"]',
-        active=True,
+        activo=True,
         configuracion='{"exchange_rate": 24.50}',
     )
     product = Product(
@@ -222,9 +222,9 @@ def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Ses
 def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: Session):
     from app.models import Location, Order, OrderItem, Product
 
-    location = Location(nombre="Migracion mixta", direccion="Prueba", active=True)
+    location = Location(nombre="Migracion mixta", direccion="Prueba", activo=True)
     profile = SalesProfile(name="Perfil mixto", slug="perfil-mixto", tipo="humano",
-        canales='["tienda"]', active=True, configuracion='{"exchange_rate": 24.50}')
+        canales='["tienda"]', activo=True, configuracion='{"exchange_rate": 24.50}')
     usd = Product(sku="MIX-USD", nombre="USD", categoria="celular", marca="T", modelo="U",
         condicion="nuevo", precio=Decimal("100.00"), costo=Decimal("60.00"), moneda="USD", activo=True)
     hnl = Product(sku="MIX-HNL", nombre="HNL", categoria="accesorio", marca="T", modelo="H",
@@ -260,3 +260,4 @@ def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: 
         assert Decimal(str(row["total"])) == Decimal("1100.00")
         assert Decimal(str(row["usd_price"])) == Decimal("100.00")
         assert Decimal(str(row["hnl_price"])) == Decimal("1000.00")
+
