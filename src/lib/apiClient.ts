@@ -268,6 +268,7 @@ interface ApiOrderResponse {
     product_id: number
     cantidad: number
     precio_unitario: number
+    costo_unitario?: number
     es_regalo_promocion: boolean
     imeis?: string[]
     product?: ApiProductWithStock
@@ -321,6 +322,7 @@ class ApiClient {
           product_id: item.product_id,
           cantidad: item.cantidad,
           precio_unitario: item.precio_unitario,
+          costo_unitario: item.costo_unitario,
           es_regalo_promocion: item.es_regalo_promocion,
           product: productMapped,
           imeis: item.imeis

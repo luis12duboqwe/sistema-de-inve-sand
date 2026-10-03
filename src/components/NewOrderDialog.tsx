@@ -246,6 +246,24 @@ export function NewOrderDialog({
   }, [open, salesProfiles, locations, salesProfileSlug, sourceLocationId])
 
   const selectedSalesProfile = salesProfiles.find(profile => profile.slug === salesProfileSlug)
+  const selectedExchangeRate = (() => {
+    const rawConfig = selectedSalesProfile?.configuracion
+    let config: Record<string, unknown> = {}
+    if (typeof rawConfig === 'string') {
+      try { config = JSON.parse(rawConfig) as Record<string, unknown> } catch { config = {} }
+    } else if (rawConfig && typeof rawConfig === 'object') {
+      config = rawConfig as Record<string, unknown>
+    }
+    const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
+    return Number.isFinite(candidate) && candidate > 0 ? Number(candidate.toFixed(2)) : 25
+  })()
+  const productPriceInHnl = (product: ProductWithStock): number => {
+    const rawPrice = parseFlexibleNumber(product.precio) ?? 0
+    const currency = String(product.moneda || '').trim().toUpperCase()
+    return ['USD', 'US$', '$'].includes(currency)
+      ? Number((rawPrice * selectedExchangeRate).toFixed(2))
+      : rawPrice
+  }
   const allowedChannels = selectedSalesProfile?.canales?.length
     ? selectedSalesProfile.canales
     : ALL_ORDER_CHANNELS
@@ -338,7 +356,7 @@ export function NewOrderDialog({
       return
     }
 
-    const currentPrice = parseFlexibleNumber(product.precio) ?? 0
+    const currentPrice = productPriceInHnl(product)
     const nextItems = items.length === 1 && items[0].product_id === 0 ? [] : [...items]
     const existingIndex = nextItems.findIndex(item => item.product_id === product.id)
 
@@ -491,7 +509,7 @@ export function NewOrderDialog({
         
         // V2.1: Establecer precio por defecto al seleccionar producto
         if (product) {
-          newItems[index].precio_unitario = parseFlexibleNumber(product.precio) ?? 0
+          newItems[index].precio_unitario = productPriceInHnl(product)
         }
 
         const isSerialized = product?.is_serialized ?? (product?.categoria === 'celular')
@@ -573,7 +591,7 @@ export function NewOrderDialog({
         const product = products.find(p => p.id === item.product_id)
         if (!product) return total
         // V2.1: Usar precio personalizado si existe
-        const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
+        const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
         return total + price * item.cantidad
       }, 0)
 
@@ -775,7 +793,7 @@ export function NewOrderDialog({
     const itemsTotal = validItems.reduce((total, item) => {
       const product = products.find(p => p.id === item.product_id)
       if (!product) return total
-      const price = parseFlexibleNumber(item.precio_unitario) ?? parseFlexibleNumber(product.precio) ?? 0
+      const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
       return total + price * item.cantidad
     }, 0)
     const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)
@@ -844,6 +862,41 @@ export function NewOrderDialog({
             <Select
               value={salesProfileSlug}
               onValueChange={value => {
+                const previousProfile = selectedSalesProfile
+                const nextProfile = salesProfiles.find(profile => profile.slug === value)
+                const readRate = (profile: typeof previousProfile): number => {
+                  const rawConfig = profile?.configuracion
+                  let config: Record<string, unknown> = {}
+                  if (typeof rawConfig === 'string') {
+                    try { config = JSON.parse(rawConfig) as Record<string, unknown> } catch { config = {} }
+                  } else if (rawConfig && typeof rawConfig === 'object') {
+                    config = rawConfig as Record<string, unknown>
+                  }
+                  const candidate = Number(config.exchange_rate ?? config.exchangeRate ?? 25)
+                  return Number.isFinite(candidate) && candidate > 0 ? Number(candidate.toFixed(2)) : 25
+                }
+                const previousRate = readRate(previousProfile)
+                const nextRate = readRate(nextProfile)
+
+                setItems(currentItems => currentItems.map(item => {
+                  const product = products.find(candidate => candidate.id === item.product_id)
+                  if (!product || !['USD', 'US$', '$'].includes(String(product.moneda || '').trim().toUpperCase())) {
+                    return item
+                  }
+                  const rawPrice = parseFlexibleNumber(product.precio) ?? 0
+                  const previousDefault = Number((rawPrice * previousRate).toFixed(2))
+                  const currentPrice = parseFlexibleNumber(item.precio_unitario)
+                  if (typeof currentPrice !== 'number') {
+                    return item
+                  }
+                  if (Math.abs(currentPrice - previousDefault) > 0.005) {
+                    return item
+                  }
+                  return {
+                    ...item,
+                    precio_unitario: Number((rawPrice * nextRate).toFixed(2)),
+                  }
+                }))
                 setSalesProfileSlug(value)
                 clearFieldError('salesProfileSlug')
               }}
@@ -1038,7 +1091,7 @@ export function NewOrderDialog({
                                     </CommandEmpty>
                                     {filteredProducts.map(product => {
                                       const stockDisplay = getAvailableStockForProduct(product)
-                                      const price = parseFlexibleNumber(product.precio) ?? 0
+                                      const price = productPriceInHnl(product)
                                       const isSelected = item.product_id === product.id
 
                                       return (
@@ -1088,7 +1141,7 @@ export function NewOrderDialog({
                             }
                             placeholder={(() => {
                               const product = products.find(p => p.id === item.product_id)
-                              return product ? String(parseFlexibleNumber(product.precio) ?? '') : 'Precio'
+                              return product ? String(productPriceInHnl(product)) : 'Precio'
                             })()}
                             title="Precio unitario (dejar vacío para usar precio de lista)"
                           />
@@ -1666,7 +1719,7 @@ export function NewOrderDialog({
                           const itemsTotal = items.reduce((total, item) => {
                              const product = products.find(p => p.id === item.product_id)
                              if (!product) return total
-                             const price = item.precio_unitario !== undefined ? item.precio_unitario : product.precio
+                             const price = parseFlexibleNumber(item.precio_unitario) ?? productPriceInHnl(product)
                              return total + price * item.cantidad
                           }, 0)
                           const tradeInsTotal = tradeIns.reduce((total, item) => total + (Number(item.valor_estimado) || 0), 0)

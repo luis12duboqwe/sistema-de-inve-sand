@@ -21,12 +21,10 @@ export function CustomerHistoryDialog({
   onOpenChange,
   customerPhone,
   orders,
-  profile,
   onViewOrder
 }: CustomerHistoryDialogProps) {
   const history = getCustomerHistory(orders, customerPhone)
-  const currency = profile.settings?.currency || 'Lps'
-  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : 'L'
+  const currencySymbol = 'L'
 
   const formatCurrency = (value: number) => {
     return `${currencySymbol}${value.toLocaleString('es-ES', {

@@ -576,6 +576,7 @@ export interface OrderItem {
   product_id: number
   cantidad: number
   precio_unitario: number
+  costo_unitario?: number
   es_regalo_promocion: boolean
   product?: Product
   imeis?: string[] // V2.0: IMEIs vendidos

@@ -151,3 +151,7 @@ from .control import (
     UserLocationAccessUpsert,
 )
 
+# La API pública de edición usa esquemas endurecidos que impiden inyectar
+# precio/costo al reconstruir los ítems de una orden. OrderCreate conserva su
+# esquema independiente porque los descuentos nuevos se validan en OrderService.
+from .order_secure import OrderItemUpdate, OrderUpdate

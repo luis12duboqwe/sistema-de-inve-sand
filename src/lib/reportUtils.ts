@@ -85,15 +85,16 @@ export function generateReportData(
   const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado))
   const totalRevenue = completedOrders.reduce((sum, order) => sum + order.total, 0)
 
-  const productSales = new Map<number, { quantity: number; revenue: number }>()
+  const productSales = new Map<number, { quantity: number; revenue: number; cost: number }>()
   
   completedOrders.forEach(order => {
     order.items.forEach(item => {
       if (!item.es_regalo_promocion) {
-        const current = productSales.get(item.product_id) || { quantity: 0, revenue: 0 }
+        const current = productSales.get(item.product_id) || { quantity: 0, revenue: 0, cost: 0 }
         productSales.set(item.product_id, {
           quantity: current.quantity + item.cantidad,
-          revenue: current.revenue + (item.cantidad * item.precio_unitario)
+          revenue: current.revenue + (item.cantidad * item.precio_unitario),
+          cost: current.cost + (item.cantidad * Number(item.costo_unitario ?? 0))
         })
       }
     })
@@ -114,9 +115,7 @@ export function generateReportData(
 
   const monthlyTrends = generateMonthlyTrends(orders)
 
-  const totalCost = topProducts.reduce((sum, item) => {
-    return sum + (item.product.precio * 0.6 * item.quantity)
-  }, 0)
+  const totalCost = Array.from(productSales.values()).reduce((sum, item) => sum + item.cost, 0)
   const profitMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) * 100 : 0
 
   return {
@@ -179,17 +178,19 @@ export function getProductProfitability(
   
   let unitsSold = 0
   let revenue = 0
+  let historicalCost = 0
 
   completedOrders.forEach(order => {
     order.items.forEach(item => {
       if (item.product_id === product.id && !item.es_regalo_promocion) {
         unitsSold += item.cantidad
         revenue += item.cantidad * item.precio_unitario
+        historicalCost += item.cantidad * Number(item.costo_unitario ?? 0)
       }
     })
   })
 
-  const estimatedCost = product.precio * 0.6 * unitsSold
+  const estimatedCost = historicalCost
   const estimatedProfit = revenue - estimatedCost
   const profitMargin = revenue > 0 ? (estimatedProfit / revenue) * 100 : 0
 

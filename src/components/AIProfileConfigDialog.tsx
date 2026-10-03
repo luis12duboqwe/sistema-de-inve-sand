@@ -206,21 +206,25 @@ export function AIProfileConfigDialog({
 
               {config.negotiation_style === 'flexible' && (
                 <div className="space-y-2 bg-yellow-50 p-3 rounded-md border border-yellow-100">
-                  <Label className="text-yellow-800">Margen Máximo de Descuento (%)</Label>
+                  <Label className="text-yellow-800">Margen Automático Máximo (%)</Label>
                   <div className="flex items-center gap-2">
                     <Input 
                       type="number"
                       min="0"
-                      max="50"
+                      max="3"
                       step="1"
                       value={config.max_discount_rate ? config.max_discount_rate * 100 : 0}
-                      onChange={(e) => setConfig(prev => ({ ...prev, max_discount_rate: parseFloat(e.target.value) / 100 }))}
+                      onChange={(e) => {
+                        const requested = Number.parseFloat(e.target.value)
+                        const safePercent = Number.isFinite(requested) ? Math.min(Math.max(requested, 0), 3) : 0
+                        setConfig(prev => ({ ...prev, max_discount_rate: safePercent / 100 }))
+                      }}
                       className="w-24"
                     />
                     <span className="text-sm text-gray-600">% sobre el precio de lista</span>
                   </div>
                   <p className="text-xs text-yellow-700">
-                    El bot podrá ofrecer hasta este porcentaje de descuento si el cliente insiste.
+                    El bot puede negociar automáticamente hasta 3%. El tramo de 4% requiere aprobación del propietario y no se configura aquí.
                   </p>
                 </div>
               )}
