@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { Package, ShoppingCart, MagnifyingGlass, Plus, Gear, Keyboard, Download, CloudArrowUp, Database, Upload, CheckSquare, Square, Trash, CheckCircle, XCircle, Power, Pulse, FunnelSimple, ChartLine, Sparkle, Lightbulb, MapPin, Robot, ArrowsLeftRight, User as UserIcon, GraduationCap, ShieldCheck, CreditCard, Wrench, ArrowCounterClockwise, Camera, SquaresFour, Rows, Printer } from '@phosphor-icons/react'
 import type { User, Profile, ProductWithStock, OrderWithItems, AdvancedSearchFilters, SalesProfile, Location } from '@/lib/types'
@@ -1003,85 +1004,23 @@ function MainApp() {
                 </Button>
               )}
 
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowHealthCheckDialog(true)}
-                title="Diagnóstico de Salud"
-                className="relative hover:bg-primary/10"
-              >
-                <Pulse size={20} />
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowKeyboardDialog(true)}
-                title="Atajos de teclado (Shift + ?)"
-                className="relative hover:bg-primary/10"
-              >
-                <Keyboard size={20} />
-              </Button>
-              
-              {canViewSettings && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowSettingsDialog(true)}
-                  title="Configuración (Ctrl + ,)"
-                  className="hover:bg-primary/10"
-                >
-                  <Gear size={20} />
-                </Button>
-              )}
-              
-              {canManageUsers && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowManageUsersDialog(true)}
-                  title="Gestionar Usuarios"
-                  className="hover:bg-primary/10"
-                >
-                  <ShieldCheck size={20} />
-                </Button>
-              )}
-
-              {useAPI && currentUser?.is_superuser === true && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowSuperAdminPanel(true)}
-                  title="Panel de Control Super Admin"
-                  className="hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600"
-                >
-                  <Wrench size={20} weight="bold" />
-                </Button>
-              )}
-
-              {canValidateDailyClose && useAPI && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowDailyCloseDialog(true)}
-                  title="Cierre de Día — Validar Ventas"
-                  className="hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600"
-                >
-                  <CheckCircle size={20} weight="fill" />
-                </Button>
-              )}
-
-              {canAccessMultiStoreControl && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowMultiStoreControl(true)}
-                  title="Control Multitienda"
-                  className="hover:bg-primary/10 text-primary"
-                >
-                  <Database size={20} />
-                </Button>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" title="MÃ¡s herramientas" className="hover:bg-primary/10">
+                    <Gear size={21} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuItem onSelect={() => setShowHealthCheckDialog(true)}><Pulse size={18} />DiagnÃ³stico del sistema</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setShowKeyboardDialog(true)}><Keyboard size={18} />Atajos de teclado</DropdownMenuItem>
+                  {canViewSettings && <DropdownMenuItem onSelect={() => setShowSettingsDialog(true)}><Gear size={18} />ConfiguraciÃ³n</DropdownMenuItem>}
+                  {(canManageUsers || (useAPI && currentUser?.is_superuser === true)) && <DropdownMenuSeparator />}
+                  {canManageUsers && <DropdownMenuItem onSelect={() => setShowManageUsersDialog(true)}><ShieldCheck size={18} />Gestionar usuarios</DropdownMenuItem>}
+                  {useAPI && currentUser?.is_superuser === true && <DropdownMenuItem onSelect={() => setShowSuperAdminPanel(true)}><Wrench size={18} />Panel Super Admin</DropdownMenuItem>}
+                  {canValidateDailyClose && useAPI && <DropdownMenuItem onSelect={() => setShowDailyCloseDialog(true)}><CheckCircle size={18} />Cierre del dÃ­a</DropdownMenuItem>}
+                  {canAccessMultiStoreControl && <DropdownMenuItem onSelect={() => setShowMultiStoreControl(true)}><Database size={18} />Control multitienda</DropdownMenuItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
