@@ -142,7 +142,7 @@ def test_accessory_discount_does_not_require_closed_hundreds():
 def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Session):
     from app.models import Location, Order, OrderItem, Product
 
-    location = Location(nombre="Migracion USD", direccion="Prueba", activo=True)
+    location = Location(nombre="Migracion USD", tipo="tienda", direccion="Prueba", activo=True)
     profile = SalesProfile(
         name="Perfil USD historico",
         slug="perfil-usd-historico",
@@ -222,7 +222,7 @@ def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Ses
 def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: Session):
     from app.models import Location, Order, OrderItem, Product
 
-    location = Location(nombre="Migracion mixta", direccion="Prueba", activo=True)
+    location = Location(nombre="Migracion mixta", tipo="tienda", direccion="Prueba", activo=True)
     profile = SalesProfile(name="Perfil mixto", slug="perfil-mixto", tipo="humano",
         canales='["tienda"]', active=True, configuracion='{"exchange_rate": 24.50}')
     usd = Product(sku="MIX-USD", nombre="USD", categoria="celular", marca="T", modelo="U",
