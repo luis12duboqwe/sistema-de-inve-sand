@@ -1283,7 +1283,7 @@ export function NewOrderDialog({
 
               <div className="space-y-3">
                 {tradeIns.map((tradeIn, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 items-start border p-2 rounded-md">
+                  <div key={index} className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-12 sm:items-start">
                     <div className="col-span-4 space-y-1">
                       <Input
                         placeholder="Marca"
@@ -1303,7 +1303,7 @@ export function NewOrderDialog({
                           setTradeIns(newTradeIns)
                         }}
                       />
-                      <div className="grid grid-cols-2 gap-1">
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                         <Input
                           placeholder="Color"
                           value={tradeIn.color || ''}
@@ -1466,7 +1466,7 @@ export function NewOrderDialog({
 
               <div className="space-y-2">
                 <Label>Formas de pago</Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {([
                     ['efectivo', 'Efectivo'],
                     ['transferencia', 'Transferencia'],

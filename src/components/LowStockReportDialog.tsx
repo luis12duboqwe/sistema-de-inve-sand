@@ -302,7 +302,7 @@ export function LowStockReportDialog({
                           </Badge>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                           <div className="text-center p-3 rounded-lg bg-destructive/10 border border-destructive/20">
                             <p className="text-2xl font-bold text-destructive">{outOfStock}</p>
                             <p className="text-xs text-muted-foreground">Agotado{outOfStock !== 1 ? 's' : ''}</p>

@@ -667,7 +667,7 @@ export function NewProductDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
               <Select value={categoria} onValueChange={(v) => setCategoria(v as typeof categoria)}>
@@ -694,7 +694,7 @@ export function NewProductDialog({
 
           {categoria === 'celular' ? (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="marca">Marca *</Label>
                   <Input
@@ -786,7 +786,7 @@ export function NewProductDialog({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="capacidad">Capacidad *</Label>
                   <Select value={capacidad} onValueChange={setCapacidad}>
@@ -835,7 +835,7 @@ export function NewProductDialog({
             </>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="marca">Marca *</Label>
                   <Input
@@ -879,7 +879,7 @@ export function NewProductDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="condicion">Condición *</Label>
               <Select value={condicion} onValueChange={(v) => setCondicion(v as typeof condicion)}>
@@ -943,9 +943,9 @@ export function NewProductDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2 space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="precio">Precio Venta *</Label>
                 <Input
                   id="precio"
@@ -997,7 +997,7 @@ export function NewProductDialog({
           </div>
 
           {/* Campos nuevos: Proveedor e IMEI */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="supplier">Proveedor (Opcional)</Label>
               <Select 

@@ -201,7 +201,7 @@ export function PhotoRequestsDashboard() {
               </DialogHeader>
 
               <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 p-4 bg-gray-50 rounded">
                   <div>
                     <Label className="text-gray-600">Color solicitado</Label>
                     <p className="font-medium">{activeRequest.color_requested || 'No especificó'}</p>

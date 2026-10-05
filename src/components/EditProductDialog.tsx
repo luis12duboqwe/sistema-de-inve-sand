@@ -146,7 +146,7 @@ export function EditProductDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="categoria">Categoría *</Label>
                 <Select value={categoria} onValueChange={(v) => setCategoria(v as typeof categoria)}>
@@ -175,7 +175,7 @@ export function EditProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="marca">Marca *</Label>
                 <Input
@@ -195,7 +195,7 @@ export function EditProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="capacidad">Capacidad</Label>
                 <Input
@@ -218,7 +218,7 @@ export function EditProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="costo">Costo (Reportes)</Label>
                 <Input

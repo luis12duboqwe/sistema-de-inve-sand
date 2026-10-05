@@ -1007,7 +1007,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
           )}
 
           {!chartsOnly && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.map((stat, index) => (
           <motion.div
             key={stat.title}
@@ -1015,7 +1015,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1, duration: 0.3 }}
           >
-            <Card className="p-6 hover:shadow-lg transition-shadow">
+            <Card className="p-4 sm:p-5 hover:shadow-lg transition-shadow">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <p className="text-sm text-muted-foreground mb-1">{stat.title}</p>
