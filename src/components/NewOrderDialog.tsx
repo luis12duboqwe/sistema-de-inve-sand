@@ -844,20 +844,20 @@ export function NewOrderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Nueva Orden</DialogTitle>
+      <DialogContent className="flex h-[94vh] w-[96vw] max-w-5xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
+        <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
+          <DialogTitle className="text-xl">Nueva venta</DialogTitle>
           <DialogDescription>
-            Crea una nueva orden seleccionando perfil, productos y datos del cliente.
+            Registra productos, cliente y forma de pago en un solo flujo.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
           {/* Perfil de Venta y Ubicación */}
           <div className="space-y-2">
             <Label htmlFor="sales-profile" className="flex items-center gap-2">
               <Robot className="w-4 h-4" />
-              Perfil de Venta *
+              Vendedor / perfil *
             </Label>
             <Select
               value={salesProfileSlug}
@@ -913,7 +913,7 @@ export function NewOrderDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Quién realiza la venta (bot, vendedor, sistema)
+              Perfil responsable de esta venta
             </p>
             {selectedSalesProfile?.canales?.length ? (
               <p className="text-xs text-muted-foreground">
@@ -928,7 +928,7 @@ export function NewOrderDialog({
           <div className="space-y-2">
             <Label htmlFor="location" className="flex items-center gap-2">
               <MapPin className="w-4 h-4" />
-              Ubicación Origen del Stock *
+              Tienda / ubicación *
             </Label>
             <Select 
               value={sourceLocationId?.toString() || ''} 
@@ -1247,7 +1247,7 @@ export function NewOrderDialog({
                 ))}
                 <Button type="button" variant="outline" size="sm" onClick={handleAddItem} disabled={!sourceLocationId} className="w-full mt-2">
                   <Plus size={16} className="mr-1" />
-                  Agregar Producto
+                  Agregar otro producto
                 </Button>
               </div>
             </div>
@@ -1811,7 +1811,7 @@ export function NewOrderDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="delivery-date">Fecha programada de entrega (opcional)</Label>
+            <Label htmlFor="delivery-date">Entrega programada (opcional)</Label>
             <Input
               id="delivery-date"
               type="datetime-local"
@@ -1823,7 +1823,7 @@ export function NewOrderDialog({
             </p>
           </div>
 
-          <div className="pt-4 border-t">
+          <div className="rounded-xl border bg-primary/5 p-4">
             <div className="flex items-center justify-between">
               <span className="text-lg font-semibold">Total:</span>
               <span className="text-2xl font-bold text-primary">
@@ -1833,7 +1833,7 @@ export function NewOrderDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
@@ -1843,7 +1843,7 @@ export function NewOrderDialog({
             disabled={isSubmitting || !sourceLocationId || !salesProfileSlug || items.length === 0}
             title={!sourceLocationId ? 'Selecciona una ubicación' : !salesProfileSlug ? 'Selecciona un perfil de ventas' : ''}
           >
-            {isSubmitting ? 'Creando...' : 'Crear Orden'}
+            {isSubmitting ? 'Procesando...' : 'Completar venta'}
           </Button>
         </DialogFooter>
       </DialogContent>
