@@ -95,7 +95,7 @@ function MainApp() {
   const [customerSearchTerm, setCustomerSearchTerm] = useState('')
   const [orderDateFrom, setOrderDateFrom] = useState<string>('')
   const [orderDateTo, setOrderDateTo] = useState<string>('')
-  const [activeTab, setActiveTab] = useState('products')
+  const [activeTab, setActiveTab] = useState('dashboard')
   const [showNewProductDialog, setShowNewProductDialog] = useState(false)
   const [showBulkPrintLabels, setShowBulkPrintLabels] = useState(false)
   const [showRestockDialog, setShowRestockDialog] = useState(false)
@@ -1089,17 +1089,23 @@ function MainApp() {
 
       <main className="container mx-auto px-3 py-4 sm:px-4 sm:py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="sticky top-[68px] z-30 mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto border bg-background/95 p-1 shadow-sm backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:static sm:border-0 sm:bg-muted sm:shadow-none">
+            {(canViewInventory || canViewOrders || canViewReports) && (
+              <TabsTrigger value="dashboard" className="flex shrink-0 items-center gap-1 sm:gap-2">
+                <ChartLine size={18} />
+                <span>Inicio</span>
+              </TabsTrigger>
+            )}
             {canViewInventory && (
               <TabsTrigger value="products" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <Package size={18} />
-                <span >Productos</span>
+                <span>Inventario</span>
               </TabsTrigger>
             )}
             {canViewReports && (
               <TabsTrigger value="charts" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <ChartLine size={18} />
-                <span >Gráficas</span>
+                <span>Analítica</span>
               </TabsTrigger>
             )}
             {canAccessMultiStoreControl && (
@@ -1111,7 +1117,7 @@ function MainApp() {
             {canViewOrders && (
               <TabsTrigger value="orders" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <ShoppingCart size={18} />
-                <span >Órdenes</span>
+                <span>Ventas</span>
               </TabsTrigger>
             )}
             
@@ -1155,6 +1161,23 @@ function MainApp() {
             )}
           </TabsList>
 
+          <TabsContent value="dashboard" className="space-y-6">
+            <div className="rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-accent/10 p-5 sm:p-7">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="max-w-2xl">
+                  <Badge variant="secondary" className="mb-3">Centro de operaciones</Badge>
+                  <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Tu negocio, en una sola vista</h2>
+                  <p className="mt-2 text-sm text-muted-foreground sm:text-base">Ventas, inventario y pendientes importantes para decidir rápido sin recorrer cada módulo.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:flex">
+                  {canCreateOrders && <Button onClick={() => setShowNewOrderDialog(true)}><Plus size={18} className="mr-2" />Nueva venta</Button>}
+                  {canCreateInventory && <Button variant="outline" onClick={() => setShowNewProductDialog(true)}><Package size={18} className="mr-2" />Producto</Button>}
+                </div>
+              </div>
+            </div>
+            <DashboardStats products={products ?? []} orders={orders ?? []} currentUser={currentUser} onViewLowStockReport={() => setShowLowStockReport(true)} showInsights={false} />
+          </TabsContent>
+
           <TabsContent value="products" className="space-y-6">
             {/* V2.0: LowStockAlert filters by LOCATION */}
             <LowStockAlert
@@ -1186,7 +1209,7 @@ function MainApp() {
                 </Select>
               </div>
 
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
                 <Button
                   variant={bulkActionMode ? "default" : "outline"}
                   size="icon"
@@ -1352,7 +1375,7 @@ function MainApp() {
             </div>
 
             {filteredProducts.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="rounded-2xl border border-dashed bg-muted/20 px-5 py-14 text-center">
                 <Package size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
                 <h3 className="text-lg font-semibold text-card-foreground mb-2">
                   No hay productos
@@ -1834,7 +1857,7 @@ function MainApp() {
                 </div>
               </div>
 
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
                 <Button
                   variant={advancedFilters ? "default" : "outline"}
                   size="icon"
@@ -1969,7 +1992,7 @@ function MainApp() {
             )}
 
             {filteredOrders.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="rounded-2xl border border-dashed bg-muted/20 px-5 py-14 text-center">
                 <ShoppingCart size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
                 <h3 className="text-lg font-semibold text-card-foreground mb-2">
                   No hay órdenes
@@ -1985,7 +2008,7 @@ function MainApp() {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col gap-4 max-w-4xl mx-auto">
+              <div className="grid gap-4 xl:grid-cols-2">
                 {filteredOrders.map(order => (
                   <div key={order.id} className="relative">
                     {bulkActionMode && activeTab === 'orders' && (
