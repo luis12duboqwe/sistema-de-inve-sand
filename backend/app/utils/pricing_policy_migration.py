@@ -198,7 +198,20 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                         price = _q(row["precio_unitario"])
                         new_price = (price * rate).quantize(CENT, rounding=ROUND_HALF_UP)
                         cost = row["costo_unitario"]
-                        new_cost = None if cost is None else (_q(cost) * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                        if cost is None:
+                            new_cost = None
+                        else:
+                            cost_value = _q(cost)
+                            catalog_cost = _q(row["catalog_cost"])
+                            # The transaction guard may already have normalized
+                            # historical cost to HNL while the legacy sale price
+                            # still has its raw USD shape. Only scale costs that
+                            # are still at/below the raw USD catalog cost.
+                            new_cost = (
+                                (cost_value * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+                                if cost_value <= catalog_cost
+                                else cost_value
+                            )
                         conn.execute(
                             text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
                             {"price": new_price, "cost": new_cost, "id": row["item_id"]},
