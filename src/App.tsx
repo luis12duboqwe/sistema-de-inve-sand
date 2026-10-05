@@ -1191,7 +1191,7 @@ function MainApp() {
                 <div className="relative flex-1 max-w-md">
                   <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Buscar productos..."
+                    placeholder="Buscar por modelo, marca o SKU..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -1287,7 +1287,7 @@ function MainApp() {
                       <Wrench size={18} />
                     </Button>
                     <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
-                      Nuevo Producto
+                      Nuevo producto
                     </Button>
                     <Button variant="secondary" onClick={() => setShowRestockDialog(true)} className="flex-1 sm:flex-none">
                       Agregar más
@@ -1310,7 +1310,7 @@ function MainApp() {
                       onClick={handleBulkToggleProductStatus}
                     >
                       <Power size={16} className="mr-2" />
-                      Cambiar Estado
+                      Cambiar estado
                     </Button>
                   )}
                   {canDeleteInventory && (
