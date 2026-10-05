@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -63,7 +63,7 @@ def test_pricing_policy_migration_clamps_historical_ai_discount_once(db_session:
         slug="bot-historico-pricing",
         tipo="bot_ia",
         canales='["whatsapp"]',
-        activo=True,
+        active=True,
     )
     db_session.add(sales_profile)
     db_session.flush()
@@ -148,7 +148,7 @@ def test_pricing_policy_migration_converts_legacy_usd_order_once(db_session: Ses
         slug="perfil-usd-historico",
         tipo="humano",
         canales='["tienda"]',
-        activo=True,
+        active=True,
         configuracion='{"exchange_rate": 24.50}',
     )
     product = Product(
@@ -224,7 +224,7 @@ def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: 
 
     location = Location(nombre="Migracion mixta", direccion="Prueba", activo=True)
     profile = SalesProfile(name="Perfil mixto", slug="perfil-mixto", tipo="humano",
-        canales='["tienda"]', activo=True, configuracion='{"exchange_rate": 24.50}')
+        canales='["tienda"]', active=True, configuracion='{"exchange_rate": 24.50}')
     usd = Product(sku="MIX-USD", nombre="USD", categoria="celular", marca="T", modelo="U",
         condicion="nuevo", precio=Decimal("100.00"), costo=Decimal("60.00"), moneda="USD", activo=True)
     hnl = Product(sku="MIX-HNL", nombre="HNL", categoria="accesorio", marca="T", modelo="H",
@@ -260,4 +260,3 @@ def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: 
         assert Decimal(str(row["total"])) == Decimal("1100.00")
         assert Decimal(str(row["usd_price"])) == Decimal("100.00")
         assert Decimal(str(row["hnl_price"])) == Decimal("1000.00")
-
