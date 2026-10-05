@@ -299,7 +299,7 @@ export function OptimizationInsightsDialog({
                 )}
 
               <Tabs defaultValue="pricing" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <TabsTrigger value="pricing" className="gap-2">
                     <CurrencyDollar size={16} />
                     <span className="hidden sm:inline">Precios</span>

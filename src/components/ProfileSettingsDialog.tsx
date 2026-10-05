@@ -71,7 +71,7 @@ export function ProfileSettingsDialog({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <TabsTrigger value="general">
                 <CurrencyDollar size={16} className="mr-2" />
                 General
@@ -132,7 +132,7 @@ export function ProfileSettingsDialog({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="taxRate">Tasa de Impuesto (%)</Label>
                   <Input
@@ -289,7 +289,7 @@ export function ProfileSettingsDialog({
                 <h3 className="font-semibold mb-4">Vista Previa de Configuración</h3>
                 
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">Formato de Moneda</p>
                       <p className="font-semibold text-lg">{formatPrice(12345.67, settings)}</p>

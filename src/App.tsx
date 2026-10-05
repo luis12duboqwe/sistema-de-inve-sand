@@ -924,10 +924,10 @@ function MainApp() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between gap-4">
+        <div className="container mx-auto px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
             <motion.div 
-              className="flex items-center gap-3"
+              className="flex min-w-0 items-center gap-2 sm:gap-3"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
@@ -950,14 +950,14 @@ function MainApp() {
                 </motion.div>
               </div>
               <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+                <h1 className="truncate text-lg font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent sm:text-2xl">
                   Stellar Inventory
                 </h1>
-                <p className="text-sm text-muted-foreground">AI-Powered Management</p>
+                <p className="hidden text-sm text-muted-foreground sm:block">AI-Powered Management</p>
               </div>
             </motion.div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               {currentUser && (
                 <div className="flex items-center gap-2 mr-2 border-r pr-2 border-border/50">
                   <div className="flex flex-col items-end">
@@ -985,18 +985,6 @@ function MainApp() {
                 profiles={profiles ?? []}
                 locations={locations ?? []}
               />
-              
-              {canAccessAIOps && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setActiveTab('ai-ops')}
-                  title="Ir a Centro IA"
-                  className="relative hover:bg-accent/20"
-                >
-                  <Lightbulb size={20} weight="duotone" className="text-accent" />
-                </Button>
-              )}
               
               {canAccessAIOps && (
                 <Button
@@ -1099,70 +1087,70 @@ function MainApp() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-3 py-4 sm:px-4 sm:py-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-8 max-w-7xl mb-6">
+          <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {canViewInventory && (
-              <TabsTrigger value="products" className="flex items-center gap-2">
+              <TabsTrigger value="products" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <Package size={18} />
-                <span className="hidden sm:inline">Productos</span>
+                <span >Productos</span>
               </TabsTrigger>
             )}
             {canViewReports && (
-              <TabsTrigger value="charts" className="flex items-center gap-2">
+              <TabsTrigger value="charts" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <ChartLine size={18} />
-                <span className="hidden sm:inline">Gráficas</span>
+                <span >Gráficas</span>
               </TabsTrigger>
             )}
             {canAccessMultiStoreControl && (
-              <TabsTrigger value="multistore-control" className="flex items-center gap-2">
+              <TabsTrigger value="multistore-control" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <Database size={18} />
-                <span className="hidden sm:inline">Multitienda</span>
+                <span >Multitienda</span>
               </TabsTrigger>
             )}
             {canViewOrders && (
-              <TabsTrigger value="orders" className="flex items-center gap-2">
+              <TabsTrigger value="orders" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <ShoppingCart size={18} />
-                <span className="hidden sm:inline">Órdenes</span>
+                <span >Órdenes</span>
               </TabsTrigger>
             )}
             
             {/* Solo mostrar Transferencias si tiene permiso de inventory:edit o es admin */}
             {canEditInventory && (
-              <TabsTrigger value="transfers" className="flex items-center gap-2">
+              <TabsTrigger value="transfers" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <ArrowsLeftRight size={18} />
-                <span className="hidden sm:inline">Transferencias</span>
+                <span >Transferencias</span>
               </TabsTrigger>
             )}
 
             {/* Solo mostrar Ubicaciones si tiene permiso locations:manage */}
             {canManageLocations && (
-              <TabsTrigger value="locations" className="flex items-center gap-2">
+              <TabsTrigger value="locations" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <MapPin size={18} />
-                <span className="hidden sm:inline">Ubicaciones</span>
+                <span >Ubicaciones</span>
               </TabsTrigger>
             )}
 
             {/* Solo mostrar Canales si es admin */}
             {canViewSettings && (
-              <TabsTrigger value="sales-profiles" className="flex items-center gap-2">
+              <TabsTrigger value="sales-profiles" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <Robot size={18} />
-                <span className="hidden sm:inline">Canales</span>
+                <span >Canales</span>
               </TabsTrigger>
             )}
 
             {/* Solo mostrar Financiamiento si es admin */}
             {canEditSettings && (
-              <TabsTrigger value="financing" className="flex items-center gap-2">
+              <TabsTrigger value="financing" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <CreditCard size={18} />
-                <span className="hidden sm:inline">Financiamiento</span>
+                <span >Financiamiento</span>
               </TabsTrigger>
             )}
 
             {canAccessAIOps && (
-              <TabsTrigger value="ai-ops" className="flex items-center gap-2">
+              <TabsTrigger value="ai-ops" className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <Robot size={18} />
-                <span className="hidden sm:inline">Centro IA</span>
+                <span >Centro IA</span>
               </TabsTrigger>
             )}
           </TabsList>
@@ -1970,7 +1958,7 @@ function MainApp() {
             )}
 
             {bulkActionMode && activeTab === 'orders' && filteredOrders.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1 sm:gap-2">
                 <button
                   onClick={selectAllOrders}
                   className="text-sm text-primary hover:underline cursor-pointer"
@@ -2316,7 +2304,7 @@ function MainApp() {
                                     key={stockItem.location_id} 
                                     className="flex justify-between items-center text-sm bg-muted/50 p-2.5 rounded hover:bg-muted transition-colors"
                                   >
-                                    <span className="flex items-center gap-2">
+                                    <span className="flex shrink-0 items-center gap-1 sm:gap-2">
                                       <MapPin size={14} weight="fill" className="text-primary" />
                                       <span className="font-medium">{location?.nombre || `Ubicación ${stockItem.location_id}`}</span>
                                       <Badge variant="secondary" className="text-xs capitalize">

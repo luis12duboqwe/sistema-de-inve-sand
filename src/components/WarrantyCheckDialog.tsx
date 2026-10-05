@@ -113,7 +113,7 @@ export function WarrantyCheckDialog({ open, onOpenChange }: WarrantyCheckDialogP
                   {getStatusBadge(result.status)}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-sm">
                   <div className="space-y-1">
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <Calendar className="h-4 w-4" />
