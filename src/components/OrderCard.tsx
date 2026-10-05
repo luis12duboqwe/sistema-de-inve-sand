@@ -233,12 +233,12 @@ export function OrderCard({ order, onStatusChange, onEdit, onViewCustomerHistory
                 <div className="flex-1">
                   <p className="font-medium">{item.product?.nombre || 'Producto desconocido'}</p>
                   <p className="text-xs text-muted-foreground">
-                    {item.cantidad}x {item.product?.moneda || 'HNL'}{' '}
+                    {item.cantidad}x HNL{' '}
                     {item.precio_unitario.toLocaleString()}
                   </p>
                 </div>
                 <p className="font-semibold">
-                  {item.product?.moneda || 'HNL'}{' '}
+                  HNL{' '}
                   {(item.cantidad * item.precio_unitario).toLocaleString()}
                 </p>
               </div>

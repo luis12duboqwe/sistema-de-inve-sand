@@ -26,6 +26,8 @@ def _create_paid_plus_gift_order(
         stock_inicial=4,
         is_serialized=False,
         categoria="accesorio",
+        costo=50,
+        precio=100,
     )
 
     created = client.post(

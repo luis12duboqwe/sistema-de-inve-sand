@@ -11,9 +11,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AIProfileConfig,
     Customer,
     InteractionLog,
     Order,
+    OrderItem,
     Profile,
     SalesProfile,
     User,
@@ -24,7 +26,13 @@ from app.services.stock_transaction_helper import (
     SalePreparationResult,
     StockTransactionHelper,
 )
+from app.utils.order_currency import (
+    is_usd_currency,
+    product_amount_in_hnl,
+    resolve_exchange_rate,
+)
 from app.utils.order_financing import compute_financing_from_payload
+from app.utils.order_pricing import NO_GIFTS_DISCOUNT, enforce_sale_price_policy
 from app.utils.order_validators import (
     resolve_sales_profile,
     validate_location_and_phone,
@@ -35,13 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_transfer_reference(reference: Optional[str]) -> Optional[str]:
-    """Normaliza referencia para comparación anti-duplicados.
-
-    Reglas:
-    - Trim
-    - Uppercase
-    - Solo alfanumérico (remueve espacios, guiones y símbolos)
-    """
+    """Normaliza referencia para comparación anti-duplicados."""
     if reference is None:
         return None
     raw = str(reference).strip().upper()
@@ -57,7 +59,6 @@ def ensure_unique_transfer_reference(
     *,
     exclude_order_id: Optional[int] = None,
 ) -> None:
-    """Valida que la referencia de transferencia no exista en otra orden."""
     if not normalized_reference:
         return
 
@@ -99,7 +100,6 @@ def resolve_user_label(
     profile: Optional[Profile] = None,
     fallback: str = "Sistema",
 ) -> str:
-    """Devuelve un identificador legible para logs/auditoría."""
     if current_user and getattr(current_user, "username", None):
         return str(current_user.username)  # type: ignore[attr-defined]
     if sales_profile and getattr(sales_profile, "name", None):
@@ -107,6 +107,40 @@ def resolve_user_label(
     if profile and getattr(profile, "name", None):
         return str(profile.name)
     return fallback
+
+
+def _is_trusted_automated_sales_profile(sales_profile: Optional[SalesProfile]) -> bool:
+    if sales_profile is None:
+        return False
+    profile_type = getattr(sales_profile, "tipo", None)
+    if hasattr(profile_type, "value"):
+        profile_type = profile_type.value
+    return str(profile_type or "").strip().lower() in {"bot_ia", "sistema_automatico"}
+
+
+def _trusted_automation_discount_ceiling(
+    db: Session,
+    sales_profile: Optional[SalesProfile],
+) -> Optional[Decimal]:
+    """Resolve a bot-specific ceiling without ever exceeding the global 3%."""
+
+    if not _is_trusted_automated_sales_profile(sales_profile) or sales_profile is None:
+        return None
+
+    config = (
+        db.query(AIProfileConfig)
+        .filter(AIProfileConfig.sales_profile_id == sales_profile.id)
+        .first()
+    )
+    if config is None:
+        return NO_GIFTS_DISCOUNT
+
+    negotiation_style = str(getattr(config, "negotiation_style", None) or "").strip().lower()
+    if negotiation_style and negotiation_style != "flexible":
+        return Decimal("0.00")
+
+    configured = Decimal(str(getattr(config, "max_discount_rate", 0) or 0))
+    return max(Decimal("0.00"), min(configured, NO_GIFTS_DISCOUNT))
 
 
 class OrderService:
@@ -128,7 +162,6 @@ class OrderService:
         *,
         current_user: Optional[User] = None,
     ) -> Order:
-        """Crea una orden completa y devuelve el modelo persistido."""
         try:
             (
                 sales_profile,
@@ -139,6 +172,17 @@ class OrderService:
                 db=self.db,
                 sales_profile_slug=order.sales_profile_slug,
                 profile_slug=order.profile_slug,
+            )
+            exchange_rate = resolve_exchange_rate(sales_profile or legacy_profile)
+
+            # Any order attributed to an automated sales profile must obey that
+            # profile's configured automatic ceiling, regardless of whether the
+            # AI integration authenticated with a service token or a JWT user.
+            trusted_automation = _is_trusted_automated_sales_profile(sales_profile)
+            trusted_automation_max_discount = (
+                _trusted_automation_discount_ceiling(self.db, sales_profile)
+                if trusted_automation
+                else None
             )
 
             location, customer_phone_str = validate_location_and_phone(
@@ -164,7 +208,19 @@ class OrderService:
                 location_id=location_id_value,
                 allow_pending_imei=False,
             )
+            self._normalize_sale_batch_currency(
+                sale_batch,
+                items_payload=order.items,
+                exchange_rate=exchange_rate,
+            )
             self._ensure_not_only_gifts(sale_batch)
+            enforce_sale_price_policy(
+                sale_batch.items,
+                current_user=current_user,
+                trusted_automation=trusted_automation,
+                trusted_automation_max_discount=trusted_automation_max_discount,
+                exchange_rate=exchange_rate,
+            )
 
             trade_in_total = self.stock_helper.process_trade_ins(
                 trade_ins_payload=order.trade_ins,
@@ -213,6 +269,11 @@ class OrderService:
                 order_payload=order,
                 user_identifier=user_identifier,
             )
+            self._normalize_persisted_costs(
+                order_id=int(db_order.id),
+                prepared_items=sale_batch.items,
+                exchange_rate=exchange_rate,
+            )
 
             self._link_ai_interaction(
                 db_order,
@@ -246,6 +307,83 @@ class OrderService:
             location_id=location_id,
             allow_pending_imei=allow_pending_imei,
         )
+
+    def _normalize_sale_batch_currency(
+        self,
+        sale_batch: SalePreparationResult,
+        *,
+        items_payload: Sequence[object],
+        exchange_rate: Decimal,
+    ) -> None:
+        if len(sale_batch.items) != len(items_payload):
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo alinear los ítems de la orden para normalizar moneda",
+            )
+
+        for prepared, payload in zip(sale_batch.items, items_payload):
+            if not is_usd_currency(getattr(prepared.product, "moneda", None)):
+                continue
+
+            custom_price = getattr(payload, "precio_unitario", None)
+            raw_catalog = Decimal(str(getattr(prepared.product, "precio", 0) or 0))
+            custom_decimal = (
+                Decimal(str(custom_price)) if custom_price is not None else None
+            )
+
+            # Compatibility with older POS clients: historically they populated
+            # precio_unitario with the raw catalog number even for USD products.
+            # Treat an exact raw-catalog echo as "no override" and convert it to HNL.
+            if custom_price is None or custom_decimal == raw_catalog:
+                prepared.precio_unitario = product_amount_in_hnl(
+                    getattr(prepared.product, "precio", 0),
+                    prepared.product,
+                    exchange_rate,
+                )
+
+        sale_batch.total = sum(
+            (
+                item.precio_unitario * item.cantidad
+                for item in sale_batch.items
+                if not item.es_regalo_promocion
+            ),
+            start=Decimal("0.00"),
+        )
+        sale_batch.gifts_total = sum(
+            (
+                item.precio_unitario * item.cantidad
+                for item in sale_batch.items
+                if item.es_regalo_promocion
+            ),
+            start=Decimal("0.00"),
+        )
+
+    def _normalize_persisted_costs(
+        self,
+        *,
+        order_id: int,
+        prepared_items: Sequence[PreparedSaleItem],
+        exchange_rate: Decimal,
+    ) -> None:
+        self.db.flush()
+        rows = (
+            self.db.query(OrderItem)
+            .filter(OrderItem.order_id == order_id)
+            .order_by(OrderItem.id.asc())
+            .all()
+        )
+        if len(rows) != len(prepared_items):
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo alinear los costos históricos de la orden",
+            )
+
+        for row, prepared in zip(rows, prepared_items):
+            row.costo_unitario = product_amount_in_hnl(
+                getattr(prepared.product, "costo", 0),
+                prepared.product,
+                exchange_rate,
+            )
 
     def _ensure_not_only_gifts(
         self,
@@ -348,7 +486,6 @@ class OrderService:
             canal=order_payload.canal,
             user_identifier=user_identifier,
         )
-
 
     def _link_ai_interaction(
         self,

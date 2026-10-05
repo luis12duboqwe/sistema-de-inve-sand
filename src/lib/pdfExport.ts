@@ -313,8 +313,8 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
               </div>
             </td>
             <td style="text-align: center;">${item.cantidad}</td>
-            <td style="text-align: right;">${formatCurrency(item.precio_unitario, profile.settings?.currency || 'USD')}</td>
-            <td style="text-align: right;">${formatCurrency(item.cantidad * item.precio_unitario, profile.settings?.currency || 'USD')}</td>
+            <td style="text-align: right;">${formatCurrency(item.precio_unitario, 'HNL')}</td>
+            <td style="text-align: right;">${formatCurrency(item.cantidad * item.precio_unitario, 'HNL')}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -343,7 +343,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
                 </div>
               </td>
               <td style="text-align: center; text-transform: capitalize;">${trade.condicion}</td>
-              <td style="text-align: right; color: #dc2626;">- ${formatCurrency(trade.valor_estimado, profile.settings?.currency || 'USD')}</td>
+              <td style="text-align: right; color: #dc2626;">- ${formatCurrency(trade.valor_estimado, 'HNL')}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -374,19 +374,19 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
             </div>
             <div class="info-row">
               <span class="info-label">Prima (Down Payment)</span>
-              <span class="info-value">${formatCurrency(details.down_payment || 0, profile.settings?.currency || 'USD')}</span>
+              <span class="info-value">${formatCurrency(details.down_payment || 0, 'HNL')}</span>
             </div>
             <div class="info-row">
               <span class="info-label">Monto a Financiar</span>
-              <span class="info-value">${formatCurrency(details.financed_amount || 0, profile.settings?.currency || 'USD')}</span>
+              <span class="info-value">${formatCurrency(details.financed_amount || 0, 'HNL')}</span>
             </div>
             <div class="info-row">
               <span class="info-label">Recargo Bancario (${((details.rate || 0) * 100).toFixed(1)}%)</span>
-              <span class="info-value text-orange-600">+ ${formatCurrency(details.surcharge || 0, profile.settings?.currency || 'USD')}</span>
+              <span class="info-value text-orange-600">+ ${formatCurrency(details.surcharge || 0, 'HNL')}</span>
             </div>
             <div class="info-row" style="border-top: 1px solid #e5e7eb; margin-top: 8px; padding-top: 8px;">
               <span class="info-label" style="font-weight: 700;">Cuota Mensual</span>
-              <span class="info-value" style="font-weight: 700; font-size: 1.1em;">${formatCurrency(details.monthly_payment || 0, profile.settings?.currency || 'USD')}</span>
+              <span class="info-value" style="font-weight: 700; font-size: 1.1em;">${formatCurrency(details.monthly_payment || 0, 'HNL')}</span>
             </div>
           </div>
         </div>
@@ -429,33 +429,33 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
         return `
           <div class="total-row">
             <span>Subtotal Productos</span>
-            <span>${formatCurrency(subtotalItems, profile.settings?.currency || 'USD')}</span>
+            <span>${formatCurrency(subtotalItems, 'HNL')}</span>
           </div>
           
           ${totalTradeIns > 0 ? `
             <div class="total-row" style="color: #dc2626;">
               <span>(-) Retomas / Trade-In</span>
-              <span>- ${formatCurrency(totalTradeIns, profile.settings?.currency || 'USD')}</span>
+              <span>- ${formatCurrency(totalTradeIns, 'HNL')}</span>
             </div>
           ` : ''}
           
           ${surcharge > 0 ? `
             <div class="total-row" style="color: #d97706;">
               <span>(+) Recargo Financiero</span>
-              <span>+ ${formatCurrency(surcharge, profile.settings?.currency || 'USD')}</span>
+              <span>+ ${formatCurrency(surcharge, 'HNL')}</span>
             </div>
           ` : ''}
 
           ${profile.settings?.autoCalculateTax && profile.settings?.taxRate ? `
             <div class="total-row">
               <span>Impuesto (${profile.settings.taxRate}%)</span>
-              <span>${formatCurrency(order.total - (order.total / (1 + profile.settings.taxRate / 100)), profile.settings?.currency || 'USD')}</span>
+              <span>${formatCurrency(order.total - (order.total / (1 + profile.settings.taxRate / 100)), 'HNL')}</span>
             </div>
           ` : ''}
           
           <div class="total-row final">
             <span>Total a Pagar</span>
-            <span>${formatCurrency(order.total, profile.settings?.currency || 'USD')}</span>
+            <span>${formatCurrency(order.total, 'HNL')}</span>
           </div>
         `;
       })()}
