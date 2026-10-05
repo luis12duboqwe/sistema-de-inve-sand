@@ -36,7 +36,7 @@ describe('NewOrderDialog validations', () => {
       />
     )
 
-    const submit = screen.getByRole('button', { name: /crear orden/i })
+    const submit = screen.getByRole('button', { name: /completar venta/i })
     const user = userEvent.setup()
     await user.click(submit)
 

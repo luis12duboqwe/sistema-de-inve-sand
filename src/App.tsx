@@ -913,7 +913,7 @@ function MainApp() {
             <Sparkle size={64} className="mx-auto text-primary mb-4" weight="duotone" />
           </motion.div>
           <h2 className="text-2xl font-bold mb-2 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-            Stellar Inventory
+            Softmobile
           </h2>
           <p className="text-muted-foreground">Inicializando sistema inteligente...</p>
         </motion.div>
@@ -951,9 +951,9 @@ function MainApp() {
               </div>
               <div>
                 <h1 className="truncate text-lg font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent sm:text-2xl">
-                  Stellar Inventory
+                  Softmobile
                 </h1>
-                <p className="hidden text-sm text-muted-foreground sm:block">AI-Powered Management</p>
+                <p className="hidden text-sm text-muted-foreground sm:block">Gestión comercial</p>
               </div>
             </motion.div>
             
@@ -1209,7 +1209,7 @@ function MainApp() {
                 </Select>
               </div>
 
-              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+              <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border bg-muted/20 p-2 sm:w-auto sm:justify-end">
                 <Button
                   variant={bulkActionMode ? "default" : "outline"}
                   size="icon"
@@ -1386,7 +1386,7 @@ function MainApp() {
                 {canCreateInventory && (
                   <Button onClick={() => setShowNewProductDialog(true)}>
                     <Plus size={18} className="mr-2" />
-                    Agregar Producto
+                    Agregar producto
                   </Button>
                 )}
               </div>
@@ -1857,7 +1857,7 @@ function MainApp() {
                 </div>
               </div>
 
-              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+              <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border bg-muted/20 p-2 sm:w-auto sm:justify-end">
                 <Button
                   variant={advancedFilters ? "default" : "outline"}
                   size="icon"
@@ -1920,7 +1920,7 @@ function MainApp() {
                 {canCreateOrders && (
                 <Button onClick={() => setShowNewOrderDialog(true)} className="flex-1 sm:flex-none">
                   <Plus size={18} className="mr-2" />
-                  Nueva Orden
+                  Nueva venta
                 </Button>
                 )}
               </div>
@@ -1995,7 +1995,7 @@ function MainApp() {
               <div className="rounded-2xl border border-dashed bg-muted/20 px-5 py-14 text-center">
                 <ShoppingCart size={64} className="mx-auto text-muted-foreground mb-4" weight="duotone" />
                 <h3 className="text-lg font-semibold text-card-foreground mb-2">
-                  No hay órdenes
+                  No hay ventas todavía
                 </h3>
                 <p className="text-muted-foreground mb-4">
                   Crea tu primera orden de venta
