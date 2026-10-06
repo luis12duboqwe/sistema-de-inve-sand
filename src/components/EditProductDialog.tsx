@@ -264,7 +264,7 @@ export function EditProductDialog({
                 onCheckedChange={(checked) => setIsSerialized(checked as boolean)}
               />
               <Label htmlFor="edit_is_serialized" className="cursor-pointer">
-                Producto Serializado (requiere IMEI)
+                Producto serializado (requiere IMEI)
               </Label>
             </div>
 

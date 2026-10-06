@@ -1304,7 +1304,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
           transition={{ delay: 0.6, duration: 0.3 }}
         >
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Estado de Órdenes</h3>
+            <h3 className="text-lg font-semibold mb-4">Estado de ventas</h3>
             {ordersByStatus.length > 0 ? (
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>

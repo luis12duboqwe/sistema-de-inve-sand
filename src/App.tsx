@@ -1152,87 +1152,39 @@ function MainApp() {
                 <Button
                   variant={bulkActionMode ? "default" : "outline"}
                   size="icon"
-                  onClick={() => {
-                    setBulkActionMode(!bulkActionMode)
-                  }}
-                  title="Modo selección múltiple"
+                  onClick={() => setBulkActionMode(!bulkActionMode)}
+                  title="Selección múltiple"
                 >
                   {bulkActionMode ? <CheckSquare size={18} /> : <Square size={18} />}
                 </Button>
-                {canViewReports && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowSalesHistoryDialog(true)}
-                    title="Ver historial completo de ventas"
-                  >
-                    <ChartLine size={16} className="mr-2" />
-                    Historial
-                  </Button>
-                )}
-                {canViewReports && (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleExportProducts}
-                    title="Exportar a CSV"
-                  >
-                    <Download size={18} />
-                  </Button>
-                )}
-
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowWarrantyCheck(true)}
-                  title="Verificar Garantía"
-                >
-                  <ShieldCheck size={18} />
-                </Button>
-                
                 {canCreateInventory && (
                   <>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowImportDialog(true)}
-                      title="Importar desde CSV"
-                    >
-                      <Upload size={18} />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowBulkPrintLabels(true)}
-                      title="Imprimir etiquetas en bulk"
-                    >
-                      <Printer size={18} />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowSuppliersDialog(true)}
-                      title="Gestionar Proveedores"
-                    >
-                      <UserIcon size={18} />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowPendingTradeIns(true)}
-                      title="Retomas Pendientes"
-                      className="text-amber-600 border-amber-200 hover:bg-amber-50"
-                    >
-                      <Wrench size={18} />
-                    </Button>
                     <Button onClick={() => setShowNewProductDialog(true)} className="flex-1 sm:flex-none">
                       Nuevo producto
                     </Button>
                     <Button variant="secondary" onClick={() => setShowRestockDialog(true)} className="flex-1 sm:flex-none">
-                      Agregar más
+                      Agregar stock
                     </Button>
                   </>
                 )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Gear size={16} className="mr-2" />
+                      Más acciones
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    {canViewReports && <DropdownMenuItem onSelect={() => setShowSalesHistoryDialog(true)}><ChartLine size={18} />Historial de ventas</DropdownMenuItem>}
+                    {canViewReports && <DropdownMenuItem onSelect={handleExportProducts}><Download size={18} />Exportar inventario</DropdownMenuItem>}
+                    <DropdownMenuItem onSelect={() => setShowWarrantyCheck(true)}><ShieldCheck size={18} />Verificar garantía</DropdownMenuItem>
+                    {canCreateInventory && <DropdownMenuSeparator />}
+                    {canCreateInventory && <DropdownMenuItem onSelect={() => setShowImportDialog(true)}><Upload size={18} />Importar CSV</DropdownMenuItem>}
+                    {canCreateInventory && <DropdownMenuItem onSelect={() => setShowBulkPrintLabels(true)}><Printer size={18} />Imprimir etiquetas</DropdownMenuItem>}
+                    {canCreateInventory && <DropdownMenuItem onSelect={() => setShowSuppliersDialog(true)}><UserIcon size={18} />Proveedores</DropdownMenuItem>}
+                    {canCreateInventory && <DropdownMenuItem onSelect={() => setShowPendingTradeIns(true)}><Wrench size={18} />Retomas pendientes</DropdownMenuItem>}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
