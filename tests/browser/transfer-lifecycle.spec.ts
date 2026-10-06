@@ -14,7 +14,10 @@ test.beforeAll(async ({ request }) => {
 
 test('creates and receives a stock transfer through the UI', async ({ page }) => {
   const suffix = Date.now().toString()
-  const sourceName = `E2E Origen ${suffix}`\n  const destinationName = `E2E Destino ${suffix}`\n  const productName = `E2E Accesorio Transfer ${suffix}`\n  const sku = `E2E-TR-${suffix}`
+  const sourceName = `E2E Origen ${suffix}`
+  const destinationName = `E2E Destino ${suffix}`
+  const productName = `E2E Accesorio Transfer ${suffix}`
+  const sku = `E2E-TR-${suffix}`
   await page.goto(frontendUrl, { waitUntil: 'networkidle' })
   await page.getByLabel('Usuario').fill(username)
   await page.getByLabel('Contraseña').fill(password)
@@ -22,7 +25,7 @@ test('creates and receives a stock transfer through the UI', async ({ page }) =>
   await expect(page.getByText('E2E Admin', { exact: true })).toBeVisible({ timeout: 15000 })
 
   await page.getByRole('tab', { name: 'Ubicaciones' }).click()
-  for (const name of ['E2E Origen', 'E2E Destino']) {
+  for (const name of [sourceName, destinationName]) {
     if (!(await page.getByText(name, { exact: true }).count())) {
       await page.getByRole('button', { name: 'Nueva Ubicación' }).click()
       await page.getByLabel('Nombre *').fill(name)
