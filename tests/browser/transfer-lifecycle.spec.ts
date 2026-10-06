@@ -24,18 +24,16 @@ test('creates and receives a stock transfer through the UI', async ({ page }) =>
   await page.getByRole('button', { name: 'Ingresar' }).click()
   await expect(page.getByText('E2E Admin', { exact: true })).toBeVisible({ timeout: 15000 })
 
-  await page.getByRole('tab', { name: 'Ubicaciones' }).click()
+  const token = await page.evaluate(() => localStorage.getItem('auth_token'))
+  expect(token).toBeTruthy()
   for (const name of [sourceName, destinationName]) {
-    if (!(await page.getByText(name, { exact: true }).count())) {
-      await page.getByRole('button', { name: 'Nueva Ubicación' }).click()
-      await page.getByLabel('Nombre *').fill(name)
-      await page.getByRole('button', { name: 'Crear Ubicación' }).click()
-      await expect(page.getByRole('heading', { name: 'Crear Nueva Ubicación' })).not.toBeVisible({ timeout: 10000 })
-      await page.reload({ waitUntil: 'networkidle' })
-      await page.getByRole('tab', { name: 'Ubicaciones' }).click()
-      await expect(page.getByText(name, { exact: true })).toBeVisible({ timeout: 10000 })
-    }
+    const response = await page.request.post(`${apiUrl}/api/locations`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { nombre: name, tipo: 'tienda', activo: true },
+    })
+    expect(response.status()).toBe(201)
   }
+  await page.reload({ waitUntil: 'networkidle' })
 
   await page.getByRole('tab', { name: 'Inicio' }).click()
   await page.getByRole('button', { name: 'Producto' }).click()
