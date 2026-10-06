@@ -18,11 +18,6 @@ const defaultTheme = {
     padding: "2rem",
   },
   extend: {
-    screens: {
-      coarse: { raw: "(pointer: coarse)" },
-      fine: { raw: "(pointer: fine)" },
-      pwa: { raw: "(display-mode: standalone)" },
-    },
     colors: {
       neutral: {
         1: "var(--color-neutral-1)",
@@ -145,3 +140,5 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: { ...defaultTheme, ...theme },
 };
+
+[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
