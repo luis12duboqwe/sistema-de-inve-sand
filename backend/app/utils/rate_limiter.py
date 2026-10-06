@@ -6,6 +6,7 @@ Uses in-memory storage with sliding windows.
 """
 
 import logging
+import os
 import time
 from collections import deque
 from datetime import datetime
@@ -33,6 +34,13 @@ class RateLimiter:
 
     def is_allowed(self, key: str) -> Tuple[bool, Dict[str, Any]]:
         """Check whether a request is allowed and return current limit metadata."""
+        if os.getenv("E2E_DISABLE_RATE_LIMITS", "").lower() == "true":
+            return True, {
+                "limit": self.max_requests,
+                "remaining": self.max_requests,
+                "reset_at": datetime.now(),
+                "reset_in_seconds": 0,
+            }
         now = time.time()
         cutoff = now - self.window_seconds
 
