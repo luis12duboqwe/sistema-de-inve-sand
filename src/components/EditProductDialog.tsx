@@ -111,9 +111,9 @@ export function EditProductDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar Producto</DialogTitle>
+      <DialogContent className="flex h-[94vh] w-[96vw] max-w-3xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
+        <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
+          <DialogTitle className="text-xl">Editar producto</DialogTitle>
           <DialogDescription>
             Modifica los detalles del producto y su stock disponible.
           </DialogDescription>
@@ -131,7 +131,7 @@ export function EditProductDialog({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="detalles" className="space-y-4 py-4">
+          <TabsContent value="detalles" className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
             <div className="space-y-2">
               <Label>SKU (solo lectura)</Label>
               <Input value={product.sku} disabled className="bg-muted" />
@@ -282,7 +282,7 @@ export function EditProductDialog({
               </p>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>

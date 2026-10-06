@@ -658,15 +658,15 @@ export function NewProductDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Agregar Nuevo Producto</DialogTitle>
+      <DialogContent className="flex h-[94vh] w-[96vw] max-w-3xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
+        <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
+          <DialogTitle className="text-xl">Nuevo producto</DialogTitle>
           <DialogDescription>
             Completa los datos del producto. Los celulares tienen opciones predefinidas.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
@@ -1090,12 +1090,12 @@ export function NewProductDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Agregando...' : 'Agregar Producto'}
+            {isSubmitting ? 'Guardando...' : 'Guardar producto'}
           </Button>
         </DialogFooter>
       </DialogContent>
