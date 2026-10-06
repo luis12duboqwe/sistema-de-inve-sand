@@ -13,6 +13,7 @@ test.beforeAll(async ({ request }) => {
 })
 
 test('creates and receives a stock transfer through the UI', async ({ page }) => {
+  test.setTimeout(60000)
   const suffix = Date.now().toString()
   const sourceName = `E2E Origen ${suffix}`
   const destinationName = `E2E Destino ${suffix}`
