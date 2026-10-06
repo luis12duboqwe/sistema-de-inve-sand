@@ -12,7 +12,9 @@ test.beforeAll(async ({ request }) => {
   expect([200, 403]).toContain(setup.status())
 })
 
-test('creates and receives a stock transfer through the UI', async ({ page }) => {\n  const suffix = Date.now().toString()\n  const sourceName = `E2E Origen ${suffix}`\n  const destinationName = `E2E Destino ${suffix}`\n  const productName = `E2E Accesorio Transfer ${suffix}`\n  const sku = `E2E-TR-${suffix}`
+test('creates and receives a stock transfer through the UI', async ({ page }) => {
+  const suffix = Date.now().toString()
+  const sourceName = `E2E Origen ${suffix}`\n  const destinationName = `E2E Destino ${suffix}`\n  const productName = `E2E Accesorio Transfer ${suffix}`\n  const sku = `E2E-TR-${suffix}`
   await page.goto(frontendUrl, { waitUntil: 'networkidle' })
   await page.getByLabel('Usuario').fill(username)
   await page.getByLabel('Contraseña').fill(password)
