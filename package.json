@@ -18,7 +18,8 @@
         "test:ui": "vitest --ui",
         "test:coverage": "vitest --run --coverage",
         "optimize": "vite optimize",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "test:e2e:browser": "playwright test"
     },
     "dependencies": {
         "@github/spark": "^0.46.15",
@@ -110,7 +111,8 @@
         "tailwindcss": "^4.1.11",
         "typescript": "~5.9.3",
         "typescript-eslint": "^8.70.0",
-        "vitest": "^3.0.5"
+        "vitest": "^3.0.5",
+        "@playwright/test": "^1.63.0"
     },
     "workspaces": {
         "packages": [
