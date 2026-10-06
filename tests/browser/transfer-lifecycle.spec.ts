@@ -32,6 +32,10 @@ test('creates and receives a stock transfer through the UI', async ({ page }) =>
     await page.getByRole('button', { name: 'Crear Ubicación' }).click()
     await expect(page.getByText(name, { exact: true })).toBeVisible({ timeout: 15000 })
   }
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('tab', { name: 'Ubicaciones' }).click()
+  await expect(page.getByText(sourceName, { exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText(destinationName, { exact: true })).toBeVisible({ timeout: 15000 })
 
   await page.getByRole('tab', { name: 'Inicio' }).click()
   await page.getByRole('button', { name: 'Producto' }).click()
