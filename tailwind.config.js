@@ -140,5 +140,3 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: { ...defaultTheme, ...theme },
 };
-
-[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
