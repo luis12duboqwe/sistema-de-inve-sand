@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: './tests/browser',
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
     baseURL: process.env.E2E_FRONTEND_URL || 'http://127.0.0.1:5174',
