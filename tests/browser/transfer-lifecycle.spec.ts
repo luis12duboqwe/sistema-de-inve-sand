@@ -62,10 +62,9 @@ test('creates and receives a stock transfer through the UI', async ({ page }) =>
   await transferDialog.getByText(productName, { exact: true }).click()
   await transferDialog.getByRole('spinbutton').fill('2')
   await transferDialog.getByRole('button', { name: /Registrar 1 modelo/ }).click()
-  await expect(transferDialog).not.toBeVisible({ timeout: 15000 })
-
-  await page.getByRole('button', { name: 'Ver Transferencias' }).click()
-  await page.getByRole('button', { name: 'Confirmar recepción' }).first().click()
+  const listDialog = page.getByRole('dialog', { name: 'Transferencias de Stock' })
+  await expect(listDialog).toBeVisible({ timeout: 15000 })
+  await listDialog.getByRole('button', { name: 'Confirmar recepción' }).first().click()
   const receiveDialog = page.getByRole('dialog', { name: 'Confirmar Recepción' })
   await receiveDialog.getByLabel('Tu nombre *').fill('E2E Admin')
   await receiveDialog.getByLabel('Cantidad recibida *').fill('2')
