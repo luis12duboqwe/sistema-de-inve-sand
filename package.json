@@ -93,6 +93,7 @@
     },
     "devDependencies": {
         "@eslint/js": "^9.39.5",
+        "@playwright/test": "^1.63.0",
         "@tailwindcss/postcss": "^4.3.3",
         "@testing-library/dom": "^10.4.2",
         "@testing-library/jest-dom": "^6.5.0",
@@ -108,11 +109,11 @@
         "globals": "^16.5.0",
         "happy-dom": "^20.14.5",
         "msw": "^2.15.0",
+        "source-map-js": "^1.2.2",
         "tailwindcss": "^4.1.11",
         "typescript": "~5.9.3",
         "typescript-eslint": "^8.70.0",
-        "vitest": "^3.0.5",
-        "@playwright/test": "^1.63.0"
+        "vitest": "^3.0.5"
     },
     "workspaces": {
         "packages": [
@@ -120,3 +121,5 @@
         ]
     }
 }
+
+[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
