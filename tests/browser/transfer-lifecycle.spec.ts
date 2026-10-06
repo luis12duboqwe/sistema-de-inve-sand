@@ -50,6 +50,7 @@ test('creates and receives a stock transfer through the UI', async ({ page }) =>
   await page.getByRole('button', { name: 'Guardar producto' }).click()
   await expect(page.getByText(productName).first()).toBeVisible({ timeout: 15000 })
 
+  await page.getByRole('tab', { name: 'Inventario' }).click()
   await page.getByRole('button', { name: 'Agregar más' }).click()
   const restockDialog = page.getByRole('dialog', { name: 'Agregar más inventario' })
   await restockDialog.getByPlaceholder('Buscar producto, SKU o modelo').fill(sku)
