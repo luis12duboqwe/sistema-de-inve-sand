@@ -20,7 +20,7 @@ test.describe.serial('authenticated staging journey', () => {
     await page.getByLabel('Usuario').fill(username)
     await page.getByLabel('Contraseña').fill(password)
     await page.getByRole('button', { name: 'Ingresar' }).click()
-    await expect(page.getByText('E2E Admin')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('E2E Admin', { exact: true })).toBeVisible({ timeout: 15000 })
 
     for (const tab of ['Inicio', 'Inventario', 'Analítica', 'Multitienda', 'Ventas', 'Transferencias', 'Ubicaciones', 'Canales', 'Financiamiento']) {
       const trigger = page.getByRole('tab', { name: tab })
