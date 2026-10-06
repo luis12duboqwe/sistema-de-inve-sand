@@ -90,5 +90,3 @@ export default defineConfig(({ mode }) => {
     }
   }
 });
-
-[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
