@@ -79,6 +79,7 @@ export default defineConfig(({ mode }) => {
       environment: 'happy-dom',
       globals: true,
       setupFiles: './src/test/setup.ts',
+      exclude: ['tests/e2e/**', 'tests/browser/**', 'node_modules/**', 'dist/**'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov']
@@ -89,3 +90,5 @@ export default defineConfig(({ mode }) => {
     }
   }
 });
+
+[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
