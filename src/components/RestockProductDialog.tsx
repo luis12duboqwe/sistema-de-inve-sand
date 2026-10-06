@@ -263,15 +263,15 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex h-[94vh] w-[96vw] max-w-3xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
+        <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
           <DialogTitle>Agregar más inventario</DialogTitle>
           <DialogDescription>
             Reabastece un producto existente. Si es serializado, debes registrar los nuevos IMEIs.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Producto *</Label>
@@ -409,7 +409,7 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
