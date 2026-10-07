@@ -1,5 +1,3 @@
-[Reading 177 lines from start (total: 177 lines, 0 remaining)]
-
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -177,5 +175,3 @@ export function AIStatusWidget({
     </Card>
   )
 }
-
-[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
