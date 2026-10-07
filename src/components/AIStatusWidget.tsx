@@ -1,3 +1,5 @@
+[Reading 177 lines from start (total: 177 lines, 0 remaining)]
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,8 +41,12 @@ export function AIStatusWidget({
       }
     : error
       ? {
-          title: 'Error al cargar métricas',
-          description: error,
+          title: error.toLowerCase().includes('deshabilitad')
+            ? 'IA no habilitada'
+            : 'No se pudieron cargar las métricas',
+          description: error.toLowerCase().includes('deshabilitad')
+            ? 'Activa las funciones de IA cuando quieras utilizar este panel.'
+            : error,
         }
       : isLoading
         ? {
@@ -171,3 +177,5 @@ export function AIStatusWidget({
     </Card>
   )
 }
+
+[executed on device: srv1656045 (50056b71-ec54-49e5-8524-4feb4c6efa74)]
