@@ -79,6 +79,7 @@ export default defineConfig(({ mode }) => {
       environment: 'happy-dom',
       globals: true,
       setupFiles: './src/test/setup.ts',
+      exclude: ['tests/e2e/**', 'tests/browser/**', 'node_modules/**', 'dist/**'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov']

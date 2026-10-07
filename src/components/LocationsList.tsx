@@ -11,7 +11,11 @@ import { Badge } from './ui/badge'
 import { useKV } from '@/hooks/use-kv'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 
-export function LocationsList() {
+interface LocationsListProps {
+  onLocationsChanged?: () => void | Promise<void>
+}
+
+export function LocationsList({ onLocationsChanged }: LocationsListProps = {}) {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [locations, setLocations] = useState<Location[]>([])
@@ -64,6 +68,7 @@ export function LocationsList() {
       
       // Recargar la lista
       await loadLocations()
+      await onLocationsChanged?.()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error desconocido'
       toast.error(`❌ Error al crear ubicación: ${message}`)
@@ -89,7 +94,8 @@ export function LocationsList() {
       toast.success('Ubicación actualizada exitosamente')
       setEditingLocation(null)
       resetForm()
-      loadLocations()
+      await loadLocations()
+      await onLocationsChanged?.()
     } catch (error) {
       toast.error('Error al actualizar ubicación')
       console.error(error)
@@ -106,6 +112,7 @@ export function LocationsList() {
 
       toast.success('✅ Ubicación eliminada exitosamente')
       await loadLocations()
+      await onLocationsChanged?.()
     } catch (error: any) {
       // Extraer mensaje de error del backend
       const errorMessage = error.message || 'Error al eliminar ubicación'
@@ -132,7 +139,8 @@ export function LocationsList() {
       await inventoryServiceInstance.updateLocation(location.id, { activo: !location.activo })
 
       toast.success(`Ubicación ${!location.activo ? 'activada' : 'desactivada'}`)
-      loadLocations()
+      await loadLocations()
+      await onLocationsChanged?.()
     } catch (error) {
       toast.error('Error al cambiar estado')
       console.error(error)

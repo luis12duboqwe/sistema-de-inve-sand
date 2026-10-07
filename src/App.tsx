@@ -2057,7 +2057,10 @@ function MainApp() {
           )}
 
           <TabsContent value="locations" className="space-y-6">
-            <LocationsList />
+            <LocationsList onLocationsChanged={async () => {
+              const updatedLocations = await service.getLocations()
+              setLocations(updatedLocations)
+            }} />
           </TabsContent>
 
           <TabsContent value="transfers" className="space-y-6">
