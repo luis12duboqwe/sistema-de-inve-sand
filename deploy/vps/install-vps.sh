@@ -598,7 +598,7 @@ configure_backup() {
     cat > /etc/cron.d/inventario-backup <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-0 2 * * * ${APP_USER} cd ${APP_DIR}/backend && set -a && . ./.env && set +a && ./backup_database.sh >> /var/log/inventario-backup.log 2>&1
+0 2 * * * ${APP_USER} cd ${APP_DIR}/backend && set -a && . ./.env && set +a && ./backup_database.sh >> ${BACKUP_DIR}/cron.log 2>&1
 EOF
     chmod 0644 /etc/cron.d/inventario-backup
     sudo -u "$APP_USER" bash -lc "cd '$APP_DIR/backend' && set -a && . ./.env && set +a && ./backup_database.sh"
@@ -673,7 +673,7 @@ Backend health: https://${DOMAIN}/api/health
 Comandos utiles:
   systemctl status inventario
   journalctl -u inventario -n 100 --no-pager
-  tail -n 100 /var/log/inventario-backup.log
+  tail -n 100 ${BACKUP_DIR}/cron.log
 EOF
 }
 
