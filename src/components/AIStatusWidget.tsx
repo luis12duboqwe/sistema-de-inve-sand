@@ -39,8 +39,12 @@ export function AIStatusWidget({
       }
     : error
       ? {
-          title: 'Error al cargar métricas',
-          description: error,
+          title: error.toLowerCase().includes('deshabilitad')
+            ? 'IA no habilitada'
+            : 'No se pudieron cargar las métricas',
+          description: error.toLowerCase().includes('deshabilitad')
+            ? 'Activa las funciones de IA cuando quieras utilizar este panel.'
+            : error,
         }
       : isLoading
         ? {

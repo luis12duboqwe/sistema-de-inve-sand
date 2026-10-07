@@ -974,12 +974,9 @@ function MainApp() {
                   </Button>
                 </div>
               )}
-              <SyncIndicator syncStatus={syncStatus} />
-              
-              <Badge variant={useAPI ? "default" : "secondary"} className="hidden sm:flex items-center gap-1">
-                {useAPI ? <CloudArrowUp size={14} /> : <Database size={14} />}
-                {useAPI ? 'API' : 'Local'}
-              </Badge>
+              {(syncStatus.syncError || syncStatus.isSyncing) && (
+                <SyncIndicator syncStatus={syncStatus} />
+              )}
               
               <NotificationCenter
                 products={products ?? []}
