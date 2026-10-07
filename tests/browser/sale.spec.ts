@@ -1,0 +1,18 @@
+import {test,expect} from '@playwright/test'
+test('completes a cash sale through the UI',async({page})=>{
+ await page.goto((process.env.E2E_FRONTEND_URL||'http://127.0.0.1:5174'),{waitUntil:'networkidle'})
+ await page.getByLabel('Usuario').fill((process.env.E2E_USERNAME||'e2eadmin')); await page.getByLabel('Contraseña').fill((process.env.E2E_PASSWORD||'StageOnly!2026')); await page.getByRole('button',{name:'Ingresar'}).click()
+ await expect(page.getByText('E2E Admin',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Nueva venta'}).first().click()
+ const dlg=page.getByRole('dialog',{name:'Nueva venta'}); await expect(dlg).toBeVisible()
+ const combos=dlg.getByRole('combobox')
+ await combos.nth(0).click(); await page.getByRole('option',{name:/E2E Vendedor/}).click()
+ await combos.nth(1).click(); await page.getByRole('option',{name:/E2E Tienda/}).click()
+ await dlg.getByPlaceholder('Escanea SKU o IMEI').fill('359999999999991'); await dlg.getByRole('button',{name:'Agregar escaneado'}).click()
+ await expect(dlg.getByText(/E2E Producto/).first()).toBeVisible()
+ await dlg.getByLabel('Nombre del Cliente').fill('Cliente E2E')
+ await dlg.getByLabel('Teléfono').fill('99999999')
+ await dlg.getByRole('spinbutton',{name:'Efectivo'}).fill('1000')
+ await dlg.getByRole('button',{name:'Completar venta'}).click()
+ await expect(dlg).toBeHidden({timeout:15000})
+})
