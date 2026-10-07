@@ -13,6 +13,7 @@ import { Database, CheckCircle, XCircle, Download, Upload, Trash } from '@phosph
 import { getKV } from '@/lib/kvStorage'
 import { exportAllData, clearAllData, importAllData } from '@/lib/dataInitializer'
 import { toast } from 'sonner'
+import { isProductionApiForced } from '@/lib/runtimePolicy'
 
 export function StorageDiagnosticDialog() {
   const [isOpen, setIsOpen] = useState(false)
@@ -110,7 +111,13 @@ export function StorageDiagnosticDialog() {
   }
 
   const handleClear = async () => {
-    if (!confirm('¿Estás seguro? Esto eliminará TODOS los datos del sistema.')) {
+    if (isProductionApiForced()) {
+      toast.error('La eliminación de datos locales está deshabilitada en producción')
+      return
+    }
+
+    const confirmation = prompt('Acción irreversible. Escribe BORRAR DATOS LOCALES para continuar.')
+    if (confirmation !== 'BORRAR DATOS LOCALES') {
       return
     }
 
@@ -191,9 +198,11 @@ export function StorageDiagnosticDialog() {
                 <Upload className="h-4 w-4 mr-2" />
                 Importar
               </Button>
-              <Button onClick={handleClear} variant="destructive" size="sm">
-                <Trash className="h-4 w-4" />
-              </Button>
+              {!isProductionApiForced() && (
+                <Button onClick={handleClear} variant="destructive" size="sm" title="Borrar datos locales">
+                  <Trash className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
 

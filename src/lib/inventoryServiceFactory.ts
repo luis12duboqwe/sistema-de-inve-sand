@@ -826,14 +826,17 @@ class LocalServiceWrapper implements IInventoryService {
 
 class UnifiedInventoryService implements IInventoryService {
   private async getService(): Promise<IInventoryService> {
+    // Production must never fall back to browser-local storage. The backend is
+    // the single source of truth for inventory, sales, IMEIs and AI operations.
+    if (isProductionApiForced()) {
+      return new ApiInventoryService()
+    }
+
     try {
       const useApi = await getUseApiSetting()
       return useApi ? new ApiInventoryService() : new LocalServiceWrapper()
     } catch (error) {
       console.error('Error determining service type:', error)
-      if (isProductionApiForced()) {
-        return new ApiInventoryService()
-      }
       return new LocalServiceWrapper()
     }
   }
