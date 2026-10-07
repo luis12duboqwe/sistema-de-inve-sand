@@ -34,7 +34,10 @@ class RateLimiter:
 
     def is_allowed(self, key: str) -> Tuple[bool, Dict[str, Any]]:
         """Check whether a request is allowed and return current limit metadata."""
-        if (\n            os.getenv("ENVIRONMENT", "").lower() == "testing"\n            and os.getenv("E2E_DISABLE_RATE_LIMITS", "").lower() == "true"\n        ):
+        if (
+            os.getenv("ENVIRONMENT", "").lower() == "testing"
+            and os.getenv("E2E_DISABLE_RATE_LIMITS", "").lower() == "true"
+        ):
             return True, {
                 "limit": self.max_requests,
                 "remaining": self.max_requests,
