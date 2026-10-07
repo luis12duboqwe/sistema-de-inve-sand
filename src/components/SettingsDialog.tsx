@@ -524,30 +524,33 @@ export function SettingsDialog({ open, onOpenChange, onOpenNotificationSettings,
             </div>
           ) : null}
 
-          <div className="rounded-lg border border-destructive/50 p-4 space-y-3 bg-destructive/5">
-            <div>
-              <p className="text-sm font-medium mb-1 text-destructive flex items-center gap-2">
-                <Trash size={16} />
-                Zona de Peligro
-              </p>
-              <p className="text-xs text-muted-foreground mb-3">
-                Elimina todos los datos locales (productos, órdenes, perfiles) y reinicia la aplicación.
-              </p>
+          {!useApi && (
+            <div className="rounded-lg border border-destructive/50 p-4 space-y-3 bg-destructive/5">
+              <div>
+                <p className="text-sm font-medium mb-1 text-destructive flex items-center gap-2">
+                  <Trash size={16} />
+                  Zona de Peligro
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Elimina todos los datos locales (productos, órdenes, perfiles) y reinicia la aplicación.
+                </p>
+              </div>
+              <Button
+                onClick={async () => {
+                  const confirmation = prompt('Acción irreversible. Escribe BORRAR DATOS LOCALES para continuar.')
+                  if (confirmation === 'BORRAR DATOS LOCALES') {
+                    await clearAllData()
+                    window.location.reload()
+                  }
+                }}
+                variant="destructive"
+                className="w-full"
+                size="sm"
+              >
+                Borrar Datos Locales y Reiniciar
+              </Button>
             </div>
-            <Button
-              onClick={async () => {
-                if (confirm('¿Estás seguro? Esto borrará TODOS los datos locales y no se puede deshacer.')) {
-                  await clearAllData()
-                  window.location.reload()
-                }
-              }}
-              variant="destructive"
-              className="w-full"
-              size="sm"
-            >
-              Borrar Datos Locales y Reiniciar
-            </Button>
-          </div>
+          )}
         </div>
 
         <DialogFooter>
