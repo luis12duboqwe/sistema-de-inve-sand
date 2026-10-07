@@ -1006,18 +1006,18 @@ function MainApp() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" title="MÃ¡s herramientas" className="hover:bg-primary/10">
+                  <Button variant="ghost" size="icon" title="Más herramientas" className="hover:bg-primary/10">
                     <Gear size={21} />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuItem onSelect={() => setShowHealthCheckDialog(true)}><Pulse size={18} />DiagnÃ³stico del sistema</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setShowHealthCheckDialog(true)}><Pulse size={18} />Diagnóstico del sistema</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setShowKeyboardDialog(true)}><Keyboard size={18} />Atajos de teclado</DropdownMenuItem>
-                  {canViewSettings && <DropdownMenuItem onSelect={() => setShowSettingsDialog(true)}><Gear size={18} />ConfiguraciÃ³n</DropdownMenuItem>}
+                  {canViewSettings && <DropdownMenuItem onSelect={() => setShowSettingsDialog(true)}><Gear size={18} />Configuración</DropdownMenuItem>}
                   {(canManageUsers || (useAPI && currentUser?.is_superuser === true)) && <DropdownMenuSeparator />}
                   {canManageUsers && <DropdownMenuItem onSelect={() => setShowManageUsersDialog(true)}><ShieldCheck size={18} />Gestionar usuarios</DropdownMenuItem>}
                   {useAPI && currentUser?.is_superuser === true && <DropdownMenuItem onSelect={() => setShowSuperAdminPanel(true)}><Wrench size={18} />Panel Super Admin</DropdownMenuItem>}
-                  {canValidateDailyClose && useAPI && <DropdownMenuItem onSelect={() => setShowDailyCloseDialog(true)}><CheckCircle size={18} />Cierre del dÃ­a</DropdownMenuItem>}
+                  {canValidateDailyClose && useAPI && <DropdownMenuItem onSelect={() => setShowDailyCloseDialog(true)}><CheckCircle size={18} />Cierre del día</DropdownMenuItem>}
                   {canAccessMultiStoreControl && <DropdownMenuItem onSelect={() => setShowMultiStoreControl(true)}><Database size={18} />Control multitienda</DropdownMenuItem>}
                 </DropdownMenuContent>
               </DropdownMenu>
