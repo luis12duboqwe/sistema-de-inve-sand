@@ -12,6 +12,10 @@
 
 set -euo pipefail
 
+# Backups contain the full production database. Keep every newly created
+# file private even if the host has a permissive default umask.
+umask 077
+
 # ====================================
 # CONFIGURACIÓN
 # ====================================
@@ -162,6 +166,7 @@ send_notification() {
 main() {
     # Crear directorio y log antes de escribir cualquier log
     mkdir -p "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR"
     touch "$LOG_FILE"
 
     log "================================"

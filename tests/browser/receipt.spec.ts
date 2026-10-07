@@ -29,7 +29,6 @@ test('registers a multistore serialized receipt', async ({ page }) => {
 
   const loc = await page.request.post(`${apiUrl}/api/locations`, { headers, data: { nombre: locationName, tipo: 'tienda', activo: true } })
   expect(loc.status()).toBe(201)
-  const location = await loc.json()
   const prod = await page.request.post(`${apiUrl}/api/products`, { headers, data: {
     sku, nombre: productName, categoria: 'celular', marca: 'E2E', modelo: 'ReceiptPhone',
     condicion: 'nuevo', precio: 1000, costo: 700, is_serialized: true, stock_inicial: 0,
