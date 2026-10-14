@@ -1,0 +1,253 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "scope": "CONTINUACION03 utilities",
+  "full_text_reviewed": [
+    "src/lib/labelPrint.ts",
+    "src/lib/optimizationAnalytics.ts",
+    "src/lib/pdfExport.ts",
+    "src/components/TradeInPoliciesDialog.tsx",
+    "src/components/ValidationCodeDialog.tsx",
+    "src/components/forms/RoleSelect.tsx",
+    "src/index.css",
+    "src/main.css",
+    "src/styles/theme.css",
+    "src/test/msw/handlers.ts",
+    "src/test/msw/server.ts",
+    "typings/apscheduler/schedulers/asyncio/__init__.pyi",
+    "typings/apscheduler/triggers/cron/__init__.pyi"
+  ],
+  "structurally_reviewed_complete": [
+    "package-lock.json"
+  ],
+  "coverage": [
+    {
+      "path": "src/lib/labelPrint.ts",
+      "lines": 381,
+      "sha256": "5d326d1df1a3df82da2ef43dfea78f1a877c9d9347625b32c6e86bba8c8fd2de",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/lib/optimizationAnalytics.ts",
+      "lines": 544,
+      "sha256": "96a26758a9eaf94e4081609f1d412e5be61261e87d31672ea239171931ae4e4d",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/lib/pdfExport.ts",
+      "lines": 706,
+      "sha256": "647c14eceb097ddfd2ff7107563b982cfe4354963525bfe48f50e097337aef14",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/components/TradeInPoliciesDialog.tsx",
+      "lines": 253,
+      "sha256": "3f21931281714f4af35bc43dc2bcdb3ec148f8c671f4b1a8844a5be679d01259",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/components/ValidationCodeDialog.tsx",
+      "lines": 92,
+      "sha256": "3f4896346e7366714d931b3bee489d2c88b8ad4e8ac41478e27346da06425c35",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/components/forms/RoleSelect.tsx",
+      "lines": 37,
+      "sha256": "7381083f3689061871be5358a29b759ac5176eccee7524beb344f8fe379befa6",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/index.css",
+      "lines": 212,
+      "sha256": "a2579a03d7542f223408a70c41617b579da4e591f5c20d7a2160989a9ea73b2e",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/main.css",
+      "lines": 186,
+      "sha256": "992556880e58574dc6f75845b6da5c469a25c8b332a95394b00171c282c98728",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/styles/theme.css",
+      "lines": 262,
+      "sha256": "ed9083072eedd51c6043902036a0ad4f1148fc05290d3613fee4b2f11687aa0f",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/test/msw/handlers.ts",
+      "lines": 24,
+      "sha256": "9e277003a349d3399dd96df2d8afc947ef51ec79069861f83a0bd1e0d54332b7",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "src/test/msw/server.ts",
+      "lines": 4,
+      "sha256": "ee73808045d6c550bac3eba9cd199001d887853e1a0602e8e6979db282563c7b",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "typings/apscheduler/schedulers/asyncio/__init__.pyi",
+      "lines": 14,
+      "sha256": "3e68ba9e5e719c493b2b393dea94e27c00c0d381490c16ae0ad7e39ed7025d62",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "typings/apscheduler/triggers/cron/__init__.pyi",
+      "lines": 4,
+      "sha256": "a5e13bcee40f9e7b6012c8be3718f570a6ff4df228703a5e84b8e20663431825",
+      "method": "complete text read, untruncated"
+    },
+    {
+      "path": "package-lock.json",
+      "lines": 9993,
+      "method": "complete JSON parse traversal all722packageentries/dependency peer engine registry integrity fields; manually inspected anomalies/installScript/nested versions",
+      "sha256": "3b6386438c8d7f19c6307c75892fe947daeb63cb49791c72470bff5dbe84513c"
+    }
+  ],
+  "findings": [
+    {
+      "id": "CONT03-PDF01",
+      "severity": "MEDIUM",
+      "title": "PDF imprime campos negocio como HTML activo sin escape",
+      "status": "REPRODUCED_HTML_INJECTION_XSS_CONDITIONAL",
+      "locations": [
+        "src/lib/pdfExport.ts:5,245-254,266,310-314,400-403,479",
+        "src/lib/pdfExport.ts:529,677-685,704",
+        "backend/app/schemas/order.py:262-276",
+        "backend/app/utils/validators.py:142-169"
+      ],
+      "evidence": "Interpolaciones customer_name, notas, nombre/marca/modelo producto, perfil y campos financiación directamente en string HTML y document.write popup about:blank. Fixture con customer_name=<img src=x onerror=...> se conserva literalmente. Backend validate_text_field permite caracteres especiales y no invoca sanitize_html.",
+      "business_impact": "Manipular visualmente recibo/reportes con etiquetas arbitrarias y contenido falso. Ejecución JavaScript potencial en desarrollo u origen sin CSP restrictiva; NO confirmada en producción.",
+      "reproduction": "Transpilar pdfExport.ts con typescript.transpileModule; stub window.open.document.write captura HTML generado. generateOrderPDF fixture con customer_name marcado confirma includes(input)=true. No solicitudes reales ni carga de payloads externos.",
+      "mitigations_verified": [
+        "deploy/nginx.conf:13 y deploy/vps/invjear-nginx-ssl.conf:38 tienen script-src self; si CSP se hereda al popup, bloquea inline",
+        "backend/app/utils/s3_storage.py:72-132 valida MIME, firma y extensión segura UUID; rechaza HTML/JS/SVG, no se confirmó ruta upload activa para bypass same-origin"
+      ],
+      "recommendation": "Construir documento con textContent/nodos DOM o escapar toda interpolación HTML; separar documento imprimible de strings no confiables y conservar CSP.",
+      "required_tests": "Campos con < > comillas y markup deben quedar texto; prueba navegador local con CSP idéntica producción y opener; validar impresión automática bajo CSP.",
+      "executed_tests": [
+        "Captura HTML aislada exit0, marker literal preservado",
+        "Intento Playwright browser local sin red exit1: Chromium headless executable no existe; no claim ejecución JS"
+      ]
+    },
+    {
+      "id": "CONT03-OPT01",
+      "severity": "MEDIUM",
+      "title": "Optimización cuenta órdenes canceladas/pendientes como demanda y compras reales",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "src/lib/optimizationAnalytics.ts:111,131-141,198-209,282-300,376-391",
+        "src/hooks/use-optimization-insights.ts:30-49"
+      ],
+      "evidence": "Todos análisis reciben profileOrders filtrados sólo por perfil, sin isFinalSaleStatus; ventas recientes, total vendido, VIP y revenue incluyen estados no finales. _completedOrders se declara pero no utiliza (línea527).",
+      "business_impact": "Falsa demanda, recomendaciones de precios/reposición y clasificación clientes VIP a partir de compras canceladas.",
+      "reproduction": "Producto stock20/precio1000 y una orden cancelada reciente cantidad24 produce underpriced suggestedPrice1080 potentialImpact1920; demanda real cero.",
+      "recommendation": "Separar ventas finales de pipeline/cancelaciones; aplicar effective sale date consistente en cálculos ventas.",
+      "required_tests": "Canceladas y pendientes no suman vendido/revenue/VIP; ventas finalizadas sí. Fecha contable cruzando meses como extensión AN-001.",
+      "executed_tests": [
+        "Funciones reales transpileModule en Node con type-import borrado; output underpriced confirmado"
+      ]
+    },
+    {
+      "id": "CONT03-OPT02",
+      "severity": "MEDIUM",
+      "title": "ProductMix declara pérdidas con costo supuesto basado en catálogo actual",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "src/lib/optimizationAnalytics.ts:380-391,413-429"
+      ],
+      "evidence": "profit=totalRevenue-totalQuantity*product.precio*0.6 ignora OrderItem.costo_unitario y Product.costo, sin convertir producto USD. Se presenta como productos vendiendo por debajo del costo, no como estimación.",
+      "business_impact": "Cambiar precio catálogo altera retroactivamente pérdida histórica y puede aconsejar descontinuar producto rentable.",
+      "reproduction": "Venta HNL100 con costo_unitario90 (margen10) y precio actual1000 retorna poor_performer impact500.",
+      "recommendation": "Usar costo histórico entregado de todos items, incluyendo regalos, y fallback legacy explícito coherente; no llamar pérdida real a un supuesto60%.",
+      "required_tests": "Costo histórico independiente precio actual; costos regalos; USD catálogo con ledgerHNL.",
+      "executed_tests": [
+        "analyzeProductMix fixture Node real devuelve poor_performer impacto500"
+      ]
+    },
+    {
+      "id": "CONT03-OPT03",
+      "severity": "LOW",
+      "title": "Clientes sin teléfono se fusionan como un único VIP",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "src/lib/optimizationAnalytics.ts:282-299,307-316"
+      ],
+      "evidence": "customer_phone vacío comparte key unknown, conserva primer nombre y suma todas órdenes de clientes distintos.",
+      "business_impact": "Segmentación/recomendaciones lealtad atribuyen compras ajenas al primer comprador. Principalmente datos legacy/local con teléfono vacío.",
+      "reproduction": "Tres órdenes total2000 con teléfonos vacíos y customer_name distintos producen VIP Distinct0 total6000 compras3.",
+      "recommendation": "Usar customer_id estable cuando exista o ignorar identidad desconocida en métricas individuales; no fusionar todos unknown.",
+      "required_tests": "Tres compradores distintos sin teléfono no se clasifican como un VIP único.",
+      "executed_tests": [
+        "analyzeCustomers fixture transpile Node confirma VIP incorrecto"
+      ]
+    },
+    {
+      "id": "CONT03-DEP01",
+      "severity": "LOW",
+      "title": "Lockfile conserva161 entradas sin origen ni hash integridad",
+      "status": "CONFIRMED_STRUCTURAL",
+      "locations": [
+        "package-lock.json (722 package entries,161 sin resolved/integrity;89 no dev)"
+      ],
+      "evidence": "Parser recorrió todas entradas y dependencias; ninguna entrada con resolved carece integrity, pero161 entradas carecen ambos, incluyendo producción @floating-ui, @heroicons/react y @radix-ui/colors. No paquetes git/file/host ajeno ni peer/dependency faltantes detectados.",
+      "business_impact": "Esas instalaciones no quedan fijadas a hash del tarball y dependen resolución registry local. No evidencia de paquete malicioso ni CVE nueva.",
+      "recommendation": "Regenerar lockfile en entorno limpio con registry esperado; inspeccionar diff y gates existentes; documentar Node mínimo22.20 por lzma en linux-x64.",
+      "required_tests": "npm ci limpio plataforma producción + lint/tests/build y auditoría dependencias; no instalar durante auditoría lectura.",
+      "executed_tests": [
+        "JSON completo403938bytes SHA2563b6386438c8d7f19c6307c75892fe947daeb63cb49791c72470bff5dbe84513c",
+        "722 entries: root manifest coincide;560 registry.npmjs.org,161 sin resolved,4 installScript,0 links,0 nonsemver,0 missing dependency resolutions",
+        "semver revisión todos peerDependencies:0 mismatch/required_missing;9 engines no aceptan Node22.0, incluyendo Linux lzma ^22.20 || ^24.12 || >=25"
+      ]
+    }
+  ],
+  "deduplicated_extensions": [
+    {
+      "existing_id": "BUS-09",
+      "additional_locations": [
+        "src/lib/pdfExport.ts:532,656,684-685"
+      ],
+      "evidence": "Reporte productos mezcla USD100 y HNL100 cantidades1 bajo profileHNL, muestra HNL200 en vez2600 a tasa25; generado HTML fixture aislado."
+    },
+    {
+      "existing_id": "AN-001",
+      "additional_locations": [
+        "src/lib/optimizationAnalytics.ts:111,133,200,288,299,378,469"
+      ],
+      "evidence": "Cálculos temporales usan created_at; vendido hoy creado hace90d queda fuera ventana30d."
+    },
+    {
+      "existing_id": "FE-13",
+      "relation": "related_not_duplicate",
+      "additional_locations": [
+        "src/lib/optimizationAnalytics.ts:391"
+      ],
+      "evidence": "FE13 omite costo de regalos en reportUtils; CONT03OPT02 ignora todo costo histórico en otro helper"
+    }
+  ],
+  "no_additional_confirmed_findings": {
+    "src/lib/labelPrint.ts": "Todas interpolaciones textuales escapeHtml y settings numéricos acotados; sin defecto confirmado. Layoutlabels3 y auto print bajo CSP requieren browser/hardware.",
+    "src/components/TradeInPoliciesDialog.tsx": "Validación y API llamadas leídas; sin defecto nuevo confirmado, submit sin busy relacionado con BUS07 general.",
+    "src/components/ValidationCodeDialog.tsx": "Legacy Validar venta onConfirm sin código intencional separación venta/cierre; no se considera bypass RBAC del backend.",
+    "src/components/forms/RoleSelect.tsx": "Sin fallo sustantivo confirmado; IDs BD positivos hacen value truthiness coherente.",
+    "src/index.css/src/main.css/src/styles/theme.css": "Temas/sobreescrituras y imports completos inspeccionados; no defecto adicional confirmado sin navegador.",
+    "src/test/msw/*": "Mocks intencionalmente débiles cubren sólo contratos mínimos, no evidencia runtime/backend real; server setup bloquea unhandled en src/test/setup.ts.",
+    "typings/apscheduler/**/*.pyi": "Stubs mínimos Any; no shutdown declarado, pero no incompatibilidad runtime inferida de typings."
+  },
+  "evidence_files": [
+    "/tmp/cont03-lock-structure.json",
+    "/tmp/cont03-lock-peers.json"
+  ],
+  "limitations": [
+    "No repository/GitHub changes; parent writes untracked ledger externally visible",
+    "No live API, DB, credential, production or destructive tests",
+    "Browser validation blocked missing Chromium; XSS exploitation under production CSP unproven",
+    "No fresh online CVE lookup or npm audit: package metadata structural review only"
+  ],
+  "next_tests": [
+    "Offline browser fixture with actual CSP inherited popup and safe marker",
+    "Optimization fixtures cancellation/pending/completion, old-created recent-finalized, historical costs and unknown identity",
+    "Clean immutable CI install/build/tests/audit Node22.20+"
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "hmac": {
+    "cases": [
+      {
+        "channel": "whatsapp",
+        "case": "valid",
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "channel": "whatsapp",
+          "processed_count": 0,
+          "skipped_duplicates": 0,
+          "failed_count": 0,
+          "processed": [],
+          "failed": []
+        }
+      },
+      {
+        "channel": "whatsapp",
+        "case": "missing",
+        "status": 401,
+        "body": {
+          "detail": "Falta X-Hub-Signature-256"
+        }
+      },
+      {
+        "channel": "whatsapp",
+        "case": "invalid",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      },
+      {
+        "channel": "whatsapp",
+        "case": "tampered",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      },
+      {
+        "channel": "messenger",
+        "case": "valid",
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "channel": "messenger",
+          "processed_count": 0,
+          "skipped_duplicates": 0,
+          "failed_count": 0,
+          "processed": [],
+          "failed": []
+        }
+      },
+      {
+        "channel": "messenger",
+        "case": "missing",
+        "status": 401,
+        "body": {
+          "detail": "Falta X-Hub-Signature-256"
+        }
+      },
+      {
+        "channel": "messenger",
+        "case": "invalid",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      },
+      {
+        "channel": "messenger",
+        "case": "tampered",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      },
+      {
+        "channel": "instagram",
+        "case": "valid",
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "channel": "instagram",
+          "processed_count": 0,
+          "skipped_duplicates": 0,
+          "failed_count": 0,
+          "processed": [],
+          "failed": []
+        }
+      },
+      {
+        "channel": "instagram",
+        "case": "missing",
+        "status": 401,
+        "body": {
+          "detail": "Falta X-Hub-Signature-256"
+        }
+      },
+      {
+        "channel": "instagram",
+        "case": "invalid",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      },
+      {
+        "channel": "instagram",
+        "case": "tampered",
+        "status": 401,
+        "body": {
+          "detail": "Firma inválida"
+        }
+      }
+    ],
+    "assertions_passed": true,
+    "scope": "TestClient sin lifespan, dependencia NoDB que falla si se consulta. Eventos vacíos. No proveedor real, ni DB, ni producción."
+  },
+  "npm_audit": {
+    "auditReportVersion": 2,
+    "vulnerabilities": {},
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 356,
+        "dev": 272,
+        "optional": 94,
+        "peer": 0,
+        "peerOptional": 0,
+        "total": 721
+      }
+    }
+  },
+  "production_read_only": {
+    "catalog_url": "https://invjear.com/catalogo",
+    "observed": "Estructura sin productos; Failed to fetch en JS servido",
+    "public_api_status": 200,
+    "public_api_total": 189,
+    "public_api_first_page_count": 50,
+    "root_url": "https://invjear.com/",
+    "root_observed": "Login después de conexión backend",
+    "csp": "script-src 'self' confirmado en respuesta frontend",
+    "writes": false
+  },
+  "postgres_alternative": {
+    "package": "pgserver0.1.4 instalado solo venv scratch",
+    "binary_version": "PostgreSQL16.2",
+    "startup": "BLOCKED",
+    "reason": "useradd falla; runuser no puede set groups Operation not permitted; no servidor iniciado",
+    "suite_executed": false
+  },
+  "integrity": {
+    "baseline_files": 653,
+    "matching_git_blobs": 653,
+    "executable_git_diff": "empty"
+  }
+}

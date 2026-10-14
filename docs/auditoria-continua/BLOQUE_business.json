@@ -1,0 +1,684 @@
+{
+  "commit": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "branch": "main",
+  "mode": "READ_ONLY_SOURCE_AUDIT",
+  "repository_unchanged": true,
+  "coverage": [
+    {
+      "path": "AGENTS.md",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "e8682d75bd19dce994ff80f901087031f43d94fd",
+      "lines": 165,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/customers.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "fe00629fbe3dcf5be37ce53783e0778b1e97d3da",
+      "lines": 274,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/financing.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "0d6a1b6a865c0327998aefe3606c7e41594687bd",
+      "lines": 182,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/daily_close.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "09621f651abcc5af628624f1014c307a2481f40b",
+      "lines": 307,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/location_access.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "d984fc75d401a2f987197c516d13176ec03259bb",
+      "lines": 67,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/returns.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "627e6b49d977fb93421b35772a9ddf1f43f42af0",
+      "lines": 256,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/return_serial_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "4c931ed900246bba568c27c24014ede4d10580e2",
+      "lines": 394,
+      "note": ""
+    },
+    {
+      "path": "backend/app/services/stock_transaction_helper.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "af8ddd486908e163be001d83ae5d3bea531d5b6e",
+      "lines": 700,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "432bc92e515262a8083ab98d8e87c0a38ca7fb19",
+      "lines": 207,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/returns.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "1b2902520ee151a834ea8ffe0058468d3dbc8c51",
+      "lines": 121,
+      "note": ""
+    },
+    {
+      "path": "backend/app/models/order.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "9c78d84c8c049948ba20adb1bafc5f5cef78ab5d",
+      "lines": 188,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_validators.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "c65e29f215325fa3742f254cbaacf5fe10ccabc3",
+      "lines": 119,
+      "note": ""
+    },
+    {
+      "path": "backend/app/services/order_service.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "ddcd006ac839590e4ac6e2fdcad667543a059898",
+      "lines": 525,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/order_state_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "b333b62c9b2b494d772ccb5af58a603606052899",
+      "lines": 389,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/stock_manager.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "f061cf5bf503e0eb6b249ecaba07416005acb905",
+      "lines": 947,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/locations.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "a2d9404c3032394d076b9e131590eb2bf92620d5",
+      "lines": 309,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/suppliers.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "0a880111315cccf66ff6bd01cfc54d0facdc54f0",
+      "lines": 342,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/stock_history.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "c9df2dfb4faaa162951d0361b27265b30d0ed141",
+      "lines": 248,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/product_imei_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "e4ed597d3f3e60228e318cbc143e49aa4d771bb7",
+      "lines": 103,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/stock_transfer_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "856fc2b15eae08cfe86d5294b17f8be324e30592",
+      "lines": 180,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/imeis.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "720cb69252d9b93d04481c0bb4c3ec7875d88cc5",
+      "lines": 430,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_financing.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "74485865512e04c44dd6b5d94a2714191a79af95",
+      "lines": 237,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_currency.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "17a8a70af60c0df28af819d6a1df7f0b893a6bdf",
+      "lines": 68,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_tradeins.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "9ab315095ce492c18d1d58abbacef6ab0a89af93",
+      "lines": 16,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_queries.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "51b15288df693c12c48ba85604279c1bf92216fa",
+      "lines": 35,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/multistore_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "884c4b00b9c4c3a5e8073cc8fd9be14eb5275526",
+      "lines": 128,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/multistore_ops_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "1825cccbf050b578d8b2f8b0e840d52895dbcc3f",
+      "lines": 418,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/multistore_control.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "bc9c5477d281aee9dcf35513e265e363184583e1",
+      "lines": 663,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/orders.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "749ffad0154ff7d3e1bf2c64947d797330d4ae3f",
+      "lines": 1183,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/integrity_overrides.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "66227ddf016bf88b4f29d7296f9bc12ca49ebcb3",
+      "lines": 164,
+      "note": ""
+    },
+    {
+      "path": "backend/app/middleware/business_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "5195244b79399bbd2664ca06e9a2e48b70c60032",
+      "lines": 141,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/stock_transfers.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "5483f6f0c9bfafc4eadcfdaad2960a343e93eb7e",
+      "lines": 750,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/products.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "11af807da8c2f279ee7823df780b1fc865cb2507",
+      "lines": 1468,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/conftest.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "65b4f2a737a62a1235bcd3070bac6431eb389994",
+      "lines": 6,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_return_serial_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "1692211f27da89c1f3dee612a809570c14d914b2",
+      "lines": 343,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_final_financial_and_order_concurrency.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "01934d5a67910260a8b12fd6c5f6111284f0acb3",
+      "lines": 264,
+      "note": ""
+    },
+    {
+      "path": "backend/conftest.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "7428846797bf071b144623521d4d820a0a490bdc",
+      "lines": 183,
+      "note": ""
+    },
+    {
+      "path": "backend/app/models/product.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "a56d57b09cf422f5b081df872abfa002c4bcac3a",
+      "lines": 204,
+      "note": ""
+    },
+    {
+      "path": "backend/app/models/control.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "a0a87ff837e361452596587cf52d224037d51ca5",
+      "lines": 176,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_pricing.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "4b115657819b513e41a90a9feeae9877f34a4219",
+      "lines": 246,
+      "note": ""
+    },
+    {
+      "path": "backend/app/utils/order_item_currency_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "373ca9675327e4f9805c6b9236174df942e133a8",
+      "lines": 157,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/reports_final_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "47626e5fa5253d1449381f3016835cdfdcf497bf",
+      "lines": 470,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/control.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "5c83bdd2f6e5e16702839dc14e279cf4005cb9f3",
+      "lines": 173,
+      "note": ""
+    },
+    {
+      "path": "backend/app/models/finance.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "68fda676ec42a63dd29ebc7a9924a07e318983cb",
+      "lines": 47,
+      "note": ""
+    },
+    {
+      "path": "backend/app/models/location.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "67242fd093db7ccb243d7be2493fef8d79b91098",
+      "lines": 131,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/reports_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "dcc90917aae77ec1998ea562a007158a76fc1f7a",
+      "lines": 660,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/reports.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "8e7f2cf597ecf4e9569d6377260db9b4a1542947",
+      "lines": 708,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/order_search_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "859c2b78d580cc5242da6714a60c6ecebaa08f40",
+      "lines": 107,
+      "note": ""
+    },
+    {
+      "path": "backend/app/routers/product_search_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "5f03ce8d716263f599f344f48765857e596d23e4",
+      "lines": 100,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/product.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "4fbfb25614b7f5299ee016e0a47d139c239a8829",
+      "lines": 184,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/finance.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "bebe67dd75d7fb3ee35624d312a8398ca27aa774",
+      "lines": 121,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/imei.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "68e4d7c94c3500c03648002d3678bb0c38491c10",
+      "lines": 58,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/daily_close.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "20ebfdbf25ad634ea67c14a51e126240d183f035",
+      "lines": 52,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/order_secure.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "5d62b341022fc9b1e2c9eca3deb4062a8ee94131",
+      "lines": 39,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_stock_transfer_router_guards.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "424fe960144959a252a1dd5528307826a9cdf372",
+      "lines": 194,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_return_promotion_integrity.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "f64a6a0cc4684af0e2149fb10e268e5405679021",
+      "lines": 176,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_location_access_filters.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "8116a03b8d539f6973cd8dae2b7888961ac08728",
+      "lines": 409,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_stock_transaction_helper_concurrency.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "cca06ee3fb289ef398e79d47e81bdfddff266f67",
+      "lines": 267,
+      "note": ""
+    },
+    {
+      "path": "backend/tests/test_stock_concurrency.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "4373c301ac4cccd1e0ff12c70955aa638cbe5486",
+      "lines": 292,
+      "note": ""
+    },
+    {
+      "path": "backend/app/schemas/order.py",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "15571e91b774c8e6c4555bb66c7ad48d915366ed",
+      "lines": 594,
+      "note": ""
+    },
+    {
+      "path": "backend/app/database.py",
+      "status": "PARTIAL_REVIEWED",
+      "blob_sha": "a187fdb02c8fcfe09f5f34f87b4694b53ae0e34b",
+      "lines": 53,
+      "note": "lines 1-110 (file showed full runtime DB module but not independently counted)"
+    },
+    {
+      "path": "backend/app/main.py",
+      "status": "PARTIAL_REVIEWED",
+      "blob_sha": "2fbf087ff76a25a067db330de75d3e925957fb68",
+      "lines": 429,
+      "note": "rg references only; root agent owns runtime registration verification"
+    }
+  ],
+  "findings": [
+    {
+      "id": "BUS-01",
+      "severity": "HIGH",
+      "title": "Finalizar/cancelar/editar venta consume reserva ajena del mismo producto",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/orders.py:111-141,145-193,610-631",
+        "backend/app/services/stock_transaction_helper.py:208-252",
+        "backend/app/routers/order_state_integrity.py:227-306,348-389"
+      ],
+      "evidence": "La creación pendiente ya descuenta cantidad_disponible y marca IMEI vendido. Los helpers de estado eligen primero cantidad_reservada >= item.cantidad sin identificar dueño; sólo luego consultan historial propio. Los handlers canónicos delegan en estos helpers.",
+      "reproduction": "Stock disponible=10; traslado pendiente reserva=3; crear venta cash cantidad=1 -> stock=9 reservado=3; finalizar -> stock=8 reservado=2. La venta descontó dos veces y traslado original ya no tiene reserva suficiente. Cancelar/editar pendiente también libera reserva del traslado sin reponer correctamente su venta.",
+      "recommendation": "Separar explícitamente venta ya descontada y reserva perteneciente a orden; mantener titular por movimiento/reserva y no deducir propiedad del agregado Stock.",
+      "tests": "Agregar regresiones API venta+traslado mismo producto para completar/cancelar/editar; conservar reserva del traslado y stock esperado. test_stock_concurrency actual sólo cubre competir por stock insuficiente, no stock sobrante+finalización.",
+      "runtime_evidence": "sale created 9 3\nsale completed 8 2"
+    },
+    {
+      "id": "BUS-02",
+      "severity": "HIGH",
+      "title": "Recepción cero traslada todos IMEIs sin mover stock",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/stock_transfers.py:419-447,514-549",
+        "backend/app/routers/stock_transfer_integrity.py:83-106"
+      ],
+      "evidence": "received_quantity=0 vacía scanned_imeis_set. La lista posterior obtiene todos seriales del transfer_id y sólo filtra si el set es truthy. Por tanto mueve todos al destino con recepción cero.",
+      "reproduction": "Transferencia serialized de 2 unidades A->B con reserva=2; confirmar received_quantity=0 e incident_notes, sin scanned_imeis. Estado confirmada, stock A=2/B=0, seriales location=B.",
+      "recommendation": "Seleccionar siempre únicamente seriales efectivamente recibidos; cero recibidos debe mover cero. Validar cantidad seriales movidos contra received_quantity.",
+      "tests": "Regresión API serialized received_quantity=0, 1 y total; comprobar ubicación IMEI, disponible/reservado y historial. test_stock_transfer_router_guards usa no serializados.",
+      "runtime_evidence": "transfer zero 2 0 [2, 2] source 1 dest 2"
+    },
+    {
+      "id": "BUS-03",
+      "severity": "HIGH",
+      "title": "Garantía permite IMEI de otro producto de la misma orden",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/services/stock_transaction_helper.py:431-470",
+        "backend/app/routers/returns.py:170-195",
+        "backend/app/routers/return_serial_integrity.py:123-164,378-394"
+      ],
+      "evidence": "El IMEI original se busca globalmente por string y sólo valida order_id/vendido. Nunca compara imei_record.product_id con product_id retornado. Wrapper canónico añade guards al reemplazo pero no al original.",
+      "reproduction": "Orden final con A y B, IMEI X de A vendido a esa orden. Solicitar warranty product_id=B quantity=1 imei=X condition=nuevo. Aceptado: stock B+1 y X de A liberado.",
+      "recommendation": "Exigir original.product_id==product_id y coherencia de ubicación y cantidad del serial antes de mutar.",
+      "tests": "Agregar garantía cruzada A/B misma orden: 400 y cero efectos en stocks/seriales/returns.",
+      "runtime_evidence": "cross product return accepted 1 returned product 2 imei product 1 sold False replacement None B stock 1"
+    },
+    {
+      "id": "BUS-04",
+      "severity": "MEDIUM",
+      "title": "Garantía serializada se cierra sin entregar reemplazo",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/schemas/returns.py:43-63",
+        "backend/app/services/stock_transaction_helper.py:473-511",
+        "backend/app/routers/returns.py:200-210"
+      ],
+      "evidence": "replacement_imei opcional; helper sólo lo valida si viene. Router sólo consume reemplazo si existe record, y rama alternativa excluye serialized. Return.status=completed aunque no hubo salida.",
+      "reproduction": "Garantía serialized correcta condition=nuevo, original imei, omitir replacement_imei -> 201; original vuelve disponible y stock+1, ninguna salida.",
+      "recommendation": "Si sólo existe warranty_exchange exigir reemplazo para serialized, o diseñar lifecycle pendiente explícito hasta entregar reemplazo.",
+      "tests": "Negativo API serialized omit replacement: 422/400 sin efectos; garantía válida debe tener entrada y salida.",
+      "runtime_evidence": "serialized warranty no replacement accepted 1 source stock 1"
+    },
+    {
+      "id": "BUS-05",
+      "severity": "HIGH",
+      "title": "Retoma sobrescribe IMEI vendido/reservado/de otra sede",
+      "status": "REPRODUCED_SQLITE_HELPER",
+      "locations": [
+        "backend/app/services/stock_transaction_helper.py:254-332,618-660",
+        "backend/app/services/order_service.py:257-265"
+      ],
+      "evidence": "_upsert_trade_in_imei busca cualquier serial existente sin FOR UPDATE ni guards y reescribe producto, ubicación, vendido=False, order_id=None, sold_at=None. No decrementa stock del producto/sede originales y no limpia transfer_id. Es llamado en crear orden con retoma.",
+      "reproduction": "Crear venta con trade_in.imei igual a IMEI actualmente en stock de otra sede o vendido en otra orden. El serial existente se reasigna al producto retoma/sede actual, además se suma stock de retoma. Repetir mismo IMEI en retomas puede sumar múltiples unidades para un único serial.",
+      "recommendation": "Rechazar colisión salvo lifecycle de recompra explícito que bloquee serial, verifique propietario/estado y reconcilie inventario; deduplicar payload y auditar cambio.",
+      "tests": "Casos existente disponible/vendido/en traslado/sede no autorizada y duplicado dentro payload; probar dos retomas simultáneas en PG.",
+      "runtime_evidence": "sold IMEI overwritten False None 2"
+    },
+    {
+      "id": "BUS-06",
+      "severity": "HIGH",
+      "title": "Órdenes autorizadas exponen stock y seriales de sedes ajenas",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/orders.py:194-202,205-231,305-342,814-843",
+        "backend/app/routers/product_imei_integrity.py:42-59"
+      ],
+      "evidence": "Filtro RBAC sólo limita Order. Serializer de producto anidado ignora location_id recibido y llama _serialize_product(product) con accessible_location_ids=None. Ese serializer incluye stock_items de todas sedes y el wrapper IMEI también trata None como acceso global.",
+      "reproduction": "Usuario can_view A, producto P con stock A y B, orden P en A. GET orden o listado devuelve item.product.stock_items para A y B.",
+      "recommendation": "Propagar scope de usuario a todas respuestas anidadas; también revisar update_product/restock y respuestas de mutación sin scope.",
+      "tests": "Regresión con mismo producto en dos sedes (fixture actual usa productos distintos, por eso no detecta), verificar nested stock_items/imeis en list/get/search/mutations.",
+      "runtime_evidence": "restricted order nested locations [1, 2]"
+    },
+    {
+      "id": "BUS-07",
+      "severity": "HIGH",
+      "title": "POST crear negocios sin clave idempotente duplica efectos al reintentar",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/orders.py:434-446",
+        "backend/app/services/order_service.py:159-300",
+        "backend/app/routers/stock_transfers.py:61-175",
+        "backend/app/routers/returns.py:93-247",
+        "backend/app/routers/multistore_ops_integrity.py:151-167"
+      ],
+      "evidence": "Venta cash y traslado no reciben ni persisten idempotency key. Cada ejecución crea nueva entidad. Garantía no serialized parcial puede repetirse hasta agotar cantidad vendida; receipt sólo dedup si invoice_number presente. Frontend root reporta retry POST ante Failed to fetch.",
+      "reproduction": "Servidor hace commit y respuesta se pierde. Reintento mismo POST cash nonserialized con stock suficiente crea segunda orden/descuenta otra unidad; traslado reserva dos veces; garantía parcial no serialized crea segundo reemplazo.",
+      "recommendation": "Clave idempotente estable por intento de negocio y constraint DB, guardar respuesta/hash dentro misma transacción; frontend no regenerar clave en retry.",
+      "tests": "Pruebas respuesta perdida después commit y doble request paralelo con misma key, claves distintas y payload distinto. Confirmar línea frontend en reporte principal.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "BUS-08",
+      "severity": "MEDIUM",
+      "title": "Ajuste no serializado tiene dos commits y lectura de stock sin lock",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/products.py:1291-1362,721-795",
+        "backend/app/middleware/business_integrity.py:72-93"
+      ],
+      "evidence": "set_product_stock_at_location commit stock en 1334 y commit historial después en 1362. Un fallo entre ambos deja cambio sin rastro; además no SELECT FOR UPDATE. Middleware sólo bloquea serialized. PUT stock también lee sin lock aunque historia mismo commit.",
+      "reproduction": "Nonserialized ajuste: hacer fallar inserción StockHistory/segundo commit deja cantidad nueva durable. Con dos sesiones leer stock=10, venta consume 1 y commit, ajuste antiguo escribe absoluto sin lock; ledger previo/audit usa snapshot viejo.",
+      "recommendation": "Un solo transaction stock+historia+audit y bloqueo acorde Product->Stock; validar actual bajo lock y CAS cuando sea necesario.",
+      "tests": "Fallo inyectado segunda escritura debe rollback total; PG venta concurrente vs ajuste; no pruebas en producción.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "BUS-09",
+      "severity": "MEDIUM",
+      "title": "Valor de inventario suma costos/precios USD y HNL sin convertir",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/reports_final_integrity.py:212-223",
+        "backend/app/routers/reports.py:486-500",
+        "backend/app/utils/order_currency.py:57-61"
+      ],
+      "evidence": "Dashboard usa cantidad*Product.costo/precio crudo; resumen sede usa cantidad*Product.precio crudo. Los productos aceptan moneda USD y órdenes guardan HNL mediante conversion helper. Totales agregados mezclan unidades monetarias.",
+      "reproduction": "P USD costo=100 qty=1 y Q HNL costo=100 qty=1; dashboard inventory_value=200 aunque con tasa25 el valor HNL es2600.",
+      "recommendation": "Definir moneda/base/tasa de valoración de inventario y convertir consistentemente; snapshot tasa o documentar valoración actual.",
+      "tests": "Regresión dos monedas reconciliar dashboard/resumen contable, tasa explícita; actuales tests location usan sólo HNL.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "BUS-10",
+      "severity": "MEDIUM",
+      "title": "Venta commit antes de auditoría permite transacción durable sin audit y respuesta 500",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/services/order_service.py:284-290",
+        "backend/app/routers/orders.py:443-446"
+      ],
+      "evidence": "OrderService hace commit de negocio y luego router llama log_audit_event y hace segundo commit. Un fallo en audit no puede revertir venta ya durable, viola atomicidad de operación sensible.",
+      "reproduction": "Inyectar fallo en log_audit_event/insert AuditLog después create_order: orden+stock ya persistidos, audit ausente y response failure puede gatillar retry BUS-07.",
+      "recommendation": "Transaction owner único en API; flush service y commit venta+audit una vez.",
+      "tests": "Regresión fallo audit exige cero orden/stock/IMEI efectos; respuesta perdida después commit probar idempotencia.",
+      "runtime_evidence": null
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "BUS-H01",
+      "severity": "MEDIUM",
+      "status": "STATIC_CONCURRENCY_HYPOTHESIS",
+      "title": "Ventas multi-producto bloquean en orden del payload",
+      "refs": [
+        "backend/app/services/stock_transaction_helper.py:91-137"
+      ],
+      "evidence": "prepare_sale_items adquiere Product->Stock para cada item antes de avanzar, sin ordenar conjunto global. Requests [A,B] vs [B,A] pueden ciclo Product/Stock. No reproducido PostgreSQL.",
+      "next_test": "Dos ventas PG con barrera tras primer Product/Stock lock, timeout; comprobar una transacción deadlock y rollback completo."
+    },
+    {
+      "id": "BUS-H02",
+      "severity": "HIGH",
+      "status": "BUSINESS_POLICY_NEEDS_CONFIRMATION",
+      "title": "Cambio is_serialized puede desactivar enforcement con seriales existentes",
+      "refs": [
+        "backend/app/routers/products.py:678-679"
+      ],
+      "evidence": "Permite flag False sin reconciliar ProductIMEI/stock/transfers. _validate_imeis retorna [] al ser no serialized; venta deja seriales disponibles. Necesita acordar si toggle operativo permitido.",
+      "next_test": "Producto con IMEI disponible -> flag false -> venta sin IMEI -> flag true; verificar mismatch y aprobar regla comercial."
+    },
+    {
+      "id": "BUS-H03",
+      "severity": "MEDIUM",
+      "status": "STATIC_CONCURRENCY_HYPOTHESIS",
+      "title": "Cierre por sede toma cuatro consultas sin snapshot o bloqueo de ventas",
+      "refs": [
+        "backend/app/routers/multistore_integrity.py:84-89"
+      ],
+      "evidence": "cash/transfer/card/financing esperan desde queries separadas en READ COMMITTED. Venta finaliza entre métodos -> cierre mezcla snapshots; único cierre/día dificulta corrección. No PG reproducido.",
+      "next_test": "Finalización de pago mixto entre consultas, transacción consistente e inmutabilidad de cierre revisadas."
+    },
+    {
+      "id": "BUS-H04",
+      "severity": "MEDIUM",
+      "status": "STATIC_LOGIC_HYPOTHESIS",
+      "title": "Conteo serializado incluye defectuosos y excluye reservas traslado del expected",
+      "refs": [
+        "backend/app/routers/multistore_control.py:398-438",
+        "backend/app/routers/multistore_ops_integrity.py:96-108,352-367"
+      ],
+      "evidence": "Conteo calcula expected por vendido=False y transfer_id=None, no excluye cuarentena. Stale compara available agregado contra expected, así transferencias pendientes pueden impedir aprobación aun sin cambio; defecto retornado puede contar como vendible. No reproducido.",
+      "next_test": "Conteo con serial defectuoso y transferencias pendientes; verificar scope físico vs stock disponible y reservado."
+    }
+  ],
+  "verification": [
+    {
+      "method": "SQLite in memory calling canonical handlers and stock helper",
+      "result": "Five logic defects reproduced; no concurrency equivalence claimed",
+      "outputs": [
+        "sale created 9 3; sale completed 8 2",
+        "transfer zero 2 0 [2,2] source1 dest2",
+        "cross product return accepted product2 IMEI product1 stockB1",
+        "restricted order nested locations [1,2]",
+        "serialized warranty no replacement accepted; source stock1",
+        "sold IMEI overwritten False None2"
+      ]
+    },
+    {
+      "method": "git status --short",
+      "result": "empty output; repo unmodified"
+    },
+    {
+      "method": "pytest/PostgreSQL",
+      "result": "Not executed by this worker; delegated evidence must come from parent. backend/conftest.py requires isolated PostgreSQL and skips entire suite if unavailable."
+    }
+  ],
+  "limitations": [
+    "No production tests or runtime data accessed.",
+    "No PostgreSQL concurrency tests run by this worker.",
+    "Full text review means entire source read; does not imply all branches or database constraints dynamically exercised.",
+    "Models rbac/system and identity/migration implementation are owned by other audit block; schemas location and stock_history not reviewed here.",
+    "Exact executed inline reproductions appeared in tool transcript; setup used PYTHONDONTWRITEBYTECODE=1, local dummy DATABASE_URL pointing 127.0.0.1:1, separate sqlite:///:memory: engine. No persistent database written."
+  ],
+  "next_actions": [
+    "TDD regressions BUS-01/02/03/05/06 first on isolated PostgreSQL.",
+    "Agree return lifecycle BUS-04 and serialization-toggle rule.",
+    "Implement business idempotency and single transaction owner before enabling POST retries.",
+    "Then fix audit atomicity, manual adjustment locking, currency valuation; broaden PG locks and staging E2E.",
+    "Preserve no-production-testing constraint and no fixes until entire audit accepted."
+  ]
+}

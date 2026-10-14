@@ -1,0 +1,523 @@
+{
+  "review_kind": "Additional immutable PR diff review; outside main-file denominator",
+  "pr": 144,
+  "baseline_main_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "source_artifact": "/tmp/softmobile-pr144-patches.txt",
+  "source_sha256": "a5b904616c465ecc528c42718c6482da15bcb6b47adfe4ef8d3d7d1278d32d64",
+  "full_text_reviewed": [
+    "/tmp/softmobile-pr144-patches.txt"
+  ],
+  "reviewed_lines": 1980,
+  "method": "Read complete diff in five untruncated chunks; independently parsed unified hunks with old-line assertions against main in memory, loaded target JSON; no filesystem application or install",
+  "direct_changes": [
+    {
+      "package": "@radix-ui/react-accordion",
+      "before": "^1.2.20",
+      "after": "^1.2.21",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.2.20",
+      "locked_after": "1.2.21",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-alert-dialog",
+      "before": "^1.1.23",
+      "after": "^1.1.24",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.23",
+      "locked_after": "1.1.24",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-aspect-ratio",
+      "before": "^1.1.15",
+      "after": "^1.1.16",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.15",
+      "locked_after": "1.1.16",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-avatar",
+      "before": "^1.2.6",
+      "after": "^1.2.7",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.2.6",
+      "locked_after": "1.2.7",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-checkbox",
+      "before": "^1.3.11",
+      "after": "^1.3.12",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.3.11",
+      "locked_after": "1.3.12",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-context-menu",
+      "before": "^2.3.7",
+      "after": "^2.3.8",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "2.3.7",
+      "locked_after": "2.3.8",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-dropdown-menu",
+      "before": "^2.1.24",
+      "after": "^2.1.25",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "2.1.24",
+      "locked_after": "2.1.25",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-hover-card",
+      "before": "^1.1.23",
+      "after": "^1.1.24",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.23",
+      "locked_after": "1.1.24",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-label",
+      "before": "^2.1.15",
+      "after": "^2.1.16",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "2.1.15",
+      "locked_after": "2.1.16",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-menubar",
+      "before": "^1.1.24",
+      "after": "^1.1.25",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.24",
+      "locked_after": "1.1.25",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-navigation-menu",
+      "before": "^1.2.22",
+      "after": "^1.3.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.2.22",
+      "locked_after": "1.3.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-popover",
+      "before": "^1.1.23",
+      "after": "^1.2.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.1.23",
+      "locked_after": "1.2.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-progress",
+      "before": "^1.1.16",
+      "after": "^1.1.17",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.16",
+      "locked_after": "1.1.17",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-radio-group",
+      "before": "^1.4.7",
+      "after": "^1.4.8",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.4.7",
+      "locked_after": "1.4.8",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-scroll-area",
+      "before": "^1.2.18",
+      "after": "^1.3.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.2.18",
+      "locked_after": "1.3.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-select",
+      "before": "^2.3.7",
+      "after": "^2.3.8",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "2.3.7",
+      "locked_after": "2.3.8",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-separator",
+      "before": "^1.1.15",
+      "after": "^1.1.16",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.15",
+      "locked_after": "1.1.16",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-slider",
+      "before": "^1.4.7",
+      "after": "^1.5.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.4.7",
+      "locked_after": "1.5.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-slot",
+      "before": "^1.3.3",
+      "after": "^1.4.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.3.3",
+      "locked_after": "1.4.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-switch",
+      "before": "^1.3.7",
+      "after": "^1.3.8",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.3.7",
+      "locked_after": "1.3.8",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-tabs",
+      "before": "^1.1.21",
+      "after": "^1.1.22",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.21",
+      "locked_after": "1.1.22",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-toggle",
+      "before": "^1.1.18",
+      "after": "^1.1.19",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.18",
+      "locked_after": "1.1.19",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-toggle-group",
+      "before": "^1.1.19",
+      "after": "^1.1.20",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "1.1.19",
+      "locked_after": "1.1.20",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@radix-ui/react-tooltip",
+      "before": "^1.2.16",
+      "after": "^1.3.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "1.2.16",
+      "locked_after": "1.3.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "@tanstack/react-query",
+      "before": "^5.102.8",
+      "after": "^5.104.1",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "5.102.8",
+      "locked_after": "5.104.1",
+      "kind": "dependencies"
+    },
+    {
+      "package": "react-error-boundary",
+      "before": "^6.1.5",
+      "after": "^6.1.6",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "6.1.5",
+      "locked_after": "6.1.6",
+      "kind": "dependencies"
+    },
+    {
+      "package": "react-hook-form",
+      "before": "^7.88.0",
+      "after": "^7.89.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "7.88.0",
+      "locked_after": "7.89.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "rollup",
+      "before": "^4.63.3",
+      "after": "^4.64.0",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "4.63.3",
+      "locked_after": "4.64.0",
+      "kind": "dependencies"
+    },
+    {
+      "package": "three",
+      "before": "^0.186.0",
+      "after": "^0.186.1",
+      "classification_declared_range_floor": "patch",
+      "locked_before": "0.186.0",
+      "locked_after": "0.186.1",
+      "kind": "dependencies"
+    },
+    {
+      "package": "vite",
+      "before": "^6.2.0",
+      "after": "^6.4.4",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "6.4.3",
+      "locked_after": "6.4.4",
+      "kind": "dependencies"
+    },
+    {
+      "package": "typescript-eslint",
+      "before": "^8.70.0",
+      "after": "^8.71.1",
+      "classification_declared_range_floor": "minor",
+      "locked_before": "8.70.0",
+      "locked_after": "8.71.1",
+      "kind": "devDependencies"
+    }
+  ],
+  "version_classification": {
+    "patch": 35,
+    "minor": 48
+  },
+  "package_entries_changed": 89,
+  "version_entries_changed": 83,
+  "added_packages": 0,
+  "removed_packages": 0,
+  "major_upgrades": 0,
+  "source_and_integrity": "All changed resolved tarballs remain https://registry.npmjs.org and updated integrity sha512. No diff changes to hasInstallScript, scripts, external sources or lifecycle command metadata. Presence of hashes does not independently verify tarball contents. Existing161 entries without resolved/integrity remain unchanged.",
+  "metadata_changes": [
+    "Rollup Linux optional platform packages add libc glibc/musl selection; retain CPU/OS and optional true",
+    "@types/node/react/react-dom/csstype/undici-types dev→devOptional without version change",
+    "react-hook-form adds optional @types/react peer",
+    "hover-card adds focus-scope1.2.0; navigation-menu/scroll-area add Slot1.4.0; popover adds use-layout-effect1.1.4"
+  ],
+  "transitive_minors": [
+    [
+      "node_modules/@radix-ui/react-focus-scope",
+      "1.1.16",
+      "1.2.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-android-arm-eabi",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-android-arm64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-darwin-arm64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-darwin-x64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-freebsd-arm64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-freebsd-x64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-arm-gnueabihf",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-arm-musleabihf",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-arm64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-arm64-musl",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-loong64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-loong64-musl",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-ppc64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-ppc64-musl",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-riscv64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-riscv64-musl",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-s390x-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-x64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-linux-x64-musl",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-openbsd-x64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-openharmony-arm64",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-win32-arm64-msvc",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-win32-ia32-msvc",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-win32-x64-gnu",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@rollup/rollup-win32-x64-msvc",
+      "4.63.3",
+      "4.64.0"
+    ],
+    [
+      "node_modules/@tanstack/query-core",
+      "5.102.8",
+      "5.104.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/eslint-plugin",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/parser",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/project-service",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/scope-manager",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/tsconfig-utils",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/type-utils",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/types",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/typescript-estree",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/utils",
+      "8.70.0",
+      "8.71.1"
+    ],
+    [
+      "node_modules/@typescript-eslint/visitor-keys",
+      "8.70.0",
+      "8.71.1"
+    ]
+  ],
+  "risks": [
+    {
+      "level": "MEDIUM_REGRESSION_SCOPE",
+      "evidence": "Radix direct minor updates and transitive dialog1.1.23→1.2.0/focus-scope1.1.16→1.2.0/Slot1.3.3→1.4.0 affect UI interaction boundaries",
+      "test": "Focus/keyboard navigation, focus return, portal layering, modal close/escape, nested Select/Dialog, refs via asChild, mobile scrolling; no regression asserted without PR tests."
+    },
+    {
+      "level": "MEDIUM_BUILD_PLATFORM_SCOPE",
+      "evidence": "Rollup4.63.3→4.64.0 and native package libc metadata updated; Vite lock6.4.3→6.4.4 is PATCH though manifest floor6.2.0→6.4.4 appears MINOR",
+      "test": "Clean Linux production image npm ci/build, expected glibc/musl binaries, dev/start/test plugin behavior."
+    },
+    {
+      "level": "MEDIUM_FORMS_CACHE_SCOPE",
+      "evidence": "react-hook-form7.88→7.89 and react-query5.102.8→5.104.1 minor versions",
+      "test": "Submission/error retention/reset controlled forms and cache invalidation/session isolation with actual workflows."
+    }
+  ],
+  "confirmed_patch_defects": [],
+  "static_target_peer_mismatches": [],
+  "security_status": "No CVE inferred from version numbers. Parent reports npm audit main exit0 with zero known advisories; that does not validate PR target dependencies. Static diff identifies no introduced new registry/lifecycle-script anomaly.",
+  "tests_not_run": [
+    "No npm install/update/audit of PR",
+    "No lint/unit/build/E2E PR target",
+    "No browser/runtime of upgraded deps",
+    "No merge/update/publish/GitHub mutation"
+  ],
+  "recommendation": "Require PR144 immutable target CI quality/security checks plus relevant UI regression workflows before integrating; review is not merge approval or readiness evidence."
+}

@@ -1,0 +1,310 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "full_text_reviewed": [
+    ".dockerignore",
+    ".gitignore",
+    ".spark-initial-sha",
+    "backend/.dockerignore",
+    "backend/.env.example",
+    "backend/.env.example.channels",
+    "backend/.env.production.example",
+    "backend/.gitignore",
+    "backend/api-examples.json",
+    "backend/app/__init__.py",
+    "backend/app/channel_audit.py",
+    "backend/app/location_identity.py",
+    "backend/app/models/__init__.py",
+    "backend/app/models/analytics.py",
+    "backend/app/models/system.py",
+    "backend/app/routers/__init__.py",
+    "backend/app/routers/super_admin.py",
+    "backend/app/sales_profile_identity.py",
+    "backend/app/sales_profile_lookup.py",
+    "backend/app/schemas/__init__.py",
+    "backend/app/schemas/common.py",
+    "backend/app/schemas/faq.py",
+    "backend/app/schemas/location.py",
+    "backend/app/schemas/public.py",
+    "backend/app/schemas/stock_history.py",
+    "backend/app/services/__init__.py",
+    "backend/app/supplier_identity.py",
+    "backend/app/utils/README.md",
+    "backend/app/utils/__init__.py",
+    "backend/app/utils/agent_notifications.py",
+    "backend/app/utils/audit.py",
+    "backend/app/utils/bank_names.py",
+    "backend/app/utils/daily_close_code.py",
+    "backend/app/utils/demo_seed.py",
+    "backend/app/utils/html_export.py",
+    "backend/app/utils/logging_config.py",
+    "backend/app/utils/observability.py",
+    "backend/app/utils/prometheus_metrics.py",
+    "backend/app/utils/retry.py",
+    "backend/app/utils/runtime_metrics.py",
+    "backend/app/utils/sentry_config.py",
+    "backend/app/utils/supplier_names.py",
+    "backend/app/utils/validators.py",
+    "backend/tests/__init__.py",
+    "backend/tests/test_final_integrity_regressions.py",
+    "backend/tests/test_stock_manager_invariants.py",
+    "backend/tests/test_super_admin_product_purge.py",
+    "backend/tests/test_transfer_creation_release_lock_compatibility.py",
+    "backend/tests/test_websocket_manager.py",
+    "index.html",
+    "src/ErrorFallback.tsx",
+    "src/components/AIStatusWidget.tsx",
+    "src/components/AITrainingCenter.tsx",
+    "src/components/BackendConnectionCheck.tsx",
+    "src/components/ChannelHealthDialog.tsx",
+    "src/components/CustomerHistoryDialog.tsx",
+    "src/components/IMEIHistoryDialog.tsx",
+    "src/components/IMEIListDialog.tsx",
+    "src/components/ImportProductsDialog.tsx",
+    "src/components/PublicCatalog.tsx",
+    "src/components/ReportsDialog.tsx",
+    "src/components/ReturnsListDialog.tsx",
+    "src/components/StockByLocationDialog.tsx",
+    "src/components/StockHistoryDialog.tsx",
+    "src/components/SyncIndicator.tsx",
+    "src/components/SyncSettingsDialog.tsx",
+    "src/components/WarrantyCheckDialog.tsx",
+    "src/lib/aiForecasting.ts",
+    "src/lib/businessInsightsFallback.ts",
+    "src/lib/exportUtils.ts",
+    "src/lib/icon-proxies/lucide.ts",
+    "src/lib/icon-proxies/phosphor.ts",
+    "src/lib/importUtils.ts",
+    "src/lib/initialData.ts",
+    "src/lib/inventoryServiceFactory.ts",
+    "src/lib/keyboardShortcuts.ts",
+    "src/lib/kvStorage.manual.ts",
+    "src/lib/reportUtils.ts",
+    "src/lib/syncJournal.ts",
+    "src/lib/syncService.ts",
+    "src/main.tsx"
+  ],
+  "findings": [
+    {
+      "id": "OBS-01",
+      "severity": "HIGH",
+      "title": "Etiquetas métricas ilimitadas para rutas arbitrarias",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "backend/app/main.py:237-263",
+        "backend/app/utils/prometheus_metrics.py"
+      ],
+      "evidence": "Veinte rutas /uploads diferentes que devuelven 404 crean veinte series de contador y veinte de histograma. La normalización mantiene segmentos arbitrarios y /uploads está exento del limitador general.",
+      "business_impact": "Memoria y cardinalidad de métricas pueden crecer con peticiones externas.",
+      "reproduction": "Ejecutar TestClient con veinte URL únicas inexistentes bajo /uploads y contar etiquetas antes/después. No se envió carga a producción.",
+      "recommendation": "Etiquetar por plantilla de ruta y limitar rutas desconocidas.",
+      "required_tests": "Comprobar cardinalidad constante con rutas desconocidas y límites de uploads.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "OBS-02",
+      "severity": "MEDIUM",
+      "title": "Contexto de logs global se mezcla entre peticiones async",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "backend/app/utils/logging_config.py:222-259",
+        "backend/app/request_context.py"
+      ],
+      "evidence": "LogContext sustituye LogRecordFactory global. Contextos A/B solapados atribuyen el log de A a B y dejan una factoría anterior tras salir.",
+      "business_impact": "Correlación y auditoría de incidentes pueden atribuir peticiones al identificador equivocado.",
+      "reproduction": "Intercalar enter A, enter B, log A, exit A, exit B.",
+      "recommendation": "Usar contexto por tarea y factoría estable.",
+      "required_tests": "Prueba async de dos solicitudes con correlación independiente y restauración.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "OBS-03",
+      "severity": "MEDIUM",
+      "title": "Inicialización duplicada de Sentry sobrescribe configuración",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "backend/app/main.py:73-74",
+        "backend/app/utils/observability.py",
+        "backend/app/utils/sentry_config.py"
+      ],
+      "evidence": "Dos inicializadores llaman init del SDK; el segundo omite opciones de profiling/PII presentes en el primero. Verificado con SDK simulado, sin conexión a Sentry.",
+      "business_impact": "Telemetría configurada puede diferir de lo esperado.",
+      "reproduction": "Configurar DSN ficticio y registrar las dos llamadas con DummySDK.",
+      "recommendation": "Unificar inicialización y política de opciones.",
+      "required_tests": "Una inicialización con opciones finales explícitas.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "MODEL-01",
+      "severity": "LOW",
+      "title": "Modelo analytics no puede importarse",
+      "status": "REPRODUCED_ISOLATED_LATENT",
+      "locations": [
+        "backend/app/models/analytics.py:32-43"
+      ],
+      "evidence": "SQLAlchemy rechaza el atributo declarativo reservado metadata con InvalidRequestError. El módulo no está importado por el modelo canónico; no afecta el arranque observado.",
+      "business_impact": "Integrar posteriormente ese módulo rompería la importación.",
+      "reproduction": "Importar app.models.analytics en subproceso aislado.",
+      "recommendation": "Renombrar atributo Python manteniendo nombre de columna si procede.",
+      "required_tests": "Importación de todos los módulos de modelos.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "FE-12",
+      "severity": "MEDIUM",
+      "title": "Exportación CSV corrompe comillas y conserva fórmulas",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "src/lib/exportUtils.ts:3-18",
+        "src/components/StockHistoryDialog.tsx"
+      ],
+      "evidence": "El campo a\"b se serializa con barra invertida, no doble comilla CSV; csv.reader no recupera el valor original. =1+1 queda sin neutralizar. No se ejecutó una fórmula en una hoja real.",
+      "business_impact": "Datos exportados pueden alterarse; riesgo de fórmulas al abrir hojas.",
+      "reproduction": "Exportar a\"b y =1+1 con el helper real y leer con csv.reader.",
+      "recommendation": "Escapado CSV estándar y política de celdas formula.",
+      "required_tests": "Roundtrip de comillas, saltos, separadores y prefijos de fórmula.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "FE-13",
+      "severity": "MEDIUM",
+      "title": "Reporte excluye costo de regalías y usa fecha de creación",
+      "status": "REPRODUCED_ISOLATED",
+      "locations": [
+        "src/lib/reportUtils.ts:50-123",
+        "src/components/ReportsDialog.tsx"
+      ],
+      "evidence": "Venta total 1000, costo pagado 600 y regalo costo 100 produce margen 40%, aunque corresponde 30%. Venta creada en septiembre y completada en octubre se asigna a septiembre.",
+      "business_impact": "Rentabilidad y cierres mensuales pueden informar valores incorrectos.",
+      "reproduction": "Ejecutar generateReportData con ambos fixtures del JSON de reproducción.",
+      "recommendation": "Incluir todo costo entregado y definir fecha contable coherente.",
+      "required_tests": "Regalías y órdenes que cruzan meses.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "FE-14",
+      "severity": "HIGH",
+      "title": "Catálogo público nuevo usa API localhost por defecto",
+      "status": "CONFIRMED_STATIC_PENDING_BROWSER",
+      "locations": [
+        "src/components/PublicCatalog.tsx",
+        "src/App.tsx:2786"
+      ],
+      "evidence": "PublicCatalog lee settings_api_url con localhost:8000/api por defecto. La ruta pública se muestra antes de BackendConnectionCheck; un visitante sin KV no normaliza la API al origen. Incluye destino WhatsApp de ejemplo.",
+      "business_impact": "Visitantes nuevos pueden no ver catálogo ni contactar al negocio correcto.",
+      "reproduction": "Abrir /catalog en navegador limpio desplegado; prueba browser todavía pendiente.",
+      "recommendation": "Resolver API pública por origen y configurar contacto real.",
+      "required_tests": "Visita limpia de producción sin almacenamiento previo.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "FE-15",
+      "severity": "MEDIUM",
+      "title": "Errores de API se presentan como historiales vacíos",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/lib/inventoryServiceFactory.ts:1760-1990",
+        "src/components/AITrainingCenter.tsx"
+      ],
+      "evidence": "Capturas de errores retornan [] o null en varios lectores; componentes muestran ausencia de datos o todo al día.",
+      "business_impact": "Interrupciones pueden ocultar historial y tareas pendientes.",
+      "reproduction": "Simular error de API en lectores de historial/training queue y observar resultado vacío. Runtime UI pendiente.",
+      "recommendation": "Propagar estado de error distinguible del resultado vacío.",
+      "required_tests": "Error HTTP/red y resultados realmente vacíos.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "SYNC-01",
+      "severity": "HIGH",
+      "title": "Sincronización usa IDs locales y continúa tras dependencias fallidas",
+      "status": "REPRODUCED_MOCK_API",
+      "locations": [
+        "src/lib/syncService.ts"
+      ],
+      "evidence": "Ubicación local 1 creada como remota 100; creación producto envía location_id=1. Si creación producto 7 falla, update siguiente usa ID7 y se marca sincronizado.",
+      "business_impact": "Puede escribir entidad remota equivocada o asociar inventario a otra sucursal si coinciden IDs.",
+      "reproduction": "API mock del servicio real con remapeo 1→100 y creación fallida 7.",
+      "recommendation": "Remapear todas las claves y bloquear dependencias sin ID remoto.",
+      "required_tests": "IDs divergentes, colisiones y fallos de creación antes de update.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "SYNC-02",
+      "severity": "MEDIUM",
+      "title": "Diario pierde eventos concurrentes y pendientes al truncar",
+      "status": "REPRODUCED_MEMORY_KV",
+      "locations": [
+        "src/lib/syncJournal.ts"
+      ],
+      "evidence": "Dos recordEvent simultáneos persisten uno. Al añadir sobre 5000 eventos pendientes se elimina el pendiente más antiguo.",
+      "business_impact": "Cambios locales pueden perderse sin sincronizar.",
+      "reproduction": "Promise.all con dos eventos; después agregar uno a 5000 pendientes usando KV en memoria.",
+      "recommendation": "Persistencia serializada y retención que preserve pendientes.",
+      "required_tests": "Concurrencia y límite con todos los eventos pendientes.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "SA-01",
+      "severity": "HIGH",
+      "title": "Cancelación administrativa no bloquea estado del traslado",
+      "status": "GROUNDED_RISK_PENDING_POSTGRES",
+      "locations": [
+        "backend/app/routers/super_admin.py:955-1027"
+      ],
+      "evidence": "Lee traslado pendiente sin FOR UPDATE y luego bloquea stock sin refrescar estado. Puede competir con confirmación canónica; requiere comprobar intercalación PostgreSQL.",
+      "business_impact": "Riesgo de cancelar traslado confirmado o liberar reservas agregadas ajenas.",
+      "reproduction": "Coordinar confirmación y cancelación en PostgreSQL descartable; no ejecutado.",
+      "recommendation": "Bloquear traslado y revalidar estado dentro de transacción coherente.",
+      "required_tests": "Carrera confirm/cancel con otra reserva del mismo producto.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "SA-02",
+      "severity": "HIGH",
+      "title": "Purga parcial puede dejar totales y devoluciones incoherentes",
+      "status": "GROUNDED_STATIC_CONDITIONAL",
+      "locations": [
+        "backend/app/routers/super_admin.py:805-899"
+      ],
+      "evidence": "Purga elimina ítems del producto de órdenes mixtas sin reconciliar totales/pagos; devuelve eliminación de todas las devoluciones de órdenes que contienen el producto. Producción tiene purga desactivada según comprobación anterior.",
+      "business_impact": "Si se habilita, pérdida de trazabilidad de otros productos y cifras históricas inconsistentes.",
+      "reproduction": "Fixture mixto en DB descartable; no se ejecutó ninguna purga.",
+      "recommendation": "Definir política de retención y consistencia antes de habilitar.",
+      "required_tests": "Órdenes/devoluciones mixtas y validación de totales.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    },
+    {
+      "id": "TEST-08",
+      "severity": "MEDIUM",
+      "title": "Pruebas de invariantes aceptan pérdida de actualizaciones",
+      "status": "CONFIRMED_STATIC_TEST_ORACLE",
+      "locations": [
+        "backend/tests/test_stock_manager_invariants.py"
+      ],
+      "evidence": "Threads parten de stock5 y pueden escribir1; el test sólo exige no negativo. Reservas simultáneas y errores recolectados no tienen oráculo estricto de conservación.",
+      "business_impact": "Tests verdes no demuestran integridad concurrente de stock.",
+      "reproduction": "Revisar asserts y errores recolectados; ejecución PostgreSQL pendiente.",
+      "recommendation": "Afirmar stock exacto, reservas, resultados y ausencia de errores no previstos.",
+      "required_tests": "Transacciones concurrentes reales con conservación de cantidades.",
+      "source_report": "CONTINUACION_02.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a"
+    }
+  ],
+  "reproductions": "REPRO_CONTINUACION_02.json",
+  "limitations": [
+    "Mocks no prueban red real ni PostgreSQL",
+    "No navegador real nuevo",
+    "Ninguna modificación ejecutable, despliegue o dato del negocio"
+  ]
+}

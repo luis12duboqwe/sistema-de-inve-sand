@@ -1,0 +1,1846 @@
+[
+  {
+    "path": "/openapi.json",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "module": "fastapi.applications",
+    "function": "openapi",
+    "source_file": "/tmp/softmobile-audit-venv/lib/python3.12/site-packages/fastapi/applications.py",
+    "line": 1108
+  },
+  {
+    "path": "/docs",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "module": "fastapi.applications",
+    "function": "swagger_ui_html",
+    "source_file": "/tmp/softmobile-audit-venv/lib/python3.12/site-packages/fastapi/applications.py",
+    "line": 1123
+  },
+  {
+    "path": "/docs/oauth2-redirect",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "module": "fastapi.applications",
+    "function": "swagger_ui_redirect",
+    "source_file": "/tmp/softmobile-audit-venv/lib/python3.12/site-packages/fastapi/applications.py",
+    "line": 1141
+  },
+  {
+    "path": "/redoc",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "module": "fastapi.applications",
+    "function": "redoc_html",
+    "source_file": "/tmp/softmobile-audit-venv/lib/python3.12/site-packages/fastapi/applications.py",
+    "line": 1151
+  },
+  {
+    "path": "/api/auth/token",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.auth_router",
+    "function": "login",
+    "source_file": "backend/app/routers/auth_router.py",
+    "line": 348
+  },
+  {
+    "path": "/api/auth/me",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.auth_router",
+    "function": "read_users_me",
+    "source_file": "backend/app/routers/auth_router.py",
+    "line": 408
+  },
+  {
+    "path": "/api/auth/me",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.auth_router",
+    "function": "update_user_me",
+    "source_file": "backend/app/routers/auth_router.py",
+    "line": 422
+  },
+  {
+    "path": "/api/auth/roles",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.auth_router",
+    "function": "list_roles",
+    "source_file": "backend/app/routers/auth_router.py",
+    "line": 473
+  },
+  {
+    "path": "/api/auth/permissions",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.auth_router",
+    "function": "list_permissions",
+    "source_file": "backend/app/routers/auth_router.py",
+    "line": 675
+  },
+  {
+    "path": "/api/locations",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.locations",
+    "function": "get_locations",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 55
+  },
+  {
+    "path": "/api/locations/{location_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.locations",
+    "function": "get_location",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 80
+  },
+  {
+    "path": "/api/locations",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.locations",
+    "function": "create_location",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 94
+  },
+  {
+    "path": "/api/locations/{location_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.locations",
+    "function": "update_location",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 135
+  },
+  {
+    "path": "/api/locations/{location_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.locations",
+    "function": "delete_location",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 195
+  },
+  {
+    "path": "/api/locations/{location_id}/stock",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.locations",
+    "function": "get_location_stock",
+    "source_file": "backend/app/routers/locations.py",
+    "line": 267
+  },
+  {
+    "path": "/api/sales-profiles",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "get_sales_profiles",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 61
+  },
+  {
+    "path": "/api/sales-profiles/slug/{slug}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "get_sales_profile_by_slug",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 83
+  },
+  {
+    "path": "/api/sales-profiles/{profile_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "get_sales_profile",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 93
+  },
+  {
+    "path": "/api/sales-profiles",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "create_sales_profile",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 103
+  },
+  {
+    "path": "/api/sales-profiles/{profile_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "update_sales_profile",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 149
+  },
+  {
+    "path": "/api/sales-profiles/{profile_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "delete_sales_profile",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 221
+  },
+  {
+    "path": "/api/sales-profiles/{profile_id}/orders",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.sales_profiles",
+    "function": "get_sales_profile_orders",
+    "source_file": "backend/app/routers/sales_profiles.py",
+    "line": 250
+  },
+  {
+    "path": "/api/profiles",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.profiles",
+    "function": "list_profiles",
+    "source_file": "backend/app/routers/profiles.py",
+    "line": 16
+  },
+  {
+    "path": "/api/profiles",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.profiles",
+    "function": "create_profile",
+    "source_file": "backend/app/routers/profiles.py",
+    "line": 52
+  },
+  {
+    "path": "/api/profiles/{profile_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.profiles",
+    "function": "get_profile",
+    "source_file": "backend/app/routers/profiles.py",
+    "line": 101
+  },
+  {
+    "path": "/api/profiles/{profile_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.profiles",
+    "function": "update_profile",
+    "source_file": "backend/app/routers/profiles.py",
+    "line": 124
+  },
+  {
+    "path": "/api/profiles/{profile_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.profiles",
+    "function": "delete_profile",
+    "source_file": "backend/app/routers/profiles.py",
+    "line": 196
+  },
+  {
+    "path": "/api/products/imei/{imei}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.products",
+    "function": "get_product_by_imei",
+    "source_file": "backend/app/routers/products.py",
+    "line": 176
+  },
+  {
+    "path": "/api/products",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.products",
+    "function": "create_product",
+    "source_file": "backend/app/routers/products.py",
+    "line": 297
+  },
+  {
+    "path": "/api/products/{product_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.products",
+    "function": "get_product",
+    "source_file": "backend/app/routers/products.py",
+    "line": 570
+  },
+  {
+    "path": "/api/products/{product_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.products",
+    "function": "update_product",
+    "source_file": "backend/app/routers/products.py",
+    "line": 606
+  },
+  {
+    "path": "/api/products/{product_id}/stock",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.products",
+    "function": "update_product_stock",
+    "source_file": "backend/app/routers/products.py",
+    "line": 709
+  },
+  {
+    "path": "/api/products/{product_id}/restock",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.products",
+    "function": "restock_product",
+    "source_file": "backend/app/routers/products.py",
+    "line": 797
+  },
+  {
+    "path": "/api/products/bulk",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.products",
+    "function": "bulk_create_products",
+    "source_file": "backend/app/routers/products.py",
+    "line": 997
+  },
+  {
+    "path": "/api/products/{product_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.products",
+    "function": "delete_product",
+    "source_file": "backend/app/routers/products.py",
+    "line": 1171
+  },
+  {
+    "path": "/api/products/{product_id}/stock/location/{location_id}",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.products",
+    "function": "set_product_stock_at_location",
+    "source_file": "backend/app/routers/products.py",
+    "line": 1290
+  },
+  {
+    "path": "/api/products/{product_id}/stock/total",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.products",
+    "function": "get_product_total_stock",
+    "source_file": "backend/app/routers/products.py",
+    "line": 1373
+  },
+  {
+    "path": "/api/products/{product_id}/stock/by-location",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.products",
+    "function": "get_product_stock_by_location",
+    "source_file": "backend/app/routers/products.py",
+    "line": 1402
+  },
+  {
+    "path": "/api/auth/setup",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.auth_setup_integrity",
+    "function": "setup_initial_admin_integrity",
+    "source_file": "backend/app/routers/auth_setup_integrity.py",
+    "line": 89
+  },
+  {
+    "path": "/api/auth/register",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.auth_register_integrity",
+    "function": "register_user_integrity",
+    "source_file": "backend/app/routers/auth_register_integrity.py",
+    "line": 42
+  },
+  {
+    "path": "/api/auth/users",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.auth_admin_integrity",
+    "function": "list_users_integrity",
+    "source_file": "backend/app/routers/auth_admin_integrity.py",
+    "line": 25
+  },
+  {
+    "path": "/api/auth/users/{user_id}/role",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.auth_admin_integrity",
+    "function": "update_user_role_integrity",
+    "source_file": "backend/app/routers/auth_admin_integrity.py",
+    "line": 137
+  },
+  {
+    "path": "/api/auth/users/{user_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.auth_admin_integrity",
+    "function": "update_user_admin_integrity",
+    "source_file": "backend/app/routers/auth_admin_integrity.py",
+    "line": 169
+  },
+  {
+    "path": "/api/auth/users/{user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.auth_admin_integrity",
+    "function": "delete_user_integrity",
+    "source_file": "backend/app/routers/auth_admin_integrity.py",
+    "line": 215
+  },
+  {
+    "path": "/api/orders/search",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.order_search_integrity",
+    "function": "search_orders_integrity",
+    "source_file": "backend/app/routers/order_search_integrity.py",
+    "line": 29
+  },
+  {
+    "path": "/api/orders/{order_id}/status",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.order_state_integrity",
+    "function": "update_order_status_canonical",
+    "source_file": "backend/app/routers/order_state_integrity.py",
+    "line": 225
+  },
+  {
+    "path": "/api/orders/{order_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.order_state_integrity",
+    "function": "update_order_canonical",
+    "source_file": "backend/app/routers/order_state_integrity.py",
+    "line": 306
+  },
+  {
+    "path": "/api/orders/{order_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.order_state_integrity",
+    "function": "cancel_order_canonical",
+    "source_file": "backend/app/routers/order_state_integrity.py",
+    "line": 354
+  },
+  {
+    "path": "/api/products",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.product_search_integrity",
+    "function": "list_products_integrity",
+    "source_file": "backend/app/routers/product_search_integrity.py",
+    "line": 35
+  },
+  {
+    "path": "/api/products/{product_id}/imeis",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.product_imei_integrity",
+    "function": "get_product_imeis_integrity",
+    "source_file": "backend/app/routers/product_imei_integrity.py",
+    "line": 62
+  },
+  {
+    "path": "/api/reports/sales-summary-by-location",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports_integrity",
+    "function": "get_sales_summary_by_location_integrity",
+    "source_file": "backend/app/routers/reports_integrity.py",
+    "line": 430
+  },
+  {
+    "path": "/api/reports/bank-transfer-reconciliation",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports_integrity",
+    "function": "get_bank_transfer_reconciliation_integrity",
+    "source_file": "backend/app/routers/reports_integrity.py",
+    "line": 604
+  },
+  {
+    "path": "/api/reports/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports_final_integrity",
+    "function": "get_dashboard_stats_final",
+    "source_file": "backend/app/routers/reports_final_integrity.py",
+    "line": 191
+  },
+  {
+    "path": "/api/reports/sales",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports_final_integrity",
+    "function": "get_sales_report_final",
+    "source_file": "backend/app/routers/reports_final_integrity.py",
+    "line": 327
+  },
+  {
+    "path": "/api/reports/top-products-by-location/{location_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports_final_integrity",
+    "function": "get_top_products_by_location_final",
+    "source_file": "backend/app/routers/reports_final_integrity.py",
+    "line": 410
+  },
+  {
+    "path": "/api/multistore-control/location-daily-closes",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.multistore_integrity",
+    "function": "create_location_daily_close_integrity",
+    "source_file": "backend/app/routers/multistore_integrity.py",
+    "line": 56
+  },
+  {
+    "path": "/api/multistore-control/purchase-receipts",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.multistore_ops_integrity",
+    "function": "create_purchase_receipt_integrity",
+    "source_file": "backend/app/routers/multistore_ops_integrity.py",
+    "line": 124
+  },
+  {
+    "path": "/api/multistore-control/inventory-counts/{count_id}/approve",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.multistore_ops_integrity",
+    "function": "approve_inventory_count_integrity",
+    "source_file": "backend/app/routers/multistore_ops_integrity.py",
+    "line": 288
+  },
+  {
+    "path": "/api/returns",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.return_serial_integrity",
+    "function": "create_return_serial_integrity",
+    "source_file": "backend/app/routers/return_serial_integrity.py",
+    "line": 378
+  },
+  {
+    "path": "/api/stock-transfers/{transfer_id}/confirm",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.stock_transfer_integrity",
+    "function": "confirm_transfer_integrity",
+    "source_file": "backend/app/routers/stock_transfer_integrity.py",
+    "line": 77
+  },
+  {
+    "path": "/api/stock-transfers/{transfer_id}/reject",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.stock_transfer_integrity",
+    "function": "reject_transfer_integrity",
+    "source_file": "backend/app/routers/stock_transfer_integrity.py",
+    "line": 97
+  },
+  {
+    "path": "/api/stock-transfers/{transfer_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.stock_transfer_integrity",
+    "function": "cancel_transfer_integrity",
+    "source_file": "backend/app/routers/stock_transfer_integrity.py",
+    "line": 142
+  },
+  {
+    "path": "/api/channels/health",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_integrity",
+    "function": "channels_health_integrity",
+    "source_file": "backend/app/routers/channel_integrity.py",
+    "line": 64
+  },
+  {
+    "path": "/api/channels/test-connection/{sales_profile_slug}/{channel}",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.channel_integrity",
+    "function": "test_channel_connection_integrity",
+    "source_file": "backend/app/routers/channel_integrity.py",
+    "line": 236
+  },
+  {
+    "path": "/api/channels/whatsapp/webhook",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.channel_webhook_integrity",
+    "function": "whatsapp_webhook_integrity",
+    "source_file": "backend/app/routers/channel_webhook_integrity.py",
+    "line": 472
+  },
+  {
+    "path": "/api/channels/messenger/webhook",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.channel_webhook_integrity",
+    "function": "messenger_webhook_integrity",
+    "source_file": "backend/app/routers/channel_webhook_integrity.py",
+    "line": 477
+  },
+  {
+    "path": "/api/channels/instagram/webhook",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.channel_webhook_integrity",
+    "function": "instagram_webhook_integrity",
+    "source_file": "backend/app/routers/channel_webhook_integrity.py",
+    "line": 482
+  },
+  {
+    "path": "/api/super-admin/users/{user_id}/active",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin_integrity",
+    "function": "set_user_active_status_integrity",
+    "source_file": "backend/app/routers/super_admin_integrity.py",
+    "line": 68
+  },
+  {
+    "path": "/api/super-admin/users/{user_id}/reset-role",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin_integrity",
+    "function": "reset_user_role_integrity",
+    "source_file": "backend/app/routers/super_admin_integrity.py",
+    "line": 95
+  },
+  {
+    "path": "/api/super-admin/stock/adjust",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin_integrity",
+    "function": "adjust_stock_integrity",
+    "source_file": "backend/app/routers/super_admin_integrity.py",
+    "line": 122
+  },
+  {
+    "path": "/api/super-admin/orders/{order_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin_integrity",
+    "function": "super_admin_cancel_order_integrity",
+    "source_file": "backend/app/routers/super_admin_integrity.py",
+    "line": 197
+  },
+  {
+    "path": "/api/super-admin/audit-logs/{audit_id}/revert",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin_integrity",
+    "function": "revert_audit_change_integrity",
+    "source_file": "backend/app/routers/super_admin_integrity.py",
+    "line": 223
+  },
+  {
+    "path": "/api/super-admin/audit-logs",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.super_admin_audit_integrity",
+    "function": "list_super_admin_audit_logs_integrity",
+    "source_file": "backend/app/routers/super_admin_audit_integrity.py",
+    "line": 47
+  },
+  {
+    "path": "/api/ai/business-insights",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_business_integrity",
+    "function": "generate_business_insights_integrity",
+    "source_file": "backend/app/routers/ai_business_integrity.py",
+    "line": 49
+  },
+  {
+    "path": "/api/ai/customers",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_customer_search_integrity",
+    "function": "list_customers_ai_integrity",
+    "source_file": "backend/app/routers/ai_customer_search_integrity.py",
+    "line": 24
+  },
+  {
+    "path": "/api/ai/context",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_slug_integrity",
+    "function": "get_ai_context_integrity",
+    "source_file": "backend/app/routers/ai_slug_integrity.py",
+    "line": 59
+  },
+  {
+    "path": "/api/ai/reply",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_slug_integrity",
+    "function": "generate_ai_reply_integrity",
+    "source_file": "backend/app/routers/ai_slug_integrity.py",
+    "line": 73
+  },
+  {
+    "path": "/api/ai/log",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_slug_integrity",
+    "function": "log_interaction_integrity",
+    "source_file": "backend/app/routers/ai_slug_integrity.py",
+    "line": 87
+  },
+  {
+    "path": "/api/ai/training/submit",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_slug_integrity",
+    "function": "submit_training_example_integrity",
+    "source_file": "backend/app/routers/ai_slug_integrity.py",
+    "line": 101
+  },
+  {
+    "path": "/api/ai/handle-message",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_slug_integrity",
+    "function": "handle_message_without_n8n_integrity",
+    "source_file": "backend/app/routers/ai_slug_integrity.py",
+    "line": 113
+  },
+  {
+    "path": "/api/orders",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.orders",
+    "function": "list_orders",
+    "source_file": "backend/app/routers/orders.py",
+    "line": 295
+  },
+  {
+    "path": "/api/orders",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.orders",
+    "function": "create_order",
+    "source_file": "backend/app/routers/orders.py",
+    "line": 433
+  },
+  {
+    "path": "/api/orders/{order_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.orders",
+    "function": "get_order",
+    "source_file": "backend/app/routers/orders.py",
+    "line": 811
+  },
+  {
+    "path": "/api/orders/{order_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.orders",
+    "function": "delete_order",
+    "source_file": "backend/app/routers/orders.py",
+    "line": 1120
+  },
+  {
+    "path": "",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.faq",
+    "function": "list_faq_entries",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 23
+  },
+  {
+    "path": "/search",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.faq",
+    "function": "search_faq_entries",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 64
+  },
+  {
+    "path": "",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.faq",
+    "function": "create_faq_entry",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 132
+  },
+  {
+    "path": "/{faq_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.faq",
+    "function": "get_faq_entry",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 168
+  },
+  {
+    "path": "/{faq_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "module": "app.routers.faq",
+    "function": "update_faq_entry",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 189
+  },
+  {
+    "path": "/{faq_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.faq",
+    "function": "delete_faq_entry",
+    "source_file": "backend/app/routers/faq.py",
+    "line": 242
+  },
+  {
+    "path": "/api/customers",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.customers",
+    "function": "list_customers",
+    "source_file": "backend/app/routers/customers.py",
+    "line": 26
+  },
+  {
+    "path": "/api/customers/{customer_phone}/stats",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.customers",
+    "function": "get_customer_stats",
+    "source_file": "backend/app/routers/customers.py",
+    "line": 120
+  },
+  {
+    "path": "/api/customers/{customer_phone}/history",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.customers",
+    "function": "get_customer_history",
+    "source_file": "backend/app/routers/customers.py",
+    "line": 193
+  },
+  {
+    "path": "/api/reports/inventory/alerts",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports",
+    "function": "get_inventory_alerts",
+    "source_file": "backend/app/routers/reports.py",
+    "line": 408
+  },
+  {
+    "path": "/api/reports/stock-summary-by-location",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.reports",
+    "function": "get_stock_summary_by_location",
+    "source_file": "backend/app/routers/reports.py",
+    "line": 475
+  },
+  {
+    "path": "/api/stock-transfers",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.stock_transfers",
+    "function": "create_transfer",
+    "source_file": "backend/app/routers/stock_transfers.py",
+    "line": 59
+  },
+  {
+    "path": "/api/stock-transfers",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_transfers",
+    "function": "list_transfers",
+    "source_file": "backend/app/routers/stock_transfers.py",
+    "line": 177
+  },
+  {
+    "path": "/api/stock-transfers/{transfer_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_transfers",
+    "function": "get_transfer",
+    "source_file": "backend/app/routers/stock_transfers.py",
+    "line": 274
+  },
+  {
+    "path": "/api/returns",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.returns",
+    "function": "list_returns",
+    "source_file": "backend/app/routers/returns.py",
+    "line": 75
+  },
+  {
+    "path": "/api/imeis/admin/add-missing",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.imeis",
+    "function": "admin_add_missing_imei",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 77
+  },
+  {
+    "path": "/api/imeis/admin/{imei_id}/correct",
+    "methods": [
+      "PATCH"
+    ],
+    "module": "app.routers.imeis",
+    "function": "admin_correct_imei",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 131
+  },
+  {
+    "path": "/api/imeis",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.imeis",
+    "function": "list_product_imeis",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 184
+  },
+  {
+    "path": "/api/imeis/history",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.imeis",
+    "function": "list_imei_history",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 240
+  },
+  {
+    "path": "/api/imeis/{imei}/warranty-status",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.imeis",
+    "function": "check_warranty_status",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 303
+  },
+  {
+    "path": "/api/imeis/detail/{imei}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.imeis",
+    "function": "get_imei_detail",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 372
+  },
+  {
+    "path": "/api/imeis/history/{imei}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.imeis",
+    "function": "get_imei_history",
+    "source_file": "backend/app/routers/imeis.py",
+    "line": 406
+  },
+  {
+    "path": "/api/public/catalog",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.public",
+    "function": "get_public_catalog",
+    "source_file": "backend/app/routers/public.py",
+    "line": 19
+  },
+  {
+    "path": "/api/suppliers",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.suppliers",
+    "function": "create_supplier",
+    "source_file": "backend/app/routers/suppliers.py",
+    "line": 72
+  },
+  {
+    "path": "/api/suppliers",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.suppliers",
+    "function": "list_suppliers",
+    "source_file": "backend/app/routers/suppliers.py",
+    "line": 143
+  },
+  {
+    "path": "/api/suppliers/{supplier_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.suppliers",
+    "function": "get_supplier",
+    "source_file": "backend/app/routers/suppliers.py",
+    "line": 193
+  },
+  {
+    "path": "/api/suppliers/{supplier_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.suppliers",
+    "function": "update_supplier",
+    "source_file": "backend/app/routers/suppliers.py",
+    "line": 213
+  },
+  {
+    "path": "/api/suppliers/{supplier_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.suppliers",
+    "function": "delete_supplier",
+    "source_file": "backend/app/routers/suppliers.py",
+    "line": 291
+  },
+  {
+    "path": "/api/financing/banks",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.financing",
+    "function": "list_banks",
+    "source_file": "backend/app/routers/financing.py",
+    "line": 38
+  },
+  {
+    "path": "/api/financing/banks",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.financing",
+    "function": "create_bank",
+    "source_file": "backend/app/routers/financing.py",
+    "line": 49
+  },
+  {
+    "path": "/api/financing/banks/{bank_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.financing",
+    "function": "update_bank",
+    "source_file": "backend/app/routers/financing.py",
+    "line": 91
+  },
+  {
+    "path": "/api/financing/options",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.financing",
+    "function": "create_option",
+    "source_file": "backend/app/routers/financing.py",
+    "line": 129
+  },
+  {
+    "path": "/api/financing/options/{option_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.financing",
+    "function": "delete_option",
+    "source_file": "backend/app/routers/financing.py",
+    "line": 169
+  },
+  {
+    "path": "/api/stock-history/product/{product_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_history",
+    "function": "get_product_stock_history",
+    "source_file": "backend/app/routers/stock_history.py",
+    "line": 19
+  },
+  {
+    "path": "/api/stock-history/location/{location_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_history",
+    "function": "get_location_stock_history",
+    "source_file": "backend/app/routers/stock_history.py",
+    "line": 73
+  },
+  {
+    "path": "/api/stock-history/profile/{profile_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_history",
+    "function": "get_profile_stock_history",
+    "source_file": "backend/app/routers/stock_history.py",
+    "line": 116
+  },
+  {
+    "path": "/api/stock-history/",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.stock_history",
+    "function": "create_stock_history_entry",
+    "source_file": "backend/app/routers/stock_history.py",
+    "line": 159
+  },
+  {
+    "path": "/api/stock-history/stats/{product_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.stock_history",
+    "function": "get_product_stock_stats",
+    "source_file": "backend/app/routers/stock_history.py",
+    "line": 187
+  },
+  {
+    "path": "/api/ai/config/{sales_profile_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "get_ai_config",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 562
+  },
+  {
+    "path": "/api/ai/config/{sales_profile_id}",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "update_ai_config",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 574
+  },
+  {
+    "path": "/api/ai/status",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "get_ai_status",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 614
+  },
+  {
+    "path": "/api/ai/flag-troll",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "flag_troll",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 1700
+  },
+  {
+    "path": "/api/ai/training-queue",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "list_training_queue",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 1721
+  },
+  {
+    "path": "/api/ai/training-queue/{item_id}/resolve",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "resolve_training_item",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 1773
+  },
+  {
+    "path": "/api/ai/training-queue/{item_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "update_training_queue_item",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 1818
+  },
+  {
+    "path": "/api/ai/customers/{customer_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "update_customer_ai",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 1979
+  },
+  {
+    "path": "/api/ai/trade-in-policies",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "list_trade_in_policies",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2022
+  },
+  {
+    "path": "/api/ai/trade-in-policies",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "create_trade_in_policy",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2030
+  },
+  {
+    "path": "/api/ai/trade-in-policies/{policy_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "delete_trade_in_policy",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2043
+  },
+  {
+    "path": "/api/ai/link-order",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "link_order_to_interaction",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2058
+  },
+  {
+    "path": "/api/ai/create-order",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "create_order_from_ai",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2223
+  },
+  {
+    "path": "/api/ai/runtime-metrics",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.ai_intelligence",
+    "function": "get_ai_runtime_metrics",
+    "source_file": "backend/app/routers/ai_intelligence.py",
+    "line": 2369
+  },
+  {
+    "path": "/api/channels/whatsapp/webhook",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_integrations",
+    "function": "verify_whatsapp_webhook",
+    "source_file": "backend/app/routers/channel_integrations.py",
+    "line": 519
+  },
+  {
+    "path": "/api/channels/messenger/webhook",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_integrations",
+    "function": "verify_messenger_webhook",
+    "source_file": "backend/app/routers/channel_integrations.py",
+    "line": 537
+  },
+  {
+    "path": "/api/channels/instagram/webhook",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_integrations",
+    "function": "verify_instagram_webhook",
+    "source_file": "backend/app/routers/channel_integrations.py",
+    "line": 555
+  },
+  {
+    "path": "/api/channels/monitoring/metrics",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_monitoring",
+    "function": "get_channel_metrics",
+    "source_file": "backend/app/routers/channel_monitoring.py",
+    "line": 28
+  },
+  {
+    "path": "/api/channels/monitoring/audit/{sales_profile_slug}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_monitoring",
+    "function": "get_profile_audit_log",
+    "source_file": "backend/app/routers/channel_monitoring.py",
+    "line": 45
+  },
+  {
+    "path": "/api/channels/monitoring/status",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.channel_monitoring",
+    "function": "get_channel_status",
+    "source_file": "backend/app/routers/channel_monitoring.py",
+    "line": 124
+  },
+  {
+    "path": "/api/photo-requests/create",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "create_photo_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 330
+  },
+  {
+    "path": "/api/photo-requests/summary",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "get_photo_request_summary",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 378
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}/claim",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "claim_photo_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 395
+  },
+  {
+    "path": "/api/photo-requests/pending",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "list_pending_photo_requests",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 428
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "get_photo_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 461
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "update_photo_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 476
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}/media",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "upload_media_to_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 545
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}/upload-file",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "upload_binary_media_to_request",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 595
+  },
+  {
+    "path": "/api/photo-requests/{photo_request_id}/send-to-customer",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.photo_requests",
+    "function": "send_photos_to_customer",
+    "source_file": "backend/app/routers/photo_requests.py",
+    "line": 665
+  },
+  {
+    "path": "/api/forecasting/predict",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.forecasting",
+    "function": "get_forecasts",
+    "source_file": "backend/app/routers/forecasting.py",
+    "line": 13
+  },
+  {
+    "path": "/api/analytics/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.analytics",
+    "function": "get_dashboard_stats",
+    "source_file": "backend/app/routers/analytics.py",
+    "line": 35
+  },
+  {
+    "path": "/api/analytics/forecast",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.analytics",
+    "function": "generate_forecast",
+    "source_file": "backend/app/routers/analytics.py",
+    "line": 133
+  },
+  {
+    "path": "/api/daily-close/config",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.daily_close",
+    "function": "get_config",
+    "source_file": "backend/app/routers/daily_close.py",
+    "line": 89
+  },
+  {
+    "path": "/api/daily-close/config",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.daily_close",
+    "function": "set_config",
+    "source_file": "backend/app/routers/daily_close.py",
+    "line": 111
+  },
+  {
+    "path": "/api/daily-close/pending",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.daily_close",
+    "function": "get_pending_orders",
+    "source_file": "backend/app/routers/daily_close.py",
+    "line": 157
+  },
+  {
+    "path": "/api/daily-close/validate",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.daily_close",
+    "function": "validate_daily_close",
+    "source_file": "backend/app/routers/daily_close.py",
+    "line": 183
+  },
+  {
+    "path": "/api/multistore-control/location-access/me",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "get_my_location_access",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 183
+  },
+  {
+    "path": "/api/multistore-control/location-access/users/{user_id}",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "list_user_location_access",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 192
+  },
+  {
+    "path": "/api/multistore-control/location-access/users/{user_id}",
+    "methods": [
+      "PUT"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "replace_user_location_access",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 202
+  },
+  {
+    "path": "/api/multistore-control/purchase-receipts",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "list_purchase_receipts",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 362
+  },
+  {
+    "path": "/api/multistore-control/inventory-counts",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "create_inventory_count",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 386
+  },
+  {
+    "path": "/api/multistore-control/inventory-counts",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "list_inventory_counts",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 456
+  },
+  {
+    "path": "/api/multistore-control/location-daily-closes",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "list_location_daily_closes",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 618
+  },
+  {
+    "path": "/api/multistore-control/audit-logs",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.multistore_control",
+    "function": "list_audit_logs",
+    "source_file": "backend/app/routers/multistore_control.py",
+    "line": 639
+  },
+  {
+    "path": "/api/super-admin/diagnostics/stock-imeis",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "stock_imei_diagnostics",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 266
+  },
+  {
+    "path": "/api/super-admin/entity-history",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "entity_history",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 316
+  },
+  {
+    "path": "/api/super-admin/alerts",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "super_admin_alerts",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 368
+  },
+  {
+    "path": "/api/super-admin/users",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "super_admin_users",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 442
+  },
+  {
+    "path": "/api/super-admin/orders/{order_id}/payment-correction",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "correct_order_payment",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 687
+  },
+  {
+    "path": "/api/super-admin/products/{product_id}/purge",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "purge_product_for_admin",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 804
+  },
+  {
+    "path": "/api/super-admin/products/{product_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "correct_product_catalog",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 894
+  },
+  {
+    "path": "/api/super-admin/stock-transfers/{transfer_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.routers.super_admin",
+    "function": "super_admin_cancel_transfer",
+    "source_file": "backend/app/routers/super_admin.py",
+    "line": 954
+  },
+  {
+    "path": "/",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "read_root",
+    "source_file": "backend/app/main.py",
+    "line": 324
+  },
+  {
+    "path": "/api/health",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "health_check",
+    "source_file": "backend/app/main.py",
+    "line": 333
+  },
+  {
+    "path": "/health",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "health_check",
+    "source_file": "backend/app/main.py",
+    "line": 333
+  },
+  {
+    "path": "/api/ready",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "readiness_check",
+    "source_file": "backend/app/main.py",
+    "line": 347
+  },
+  {
+    "path": "/ready",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "readiness_check",
+    "source_file": "backend/app/main.py",
+    "line": 347
+  },
+  {
+    "path": "/api/metrics",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "metrics_check",
+    "source_file": "backend/app/main.py",
+    "line": 371
+  },
+  {
+    "path": "/metrics",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "metrics_check",
+    "source_file": "backend/app/main.py",
+    "line": 371
+  },
+  {
+    "path": "/api/metrics/prometheus",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "prometheus_metrics",
+    "source_file": "backend/app/main.py",
+    "line": 395
+  },
+  {
+    "path": "/metrics/prometheus",
+    "methods": [
+      "GET"
+    ],
+    "module": "app.main",
+    "function": "prometheus_metrics",
+    "source_file": "backend/app/main.py",
+    "line": 395
+  },
+  {
+    "path": "/api/init-data",
+    "methods": [
+      "POST"
+    ],
+    "module": "app.main",
+    "function": "initialize_sample_data",
+    "source_file": "backend/app/main.py",
+    "line": 405
+  }
+]

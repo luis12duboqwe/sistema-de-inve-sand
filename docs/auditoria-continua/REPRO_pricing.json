@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "type": "ProgrammingError",
+  "message": "(sqlite3.ProgrammingError) Error binding parameter 1: type 'decimal.Decimal' is not supported\n[SQL: UPDATE order_items SET precio_unitario=?, costo_unitario=? WHERE id=?]\n[parameters: (Decimal('2500.00'), Decimal('1250.00'), 1)]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+}

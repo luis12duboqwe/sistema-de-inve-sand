@@ -1,0 +1,270 @@
+{
+  "block": "continuacion03-core-frontend",
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "mode": "READ_ONLY",
+  "full_text_reviewed": [
+    "src/lib/inventoryService.ts",
+    "src/lib/types.ts",
+    "src/lib/__tests__/inventoryService.local.test.ts"
+  ],
+  "full_text_reviewed_line_counts": {
+    "src/lib/inventoryService.ts": 7343,
+    "src/lib/types.ts": 1324,
+    "src/lib/__tests__/inventoryService.local.test.ts": 159
+  },
+  "read_evidence": {
+    "src/lib/inventoryService.ts": [
+      "1-500",
+      "501-1000",
+      "1001-1500",
+      "1501-2000",
+      "2001-2500",
+      "2501-3000",
+      "3001-3500",
+      "3501-4000",
+      "4001-4500",
+      "4501-5000",
+      "5001-5500",
+      "5501-6000",
+      "6001-6500",
+      "6501-7000",
+      "7001-7343"
+    ],
+    "src/lib/types.ts": [
+      "1-450",
+      "451-900",
+      "901-1324"
+    ]
+  },
+  "partial_context": [
+    {
+      "path": "docs/auditoria-continua/HALLAZGOS.json",
+      "review": "Cat initial truncated; all IDs/titles extracted JSON untruncated for dedup; no claim full text reviewed"
+    },
+    {
+      "path": "src/lib/inventoryServiceFactory.ts",
+      "review": "Prior same-session full ranges1-2075 except rest2076-end not re-read after narrower task, production switch827-840 full already read"
+    }
+  ],
+  "findings": [
+    {
+      "id": "LOCAL-01",
+      "severity": "MEDIUM",
+      "title": "Persistencia local de venta/IMEI/historial no es atómica y silencia fallo",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:275-283,295-303,315-323,1618-1625,4849-4862"
+      ],
+      "evidence": "Setters IMEI y ambos historiales capturan error KV y resuelven. createOrder escribe products/stock/orders/items antes de seriales, sin rollback; compra también Promise.all con setters silenciosos. Incluso rollback addProduct no ve fallo IMEI ocultado.",
+      "reproduction": "KV.set rechaza sólo inventory-product-imeis (quota/error). createOrder serialized escribe orden/reserva/items y devuelve éxito sin reservar IMEI; un siguiente pedido puede reutilizar ese serial. Fallar inventory-orders deja stock reservado sin orden.",
+      "business_impact": "Efectos parciales y éxito falso en modo local; datos financieros y seriales dejan de reconciliar. No duplicación de BUS-10 backend: es implementación local independiente.",
+      "required_tests": "Prueba fault-injection por cada clave persistida; exigir rollback snapshot entero o rechazo sin cambio; almacenamiento mock debe clonear como JSON no compartir referencias.",
+      "recommendation": "Propagar errores setters; una unidad commit atómica local (p.ej IndexedDB) o rollback verificable que no anuncie éxito ante persistencia parcial.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-02",
+      "severity": "MEDIUM",
+      "title": "Eliminar orden cancelada o pendiente fabrica stock y no libera seriales creados",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:1333-1341,3168-3277,1851-1880"
+      ],
+      "evidence": "deleteOrder suma item.cantidad para cualquier estado y no reduce cantidad_reservada; cancelOrder ya restauró final o liberó reserva pendiente. Item creado no guarda imeis (1333), deleteOrder libera IMEI únicamente si item.imeis existe.",
+      "reproduction": "Stock5. Crear pendiente qty1 -> disp5 res1. cancelOrder -> disp5 res0. deleteOrder -> disp6. Alternativa pending delete -> disp6 res1 sin orden. Serializado crear/finalizar/delete: stock aumenta pero IMEI sigue vendido porque item.imeis undefined.",
+      "business_impact": "Stock fantasma y serial vendido sin orden; UI local permite eliminación de canceladas. No es BUS-01 reserva ajena: este es doble reposición/cancel-delete y pérdida lista item.",
+      "required_tests": "create/cancel/delete pendiente y final; assert disponible5 reservado0 y original IMEI disponible; verificar item.imeis tras create/list.",
+      "recommendation": "Restaurar según lifecycle y efecto propio real; nunca reponer cancelada; liberar reservas pending; persistir IMEIs por ítem y guard audit retention.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-03",
+      "severity": "MEDIUM",
+      "title": "updateOrderStatus ignora lifecycle y deja cancelación local sin liberar reserva",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:2017-2111"
+      ],
+      "evidence": "No lock, no matriz transición y sólo maneja entrada a estado final. Asigna estado cancelada sin cancelOrder. También permite final->pending y posterior edición que usa reservas agregadas.",
+      "reproduction": "En modo local crear pendiente qty1 stock5 res1; updateOrderStatus(id,cancelada) -> cancelada pero res1 e IMEI order_id conservados. Con dos finalizaciones Promise.all ambas leen snapshot pending y guardan estados/historia sin serialización.",
+      "business_impact": "Reservas bloqueadas por venta cancelada y resultados concurrentes no conservados. Transiciones server protegidas no validan esta implementación local.",
+      "required_tests": "Tests cada transición admitida/negada y concurrent finalization/cancel. Verificar efectos stock,IMEI y journal, no sólo enum.",
+      "recommendation": "Delegar cancelada a cancelOrder, adquirir lock y usar matriz estricta final/inmutable con titular de reserva explícito.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-04",
+      "severity": "MEDIUM",
+      "title": "Editar pedido reemplaza precio histórico y omite conversión, retoma y financiamiento",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:2395-2408,2457-2474,2483-2494"
+      ],
+      "evidence": "updateOrder reconstruye items con Product.precio crudo, total=sum catálogo; no preserva precio negociado, costo snapshot ni resta trade_ins ni recargo financing_details existente. Guarda total pero deja financing_details viejo.",
+      "reproduction": "Producto USD precio100, tasa25; orden inicial HNL2500 con custom o conversión. Editar sólo nombre con UI (envía items) -> nuevo total100 HNL. Orden HNL1000 retoma200 prima100 tasa10% pasa de870 a1000, detalles viejos mantienen financed700 y cuota distinta.",
+      "business_impact": "Reescritura monetaria histórica en modo local; contrato local deja de coincidir API y flujo UI. Relacionado FE-01 pero distinto cálculo editar.",
+      "required_tests": "Regresión cambio nombre con items idénticos preserva total/precio/costo; USD, descuento, retoma y financiación; suma breakdown==total.",
+      "recommendation": "Preservar campos de ítems originales, normalizar moneda y recalcular retoma/financiación bajo contrato común; cambios no financieros no tocar items.",
+      "related_existing": [
+        "FE-01"
+      ],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-05",
+      "severity": "MEDIUM",
+      "title": "Aprobar conteo obsoleto resucita stock vendido y puede dejar reserva mayor que disponible",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:4872-4902,4917-4970"
+      ],
+      "evidence": "createInventoryCount guarda expected/difference. approve escribe counted absoluto sin comprobar esperado contra actual ni reservas, historia usa difference original aunque stockAnterior actual cambió. Serial selector no excluye order_id.",
+      "reproduction": "Conteo draft expected10,counted10. Venta final consume1 -> stock9. Aprobar draft -> stock10 historia cantidad0 (anterior9,nuevo10). Stock10 reservado5, conteo counted2 -> disp2 reservado5. Serialized: serial reservado a order puede aparecer en count y luego quedar location undefined.",
+      "business_impact": "Stock duplicado y ledger falso por concurrencia temporal aunque método usa lock al aprobar; potencial reserva impossible.",
+      "required_tests": "Conteo draft seguido por venta/traslado/reabastecimiento; exigir stale rejection o delta reconciliado, stock>=reservado y history delta exacto; serial reservado.",
+      "recommendation": "Versionar snapshot conteo y revalidar bajo lock, aplicar ajuste coherente o requerir recuento; excluir/respetar seriales reservados y recalcular delta actual.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-06",
+      "severity": "MEDIUM",
+      "title": "Recepción compra acepta cantidad negativa y duplicados IMEI dentro línea",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:4809-4862"
+      ],
+      "evidence": "Sólo valida existencia producto, length imeis==quantity y colisiones contra imeis existentes antes del loop. Dos strings iguales en misma línea pasan porque validación se hace antes de push; no validación finita positiva/integer quantity,unit_cost ni location existente.",
+      "reproduction": "createPurchaseReceipt accesorio qty=-1 unit_cost100 -> reduce stock, recibo costo-100. Producto serial quantity2 imeis[X,X] sin X previamente -> registra dos records misma string y stock+2.",
+      "business_impact": "Negativo stock normal desde entrada y violación unicidad serial modo local; tipos numéricos no sustituyen validación runtime.",
+      "required_tests": "Payload quantities -1,NaN,0,fraction, costos negativos y location inválida; duplicates dentro línea y entre líneas; snapshot inalterado al rechazar.",
+      "recommendation": "Esquema runtime equivalente servidor, deduplicar IMEIs payload completo y comprobar product/location/supplier/activo antes de mutar.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-07",
+      "severity": "MEDIUM",
+      "title": "Garantía local permite devolución infinita y reutiliza IMEI defectuoso como vendible",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:5162-5210,5211-5334,5336-5387"
+      ],
+      "evidence": "createReturn sólo exige existencia orden; no mira orderItems ni estado ni cantidad ya retornada, originalIMEI order/product; pone original vendidofalse sin marcar bloqueado/defectuoso. Reemplazo encontrado se vende sin comprobar vendido/reservado/producto; cantidad salida1 vs quantity arbitraria.",
+      "reproduction": "Orden qty1: repetir warranty qty1 condition nuevo aumenta stock cada vez; solicitar product_id ajeno crea stock para producto no comprado. Garantía defectuoso original serialX se libera y getAvailableIMEIs incluyeX si existe stock sano del mismo producto.",
+      "business_impact": "Inventario fabricado y defecto revendido, reemplazos de otra venta/reserva reasignados localmente. BUS-03/04 existentes servidor son relacionados, no equivalentes a ausencia general de validación local.",
+      "required_tests": "Pedido no final, qty negativa/>vendida/repetida, producto ajeno, serial original cruzado, reemplazo vendido/en transferencia, defectuoso no aparece available.",
+      "recommendation": "Contrato warranty-only runtime, validar pertenencia y límite acumulado, bloquear serial defectuoso, validar reemplazo único disponible antes de writes.",
+      "related_existing": [
+        "BUS-03",
+        "BUS-04"
+      ],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-08",
+      "severity": "LOW",
+      "title": "Financiamiento local convierte tasa0 a4% y original_total incluye recargo",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:1565,1581-1590,7060"
+      ],
+      "evidence": "createBank normal_card_rate||0.04 y createOrder mismo fallback; tasa0 es válida pero falsy. original_total se calcula desde total ya recargado más retoma.",
+      "reproduction": "Banco rate0 crear (o actualizar0), pedido tarjeta neto1000 months0 ->1040. Banco5% pedido1000 retoma0 -> original_total1050 en vez1000. Prima superior neto clamp financed0 y acepta total prima inflada.",
+      "business_impact": "Cobro no acordado en modo local; resultados diferentes servidor. Caso tasa normal0 no cubierto test opción financiada rate0.",
+      "required_tests": "rate0 normal y financiación; prima0,igual,mayor,negativa; assert original_total antes recargo.",
+      "recommendation": "Usar?? preservando0 y validar finitud/intervalos/primavsneta; original_total del subtotal original antes modificar total.",
+      "related_existing": [],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    },
+    {
+      "id": "LOCAL-09",
+      "severity": "MEDIUM",
+      "title": "Transferencias locales no toman lock ni validan cantidades positivas/destino diferente",
+      "status": "CONFIRMED_STATIC_LOCAL_ONLY",
+      "locations": [
+        "src/lib/inventoryService.ts:3830-3863,4023-4064,4355-4394,4425-4457"
+      ],
+      "evidence": "CRUD transfer no inventoryLock.acquire, a diferencia createOrder/restock; createStockTransfer comprueba available<request.cantidad pero no >0/integer ni from!=to. Dos llamadas leen snapshots stock/transfers e IDs max+1.",
+      "reproduction": "Qty=-2 accesorio disp5res0 -> reserva-2, free7. Qty1 origen=destino aceptado. Promise.all dos transferencias qty4 disp5 leen ambos available5 y luego writes uno sobre otro/IDs iguales. Carrera transfer vs order puede perder reservas aunque order esté bajo lock exclusivo que transfer no usa.",
+      "business_impact": "Stock libre inventado y pérdida reservas/entidades en modo local; AsyncLock tampoco protege tabs diferentes. Distinto batch parcial FE-04.",
+      "required_tests": "Negativos qty0,-1,.5,NaN y same location; concurrencia same/tab y tabs, assert cantidades e IDs únicos/journal exacto.",
+      "recommendation": "Validación runtime y lock compartido en todas mutaciones; para tabs almacenamiento transaccional con CAS/version o Web Locks.",
+      "related_existing": [
+        "FE-04"
+      ],
+      "production_reachability": "No alcanzable por selección estándar en build producción: factory obliga ApiInventoryService. rg consumidores directos sólo test local, aparte factory. Riesgo modo desarrollo/local habilitado; no se atribuye PostgreSQL/prod.",
+      "runtime_evidence": null
+    }
+  ],
+  "tests_executed": [],
+  "test_review": {
+    "local_suite": "159 líneas completas; dos tests: only-gifts financiada tasa0 y transferencia parcial nonserialized; no fault-injection ni lifecycle completo/edición/garantía/conteo/negativos/concurrencia",
+    "mock_limitation": "Mock get/set Map conserva referencias; difiere de localStorage JSON copia, puede ocultar o introducir efectos por objetos compartidos"
+  },
+  "existing_findings_extended": [
+    {
+      "id": "BUS-05",
+      "new_locations": [
+        "src/lib/inventoryService.ts:1455-1473"
+      ],
+      "evidence": "Retoma local también sobrescribe serial global vendido/reservado y no limpia transfer_id; no duplicado añadido."
+    },
+    {
+      "id": "FE-07",
+      "new_locations": [
+        "src/lib/types.ts:557-559,639-641",
+        "src/lib/inventoryService.ts:1613"
+      ],
+      "evidence": "Type permite ambos notes/notas y local create usa request.notas, por lo que notes enviada UI se omite; relación original existente."
+    },
+    {
+      "id": "AN-001",
+      "new_locations": [
+        "src/lib/inventoryService.ts:4992-5003,5595-5603,5701-5705",
+        "src/lib/types.ts:539-564"
+      ],
+      "evidence": "Reportes/cierre/conciliación locales también usan created_at; Order type carece fecha final efectiva."
+    },
+    {
+      "id": "BUS-09",
+      "new_locations": [
+        "src/lib/inventoryService.ts:5616-5640,5827-5833"
+      ],
+      "evidence": "Costo actual y moneda cruda en analytics/valoración local; no duplicación ledger."
+    }
+  ],
+  "contract_notes": [
+    {
+      "path": "src/lib/types.ts:1190-1197",
+      "issue": "TradeInPolicy action type reject|accept_with_conditions; schema UI leído antes usa reject|review|allow. Requiere revisar consumidores/backend en otro bloque, no afirmar defecto nuevo sólo type."
+    },
+    {
+      "path": "src/lib/types.ts:30-36",
+      "issue": "ReturnItem sigue permitiendo refund/store_credit, backend/política UI warranty-only; local implementa refund y store_credit silent no stock, contrato divergent."
+    },
+    {
+      "path": "src/lib/types.ts:978-998",
+      "issue": "Customer interface declarada dos veces; TS declaration merging válido, no defecto confirmado."
+    }
+  ],
+  "limitations": [
+    "No tests ni runtime ejecutados por instrucción padre; reproducciones derivadas código",
+    "Todos hallazgos nuevos se limitan a modo local/dev; no se declara bypass producción estándar",
+    "No repo/git writes ni código modificado",
+    "No archivo marcado completo con salida truncada; inventory1-500 se releyó individualmente por truncación initial ledger mezclado",
+    "Tipos por sí mismos no garantizan validación runtime"
+  ],
+  "recommended_priority": "Priorizar hallazgos backend/producción ya ledger antes de estos locales; decidir si modo local soportado antes de corregir sin arquitectura aprobada."
+}

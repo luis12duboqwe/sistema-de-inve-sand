@@ -1,0 +1,147 @@
+{
+  "continuation": {
+    "record_during_A_and_B": "audit-B",
+    "factory_restored": false,
+    "leftover_request_id": "audit-A",
+    "metrics": {
+      "requests": 20,
+      "statuses": [
+        404
+      ],
+      "series_before": [
+        0,
+        0
+      ],
+      "series_after": [
+        20,
+        20
+      ]
+    },
+    "analytics_model_import": {
+      "exit": 1,
+      "error_last_line": "sqlalchemy.exc.InvalidRequestError: Attribute name 'metadata' is reserved when using the Declarative API."
+    },
+    "sentry": {
+      "calls": 2,
+      "config_keys_first": [
+        "dsn",
+        "environment",
+        "integrations",
+        "profiles_sample_rate",
+        "send_default_pii",
+        "traces_sample_rate"
+      ],
+      "config_keys_last": [
+        "attach_stacktrace",
+        "debug",
+        "dsn",
+        "environment",
+        "integrations",
+        "release",
+        "traces_sample_rate"
+      ],
+      "profiles_last": null
+    }
+  },
+  "ts-continuation": {
+    "csv": "Nombre,Cliente\n\"a\\\"b\",\"=1+1\"",
+    "report_margin": 40,
+    "expected_margin_with_gift": 30,
+    "month_allocations": [
+      {
+        "month": "Sep 2026",
+        "revenue": 1000,
+        "orders": 1
+      }
+    ],
+    "csv_parsed": [
+      [
+        "Nombre",
+        "Cliente"
+      ],
+      [
+        "a\\b\"",
+        "=1+1"
+      ]
+    ],
+    "quoted_roundtrip_preserved": false
+  },
+  "sync": {
+    "summary": {
+      "processed": 3,
+      "synced": 2,
+      "failed": 1,
+      "total": 3,
+      "pendingEvents": 1
+    },
+    "calls": [
+      {
+        "action": "createProduct",
+        "location": 1
+      },
+      {
+        "action": "updateProduct",
+        "id": 7,
+        "changes": {
+          "precio": 123
+        }
+      }
+    ],
+    "events": [
+      {
+        "id": "evtloc",
+        "entity": "location",
+        "action": "create",
+        "timestamp": "2026-01-01",
+        "payload": {
+          "location": {
+            "id": 1,
+            "nombre": "local synthetic",
+            "tipo": "tienda"
+          }
+        },
+        "synced_at": "now"
+      },
+      {
+        "id": "evtprod",
+        "entity": "product",
+        "action": "create",
+        "timestamp": "2026-01-02",
+        "payload": {
+          "product": {
+            "id": 7,
+            "sku": "synthetic"
+          },
+          "initialStock": 1,
+          "location_id": 1
+        },
+        "last_error": "synthetic create failure"
+      },
+      {
+        "id": "evtupdate",
+        "entity": "product",
+        "entityId": 7,
+        "action": "update",
+        "timestamp": "2026-01-03",
+        "payload": {
+          "updates": {
+            "precio": 123
+          }
+        },
+        "synced_at": "now"
+      }
+    ]
+  },
+  "journal": {
+    "concurrent_requested": 2,
+    "concurrent_persisted": 1,
+    "pending_before": 5000,
+    "pending_after": 5000,
+    "first_original_event_retained": false
+  },
+  "payment-guard": {
+    "status": 400,
+    "detail": "La suma del desglose de pagos (1030.00) debe coincidir con el total de la orden (1050.00).",
+    "orders_after_rollback": 0
+  }
+}

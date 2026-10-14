@@ -1,0 +1,15 @@
+{
+  "tmp": "/tmp/softmobile-ops-repro-yts0ojyt",
+  "exit": 0,
+  "stdout": "[2026-10-14 20:22:41] ================================\n[2026-10-14 20:22:41] Iniciando backup de BD\n[2026-10-14 20:22:41] ================================\n[2026-10-14 20:22:41] \ud83d\udce6 Iniciando backup daily...\n[2026-10-14 20:22:41] \u2713 Backup guardado: /tmp/softmobile-ops-repro-yts0ojyt/backups/synthetic_audit_daily_20261014_202241.sql.gz (4.0K)\n[2026-10-14 20:22:41] \u2713 Checksum generado: /tmp/softmobile-ops-repro-yts0ojyt/backups/synthetic_audit_daily_20261014_202241.sql.gz.sha256\n[2026-10-14 20:22:41] \ud83e\uddf9 Limpiando backups antiguos (m\u00e1s de 30 d\u00edas)...\n[2026-10-14 20:22:41] \u2713 Backups antiguos eliminados. Backups actuales: 1\n[2026-10-14 20:22:41] \ud83d\udd0d Verificando integridad del backup...\n[2026-10-14 20:22:41] \u2713 Backup verificado correctamente\n[2026-10-14 20:22:41] \u2705 BACKUP COMPLETADO EXITOSAMENTE\n[2026-10-14 20:22:41] \ud83d\udce7 Notificaci\u00f3n: SUCCESS - Backup de synthetic_audit completado\n[2026-10-14 20:22:41] ================================\\n\n",
+  "stderr": "synthetic pg_dump failure\n",
+  "published": [
+    "/tmp/softmobile-ops-repro-yts0ojyt/backups/synthetic_audit_daily_20261014_202241.sql.gz"
+  ],
+  "uncompressed_bytes": [
+    0
+  ],
+  "sidecar": [
+    true
+  ]
+}
