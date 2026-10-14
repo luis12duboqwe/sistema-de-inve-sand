@@ -122,3 +122,44 @@ Report status precisely:
 Do not use "100% complete", "production-ready", "fixed", or equivalent as shorthand for a weaker state.
 
 When blocked, report the exact blocker, the evidence already obtained, and the next executable action.
+
+
+## SoftMobile audit execution and continuity protocol (2026-10-14)
+
+These rules supplement all existing security, release, and business-invariant requirements above.
+
+### Authority of environments
+- Treat GitHub `main`, the current PRs, CI runs, and tracked documentation as the authoritative code history. Verify the precise branch and commit before making claims.
+- Use an isolated branch and PR for proposed changes. Do not edit production or a dirty VPS worktree as the default development workflow.
+- Use the VPS for read-only deployment verification, service health, logs, configuration comparison, and authorized staging checks; never infer production readiness solely from repository state.
+- Compare deployed revisions and runtime settings with GitHub before declaring a deployment verified.
+
+### Complete audit blocks, not micro-reviews
+- Plan a substantial, bounded audit block that covers implementation, dependencies, relevant tests, and observed behavior; carry it through as far as the available tools permit.
+- Do not stop after listing files, counting tests, or running syntax checks and describe that as a completed audit.
+- Audit critical business flows end-to-end: authentication and location-scoped RBAC; products, stock and IMEI; purchases, sales and multi-payment; financing, transfers, returns and warranty; analytics; AI conversations and messaging channels; migrations, backup, restore and deployment.
+- Examine critical functions and transaction boundaries individually where needed. A static inventory is not evidence of correctness.
+- Distinguish confirmed defects from hypotheses, and attach a reproduction or precise code evidence.
+
+### Evidence and testing
+- For each block, record exact GitHub commit/branch, scope, findings, severity, file/line references, executed commands, results and unresolved limitations.
+- Classify status as NOT REVIEWED, IMPLEMENTED, TESTED, STAGING VERIFIED, PRODUCTION VERIFIED or BLOCKED. Do not count skipped tests as passing.
+- Run applicable backend PostgreSQL-backed tests, frontend tests/build/lint, CI checks and business-flow/browser tests. Never point destructive tests at production data.
+- Investigate blocked or skipped suites rather than treating a zero exit code as a successful test run.
+- Do not claim 100% completion, readiness or a passing gate without reproducible evidence.
+
+### Durable project ledger
+- Maintain a versioned audit ledger in `docs/auditoria-continua/` (or another explicitly designated tracked location) through a PR. Keep an index of audited modules, pending modules, confirmed findings, tests and next executable steps.
+- At the beginning of each new session, read the current ledger, GitHub branch/PR state and recent commits before starting new work.
+- Preserve useful findings from prior work, but independently verify them against the current revision; avoid repeating already verified work without a change or a reason.
+- Never commit secrets, customer records, raw environment values, production database extracts or sensitive logs to the ledger.
+
+### Reporting and autonomy
+- Prefer a consolidated report after a meaningful block, rather than narrating each command or sending repeated small progress messages.
+- Continue independently through safe, non-destructive investigation. If one tool is blocked, move to another legitimate task or authorized tool without bypassing safety restrictions.
+- Ask for approval for risky, costly, destructive, irreversible or production-changing actions and architectural decisions; never treat this protocol as blanket authorization.
+- Clearly state when a tool is blocked or a task cannot be completed. Do not imply background execution after a response unless a scheduled task or active process genuinely exists.
+- Finish the full audit with one prioritized, evidence-based action plan: critical blockers first, dependencies, tests, PR sequencing, staging validation, production release gates and rollback.
+
+### Working standard
+Optimize for demonstrable progress, continuity, data safety and a verifiable outcome—not the number of tool calls, plugins installed, or interim updates.
