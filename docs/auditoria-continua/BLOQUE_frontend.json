@@ -458,5 +458,6 @@
     "Local inventoryService7343/syncService1013 no revisados por este agente; factory parcial",
     "No migraciones ni deploy en alcance",
     "Reproducciones descritas son pasos precisos derivados del código, no ejecuciones observadas"
-  ]
+  ],
+  "audit_correction_FE01": "El guard ORM rechaza desglose inconsistente HTTP400/rollback; retirar afirmación previa de persistencia. Flujo frontend sigue fallando."
 }

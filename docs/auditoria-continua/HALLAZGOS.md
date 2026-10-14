@@ -70,3 +70,8 @@ No es informe final ni autoriza correcciones. Confirmados por código, reproducc
 | DOC-03 | MEDIUM | Integración n8n tiene JSON corrupto y contratos obsoletos | BLOQUE_utilities.json |
 | PROD-01 | HIGH | Producción no tiene provenance verificable y conserva cambios fuera de GitHub | VERIFICACIONES.md |
 | PROD-02 | HIGH | Backup off-site obligatorio sin destino configurado | VERIFICACIONES.md |
+
+
+## Ampliación y rectificación
+
+Consultar CONTINUACION_02.md para nuevos hallazgos. FE-01: retirar afirmación de persistencia inconsistente; el guard ORM responde HTTP400 y rollback. HALLAZGOS.json contiene estado vigente.

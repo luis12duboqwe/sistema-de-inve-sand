@@ -367,3 +367,6 @@ Estado: DEFECTO LATENTE CONFIRMADO; SIN CONSUMIDOR ACTUAL.
 4. Flujos de error, paginación, notes y UI serializados FE-03/06/07/09.
 5. Producción autorepair, medios por cliente y reconexión latente FE-08/10/11.
 6. Completar módulos NOT REVIEWED; ejecutar gates frontend y browser centralizados por padre; no declarar producción verificada.
+
+
+Rectificación posterior FE-01: before_flush del backend rechaza pago mixto inconsistente; no guarda corrupción. Se mantiene fallo de flujo frontend. Evidencia REPRO_CONTINUACION_02.json.

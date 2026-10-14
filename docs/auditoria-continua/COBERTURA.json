@@ -2,18 +2,20 @@
   "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
   "denominator_policy": "Todos los 653 archivos rastreados de la línea base se incluyen conservadoramente: código, pruebas, scripts, configuración y documentación; sin exclusiones para inflar cobertura. No incluye documentos nuevos de auditoría. Lectura completa no implica corrección ni prueba runtime.",
   "counts": {
-    "NOT_REVIEWED": 171,
-    "FULL_TEXT_REVIEWED": 471,
-    "PARTIAL_REVIEWED": 11
+    "FULL_TEXT_REVIEWED": 552,
+    "NOT_REVIEWED": 93,
+    "PARTIAL_REVIEWED": 8
   },
-  "full_read_percentage": 72.13,
+  "full_read_percentage": 84.53,
   "files": [
     {
       "path": ".dockerignore",
       "blob_sha": "711485d90c56e0c0c4ab6b69f92885a322e52272",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": ".github/copilot-instructions.md",
@@ -71,15 +73,19 @@
       "path": ".gitignore",
       "blob_sha": "69a58209f22c64ff78b2588a5f79c0de657a5bc3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": ".spark-initial-sha",
       "blob_sha": "a95b0db09443b11082af2e576b80e1d3695f9500",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "AGENTS.md",
@@ -274,36 +280,46 @@
       "path": "backend/.dockerignore",
       "blob_sha": "1ce7567939d4b0ab3da701b2fd517ef7fefa797f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/.env.example",
       "blob_sha": "6577f4ed9703018c50e12dbefe917d3422f1b717",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/.env.example.channels",
       "blob_sha": "f5ec1964a1ba3f736c23451f30cb532cb18e04fb",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/.env.production.example",
       "blob_sha": "cae03599640da4aa492d3a14d180eb366db0292b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/.gitignore",
       "blob_sha": "e3b04f856def83aef14c7d1dd2dca77fae8a28d7",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/Dockerfile",
@@ -336,15 +352,19 @@
       "path": "backend/api-examples.json",
       "blob_sha": "c37fa3066aeae0d880414710f21d99e30aecf491",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/__init__.py",
       "blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/ai_context_search.py",
@@ -368,8 +388,10 @@
       "path": "backend/app/channel_audit.py",
       "blob_sha": "6ad05caa34b3da2c854e1214c0ea26f602fcf23a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/config.py",
@@ -432,8 +454,10 @@
       "path": "backend/app/location_identity.py",
       "blob_sha": "75a8a92d01c22b107e6898ac81a0a87b3b5046aa",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/main.py",
@@ -478,8 +502,10 @@
       "path": "backend/app/models/__init__.py",
       "blob_sha": "6058f319faf813848fe6e645c83e692ba59da136",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/models/ai.py",
@@ -494,9 +520,10 @@
       "path": "backend/app/models/analytics.py",
       "blob_sha": "20cdcae3a519340946bcee87c71e1d2278bf0717",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONTINUACION_02.json"
       ]
     },
     {
@@ -567,15 +594,19 @@
       "path": "backend/app/models/system.py",
       "blob_sha": "444f9f18868c023436b593a5db4c66af8b40cb0a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/routers/__init__.py",
       "blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/routers/ai_business_integrity.py",
@@ -982,9 +1013,10 @@
       "path": "backend/app/routers/super_admin.py",
       "blob_sha": "069facf57c9f780a11099a4ea54aa00e1e384ca9",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONTINUACION_02.json"
       ]
     },
     {
@@ -1027,22 +1059,28 @@
       "path": "backend/app/sales_profile_identity.py",
       "blob_sha": "0ee3d124129b90de0d1022b56bd26d827f0dd5a3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/sales_profile_lookup.py",
       "blob_sha": "96afef51b49bde7d83dce5412cfc1641cca7211c",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/__init__.py",
       "blob_sha": "0cb5b42192f9cb1ac08e7fefbf553f2822b2fa04",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/ai.py",
@@ -1075,8 +1113,10 @@
       "path": "backend/app/schemas/common.py",
       "blob_sha": "995716c21e623ed742274f84555a6e1febdd2122",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/control.py",
@@ -1100,8 +1140,10 @@
       "path": "backend/app/schemas/faq.py",
       "blob_sha": "4e903031787a9c186715304f47706900780d68c3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/finance.py",
@@ -1125,8 +1167,10 @@
       "path": "backend/app/schemas/location.py",
       "blob_sha": "c41e7b4a466f1e1d3895a0b6ce224d32793d84c0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/order.py",
@@ -1169,8 +1213,10 @@
       "path": "backend/app/schemas/public.py",
       "blob_sha": "39b120d6ba9864a41ae0a8a26036cdc2507a8e4b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/schemas/rbac.py",
@@ -1194,15 +1240,19 @@
       "path": "backend/app/schemas/stock_history.py",
       "blob_sha": "960cdbef7083ad2f2dfbb28682ef4b76725dcb15",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/services/__init__.py",
       "blob_sha": "41f030a9fa3d748abf12e9fd7ff7055579bf51f5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/services/ai_intelligence_helpers.py",
@@ -1264,8 +1314,10 @@
       "path": "backend/app/supplier_identity.py",
       "blob_sha": "8e78a386b7f39606b9226c08e7dbbb0bba2212e8",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/tests/test_locations.py",
@@ -1307,22 +1359,28 @@
       "path": "backend/app/utils/README.md",
       "blob_sha": "1ae4e8dbb29486ff584d7ddbbc0ba8431490b541",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/__init__.py",
       "blob_sha": "b6f6ab1282a48f43c8ba9db9a5e7acd6ae141059",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/agent_notifications.py",
       "blob_sha": "564a55d6dd017fea9957bf4b60102e97bf269a4b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/ai_sales_policy.py",
@@ -1337,8 +1395,10 @@
       "path": "backend/app/utils/audit.py",
       "blob_sha": "740e6d1d78a6fa08bea12e97951314f1c27bbd9d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/auth_security.py",
@@ -1362,29 +1422,37 @@
       "path": "backend/app/utils/bank_names.py",
       "blob_sha": "afa0e8b4e387d4b03d4ace48cc7e053f502c5532",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/daily_close_code.py",
       "blob_sha": "14cf372d7ce421d9fd7cb31d336d7230fa3f5154",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/demo_seed.py",
       "blob_sha": "9d29580ce109f3f8cf0d78a41f4225e16045e357",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/html_export.py",
       "blob_sha": "2d92641e4b0bb1574b55bd8314b22ed79c52d53c",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/location_access.py",
@@ -1400,15 +1468,19 @@
       "path": "backend/app/utils/logging_config.py",
       "blob_sha": "5d6a7bd6a5f0fbadbd18064625d11237f41ff10d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/observability.py",
       "blob_sha": "f90933e5693030e2118bb304cb995253acf569f4",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/order_currency.py",
@@ -1505,8 +1577,10 @@
       "path": "backend/app/utils/prometheus_metrics.py",
       "blob_sha": "ad537b3107e7a77704aa579a159f7813f7f47137",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/rate_limiter.py",
@@ -1521,15 +1595,19 @@
       "path": "backend/app/utils/retry.py",
       "blob_sha": "188711d1f81d2518159a5ccc04f767206f79f230",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/runtime_metrics.py",
       "blob_sha": "7731470c085aaf1f0b475245a3c8768c7d44887f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/s3_storage.py",
@@ -1553,8 +1631,10 @@
       "path": "backend/app/utils/sentry_config.py",
       "blob_sha": "44b804403210cf60a302e01247c8ac5dc104309b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/stock_manager.py",
@@ -1569,15 +1649,19 @@
       "path": "backend/app/utils/supplier_names.py",
       "blob_sha": "060b291f4054a929f5cc1c93c39f7c15414e1a30",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/validators.py",
       "blob_sha": "1c56274de198f2ee2c0866d4760b5324022e71e0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/app/utils/websocket_manager.py",
@@ -2045,8 +2129,10 @@
       "path": "backend/tests/__init__.py",
       "blob_sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/conftest.py",
@@ -2333,8 +2419,10 @@
       "path": "backend/tests/test_final_integrity_regressions.py",
       "blob_sha": "df33d22763e5e97b609d8302f800bec223fe07b8",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/test_financing_bank_integrity.py",
@@ -2762,8 +2850,10 @@
       "path": "backend/tests/test_stock_manager_invariants.py",
       "blob_sha": "6a2cbf8d5f1bf36a8982f5fb7350d47a55168236",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/test_stock_transaction_helper_concurrency.py",
@@ -2812,8 +2902,10 @@
       "path": "backend/tests/test_super_admin_product_purge.py",
       "blob_sha": "93c1952313409ef71070f76b9321cddacb647707",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/test_superuser_active_guard.py",
@@ -2853,8 +2945,10 @@
       "path": "backend/tests/test_transfer_creation_release_lock_compatibility.py",
       "blob_sha": "7a6e8688b99bbbb78c15e571b6102c09f6231e85",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/test_upgrade_audit.py",
@@ -2869,8 +2963,10 @@
       "path": "backend/tests/test_websocket_manager.py",
       "blob_sha": "d0782583803e0d81d216604f36d6a630e649e6fc",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "backend/tests/test_websocket_security.py",
@@ -3600,8 +3696,10 @@
       "path": "index.html",
       "blob_sha": "7b9561705385c5761f876c450cf54e9a5208ec66",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "inspect_last_order.py",
@@ -3735,8 +3833,10 @@
       "path": "src/ErrorFallback.tsx",
       "blob_sha": "0cfc184ef171acbd1d268e3aef84f341f67a4a52",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/__tests__/App.saleCompletion.test.ts",
@@ -3782,15 +3882,19 @@
       "path": "src/components/AIStatusWidget.tsx",
       "blob_sha": "101456d4d3fccf08e86a95d82437542b25b8e115",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/AITrainingCenter.tsx",
       "blob_sha": "ce1532d8526bde95261da9b87d0691a1b2a190e5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/AdvancedSearchDialog.tsx",
@@ -3803,22 +3907,28 @@
       "path": "src/components/BackendConnectionCheck.tsx",
       "blob_sha": "4f1c1f29430595852cafe4e2a7a17bc92df9b238",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/ChannelHealthDialog.tsx",
       "blob_sha": "a4c1992500cca2551eac23d96635cf8910e1e6a7",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/CustomerHistoryDialog.tsx",
       "blob_sha": "01f290e6d2fac2ff5e04bbe9f06b49a44adfc90f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/CustomerInsights.tsx",
@@ -3898,22 +4008,28 @@
       "path": "src/components/IMEIHistoryDialog.tsx",
       "blob_sha": "afde8694f36e3b6d093a7cc295f9faf34bdef507",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/IMEIListDialog.tsx",
       "blob_sha": "1937d37e9bae716a889b291762a9708a93bd192d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/ImportProductsDialog.tsx",
       "blob_sha": "1856a6b8344846914e1eb9c383d57c9afde9d5a8",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/KeyboardShortcutsDialog.tsx",
@@ -4157,15 +4273,19 @@
       "path": "src/components/PublicCatalog.tsx",
       "blob_sha": "8cb28096eaf35b23f2f507f8e0a7d691b2930ab2",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/ReportsDialog.tsx",
       "blob_sha": "d3c02a4ba90b22cac1b5aa3ab36ce82dabd9e600",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/RestockProductDialog.tsx",
@@ -4187,8 +4307,10 @@
       "path": "src/components/ReturnsListDialog.tsx",
       "blob_sha": "90ccff3fb1540820e13cc8e401c4a172eb76eccb",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/SalesHistoryDialog.tsx",
@@ -4215,15 +4337,19 @@
       "path": "src/components/StockByLocationDialog.tsx",
       "blob_sha": "02b94faf424cdf9b7b07b449034c26d6b3263c0a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/StockHistoryDialog.tsx",
       "blob_sha": "237247c674ada61ab6819464aca8c96c732d74ae",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/StorageDiagnosticDialog.tsx",
@@ -4243,15 +4369,19 @@
       "path": "src/components/SyncIndicator.tsx",
       "blob_sha": "e14aed23b849ebe6fd32aa857ec86c4a3ab75740",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/SyncSettingsDialog.tsx",
       "blob_sha": "826f093fcdc80fad7f2026c42bcba6e7f51dbef3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/TradeInPoliciesDialog.tsx",
@@ -4289,8 +4419,10 @@
       "path": "src/components/WarrantyCheckDialog.tsx",
       "blob_sha": "dbbfd41d2ae3d80d830d33c12c6d186941d8e98a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/components/__tests__/DailyCloseDialog.test.tsx",
@@ -4999,8 +5131,10 @@
       "path": "src/lib/aiForecasting.ts",
       "blob_sha": "672684e436891be482a99359226056e5ba1df83d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/apiClient.ts",
@@ -5024,8 +5158,10 @@
       "path": "src/lib/businessInsightsFallback.ts",
       "blob_sha": "e5004d5617c2d916a653592bed038b95a05adc6d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/chatOrchestrator.ts",
@@ -5058,8 +5194,10 @@
       "path": "src/lib/exportUtils.ts",
       "blob_sha": "8dffde8cec5c42c7373eb125272f25f7e66ec604",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/healthCheck.ts",
@@ -5074,29 +5212,37 @@
       "path": "src/lib/icon-proxies/lucide.ts",
       "blob_sha": "f3db3092c4d5032b2d1bf59ab4af6f2f24ba5863",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/icon-proxies/phosphor.ts",
       "blob_sha": "2c1a4d204601b04b581dbda57f8b9efde6cf7e08",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/importUtils.ts",
       "blob_sha": "f47405c661222cb1ff3397fb96f66e73863a5284",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/initialData.ts",
       "blob_sha": "253884849310b4da75d656135d70541c875f11a7",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/inventoryService.ts",
@@ -5119,24 +5265,29 @@
       "path": "src/lib/inventoryServiceFactory.ts",
       "blob_sha": "4ab8990cd57b0f8c21a8d8f0aa24da7984553c92",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_frontend.json"
+        "BLOQUE_frontend.json",
+        "CONTINUACION_02.json"
       ]
     },
     {
       "path": "src/lib/keyboardShortcuts.ts",
       "blob_sha": "ed33850a20b16e6deebf58317e2699aaa86a67d5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/kvStorage.manual.ts",
       "blob_sha": "034488e0d645caf64104ba3765427c0438ef0b9a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/kvStorage.test.ts",
@@ -5226,8 +5377,10 @@
       "path": "src/lib/reportUtils.ts",
       "blob_sha": "58e90b6d22eceea7923bfd131b7d360f9987db2e",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/runtimePolicy.test.ts",
@@ -5252,15 +5405,19 @@
       "path": "src/lib/syncJournal.ts",
       "blob_sha": "056a72bb3fd33e6753d202b256cdb88b709f209f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/syncService.ts",
       "blob_sha": "4c9bf403d63a6598f10d8b1dc3f71cc9438f57cf",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/lib/types.ts",
@@ -5354,8 +5511,10 @@
       "path": "src/main.tsx",
       "blob_sha": "38ebad7463450994bad68f5447339898eae74dd5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONTINUACION_02.json"
+      ]
     },
     {
       "path": "src/styles/theme.css",

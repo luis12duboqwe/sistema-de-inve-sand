@@ -59,3 +59,8 @@ Antes de la fase correctiva: completar182archivos, cotejar relaciones y falsos p
 7. HTTPS/readiness/observabilidad/alertas comprobados; permisos por rol/sede negativos, uso simultáneo y caída API fail-closed.
 8. Cada integración incluida requiere credenciales/configuración y flujo real entrada→respuesta→reintento; IA deshabilitada es válida sólo si se excluye expresamente del alcance certificado.
 9. Reportar por separado implementado, probado, integrado, desplegado y verificado en producción; no declarar100% sólo por CI o compilación.
+
+
+## Checkpoint posterior: continuación 02
+
+La cifra vigente sustituye el checkpoint anterior: 552/653 (84.53%) de lectura completa; 101 pendientes/parciales. Evidencia: CONTINUACION_02.json y REPRO_CONTINUACION_02.json. La auditoría sigue incompleta. FE-01 rectificado: backend rechaza desglose inconsistente, no se confirmó persistencia corrupta. Nuevos riesgos y fallos no equivalen a verificación de producción.
