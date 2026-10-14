@@ -1,0 +1,363 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "mode": "READ_ONLY",
+  "full_text_reviewed": [
+    {
+      "path": "src/components/AIForecastingDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "440232d924268e5b7af0c8d734d8f005b74c2163",
+      "line_count": 528,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/AIProfileConfigDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "7f60e7356f2eb2909063690a382004186233cd17",
+      "line_count": 331,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/AIStatusDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "b8b616fc23f93d8451a3492f0bc5bff219205d60",
+      "line_count": 268,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/AdvancedSearchDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "bfff0b5f2c886f34cf67d66f7b9b5b0be8f24a1c",
+      "line_count": 189,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/CustomerInsights.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "f52d009914cf7e5d72fdcd749d3639ef39178cb9",
+      "line_count": 226,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/CustomizeShortcutsDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "db1f56e23a18e3297c10a9a3b17b6aa1e3b220f6",
+      "line_count": 310,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/DailyCloseDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "84aab1b1ba0ed8d76dc5dd46b1afdb9cadd4b9a4",
+      "line_count": 480,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/DashboardStats.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "4855a9b797e26b0b7b98f9f1e38ff9038f1e99a1",
+      "line_count": 1612,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/EditProductDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "372726d63bc41c7a5b7f5dfea1649c9f633528d8",
+      "line_count": 334,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/EditProfileDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "bb2cbd21c0c1beca3bfd035204421650ddf45a65",
+      "line_count": 124,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/FinancingSettings.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "45ea8805a2e12540cf04921219bcf09a9661b9d3",
+      "line_count": 249,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/ForecastingWidget.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "01f0397fe5af5f6b9853d384498190379921c2e4",
+      "line_count": 170,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/KeyboardShortcutsDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "b1ab2415cd503ac931dc4d2e05cb63b9de79690d",
+      "line_count": 156,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/LocationsList.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "2a9b851aaf6bf37804fcf9a2e3d6c12caa0a9048",
+      "line_count": 417,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/LowStockAlert.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "615583af43d1e7dad6bc856ad33bafd71aa0e853",
+      "line_count": 185,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/LowStockReportDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "8ee452f9371450fdf5171db20c1024318812580f",
+      "line_count": 344,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/ManageFAQsDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "a8f0fa2c813382960f8fa9b54082375b3351c2a0",
+      "line_count": 277,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/ManageSuppliersDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "6a2a6d98d7fb1355c756be96082e84986b0e3d66",
+      "line_count": 340,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/ManageUsersDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "83319f755de954e38d6e866d4d218fe693b5c3f0",
+      "line_count": 474,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    },
+    {
+      "path": "src/components/MultiStoreControlDialog.tsx",
+      "status": "FULL_TEXT_REVIEWED",
+      "blob_sha": "62cdb4223dff1cdca77edd4124cc8e8bc8ed7dea",
+      "line_count": 1550,
+      "read_evidence": "Complete source output through cat or consecutive sed chunks; Dashboard 1-420/421-830/831-1240/1241-1612; MultiStore 1-420/421-850/851-1210/1211-1550, no truncation."
+    }
+  ],
+  "partial_dependency_review": [
+    {
+      "path": "src/App.tsx",
+      "ranges": [
+        "2528-2551"
+      ],
+      "reason": "Exact caller dependencies of MultiStore"
+    },
+    {
+      "path": "src/lib/apiClient.ts",
+      "ranges": [
+        "672-681",
+        "1536-1553",
+        "2188-2219"
+      ],
+      "reason": "Config error semantics, FAQ contract and pagination"
+    },
+    {
+      "path": "src/lib/inventoryServiceFactory.ts",
+      "ranges": [
+        "1454-1468",
+        "2296-2306",
+        "2541-2542"
+      ],
+      "reason": "API delegation"
+    },
+    {
+      "path": "backend/app/schemas/faq.py",
+      "ranges": [
+        "all"
+      ],
+      "status": "FULL_TEXT_REVIEWED",
+      "reason": "required category validation"
+    }
+  ],
+  "findings": [
+    {
+      "id": "AM-01",
+      "title": "Grabador de atajos mantiene captura global tras guardar/cancelar/cerrar",
+      "severity": "LOW",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/CustomizeShortcutsDialog.tsx:54-95,98-118,213-215"
+      ],
+      "evidence": "handleStartRecording registra window.keydown preventDefault/stopPropagation; sólo Escape o timer30s lo desregistran. Save/Cancel/cierre no disponen del handler ni cleanup; Enter se guarda como nueva tecla aunque UI dice Enter para guardar.",
+      "business_impact": "Bloquea escribir y atajos en formularios siguientes durante hasta30s; listeners se acumulan al editar consecutivos.",
+      "reproduction": "Abrir personalizar, grabar Ctrl+K, clic Guardar/Cancelar, cerrar, escribir en búsqueda/venta antes30s: evento sigue preventDefault. Enter tras combinación cambia binding a Enter en vez confirmar.",
+      "required_tests": "React Testing Library fakeTimers: verificar typing después Save/Cancel/unmount y Enter confirma una sola combinación; contar listeners activos.",
+      "recommendation": "Guardar referencia del listener y cleanup inmediato al terminar/cerrar/unmount; manejar Enter según texto UI."
+    },
+    {
+      "id": "AM-02",
+      "title": "Crear FAQ con categoría opcional falla contra contrato backend requerido",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/ManageFAQsDialog.tsx:94-111,177-185",
+        "src/lib/apiClient.ts:2199-2205",
+        "src/lib/inventoryServiceFactory.ts:2541-2542",
+        "backend/app/schemas/faq.py:9-17"
+      ],
+      "evidence": "UI etiqueta categoría Opcional y manda categoria:undefined cuando vacía; JSON.stringify omite campo, factory no añade default, FAQEntryCreate.categoria es str requerido. Pydantic local devolvió missing categoria.",
+      "business_impact": "Ruta normal de creación con pregunta/respuesta válida falla422 pese formulario decir válido.",
+      "reproduction": "Crear Nueva FAQ; ingresar pregunta/respuesta sin categoría; enviar -> backend422.",
+      "required_tests": "Integration API payload exacto de UI + UI error retaining form; considerar test category omitted/default.",
+      "recommendation": "Alinear categoría obligatoria en UI o default explícito en backend; validar antes envío."
+    },
+    {
+      "id": "AM-03",
+      "title": "Filtros del centro de gráficas no filtran top productos ni resumen de sedes",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/DashboardStats.tsx:162-166,377-406,442-471,479-524,572-666,838-927"
+      ],
+      "evidence": "filteredOrders usa filtros; serviceTopProducts y serviceStatsByLocation provienen de consultas sin parámetros y siempre tienen prioridad si no vacíos. getRefundAmountInRange usa todos returnsData sin asociar a filteredOrders.",
+      "business_impact": "Selector sede/fecha/canal/perfil aparenta cambiar todo, pero top y ventas por sede siguen globales/default30d; reembolsos de sedeB pueden descontarse de ventas sedeA.",
+      "reproduction": "API retorna top global P_B y summaries A/B; seleccionar filtro A donde sólo P_A vendió. Gráfica top mantiene P_B y resumen muestra B. Con refundB100 y saleA100 same date, filtered revenue A muestra0.",
+      "required_tests": "Render con datos A/B y mocks API global; activar cada filtro y verificar todas métricas/gráficas y returns comparten scope.",
+      "recommendation": "Propagar scope/fechas a queries canónicas y generar todas gráficas desde mismo dataset filtrado, incluyendo devoluciones."
+    },
+    {
+      "id": "AM-04",
+      "title": "Reporte de stock bajo ignora reservas y contradice alerta operativa",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/LowStockReportDialog.tsx:55-67",
+        "src/components/LowStockAlert.tsx:29-35"
+      ],
+      "evidence": "LowStockReport usa stockItem.cantidad_disponible, no stock_libre ni cantidad_reservada. LowStockAlert sí resta reservas.",
+      "business_impact": "Reporte/export omite faltantes de stock libre y recomienda mal reposición cuando inventario está reservado en traslados.",
+      "reproduction": "Producto disponible10 reservado10 libre0: LowStockAlert agotado, LowStockReport no aparece por cantidad10>5.",
+      "required_tests": "Render mismos products/locations en ambos componentes disponible10 reservado10, parcial y0; export debe coincidir.",
+      "recommendation": "Usar stock_libre o max(disponible-reservado,0) en reporte. Definir significado de physical vs sellable uniformemente."
+    },
+    {
+      "id": "AM-05",
+      "title": "Control multitienda borra borradores al renderizar padre",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/MultiStoreControlDialog.tsx:488-545,550-568",
+        "src/App.tsx:2528-2551"
+      ],
+      "evidence": "App construye permissions={{...}} nuevo en cada render. availableTabs memo depende objeto permissions y loadData callback también. Efecto inicial depende availableTabs/loadData y mientras open reinicializa ubicación, receiptLines/countLines/scanner y tab.",
+      "business_impact": "Refresco global o actualización unrelated del padre pierde líneas/capturas de compras/conteo sin advertir; cambia tab/sede durante trabajo.",
+      "reproduction": "Abrir Multitienda, seleccionar sedeB, añadir líneas y escanear; provocar rerender App conservando mismos permisos/locations/products con nuevo permissions literal -> vuelve sede inicial y borrador cero.",
+      "required_tests": "RTL rerender con permissions:{...sameValues}; verificar drafts/tab/selections permanecen; rerender productos actualizado y heartbeat padre.",
+      "recommendation": "Inicializar borrador sólo transición closed->open o reset explícito; depender flags primitivos/memo objeto y desacoplar carga de datos de reset de formulario."
+    },
+    {
+      "id": "AM-06",
+      "title": "Configuración IA puede guardar respuesta de perfil anterior en perfil actual",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/AIProfileConfigDialog.tsx:39-65,71-82"
+      ],
+      "evidence": "loadConfig(id) setConfig sin abort/generation/id guard; handleSave usa salesProfileId de props actual sobrescribiendo sales_profile_id del config. Cambiar/reabrir mientras requestA pendiente y resolverA despuésB mezcla contenido.",
+      "business_impact": "Personalidad/política/tasa/estado IA de un bot puede sobrescribir otro inadvertidamente.",
+      "reproduction": "ConfigA GET lento; cerrar/cambiar salesProfileIdB/reabrir; GET B resuelve y luego A; Guardar usa URLB pero {...configA,sales_profile_id:B}.",
+      "required_tests": "Deferred promises por id con orden inverso, abrir/cerrar/seleccionarB y guardar; nunca persistir A en B.",
+      "recommendation": "Reset inmediato por id y ignorar/abortar respuesta antigua; guardar sólo config cargada para id actual."
+    },
+    {
+      "id": "AM-07",
+      "title": "Desglose de cierre diario atribuye pago mixto entero al método principal",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/DailyCloseDialog.tsx:44-55,146-153,320-331",
+        "backend/app/routers/daily_close.py:69-86",
+        "backend/app/schemas/daily_close.py:28-41"
+      ],
+      "evidence": "DailyCloseOrder/summary omiten payment_breakdown; UI agrupa order.total completo por order.metodo_pago. Backend de cierre por sede sí contabiliza componentes, por tanto dos pantallas difieren.",
+      "business_impact": "Responsable conciliación ve efectivo/transferencias/card incorrectos y puede aprobar cierre con supuesto desglose falso.",
+      "reproduction": "Orden total100 cash40 transferencia60 con metodo_pago=efectivo; daily-close muestra Efectivo100 y transferencia0.",
+      "required_tests": "Crear venta mixta y comparar pending summary/UI vs cierre location_expected, sumas por componente.",
+      "recommendation": "Incluir breakdown en API summary y sumar cada componente; si no hay datos no llamar desglose conciliable."
+    },
+    {
+      "id": "AM-08",
+      "title": "Editor de accesos por sede no carga permisos existentes",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/MultiStoreControlDialog.tsx:199-207,903-936,1486-1506"
+      ],
+      "evidence": "accessFlags inicia can_view=true restofalse y sólo cambia por Checkbox; seleccionar user/location nunca llama listUserLocationAccess ni setAccessFlags existente. Guardar recupera acceso pero elimina selected location y lo reemplaza con flags del formulario desinformado.",
+      "business_impact": "Editar un permiso puede revocar otros existentes o aplicar flags del usuario anterior a nuevo usuario inadvertidamente.",
+      "reproduction": "UsuarioA/sedeA tenía can_edit y can_close_cash=true. Seleccionarlo UI muestra false; marcar can_count_stock y guardar reemplaza ambos antiguos false. Seleccionar usuarioB conserva flagsA.",
+      "required_tests": "RTL/API muestra flags existentes al seleccionar y cambio puntual preserva no editados; cambio user/location y races loaders.",
+      "recommendation": "Cargar flags seleccionados antes permitir edición/guardar; distinguir crear de editar y reset al cambiar objetivo."
+    }
+  ],
+  "deduplicated_extensions": [
+    {
+      "existing_id": "FE-12",
+      "locations": [
+        "src/components/LowStockReportDialog.tsx:123-150",
+        "src/components/MultiStoreControlDialog.tsx:609-649"
+      ],
+      "evidence": "LowStock CSV join comma lacks escaping; bank CSV escapes quotes correctly but retains formula-leading fields. Add surfaces under existing CSV finding."
+    },
+    {
+      "existing_id": "FE-13",
+      "locations": [
+        "src/components/DashboardStats.tsx:287-317,328-347,405-431,460-465,578-667"
+      ],
+      "evidence": "Frontend financial charts use created_at; refund first matching sale line gross rather than recorded net allocation; serviceReports final canonical use effective sale time and recorded allocation. Extend existing financial-period report mismatch."
+    },
+    {
+      "existing_id": "FE-15",
+      "locations": [
+        "src/components/LocationsList.tsx:33-40",
+        "src/components/DashboardStats.tsx:162-172,207",
+        "src/components/MultiStoreControlDialog.tsx:507-533",
+        "src/lib/apiClient.ts:1536-1542",
+        "src/components/AIProfileConfigDialog.tsx:48-61"
+      ],
+      "evidence": "Dashboard swallows errors, retains stale metric and sets lastUpdated even when all fail; MultiStore presents error sections as empty histories; AI config catches every error as null then resets defaults that can be saved over current settings. Existing empty/error finding expands to financial/settings screens."
+    },
+    {
+      "existing_id": "FE-06",
+      "locations": [
+        "src/components/ManageFAQsDialog.tsx:46-51",
+        "src/components/ManageSuppliersDialog.tsx:46-49",
+        "src/lib/apiClient.ts:672-679"
+      ],
+      "evidence": "Same pagination truncation root: FAQs first100 only and ignores total/pages; suppliers API defaults50 and client drops metadata, UI calls all. Broaden existing truncated-list finding; no duplicate primary."
+    },
+    {
+      "existing_id": "BUS-H04",
+      "locations": [
+        "src/components/MultiStoreControlDialog.tsx:138,315-327,367-371"
+      ],
+      "evidence": "Scanner availability only vendido/order_id/transfer_id and excludes neither acquisition_type cuarentena nor historical defective. Frontend treats defective returned serial as physical sellable count; related backend hypothesis requires PostgreSQL repro."
+    }
+  ],
+  "validation": [
+    {
+      "method": "Pydantic FAQEntryCreate validation with UI-created payload omitting category",
+      "result": "ValidationError [(categoria,missing)]",
+      "limitations": "Local in-process schema check only; no production HTTP/database."
+    },
+    {
+      "method": "Complete textual read of 20 pending components",
+      "result": "All chunks untruncated. No component runtime/browser tests performed by this worker."
+    }
+  ],
+  "existing_findings_dedup_count": 79,
+  "limitations": [
+    "Source/static evidence; new findings except FAQ schema mismatch require component runtime regressions to establish user-facing timing.",
+    "No code edits, production tests or GitHub mutations. Parent-owned docs/auditoria-continua untracked present; this worker only wrote /tmp report.",
+    "Already FULL_TEXT_REVIEWED components in A-M were not reread to inflate coverage. 20 actually pending read in entirety."
+  ]
+}

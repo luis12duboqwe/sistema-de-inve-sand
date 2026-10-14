@@ -1,0 +1,233 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "full_text_reviewed": [
+    ".github/copilot-instructions.md",
+    "CHANGELOG_AI_IMPROVEMENTS_V2.md",
+    "CHANNELS_CONFIGURATION.md",
+    "LICENSE",
+    "PHOTO_REQUESTS_SYSTEM.md",
+    "PRODUCTION_IMPROVEMENTS.md",
+    "docs/DEPLOYMENT.md",
+    "docs/ESTADO_IA.md",
+    "docs/GUIA_REFACTORIZACION.md",
+    "docs/GUIA_TESTING.md",
+    "docs/GUIA_TRANSFERENCIAS.md",
+    "docs/INTEGRACION.md",
+    "docs/MANUAL_COMPLETO.md",
+    "docs/PRD.md",
+    "docs/RESUMEN_MEJORAS.md",
+    "docs/TESTING_PLAN.md",
+    "docs/TESTING_RESULTS.md",
+    "docs/VALIDACION.md"
+  ],
+  "full_text_reviewed_count": 18,
+  "review_evidence": [
+    {
+      "path": ".github/copilot-instructions.md",
+      "sha256": "ea6913e714cd4df820d9d0700ce38486a58af8b2940aead2077124b4e983223d",
+      "lines": 479,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "CHANGELOG_AI_IMPROVEMENTS_V2.md",
+      "sha256": "09f4f4e7052c3d6f33cb6a8773c675b653b7653d23959d256dd369d35cc5d986",
+      "lines": 210,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "CHANNELS_CONFIGURATION.md",
+      "sha256": "8aebf7629aa74fe741f77b6d924136c85e3d6df3bb497f71dc5ed1f0220a332c",
+      "lines": 529,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "a95d21153d38c3d63e5da53dd7dee70d9284efc4780b5688cab55ea861983e4b",
+      "lines": 21,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "PHOTO_REQUESTS_SYSTEM.md",
+      "sha256": "3231292b42a2a97ed4fe2a8b74732f4368aa4b9a0667f671c0ee59586749a14f",
+      "lines": 488,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "PRODUCTION_IMPROVEMENTS.md",
+      "sha256": "0f059a6c3daf72fdc9324687b2e64302673030399da8faed7c2202d8e32462b9",
+      "lines": 490,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/DEPLOYMENT.md",
+      "sha256": "f4e966bf74c67ec2aeec075349d8bccaf3e385f65b1b9f30b09c7a65343a059b",
+      "lines": 494,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/ESTADO_IA.md",
+      "sha256": "a5ed83eb75892f7222b0c521cdcd47791958c5e0eb08cd325867ae75270e72cc",
+      "lines": 380,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/GUIA_REFACTORIZACION.md",
+      "sha256": "96e6994d90654dc773eaf5c9d68b54333a93c5261ec7eba5dbb51e3a3bd3151e",
+      "lines": 754,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/GUIA_TESTING.md",
+      "sha256": "b137fd010a77ebabe8c59d393022b5fe73ea5127011c1cfb762102fcfa1927ea",
+      "lines": 326,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/GUIA_TRANSFERENCIAS.md",
+      "sha256": "b9f2dd3bc609502a892e4cedb0aabe61f09cb07bf84c2db537d39e180739e6c1",
+      "lines": 259,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/INTEGRACION.md",
+      "sha256": "482787a2ad9bdf482193bc4e6b091df65e581c2326bbd97b66460691235628aa",
+      "lines": 211,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/MANUAL_COMPLETO.md",
+      "sha256": "67076e10f21378d83d667bc4ecb2ada25a2d063666a90ab3f28254b268bb0b8b",
+      "lines": 466,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/PRD.md",
+      "sha256": "c13793ef1ff7266cd20fe63b987380d6021cb92e9d831550e81af7f13d37b3f9",
+      "lines": 274,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/RESUMEN_MEJORAS.md",
+      "sha256": "91288aea5209838db08e933468b258f667947ccc01bcfc390b54265efa4cd1db",
+      "lines": 609,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/TESTING_PLAN.md",
+      "sha256": "089982d2cf966bf7cc232e76158f968db5125d14cd5865e97334de0975c6d4e4",
+      "lines": 511,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/TESTING_RESULTS.md",
+      "sha256": "508bf4c5e14c9ec9de60aea0428761daea876aa5cfd2bbf74c80622bdf354cc0",
+      "lines": 371,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    },
+    {
+      "path": "docs/VALIDACION.md",
+      "sha256": "f00ae3020cffcf19b607a12b96c21aed4f10febf72bdcdf3139fcbb39e139774",
+      "lines": 302,
+      "method": "Texto completo leído en tool outputs; copilot/CHANGELOG/PRD/LICENSE relecturas parciales recuperaron tramo truncado primera llamada."
+    }
+  ],
+  "findings": [
+    {
+      "id": "DOC-04",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "title": "Instrucciones activas de Copilot prescriben borrar BD y arquitectura obsoleta",
+      "locations": [
+        ".github/copilot-instructions.md:9,19-32,294-315",
+        "src/lib/inventoryServiceFactory.ts:828-840",
+        "AGENTS.md:17-23,62-70",
+        "docs/PRODUCCION_FINAL.md:146-164"
+      ],
+      "evidence": "Archivo de instrucciones para asistentes declara SQLite, local default sin distinguir producción, no tests frontend, y tras cambios de modelo manda Delete backend/inventory.db + init_db --with-data. Código actual fuerza API en production y migra con ledger/fail-fast; AGENTS prohíbe reset/reseed como shortcut.",
+      "business_impact": "Desarrolladores/asistentes pueden reintroducir fallback de escritura local o destruir instalación SQLite legado al seguir una instrucción aparentemente vigente; también omitir regresiones configuradas. No demuestra ejecución insegura actual: AGENTS y canonical tienen prioridad.",
+      "reproduction": "Lectura exacta instrucciones versus código runtimePolicy/factory y AGENTS; no acciones ejecutadas.",
+      "recommendation": "Sincronizar .github/copilot-instructions.md con AGENTS y referir runbook; quitar delete/reseed y declarar matriz tests real.",
+      "required_tests": "Revisión documental de invariantes y comprobación de links/comandos; ninguna prueba runtime necesaria para cambio docs.",
+      "deduplication": "Nueva categoría: instrucciones de agente que pueden orientar futuras modificaciones; distinta DOC-02 guides de deploy."
+    },
+    {
+      "id": "DOC-05",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "title": "Guía canales confunde firma HMAC con verify token y recomienda borrar credenciales reales",
+      "locations": [
+        "CHANNELS_CONFIGURATION.md:378-390",
+        "backend/app/routers/channel_integrations.py:207-225",
+        "backend/seed_channel_credentials.py:168-211,220-260"
+      ],
+      "evidence": "Ante Firma inválida HTTP401 se atribuye causa a verify_token y recomienda seed --clear + --populate sin limitar a testing. Error real compara X-Hub-Signature-256 HMAC raw_body con META_APP_SECRET; no usa verify_token. Script clear/populate opera todos perfiles activos con credenciales ficticias.",
+      "business_impact": "Operador intentando recuperar webhooks elimina tokens reales de todos perfiles y los sustituye por demos, provocando caída de mensajería sin solucionar firma. También se materializa pérdida de config documentada OPS-09.",
+      "reproduction": "Trazado estático exacto del error a _verify_meta_signature versus pasos guide y alcance all active profiles de utilidad; no se ejecutó seed.",
+      "recommendation": "Distinguir challenge GET verify_token de firma POST app_secret; troubleshooting debe validar firma/cuerpo/secret y nunca seed demo sobre instalación real.",
+      "required_tests": "Prueba documental de casos GET challenge versus POST bad signature; guard producción en utilidad se evalúa por PR separado.",
+      "deduplication": "Relacionada OPS-09 pero raíz distinta: instrucción de soporte destructiva y diagnóstico criptográfico erróneo; no duplica defecto parser."
+    },
+    {
+      "id": "DOC-06",
+      "severity": "LOW",
+      "status": "CONFIRMED_STATIC",
+      "title": "Documentación upgrade prescribe migraciones que no existen",
+      "locations": [
+        "CHANGELOG_AI_IMPROVEMENTS_V2.md:145-149,199-203",
+        "docs/GUIA_TRANSFERENCIAS.md:159-164"
+      ],
+      "evidence": "Nombra backend/migrate_add_ai_memory_and_queue.py e indica ejecutar migrate_stock_transfers.py; rg --files no encuentra ambos en SHA auditado. Auto_migrations actual cubre otras nueve compatibilidades, no script nombrado. Documentos fechados históricos, canonical startup no invoca estas rutas.",
+      "business_impact": "Operador siguiendo guía específica de upgrade recibe file not found y no tiene procedimiento verificable para agregar campos a schema antiguo; no prueba que despliegue fresco falle.",
+      "reproduction": "Inventario rastreado de paths exactos ausentes comparado instrucciones; no migraciones ejecutadas.",
+      "recommendation": "Rotular históricos y redirigir ACTUALIZAR_INSTALACION_EXISTENTE/runbook; documentar baselines soportados y migración real para cada campo antes de ofrecer upgrade.",
+      "required_tests": "Verificar existencia de cada path/comando documentado y smoke upgrade sólo con DB descartable.",
+      "deduplication": "Nueva falta concreta de archivos de upgrade, distinta DOC-02 estado preparación y DOC-03 contratos n8n."
+    }
+  ],
+  "deduplicated_extensions": [
+    {
+      "existing_id": "DOC-02",
+      "additional_locations": [
+        "docs/DEPLOYMENT.md:81-95,417-435,481-494",
+        "docs/MANUAL_COMPLETO.md:291-318,390-405",
+        "docs/RESUMEN_MEJORAS.md:464-472,583-598",
+        "docs/TESTING_RESULTS.md:27-35,169-182,199-201"
+      ],
+      "evidence": "Nuevas fuentes antiguas sin banner historical mantienen backup/restore cp inventory.db, aceptan simple static server producción, aconsejan eliminar/reseed BD si tests fallan, y llaman 24/24 coverage/production-ready a comprobar comentarios/clases/archivos. No evidencia operativa actual; canonical exige PG/offsite/DR/gates reales.",
+      "recommendation": "Ampliar DOC-02 con estas fuentes, no crear finding paralelo."
+    },
+    {
+      "existing_id": "DOC-03",
+      "additional_locations": [
+        "docs/ESTADO_IA.md:6-10,29-50,67-77,197-212",
+        "docs/INTEGRACION.md:6-18,71-78,142-159",
+        "docs/PRD.md:156-174"
+      ],
+      "evidence": "Docs adicionales usan rutas log-interaction/submit-for-training obsoletas, exigen n8n como única orquestación, contradicen flag AI false/heurística y anuncian fallback local de datos ante outage. API/backend actuales y runbook están auditados en bloques anteriores.",
+      "recommendation": "Integrar en DOC-03/DOC-02 según tema; no nuevo finding sólo por drift repetido."
+    },
+    {
+      "existing_id": "PHOTO-001",
+      "additional_locations": [
+        "PHOTO_REQUESTS_SYSTEM.md:211-220,390-404"
+      ],
+      "evidence": "Doc afirma detección automática de canal original y envío correspondiente; implementación real ya contradicha PHOTO-001. No hallazgo nuevo."
+    },
+    {
+      "existing_id": "FE-12",
+      "additional_locations": [
+        "docs/RESUMEN_MEJORAS.md:183-239"
+      ],
+      "evidence": "Documento garantiza protección CSV por helper Python, pero exportador frontend ya auditado FE-12 no la utiliza; no añadir defecto duplicado."
+    }
+  ],
+  "tests": {
+    "executed": [],
+    "reason": "Bloque sólo lectura documentos; contradicciones verificadas contra código y ledger existente, sin acciones externas/DB/VPS."
+  },
+  "limitations": [
+    "Documentos históricos no se trataron como prueba estado actual ni se ejecutaron instrucciones.",
+    "No web sourcing/meta platform validation: revisión de instrucciones contra código local exclusivamente.",
+    "No se releyeron documentos ya FULL en COBERTURA; ledger nuevo no pertenece baseline."
+  ]
+}

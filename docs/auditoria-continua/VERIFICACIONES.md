@@ -45,3 +45,8 @@ No ejecutadas localmente: suite completa backend PostgreSQL y E2E PostgreSQL (se
 ## Evidencia previa recuperada
 
 PR146 contiene CANALES_2026-10-14.md; CH002/003/004 legacy superados por handlers activos/middleware. CH001 parcialmente superado para webhook, persiste en camino IA y limpieza compartida; CH005/006vigentes. Ver BLOQUE_security-ai.json. Informes VPS no rastreados ESTADO_Y_PLAN/INVENTARIO_ARCHIVOS/RESUMEN_AUTOMATICO fueron leídos como contexto: enumerar535archivos y comprobar sintaxis no equivalía a revisión completa. Esta cobertura usa blobs de GitHub, sin importar aquel porcentaje como semántico.
+
+
+## Continuación03 — estado vigente
+
+653/653 revisión estática completa (652texto,1lock estructural), todos blobs exactos. HMAC12assertions aprobadas200/401 esperado; eventos vacíos/NoDB. npm audit exit0,0advisories conocidos. Browser cloud público: /catalogo falla fetch y sin tarjetas; API público200/189items; / llega a login. Sin autenticación, mensajes ni escrituras. PG alternativa pgserver16.2 instalada solo scratch, no inicia por useradd/setgroups, suite local no ejecutada. VERIFICACIONES_CONT03.json y INFORME_INTEGRAL.md detallan alcance y limitaciones.

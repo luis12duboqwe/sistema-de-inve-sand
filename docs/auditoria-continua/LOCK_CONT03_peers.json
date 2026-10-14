@@ -1,0 +1,42 @@
+{
+  "mismatch": [],
+  "missing": [],
+  "engines": [
+    [
+      "node_modules/@inquirer/ansi",
+      ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    ],
+    [
+      "node_modules/@inquirer/confirm",
+      ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    ],
+    [
+      "node_modules/@inquirer/core",
+      ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    ],
+    [
+      "node_modules/@inquirer/figures",
+      ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    ],
+    [
+      "node_modules/@inquirer/type",
+      ">=23.5.0 || ^22.13.0 || ^20.17.0"
+    ],
+    [
+      "node_modules/@napi-rs/lzma-linux-x64-gnu",
+      "^22.20 || ^24.12 || >=25"
+    ],
+    [
+      "node_modules/@typescript-eslint/visitor-keys/node_modules/eslint-visitor-keys",
+      "^20.19.0 || ^22.13.0 || >=24"
+    ],
+    [
+      "node_modules/@vitejs/plugin-react-swc",
+      "^20.19.0 || >=22.12.0"
+    ],
+    [
+      "node_modules/mute-stream",
+      "^20.17.0 || >=22.9.0"
+    ]
+  ]
+}

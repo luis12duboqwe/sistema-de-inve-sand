@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "id": "CH-007",
+      "severity": "MEDIUM",
+      "title": "Métricas de canales publicadas nunca reciben eventos",
+      "status": "CONFIRMED_STATIC_INCOMPLETE_INSTRUMENTATION",
+      "evidence": [
+        "backend/app/channel_audit.py:265-288 define incrementadores",
+        "backend/app/routers/channel_monitoring.py:41,169 devuelve get_summary",
+        "rg backend/app: sin llamadas increment_messages_received/sent/duplicates/api_errors fuera definiciones/docs"
+      ],
+      "reproduction": "Un webhook procesado/envío exitoso o fallido no invoca incrementadores; /monitoring/metrics conserva dicts vacíos y puede aparentar ausencia tráfico/errores.",
+      "recommendation": "Instrumentar recepción/retry/entrega/dedupe/error canónicos; definir backend persistente o agregación workers y tests.",
+      "tests": [
+        "Webhook mock éxito/fallo/duplicate incrementa métricas correctas exactamente una vez."
+      ],
+      "execution": "No ejecutado; validación estática",
+      "locations": [
+        "backend/app/channel_audit.py:265-288",
+        "backend/app/routers/channel_monitoring.py:41,169"
+      ],
+      "business_impact": "Monitorización puede mostrar ausencia de tráfico/errores pese mensajes procesados o fallidos, dificultando detectar atención perdida.",
+      "required_tests": [
+        "Webhook mock éxito/fallo/duplicate incrementa métricas correctas exactamente una vez."
+      ],
+      "source_report": "CONT03_INSTRUMENTACION.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "evidence_class": "CONFIRMED_STATIC",
+      "affected_function": [
+        "ChannelMetrics.increment_messages_received",
+        "increment_messages_sent",
+        "increment_duplicates",
+        "increment_api_errors",
+        "get_summary"
+      ]
+    }
+  ],
+  "related_existing": [
+    "OBS-01",
+    "OBS-02"
+  ],
+  "scope": "Extensión de lectura previamente válida; no repetir ni contabilizar dos veces métricas cardinalidad/contexto"
+}

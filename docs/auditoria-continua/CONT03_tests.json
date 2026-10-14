@@ -1,0 +1,101 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "status": "FULL_TEXT_REVIEWED",
+  "full_text_reviewed": [
+    "backend/tests/test_ai_workflow.py",
+    "backend/tests/test_api_flow.py",
+    "backend/tests/test_channel_integrations.py",
+    "backend/tests/test_channel_webhook_delivery_integrity.py",
+    "backend/tests/test_imei_admin_integrity.py",
+    "backend/tests/test_location_name_concurrency_integrity.py",
+    "backend/tests/test_multistore_ops_integrity.py",
+    "backend/tests/test_order_edit_pricing_integration.py",
+    "backend/tests/test_order_edit_term_preservation.py",
+    "backend/tests/test_order_pricing_policy.py",
+    "backend/tests/test_order_service_pricing_integration.py",
+    "backend/tests/test_photo_requests_flow.py",
+    "backend/tests/test_pricing_policy_migration.py",
+    "backend/tests/test_purchase_restock_lock_order_integrity.py",
+    "backend/tests/test_restock_inventory_count_lock_compatibility.py",
+    "backend/tests/test_restock_transfer_confirmation_lock_compatibility.py",
+    "backend/tests/test_sales_profile_router_guards.py",
+    "backend/tests/test_sales_profile_slug_concurrency_integrity.py",
+    "backend/tests/test_stock_history_access_stats.py",
+    "backend/tests/test_super_admin_audit_filters.py",
+    "backend/tests/test_super_admin_identity_concurrency.py",
+    "backend/tests/test_supplier_name_concurrency_integrity.py",
+    "backend/tests/test_upgrade_audit.py",
+    "backend/test_forecasting.ipynb"
+  ],
+  "partial_reviewed": [],
+  "not_reviewed": [],
+  "tests_executed": [],
+  "test_execution_note": "No se ejecutaron suites por instrucción padre; review solo estática.",
+  "findings": [
+    {
+      "id": "TEST-09",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC_TEST_GAP",
+      "title": "Webhooks de entrega se prueban con validación de firma deshabilitada",
+      "locations": [
+        "backend/tests/test_channel_integrations.py:49,144",
+        "backend/tests/test_channel_webhook_delivery_integrity.py:46,97,163,214,269",
+        "backend/tests/test_channel_integrations.py:121-132"
+      ],
+      "evidence": "Todos los POST webhook de integración/delivery/retry fijan META_APP_SECRET vacío. Único uso no vacío comprueba snapshot health.signature_validation_enabled; no existe request firmado válido, firma ausente, firma incorrecta ni cuerpo manipulado en backend/tests (lectura completa + búsqueda signature/hmac/X-Hub/META_APP_SECRET).",
+      "business_impact": "Los gates no detectan regresión en frontera autenticación webhook de proveedores, ni efectos DB al rechazar firmas. Brecha test; no demuestra bypass implementación.",
+      "reproduction": "Estática: enumerar META_APP_SECRET/headers en todos tests; una implementación que ignore firma conservaría los mismos oráculos de POST existentes. No se ha ejecutado mutación del programa.",
+      "recommendation": "Añadir pruebas HTTP con secret no vacío y bytes crudos: HMAC correcto acepta, ausente/inválido/cuerpo alterado rechaza y deja ProcessedMessage/logs/orders sin efectos.",
+      "required_tests": "TestClient PostgreSQL descartable, sin llamadas Meta reales, parametrizar whatsapp/messenger/instagram y cuentas distintas."
+    }
+  ],
+  "existing_finding_evidence_updates": [
+    {
+      "existing_id": "T04",
+      "locations": [
+        "backend/tests/test_purchase_restock_lock_order_integrity.py:194-196,372-377",
+        "backend/tests/test_restock_inventory_count_lock_compatibility.py:205-207",
+        "backend/tests/test_restock_transfer_confirmation_lock_compatibility.py:173-175,396-398",
+        "backend/tests/test_product_restock_concurrency_integrity.py:144-146"
+      ],
+      "evidence": "future.result(timeout=20) vive dentro with ThreadPoolExecutor; al vencer y salir del with, shutdown(wait=True) espera workers. Estas suites no configuran lock_timeout/statement_timeout DB local. Por ello timeout Future no garantiza terminación gate ante bloqueo externo persistente; PostgreSQL detecta ciclos normales pero no todo lock externo.",
+      "impact": "Un lock persistente ajeno puede colgar CI pese timeout aparente. Extensión T04, no hallazgo duplicado.",
+      "recommendation": "Timeout servidor PostgreSQL en cada worker y barrera acotada; timeout proceso CI. Repro safe en DB aislada mantener lock desde tercera sesión y confirmar falla acotada."
+    },
+    {
+      "existing_id": "FE-01",
+      "locations": [
+        "backend/tests/test_api_flow.py:296-310"
+      ],
+      "evidence": "Único test aceptación balanced 600 cash+400 card afirma status201 solamente; no compara payment_breakdown persistido, recargo, neto y cierre. Rechazo desbalanceado :275-293 verifica Order ausente pero no stocks/IMEI/audit.",
+      "impact": "Brecha de oráculo específica del contrato pago mixto; evidencia complementaria FE-01, no duplicación del bug.",
+      "recommendation": "Payload UI real con bank/card fee + cash, comprobar total/base/recargos, JSON persistido, stock e IMEI, cierre diario; error exige snapshot DB intacto."
+    },
+    {
+      "existing_id": "TEST-08",
+      "locations": [
+        "backend/tests/test_stock_manager_invariants.py:115-175,178-231"
+      ],
+      "evidence": "Con barrier ambos leen disponible5; cada decremento directo4 escribe1. Los dos commits con actualización perdida satisfacen >=0. Reserva3+3 también puede dejar reservado3 y aprobar. errors[] recolectado nunca asserted.",
+      "recommendation": "Oráculo conservación por movimientos/success count, stock exacto e historial, no solo no-negativo."
+    }
+  ],
+  "notebook_review": {
+    "path": "backend/test_forecasting.ipynb",
+    "cells": 1,
+    "execution_count": null,
+    "observation": "Smoke manual, sin asserts, captura y print Exception, llama SessionLocal configuración ambiente sin aislamiento. Output persistido kernel .venv no disponible; no es evidencia de ejecución válida ni test descubierto pytest.",
+    "recommendation": "Mantener etiquetado diagnóstico manual; convertir escenarios forecast a pytest aislado con assert cuantitativo, permisos negativos y fecha fija."
+  },
+  "strengths": [
+    "Regresiones de lock-order de compras/restock/count/transfer comparan locks reales FOR NO KEY UPDATE->Stock y estado final exacto en PostgreSQL; no son simples mocks.",
+    "Unicidad location/supplier/profile usa barrera commit determinista, exige 1 éxito y 1 error400 y cardinalidad persistida1.",
+    "Upgrade audit incluye fingerprints reales SQLite vs PostgreSQL y preservación legacy; esto reduce limitación de helper cross-engine pero no sustituye migración CLI T03.",
+    "Webhooks delivery verifican retry AI y send separado, estado pending_delivery/manual_recovery/delivered y no reinvocación AI secuencial."
+  ],
+  "limitations": [
+    "Lectura no demuestra ejecución ni validez en producción.",
+    "Webhook tests nuevos pendientes; no invocar Meta real.",
+    "T04/FE01/TEST08 solo ampliación evidencia, no agregar nuevos IDs duplicados."
+  ]
+}

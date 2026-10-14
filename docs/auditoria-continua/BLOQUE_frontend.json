@@ -239,24 +239,55 @@
   "findings": [
     {
       "id": "FE-01",
-      "severity": "ALTA",
-      "status": "CONFIRMADO POR CODIGO",
+      "severity": "HIGH",
+      "status": "FRONTEND_CONTRACT_REJECTED_BY_BACKEND_GUARD",
       "title": "Pagos mixtos con tarjeta calculan/importan totales incompatibles con backend",
       "evidence": [
         "src/components/NewOrderDialog.tsx getOrderFinancials 590-642: recargo cardBaseAmount * tasa; total neto + ese recargo",
         "src/components/NewOrderDialog.tsx handleSubmit 750-767,820-833: método principal = mayor importe; financing_data prima independiente",
         "backend/app/utils/order_financing.py compute_financing_from_payload 102-150: rechaza efectivo/transferencia con financing_data y calcula recargo sobre total neto-prima",
-        "backend/app/services/order_service.py create_order 236-246,280-287: total calculado persiste y commit; no conciliación breakdown en tramo creación leído"
+        "backend/app/utils/order_integrity.py before_flush valida suma del desglose contra total; reproducción aislada HTTP400 y rollback deja cero órdenes."
       ],
       "reproduction": "Neto1000, tasa5%, efectivo600 tarjeta400 prima0: UI1020; payload metodo efectivo + financing_data ->400. Efectivo400 tarjeta600 prima0: UI1030; backend total1050 y breakdown1030. Para extrafinanciamiento con monto tarjeta1000, plazo6 tasa10% y tarjeta normal5%: UI1100 pero breakdown1050 y método tarjeta (no financiamiento).",
-      "impact": "Bloquea venta mixta o guarda cobro desglose diferente del total; modalidad financiamiento también pierde su enum si hay desglose.",
-      "recommendation": "Definir un contrato único de base tarjeta/financiamiento; mantener modalidad elegida, deducir pagos no tarjeta de monto financiado y validar suma breakdown vs total en servidor.",
+      "impact": "Bloquea venta mixta por contrato inconsistente; la modalidad de financiación puede perder su enum. El guard ORM rechaza el desglose inconsistente antes del commit; no se confirmó corrupción persistida.",
+      "recommendation": "Definir un contrato único de base tarjeta/financiamiento; mantener modalidad elegida y conciliar pagos con el guard servidor existente.",
       "tests": [
         "NewOrderDialog.test.tsx sólo nombre faltante",
         "tests/browser/financing.spec.ts sólo alta banco, ninguna venta financiada",
         "Añadir UI+PostgreSQL cash/card, transfer/card, financiación, prima, tasa0 y redondeos"
       ],
-      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente"
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Bloquea venta mixta por contrato inconsistente; la modalidad de financiación puede perder su enum. El guard ORM rechaza el desglose inconsistente antes del commit; no se confirmó corrupción persistida.",
+      "required_tests": [
+        "NewOrderDialog.test.tsx sólo nombre faltante",
+        "tests/browser/financing.spec.ts sólo alta banco, ninguna venta financiada",
+        "Añadir UI+PostgreSQL cash/card, transfer/card, financiación, prima, tasa0 y redondeos"
+      ],
+      "audit_correction": "La afirmación previa de persistencia inconsistente se retira: order_integrity before_flush rechaza breakdown1030/total1050 con HTTP400 y rollback0 órdenes. Se mantiene fallo de flujo frontend de pagos mixtos; no corrupción persistida confirmada.",
+      "extensions": [
+        {
+          "source_report": "CONT03_tests.json",
+          "existing_id": "FE-01",
+          "locations": [
+            "backend/tests/test_api_flow.py:296-310"
+          ],
+          "evidence": "Único test aceptación balanced 600 cash+400 card afirma status201 solamente; no compara payment_breakdown persistido, recargo, neto y cierre. Rechazo desbalanceado :275-293 verifica Order ausente pero no stocks/IMEI/audit.",
+          "impact": "Brecha de oráculo específica del contrato pago mixto; evidencia complementaria FE-01, no duplicación del bug.",
+          "recommendation": "Payload UI real con bank/card fee + cash, comprobar total/base/recargos, JSON persistido, stock e IMEI, cierre diario; error exige snapshot DB intacto."
+        }
+      ],
+      "locations": [
+        "src/components/NewOrderDialog.tsx getOrderFinancials 590-642: recargo cardBaseAmount * tasa; total neto + ese recargo",
+        "src/components/NewOrderDialog.tsx handleSubmit 750-767,820-833: método principal = mayor importe; financing_data prima independiente",
+        "backend/app/utils/order_financing.py compute_financing_from_payload 102-150: rechaza efectivo/transferencia con financing_data y calcula recargo sobre total neto-prima",
+        "backend/app/order_integrity.py before_flush valida suma del desglose contra total; reproducción aislada HTTP400 y rollback deja cero órdenes."
+      ],
+      "evidence_class": "CONFIRMED_STATIC",
+      "affected_function": [
+        "Bloque/configuración/render identificado en ubicaciones y evidencia del informe fuente"
+      ]
     },
     {
       "id": "FE-02",

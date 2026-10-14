@@ -1,0 +1,143 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "scope": "Componentes pendientes N-S inclusive según COBERTURA.json",
+  "mode": "READ_ONLY_STATIC",
+  "full_text_reviewed": [
+    "src/components/NewProductDialog.tsx",
+    "src/components/NewProfileDialog.tsx",
+    "src/components/NotificationSettingsDialog.tsx",
+    "src/components/OptimizationInsightsDialog.tsx",
+    "src/components/PendingTradeInsDialog.tsx",
+    "src/components/PendingTransfersDialog.tsx",
+    "src/components/PrintLabelsDialog.tsx",
+    "src/components/ProductCard.tsx",
+    "src/components/ProductIMEIRegistryDialog.tsx",
+    "src/components/ProductLabel.tsx",
+    "src/components/ProfileCard.tsx",
+    "src/components/ProfileConfigPrompt.tsx",
+    "src/components/ProfileDetailsDialog.tsx",
+    "src/components/ProfileSettingsDialog.tsx",
+    "src/components/ProfileSettingsSummary.tsx",
+    "src/components/ProfileSetupGuide.tsx",
+    "src/components/ProfilesConfigSummary.tsx",
+    "src/components/RestockProductDialog.tsx",
+    "src/components/SalesHistoryDialog.tsx",
+    "src/components/SalesProfilesList.tsx",
+    "src/components/SettingsDialog.tsx",
+    "src/components/StorageDiagnosticDialog.tsx",
+    "src/components/SuperAdminControlPanelDialog.tsx"
+  ],
+  "full_text_reviewed_count": 23,
+  "full_text_reviewed_lines": 9375,
+  "findings": [
+    {
+      "id": "CONT03-NS-01",
+      "severity": "MEDIUM",
+      "title": "Conexiones técnicas muestra canales del formulario comercial anterior",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/SalesProfilesList.tsx:149,382-403,453,488,523,1101-1124"
+      ],
+      "evidence": "openTechnicalConfig asigna perfil y credenciales pero no setCanales(profile.canales); renderIntegrationsSection depende de canales compartido, inicial vacío. Solo openEdit lo asigna (347).",
+      "business_impact": "Super Admin no ve campos para conectar canal; después de editar otro perfil ve secciones de canales equivocados y no los reales del perfil técnico.",
+      "reproduction": "Abrir app desde cero con perfil WhatsApp y pulsar Conexiones: muestra encabezado pero ninguna sección token/phoneID. Editar perfil Messenger, cerrar, abrir Conexiones de WhatsApp: aparece Messenger.",
+      "recommendation": "Derivar canales desde technicalConfigProfile dentro renderer técnico o tener estado separado y copiar profile.canales al abrir.",
+      "required_tests": "Render fresh con perfil WhatsApp -> Phone Number ID/Access Token visibles; intercalar edición Messenger y conexión WhatsApp -> solo campos del perfil técnico.",
+      "tests_executed": false
+    },
+    {
+      "id": "CONT03-NS-02",
+      "severity": "HIGH",
+      "title": "Reabastecimiento conserva IMEIs al cambiar producto serializado",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/RestockProductDialog.tsx:86-106,126-134,225-250"
+      ],
+      "evidence": "Array imeis solo cambia por cantidad/isSerialized/open y se conserva prev; seleccionar producto cambia productId/productSearch, no resetea imeis/scanInput. Al volver a serializado, el efecto conserva contenido.",
+      "business_impact": "Un serial físico escaneado para producto A puede ingresarse al inventario de B sin nueva revisión. Backend verifica unicidad pero no puede conocer que escaneo pertenecía a otro modelo.",
+      "reproduction": "Seleccionar A serializado cantidad1, escanear IMEI nuevo M; cambiar buscador a B serializado y seleccionar B; Guardar envía productId B con M. Alternativa cerrar sin guardar y reabrir: arrays anteriores persisten.",
+      "recommendation": "Resetear borrador de seriales al cambiar producto y al abandonar/reabrir flujo; advertir antes de perder escaneo; conservar draft solo vinculado al mismo productId.",
+      "required_tests": "Prueba render cambiar A a B sin nuevo escaneo no permite guardar; request B no lleva M. Reabrir/cambiar serializado->no->serializado elimina serial anterior.",
+      "tests_executed": false
+    },
+    {
+      "id": "CONT03-NS-03",
+      "severity": "HIGH",
+      "title": "Activar retoma y trasladarla son dos operaciones con estado parcial",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/PendingTradeInsDialog.tsx:96-132,245-248",
+        "backend/app/routers/stock_transfers.py:132"
+      ],
+      "evidence": "handleActivate primero confirma updateProduct activo/celular; después crea traslado. Si creación falla, catch solo toast y no compensa/reporta activación durable. No busy guard ni botón disabled. Crear transferencia deja estado pendiente, pero toast afirma transferido.",
+      "business_impact": "Retoma puede quedar activada en origen aunque operador ve error; al recargar desaparece de pendientes y no completa ubicación elegida. Doble clic duplica intentos de traslado. Mensaje éxito no distingue despacho pendiente de recepción.",
+      "reproduction": "Mock updateProduct resuelve y createStockTransfer rechaza: producto ya activo, UI mantiene formulario y dice Error al activar. Recargar pendientes excluye producto categoria celular. Si ambas resuelven el traslado sigue pendiente mientras toast dice transferido.",
+      "recommendation": "Un endpoint transaccional para activación+solicitud traslado, o protocolo explícito con status parcial y recovery de traslado existente; bloquear submit; mostrar transferencia solicitada pendiente recepción.",
+      "required_tests": "Prueba fallo segundo paso verifica estado comunicado y recovery sin reactivar/duplicar; doble submit produce una operación; successful create pending no se anuncia recepción.",
+      "tests_executed": false
+    },
+    {
+      "id": "CONT03-NS-04",
+      "severity": "MEDIUM",
+      "title": "Atajos diagnóstico de stock generan borradores sobrescritos o incompatibles",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "src/components/SuperAdminControlPanelDialog.tsx:170-171,362-367,826-856",
+        "backend/app/routers/super_admin_integrity.py:52-62"
+      ],
+      "evidence": "Atajos asignan product/location y campos correctivos; useEffect selectedStock sobrescribe campos con valores originales al cambiar selección. Marcar defectuosa fija available=imeiCount+reserved y defective=oldDefective+extra; backend exige available+defective-reserved==imeiCount, imposible si defective>0.",
+      "business_impact": "Corrección asistida no aplica objetivo mostrado y falla 409 o vuelve a stock original. Operador debe resolver manualmente inconsistencia, con propuesta no fiable.",
+      "reproduction": "Issue stock5 IMEI4, res0 def0; primer click Marcar defectuosa selecciona fila y efecto reescribe stock original. Con selección ya vigente, click deja available4 defective1 -> backend physical5 vs IMEI4 ->409.",
+      "recommendation": "Separar hidratación selección de draft correctivo y usar modelo físico canónico para propuestas; describir límites de diagnóstico defectuoso y conciliación serial.",
+      "required_tests": "Render stock5/IMEI4 click atajo debe mantener propuesta; contrato payload canonical debe pasar o mostrar por qué no puede corregirse automáticamente; no enviar silenciosamente stock original.",
+      "tests_executed": false
+    }
+  ],
+  "already_tracked_extensions": [
+    {
+      "id": "FE-12",
+      "locations": [
+        "src/components/SalesHistoryDialog.tsx:45-54",
+        "src/components/SuperAdminControlPanelDialog.tsx:331-335"
+      ],
+      "note": "CSV de estos componentes también carece protección contra fórmulas; escape comillas correcto aquí, no nuevo finding."
+    },
+    {
+      "id": "FE-13",
+      "locations": [
+        "src/components/SalesHistoryDialog.tsx:109-148,172,299"
+      ],
+      "note": "Historial también agrupa/filtra por created_at, no effective_sale_at; extensión del hallazgo existente."
+    },
+    {
+      "id": "FE-06",
+      "locations": [
+        "src/components/PendingTransfersDialog.tsx:60",
+        "src/components/SuperAdminControlPanelDialog.tsx:245"
+      ],
+      "note": "Consumen listStockTransfers sin paginar; extensión existing FE-06."
+    },
+    {
+      "id": "FE-15",
+      "locations": [
+        "src/components/ProductIMEIRegistryDialog.tsx:90-100",
+        "src/components/PrintLabelsDialog.tsx:143-146",
+        "src/components/SuperAdminControlPanelDialog.tsx:235-256,964-990"
+      ],
+      "note": "Fallos/carga se representan como datos vacíos o sin problemas detectados; extensión del hallazgo existente."
+    }
+  ],
+  "limitations": [
+    "Sin ejecución de tests, navegador, API, base de datos ni servicios reales.",
+    "Se leyeron 23 componentes completos. Una salida concatenada truncó tramo ProfileSettingsDialog; fue releído íntegro en llamada posterior.",
+    "Componentes N-S ya FULL_TEXT_REVIEWED no se repitieron y no se cuentan como nuevos.",
+    "ProfileSettingsDialog contiene state settings que no resetea para perfil sin configuración, pero no tiene imports/callers TSX activos; no elevado a hallazgo de flujo actual.",
+    "No se modificaron código, git ni documentos del repositorio."
+  ],
+  "supporting_partial_reads": [
+    "src/lib/apiClient.ts:1019-1085",
+    "src/lib/inventoryServiceFactory.ts:1150-1195",
+    "backend/app/routers/super_admin_integrity.py:52-62",
+    "backend/app/routers/stock_transfers.py:132"
+  ]
+}

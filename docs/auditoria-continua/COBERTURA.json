@@ -2,11 +2,10 @@
   "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
   "denominator_policy": "Todos los 653 archivos rastreados de la línea base se incluyen conservadoramente: código, pruebas, scripts, configuración y documentación; sin exclusiones para inflar cobertura. No incluye documentos nuevos de auditoría. Lectura completa no implica corrección ni prueba runtime.",
   "counts": {
-    "FULL_TEXT_REVIEWED": 552,
-    "NOT_REVIEWED": 93,
-    "PARTIAL_REVIEWED": 8
+    "FULL_TEXT_REVIEWED": 652,
+    "FULL_STRUCTURAL_REVIEWED": 1
   },
-  "full_read_percentage": 84.53,
+  "full_read_percentage": 99.85,
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +20,10 @@
       "path": ".github/copilot-instructions.md",
       "blob_sha": "bf2bdb20e9f1e7d9c5812a559754c444ab9d5a44",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_docs.json"
+      ]
     },
     {
       "path": ".github/dependabot.yml",
@@ -125,18 +126,20 @@
       "path": "CHANGELOG_AI_IMPROVEMENTS_V2.md",
       "blob_sha": "11f3984833d723f913320b54ba66b14df34d377e",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "CHANNELS_CONFIGURATION.md",
       "blob_sha": "02360195bd182607a5bb464ce3338af439a36b1f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -191,16 +194,19 @@
       "path": "LICENSE",
       "blob_sha": "77cda3ab07c16cda4141519b9d98affd67db291e",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_docs.json"
+      ]
     },
     {
       "path": "PHOTO_REQUESTS_SYSTEM.md",
       "blob_sha": "c72696ffc8e8d41bd381a6991bae17c07725af78",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -216,9 +222,10 @@
       "path": "PRODUCTION_IMPROVEMENTS.md",
       "blob_sha": "e8b40d6dd8aaae0fdf85739c3248c3ac5eb92e2f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -2095,8 +2102,10 @@
       "path": "backend/test_forecasting.ipynb",
       "blob_sha": "ddaec080711a1b91ae6d116bd4d7dfb3c8b64e82",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/test_forecasting_direct.py",
@@ -2229,17 +2238,20 @@
       "path": "backend/tests/test_ai_workflow.py",
       "blob_sha": "4a2d5fb92220912b809bf216e6b4c786361d060b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONT03_tests.json"
       ]
     },
     {
       "path": "backend/tests/test_api_flow.py",
       "blob_sha": "5a2ecef58f148f053da6b5b6af383aacd21daf62",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_api_usage.py",
@@ -2337,9 +2349,10 @@
       "path": "backend/tests/test_channel_integrations.py",
       "blob_sha": "64a6ddd20b61db62188fed3e822a2692e97d3ab9",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONT03_tests.json"
       ]
     },
     {
@@ -2364,9 +2377,10 @@
       "path": "backend/tests/test_channel_webhook_delivery_integrity.py",
       "blob_sha": "5766cdadf023d583b7a04141b4de270c7d7218a5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONT03_tests.json"
       ]
     },
     {
@@ -2473,8 +2487,10 @@
       "path": "backend/tests/test_imei_admin_integrity.py",
       "blob_sha": "4123f8349a5a11c03511b92ea8b208b1e16f180e",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_imei_helpers.py",
@@ -2526,8 +2542,10 @@
       "path": "backend/tests/test_location_name_concurrency_integrity.py",
       "blob_sha": "365212721b27ae65af05332716274a226a35be0d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_location_validation_errors.py",
@@ -2542,8 +2560,10 @@
       "path": "backend/tests/test_multistore_ops_integrity.py",
       "blob_sha": "3b5dd4833bb8c2c0df2596aefbdbf8231e006749",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_order_cancel_return_concurrency.py",
@@ -2567,15 +2587,19 @@
       "path": "backend/tests/test_order_edit_pricing_integration.py",
       "blob_sha": "5b865835f8f7a0d67347acacf9eaf843ffa08073",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_order_edit_term_preservation.py",
       "blob_sha": "59b18aeff6fb2d40bee9ff945d6bb72c6b4a3a22",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_order_financing_input_integrity.py",
@@ -2590,8 +2614,10 @@
       "path": "backend/tests/test_order_pricing_policy.py",
       "blob_sha": "b9ceb3191bb010fe0c0c6fef3dd703a6e7038f27",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_order_search_integrity.py",
@@ -2606,8 +2632,10 @@
       "path": "backend/tests/test_order_service_pricing_integration.py",
       "blob_sha": "6e48b4d275d1888b6ca1bc16cee271e8a94c4cd1",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_order_update_price_protection.py",
@@ -2622,18 +2650,20 @@
       "path": "backend/tests/test_photo_requests_flow.py",
       "blob_sha": "68f2adaf44f0f628987d3e5bd9ff185d1e2c4405",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_security-ai.json"
+        "BLOQUE_security-ai.json",
+        "CONT03_tests.json"
       ]
     },
     {
       "path": "backend/tests/test_pricing_policy_migration.py",
       "blob_sha": "7c0e9b3bbf813459b61049f39b58cd7619d5a3a5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_deploy.json"
+        "BLOQUE_deploy.json",
+        "CONT03_tests.json"
       ]
     },
     {
@@ -2703,8 +2733,10 @@
       "path": "backend/tests/test_purchase_restock_lock_order_integrity.py",
       "blob_sha": "cce69d517444173f1205348a36e80a5c7272cc48",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_rate_limiter.py",
@@ -2738,15 +2770,19 @@
       "path": "backend/tests/test_restock_inventory_count_lock_compatibility.py",
       "blob_sha": "cf7be2141843c8c30374466906479937a6eb3d2f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_restock_transfer_confirmation_lock_compatibility.py",
       "blob_sha": "c28343e57aaacfd2a66452d5dd63c092e30355f0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_return_lock_order_integrity.py",
@@ -2790,15 +2826,19 @@
       "path": "backend/tests/test_sales_profile_router_guards.py",
       "blob_sha": "c22c5259f40e46ff328125e640ba1a0159ac7227",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_sales_profile_slug_concurrency_integrity.py",
       "blob_sha": "0960170acf6efdba39d09795083523c15f4a7ac1",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_second_pass_hardening.py",
@@ -2843,8 +2883,10 @@
       "path": "backend/tests/test_stock_history_access_stats.py",
       "blob_sha": "1827d8c8f0020ab958cedb5a53a4cdb85ca15f0b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_stock_manager_invariants.py",
@@ -2879,8 +2921,10 @@
       "path": "backend/tests/test_super_admin_audit_filters.py",
       "blob_sha": "f3bd5d80b06f7d7203f0fd6b33882a6f9e04c529",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_super_admin_guards.py",
@@ -2895,8 +2939,10 @@
       "path": "backend/tests/test_super_admin_identity_concurrency.py",
       "blob_sha": "b8a72686b3605e7aa2b0bb82abce37ba387f785a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_super_admin_product_purge.py",
@@ -2920,8 +2966,10 @@
       "path": "backend/tests/test_supplier_name_concurrency_integrity.py",
       "blob_sha": "7644cb8704dc3d7b89e6d3a1592311d04b6faaa7",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_tests.json"
+      ]
     },
     {
       "path": "backend/tests/test_supplier_search_integrity.py",
@@ -2954,9 +3002,10 @@
       "path": "backend/tests/test_upgrade_audit.py",
       "blob_sha": "f09d09f2b3cc67ded4d3f0fe163a1431c023e429",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_deploy.json"
+        "BLOQUE_deploy.json",
+        "CONT03_tests.json"
       ]
     },
     {
@@ -3424,9 +3473,10 @@
       "path": "docs/DEPLOYMENT.md",
       "blob_sha": "09f7c636689e7d81a2a07fa896da7a5233392207",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3451,9 +3501,10 @@
       "path": "docs/ESTADO_IA.md",
       "blob_sha": "0fa22a3458c340de32ca7ce3f26c6f504c0c1bb9",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3469,36 +3520,40 @@
       "path": "docs/GUIA_REFACTORIZACION.md",
       "blob_sha": "da360431e8e2c14a9b12633b874d202c8a258f30",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "docs/GUIA_TESTING.md",
       "blob_sha": "fa6c2f249fded088a7ca896c72eb8ea8647d5c9a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "docs/GUIA_TRANSFERENCIAS.md",
       "blob_sha": "ce440a0330fdd286497add0385262d165095fd81",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "docs/INTEGRACION.md",
       "blob_sha": "a13641e020897c50f7ccced3dbfb825dca302fcc",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3524,9 +3579,10 @@
       "path": "docs/MANUAL_COMPLETO.md",
       "blob_sha": "8daad6885fede6ca279d5b4b46e1c1243a68ab72",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3542,9 +3598,10 @@
       "path": "docs/PRD.md",
       "blob_sha": "7cc7238d23eb7e5f5b979870bcefd80a76a6d341",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3615,9 +3672,10 @@
       "path": "docs/RESUMEN_MEJORAS.md",
       "blob_sha": "bbfecdee85726661b4aa28734217a51d9f2e1472",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3642,27 +3700,30 @@
       "path": "docs/TESTING_PLAN.md",
       "blob_sha": "ee4e92b242a0ac07e6c9ff20ed913655c0089ca1",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "docs/TESTING_RESULTS.md",
       "blob_sha": "c68b72669e63c77af4ec4b4a3bcf924113ceff65",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
       "path": "docs/VALIDACION.md",
       "blob_sha": "5242b957b6dc2c359d316bcf184bd4a51abb37e5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_docs.json"
       ]
     },
     {
@@ -3714,9 +3775,10 @@
       "path": "package-lock.json",
       "blob_sha": "0d7db781ce987cd9174f8e77143a940c9d9d4090",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_STRUCTURAL_REVIEWED",
       "evidence": [
-        "BLOQUE_utilities.json"
+        "BLOQUE_utilities.json",
+        "CONT03_utils.json"
       ]
     },
     {
@@ -3861,22 +3923,28 @@
       "path": "src/components/AIForecastingDialog.tsx",
       "blob_sha": "440232d924268e5b7af0c8d734d8f005b74c2163",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/AIProfileConfigDialog.tsx",
       "blob_sha": "7f60e7356f2eb2909063690a382004186233cd17",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/AIStatusDialog.tsx",
       "blob_sha": "b8b616fc23f93d8451a3492f0bc5bff219205d60",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/AIStatusWidget.tsx",
@@ -3900,8 +3968,10 @@
       "path": "src/components/AdvancedSearchDialog.tsx",
       "blob_sha": "bfff0b5f2c886f34cf67d66f7b9b5b0be8f24a1c",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/BackendConnectionCheck.tsx",
@@ -3934,29 +4004,37 @@
       "path": "src/components/CustomerInsights.tsx",
       "blob_sha": "f52d009914cf7e5d72fdcd749d3639ef39178cb9",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/CustomizeShortcutsDialog.tsx",
       "blob_sha": "db1f56e23a18e3297c10a9a3b17b6aa1e3b220f6",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/DailyCloseDialog.tsx",
       "blob_sha": "84aab1b1ba0ed8d76dc5dd46b1afdb9cadd4b9a4",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/DashboardStats.tsx",
       "blob_sha": "4855a9b797e26b0b7b98f9f1e38ff9038f1e99a1",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/EditOrderDialog.tsx",
@@ -3971,29 +4049,37 @@
       "path": "src/components/EditProductDialog.tsx",
       "blob_sha": "372726d63bc41c7a5b7f5dfea1649c9f633528d8",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/EditProfileDialog.tsx",
       "blob_sha": "bb2cbd21c0c1beca3bfd035204421650ddf45a65",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/FinancingSettings.tsx",
       "blob_sha": "45ea8805a2e12540cf04921219bcf09a9661b9d3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/ForecastingWidget.tsx",
       "blob_sha": "01f0397fe5af5f6b9853d384498190379921c2e4",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/HealthCheckDialog.tsx",
@@ -4035,15 +4121,19 @@
       "path": "src/components/KeyboardShortcutsDialog.tsx",
       "blob_sha": "b1ab2415cd503ac931dc4d2e05cb63b9de79690d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/LocationsList.tsx",
       "blob_sha": "2a9b851aaf6bf37804fcf9a2e3d6c12caa0a9048",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/LoginDialog.tsx",
@@ -4067,43 +4157,55 @@
       "path": "src/components/LowStockAlert.tsx",
       "blob_sha": "615583af43d1e7dad6bc856ad33bafd71aa0e853",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/LowStockReportDialog.tsx",
       "blob_sha": "8ee452f9371450fdf5171db20c1024318812580f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/ManageFAQsDialog.tsx",
       "blob_sha": "a8f0fa2c813382960f8fa9b54082375b3351c2a0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/ManageSuppliersDialog.tsx",
       "blob_sha": "6a2a6d98d7fb1355c756be96082e84986b0e3d66",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/ManageUsersDialog.tsx",
       "blob_sha": "83319f755de954e38d6e866d4d218fe693b5c3f0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/MultiStoreControlDialog.tsx",
       "blob_sha": "62cdb4223dff1cdca77edd4124cc8e8bc8ed7dea",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-am.json"
+      ]
     },
     {
       "path": "src/components/NewOrderDialog.tsx",
@@ -4118,15 +4220,19 @@
       "path": "src/components/NewProductDialog.tsx",
       "blob_sha": "b90b5d553807f94b3dc0bfeae1884f30939baed0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/NewProfileDialog.tsx",
       "blob_sha": "b97ba3dac33173b24427d1fb5f2c415dbeb334c9",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/NotificationCenter.tsx",
@@ -4141,15 +4247,19 @@
       "path": "src/components/NotificationSettingsDialog.tsx",
       "blob_sha": "51d1ca8f26ab97c37b10e0e7e656413b3055ca0d",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/OptimizationInsightsDialog.tsx",
       "blob_sha": "c6481ece018b604e6147fb686e4fdbda4086a3be",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/OrderCard.tsx",
@@ -4164,15 +4274,19 @@
       "path": "src/components/PendingTradeInsDialog.tsx",
       "blob_sha": "797a01abb6e5a3c8b206758cb416169fac2f06c3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/PendingTransfersDialog.tsx",
       "blob_sha": "edc41e5c363bd4f0c8eb78b4e497e66e95dfe836",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/PhotoRequestsDashboard.tsx",
@@ -4196,78 +4310,100 @@
       "path": "src/components/PrintLabelsDialog.tsx",
       "blob_sha": "d5fa7fcea11bc6891382cb56b92e339298e4ab87",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProductCard.tsx",
       "blob_sha": "5ac98400d9514b8c0b9328abd6485247385e6806",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProductIMEIRegistryDialog.tsx",
       "blob_sha": "b589387d4a637e021a61978880cf7ee3bf118322",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProductLabel.tsx",
       "blob_sha": "10e60b9ce8799d819a3468c01cbd705f2ed03f5a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileCard.tsx",
       "blob_sha": "8cf3efa226c6f5610b8093dade80a9600d9d01fc",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileConfigPrompt.tsx",
       "blob_sha": "bf18504eb62bd32eba2dd070659711e1f6bc2b7a",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileDetailsDialog.tsx",
       "blob_sha": "820f8b3f8a3736ca0bc77bc190e05d4029e936ae",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileSettingsDialog.tsx",
       "blob_sha": "65fd8e51fe2e3da9fd968ebf667165857451cb47",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileSettingsSummary.tsx",
       "blob_sha": "50567dea943c0f77e30455440ea7353adc02d366",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfileSetupGuide.tsx",
       "blob_sha": "098db46e40fb8f2aaa2a84940e4dbb3931607d80",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ProfilesConfigSummary.tsx",
       "blob_sha": "f67393752a146fcf5e29692c44967ff7d5cd0bb5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/PublicCatalog.tsx",
@@ -4291,8 +4427,10 @@
       "path": "src/components/RestockProductDialog.tsx",
       "blob_sha": "102c5a298fc2441da5885d828bf760ccb0bb5fed",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/ReturnDialog.tsx",
@@ -4316,22 +4454,28 @@
       "path": "src/components/SalesHistoryDialog.tsx",
       "blob_sha": "aaec7df0ddb9fa7f0fa1092d9809ec094fcb9a8f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/SalesProfilesList.tsx",
       "blob_sha": "d174c5c61caafe6aae9cec2b457468e4ef1441e1",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/SettingsDialog.tsx",
       "blob_sha": "5d643b6462e6e5f5a20e2c5c083165c069107b7b",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/StockByLocationDialog.tsx",
@@ -4355,15 +4499,19 @@
       "path": "src/components/StorageDiagnosticDialog.tsx",
       "blob_sha": "9db3351b2bbd509264f11702d3ad4c7535fb6545",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/SuperAdminControlPanelDialog.tsx",
       "blob_sha": "048a02971b79433e691711cf488145cbac87b5bb",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_components-ns.json"
+      ]
     },
     {
       "path": "src/components/SyncIndicator.tsx",
@@ -4387,8 +4535,10 @@
       "path": "src/components/TradeInPoliciesDialog.tsx",
       "blob_sha": "a16bb99f6f8ec9ff18b09f5181f123a94c088efa",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/components/TransferListDialog.tsx",
@@ -4412,8 +4562,10 @@
       "path": "src/components/ValidationCodeDialog.tsx",
       "blob_sha": "2754277d392f579eff6cc70616cc992f47318a9f",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/components/WarrantyCheckDialog.tsx",
@@ -4503,8 +4655,10 @@
       "path": "src/components/forms/RoleSelect.tsx",
       "blob_sha": "a32d51d62fcb19a77589db939d92dc37b82fa097",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/components/ui/accordion.tsx",
@@ -5060,8 +5214,10 @@
       "path": "src/index.css",
       "blob_sha": "51bc58e8af39f28c7e308c9ca4413efe21310111",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/lib/__tests__/apiClient.test.ts",
@@ -5106,7 +5262,8 @@
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
       "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_tests.json"
+        "BLOQUE_tests.json",
+        "CONT03_core.json"
       ]
     },
     {
@@ -5248,8 +5405,10 @@
       "path": "src/lib/inventoryService.ts",
       "blob_sha": "7663b3ad302030fa43a14c7fa0be301888de3824",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_core.json"
+      ]
     },
     {
       "path": "src/lib/inventoryServiceFactory.production.test.ts",
@@ -5311,15 +5470,19 @@
       "path": "src/lib/labelPrint.ts",
       "blob_sha": "a15b64aee78f75a40858954a8a73aef9fde732f0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/lib/optimizationAnalytics.ts",
       "blob_sha": "c7511f4e585196c165aa35c5b9c2f84b0ecc6ee6",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/lib/orderStatus.ts",
@@ -5343,8 +5506,10 @@
       "path": "src/lib/pdfExport.ts",
       "blob_sha": "5ba80995f930a9aef8dec037d8729fb1fd1c8983",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/lib/phoneValidator.ts",
@@ -5423,9 +5588,10 @@
       "path": "src/lib/types.ts",
       "blob_sha": "0b8ef750579a70e864cf033709340d64c38dc0d2",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "PARTIAL_REVIEWED",
+      "status": "FULL_TEXT_REVIEWED",
       "evidence": [
-        "BLOQUE_frontend.json"
+        "BLOQUE_frontend.json",
+        "CONT03_core.json"
       ]
     },
     {
@@ -5504,8 +5670,10 @@
       "path": "src/main.css",
       "blob_sha": "dfaac6ebdd0f2788c942f428bc022a0d482a29c0",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/main.tsx",
@@ -5520,22 +5688,28 @@
       "path": "src/styles/theme.css",
       "blob_sha": "8da23f27d52fe1dfb4f2587b570fbde1432c01b3",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/test/msw/handlers.ts",
       "blob_sha": "91a8551ce4f8023db6ca7cb9a0ccb6307782ddd5",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/test/msw/server.ts",
       "blob_sha": "86f7d6154ac757b887259351249eba046341b499",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "src/test/setup.ts",
@@ -5766,15 +5940,19 @@
       "path": "typings/apscheduler/schedulers/asyncio/__init__.pyi",
       "blob_sha": "43c989924c61c7284ae0b1d535d4f3661f21abc8",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "typings/apscheduler/triggers/cron/__init__.pyi",
       "blob_sha": "893c533944ca6d649794ae7726ddfec76707cb86",
       "source_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
-      "status": "NOT_REVIEWED",
-      "evidence": []
+      "status": "FULL_TEXT_REVIEWED",
+      "evidence": [
+        "CONT03_utils.json"
+      ]
     },
     {
       "path": "verify_learning.py",
@@ -5795,5 +5973,7 @@
         "Lectura íntegra del coordinador en esta ejecución"
       ]
     }
-  ]
+  ],
+  "complete_static_review_percentage": 100.0,
+  "completion_scope": "Lectura íntegra de652 archivos de texto y revisión estructural exhaustiva de722 entradas del lockfile. 653/653 sin pendientes estáticos de línea base. No implica auditoría operacional ni pruebas100%."
 }
