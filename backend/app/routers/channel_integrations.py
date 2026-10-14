@@ -729,7 +729,7 @@ async def test_channel_connection(
                 token = channel_config.get("access_token")
                 # Simple validation: get phone number info
                 resp = await client.get(
-                    f"https://graph.instagram.com/v18.0/{phone_id}",
+                    f"https://graph.facebook.com/v23.0/{phone_id}",
                     headers={"Authorization": f"Bearer {token}"}
                 )
                 if resp.status_code == 200:
