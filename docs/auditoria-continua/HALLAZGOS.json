@@ -1,0 +1,1365 @@
+{
+  "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "provisional": true,
+  "findings": [
+    {
+      "id": "BUS-01",
+      "severity": "HIGH",
+      "title": "Finalizar/cancelar/editar venta consume reserva ajena del mismo producto",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/orders.py:111-141,145-193,610-631",
+        "backend/app/services/stock_transaction_helper.py:208-252",
+        "backend/app/routers/order_state_integrity.py:227-306,348-389"
+      ],
+      "evidence": "La creación pendiente ya descuenta cantidad_disponible y marca IMEI vendido. Los helpers de estado eligen primero cantidad_reservada >= item.cantidad sin identificar dueño; sólo luego consultan historial propio. Los handlers canónicos delegan en estos helpers.",
+      "reproduction": "Stock disponible=10; traslado pendiente reserva=3; crear venta cash cantidad=1 -> stock=9 reservado=3; finalizar -> stock=8 reservado=2. La venta descontó dos veces y traslado original ya no tiene reserva suficiente. Cancelar/editar pendiente también libera reserva del traslado sin reponer correctamente su venta.",
+      "recommendation": "Separar explícitamente venta ya descontada y reserva perteneciente a orden; mantener titular por movimiento/reserva y no deducir propiedad del agregado Stock.",
+      "tests": "Agregar regresiones API venta+traslado mismo producto para completar/cancelar/editar; conservar reserva del traslado y stock esperado. test_stock_concurrency actual sólo cubre competir por stock insuficiente, no stock sobrante+finalización.",
+      "runtime_evidence": "sale created 9 3\nsale completed 8 2",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Agregar regresiones API venta+traslado mismo producto para completar/cancelar/editar; conservar reserva del traslado y stock esperado. test_stock_concurrency actual sólo cubre competir por stock insuficiente, no stock sobrante+finalización."
+    },
+    {
+      "id": "BUS-02",
+      "severity": "HIGH",
+      "title": "Recepción cero traslada todos IMEIs sin mover stock",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/stock_transfers.py:419-447,514-549",
+        "backend/app/routers/stock_transfer_integrity.py:83-106"
+      ],
+      "evidence": "received_quantity=0 vacía scanned_imeis_set. La lista posterior obtiene todos seriales del transfer_id y sólo filtra si el set es truthy. Por tanto mueve todos al destino con recepción cero.",
+      "reproduction": "Transferencia serialized de 2 unidades A->B con reserva=2; confirmar received_quantity=0 e incident_notes, sin scanned_imeis. Estado confirmada, stock A=2/B=0, seriales location=B.",
+      "recommendation": "Seleccionar siempre únicamente seriales efectivamente recibidos; cero recibidos debe mover cero. Validar cantidad seriales movidos contra received_quantity.",
+      "tests": "Regresión API serialized received_quantity=0, 1 y total; comprobar ubicación IMEI, disponible/reservado y historial. test_stock_transfer_router_guards usa no serializados.",
+      "runtime_evidence": "transfer zero 2 0 [2, 2] source 1 dest 2",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Regresión API serialized received_quantity=0, 1 y total; comprobar ubicación IMEI, disponible/reservado y historial. test_stock_transfer_router_guards usa no serializados."
+    },
+    {
+      "id": "BUS-03",
+      "severity": "HIGH",
+      "title": "Garantía permite IMEI de otro producto de la misma orden",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/services/stock_transaction_helper.py:431-470",
+        "backend/app/routers/returns.py:170-195",
+        "backend/app/routers/return_serial_integrity.py:123-164,378-394"
+      ],
+      "evidence": "El IMEI original se busca globalmente por string y sólo valida order_id/vendido. Nunca compara imei_record.product_id con product_id retornado. Wrapper canónico añade guards al reemplazo pero no al original.",
+      "reproduction": "Orden final con A y B, IMEI X de A vendido a esa orden. Solicitar warranty product_id=B quantity=1 imei=X condition=nuevo. Aceptado: stock B+1 y X de A liberado.",
+      "recommendation": "Exigir original.product_id==product_id y coherencia de ubicación y cantidad del serial antes de mutar.",
+      "tests": "Agregar garantía cruzada A/B misma orden: 400 y cero efectos en stocks/seriales/returns.",
+      "runtime_evidence": "cross product return accepted 1 returned product 2 imei product 1 sold False replacement None B stock 1",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Agregar garantía cruzada A/B misma orden: 400 y cero efectos en stocks/seriales/returns."
+    },
+    {
+      "id": "BUS-04",
+      "severity": "MEDIUM",
+      "title": "Garantía serializada se cierra sin entregar reemplazo",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/schemas/returns.py:43-63",
+        "backend/app/services/stock_transaction_helper.py:473-511",
+        "backend/app/routers/returns.py:200-210"
+      ],
+      "evidence": "replacement_imei opcional; helper sólo lo valida si viene. Router sólo consume reemplazo si existe record, y rama alternativa excluye serialized. Return.status=completed aunque no hubo salida.",
+      "reproduction": "Garantía serialized correcta condition=nuevo, original imei, omitir replacement_imei -> 201; original vuelve disponible y stock+1, ninguna salida.",
+      "recommendation": "Si sólo existe warranty_exchange exigir reemplazo para serialized, o diseñar lifecycle pendiente explícito hasta entregar reemplazo.",
+      "tests": "Negativo API serialized omit replacement: 422/400 sin efectos; garantía válida debe tener entrada y salida.",
+      "runtime_evidence": "serialized warranty no replacement accepted 1 source stock 1",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Negativo API serialized omit replacement: 422/400 sin efectos; garantía válida debe tener entrada y salida."
+    },
+    {
+      "id": "BUS-05",
+      "severity": "HIGH",
+      "title": "Retoma sobrescribe IMEI vendido/reservado/de otra sede",
+      "status": "REPRODUCED_SQLITE_HELPER",
+      "locations": [
+        "backend/app/services/stock_transaction_helper.py:254-332,618-660",
+        "backend/app/services/order_service.py:257-265"
+      ],
+      "evidence": "_upsert_trade_in_imei busca cualquier serial existente sin FOR UPDATE ni guards y reescribe producto, ubicación, vendido=False, order_id=None, sold_at=None. No decrementa stock del producto/sede originales y no limpia transfer_id. Es llamado en crear orden con retoma.",
+      "reproduction": "Crear venta con trade_in.imei igual a IMEI actualmente en stock de otra sede o vendido en otra orden. El serial existente se reasigna al producto retoma/sede actual, además se suma stock de retoma. Repetir mismo IMEI en retomas puede sumar múltiples unidades para un único serial.",
+      "recommendation": "Rechazar colisión salvo lifecycle de recompra explícito que bloquee serial, verifique propietario/estado y reconcilie inventario; deduplicar payload y auditar cambio.",
+      "tests": "Casos existente disponible/vendido/en traslado/sede no autorizada y duplicado dentro payload; probar dos retomas simultáneas en PG.",
+      "runtime_evidence": "sold IMEI overwritten False None 2",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Casos existente disponible/vendido/en traslado/sede no autorizada y duplicado dentro payload; probar dos retomas simultáneas en PG."
+    },
+    {
+      "id": "BUS-06",
+      "severity": "HIGH",
+      "title": "Órdenes autorizadas exponen stock y seriales de sedes ajenas",
+      "status": "REPRODUCED_SQLITE_LOGIC",
+      "locations": [
+        "backend/app/routers/orders.py:194-202,205-231,305-342,814-843",
+        "backend/app/routers/product_imei_integrity.py:42-59"
+      ],
+      "evidence": "Filtro RBAC sólo limita Order. Serializer de producto anidado ignora location_id recibido y llama _serialize_product(product) con accessible_location_ids=None. Ese serializer incluye stock_items de todas sedes y el wrapper IMEI también trata None como acceso global.",
+      "reproduction": "Usuario can_view A, producto P con stock A y B, orden P en A. GET orden o listado devuelve item.product.stock_items para A y B.",
+      "recommendation": "Propagar scope de usuario a todas respuestas anidadas; también revisar update_product/restock y respuestas de mutación sin scope.",
+      "tests": "Regresión con mismo producto en dos sedes (fixture actual usa productos distintos, por eso no detecta), verificar nested stock_items/imeis en list/get/search/mutations.",
+      "runtime_evidence": "restricted order nested locations [1, 2]",
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Regresión con mismo producto en dos sedes (fixture actual usa productos distintos, por eso no detecta), verificar nested stock_items/imeis en list/get/search/mutations."
+    },
+    {
+      "id": "BUS-07",
+      "severity": "HIGH",
+      "title": "POST crear negocios sin clave idempotente duplica efectos al reintentar",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/orders.py:434-446",
+        "backend/app/services/order_service.py:159-300",
+        "backend/app/routers/stock_transfers.py:61-175",
+        "backend/app/routers/returns.py:93-247",
+        "backend/app/routers/multistore_ops_integrity.py:151-167"
+      ],
+      "evidence": "Venta cash y traslado no reciben ni persisten idempotency key. Cada ejecución crea nueva entidad. Garantía no serialized parcial puede repetirse hasta agotar cantidad vendida; receipt sólo dedup si invoice_number presente. Frontend root reporta retry POST ante Failed to fetch.",
+      "reproduction": "Servidor hace commit y respuesta se pierde. Reintento mismo POST cash nonserialized con stock suficiente crea segunda orden/descuenta otra unidad; traslado reserva dos veces; garantía parcial no serialized crea segundo reemplazo.",
+      "recommendation": "Clave idempotente estable por intento de negocio y constraint DB, guardar respuesta/hash dentro misma transacción; frontend no regenerar clave en retry.",
+      "tests": "Pruebas respuesta perdida después commit y doble request paralelo con misma key, claves distintas y payload distinto. Confirmar línea frontend en reporte principal.",
+      "runtime_evidence": null,
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Pruebas respuesta perdida después commit y doble request paralelo con misma key, claves distintas y payload distinto. Confirmar línea frontend en reporte principal."
+    },
+    {
+      "id": "BUS-08",
+      "severity": "MEDIUM",
+      "title": "Ajuste no serializado tiene dos commits y lectura de stock sin lock",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/products.py:1291-1362,721-795",
+        "backend/app/middleware/business_integrity.py:72-93"
+      ],
+      "evidence": "set_product_stock_at_location commit stock en 1334 y commit historial después en 1362. Un fallo entre ambos deja cambio sin rastro; además no SELECT FOR UPDATE. Middleware sólo bloquea serialized. PUT stock también lee sin lock aunque historia mismo commit.",
+      "reproduction": "Nonserialized ajuste: hacer fallar inserción StockHistory/segundo commit deja cantidad nueva durable. Con dos sesiones leer stock=10, venta consume 1 y commit, ajuste antiguo escribe absoluto sin lock; ledger previo/audit usa snapshot viejo.",
+      "recommendation": "Un solo transaction stock+historia+audit y bloqueo acorde Product->Stock; validar actual bajo lock y CAS cuando sea necesario.",
+      "tests": "Fallo inyectado segunda escritura debe rollback total; PG venta concurrente vs ajuste; no pruebas en producción.",
+      "runtime_evidence": null,
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Fallo inyectado segunda escritura debe rollback total; PG venta concurrente vs ajuste; no pruebas en producción."
+    },
+    {
+      "id": "BUS-09",
+      "severity": "MEDIUM",
+      "title": "Valor de inventario suma costos/precios USD y HNL sin convertir",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/routers/reports_final_integrity.py:212-223",
+        "backend/app/routers/reports.py:486-500",
+        "backend/app/utils/order_currency.py:57-61"
+      ],
+      "evidence": "Dashboard usa cantidad*Product.costo/precio crudo; resumen sede usa cantidad*Product.precio crudo. Los productos aceptan moneda USD y órdenes guardan HNL mediante conversion helper. Totales agregados mezclan unidades monetarias.",
+      "reproduction": "P USD costo=100 qty=1 y Q HNL costo=100 qty=1; dashboard inventory_value=200 aunque con tasa25 el valor HNL es2600.",
+      "recommendation": "Definir moneda/base/tasa de valoración de inventario y convertir consistentemente; snapshot tasa o documentar valoración actual.",
+      "tests": "Regresión dos monedas reconciliar dashboard/resumen contable, tasa explícita; actuales tests location usan sólo HNL.",
+      "runtime_evidence": null,
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Regresión dos monedas reconciliar dashboard/resumen contable, tasa explícita; actuales tests location usan sólo HNL."
+    },
+    {
+      "id": "BUS-10",
+      "severity": "MEDIUM",
+      "title": "Venta commit antes de auditoría permite transacción durable sin audit y respuesta 500",
+      "status": "CONFIRMED_STATIC",
+      "locations": [
+        "backend/app/services/order_service.py:284-290",
+        "backend/app/routers/orders.py:443-446"
+      ],
+      "evidence": "OrderService hace commit de negocio y luego router llama log_audit_event y hace segundo commit. Un fallo en audit no puede revertir venta ya durable, viola atomicidad de operación sensible.",
+      "reproduction": "Inyectar fallo en log_audit_event/insert AuditLog después create_order: orden+stock ya persistidos, audit ausente y response failure puede gatillar retry BUS-07.",
+      "recommendation": "Transaction owner único en API; flush service y commit venta+audit una vez.",
+      "tests": "Regresión fallo audit exige cero orden/stock/IMEI efectos; respuesta perdida después commit probar idempotencia.",
+      "runtime_evidence": null,
+      "source_report": "BLOQUE_business.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": "Regresión fallo audit exige cero orden/stock/IMEI efectos; respuesta perdida después commit probar idempotencia."
+    },
+    {
+      "id": "OPS-01",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "Backup automático Compose escribe fuera del volumen persistente",
+      "files": [
+        "deploy/docker-compose.prod.yml:73-77",
+        "deploy/.env.prod.example:44",
+        "deploy/prepare-prod-env.sh:297",
+        "deploy/backup-postgres.sh:5,11,17-20"
+      ],
+      "function": "backup service / backup loop",
+      "evidence": "Env compartido BACKUP_DIR=/app/backups; backup sólo monta backend_backups:/backups. Script respeta BACKUP_DIR. Offsite y healthcheck leen /backups.",
+      "impact": "Dumps diarios quedan en filesystem efímero del container, no se replican; al recrear backup se pierden. Gate espera backups que no aparecen.",
+      "repro": "Preparar env estándar y resolver configuración de backup: destino efectivo /app/backups no es mount /backups. No Docker real ejecutado.",
+      "recommendation": "Override environment BACKUP_DIR=/backups en servicio backup; probar dump sintético por stack y persistencia tras recreación.",
+      "tests": "Los cinco shell tests pasan porque no comprueban wiring env+volume.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Dumps diarios quedan en filesystem efímero del container, no se replican; al recrear backup se pierden. Gate espera backups que no aparecen.",
+      "reproduction": "Preparar env estándar y resolver configuración de backup: destino efectivo /app/backups no es mount /backups. No Docker real ejecutado.",
+      "required_tests": "Los cinco shell tests pasan porque no comprueban wiring env+volume."
+    },
+    {
+      "id": "OPS-02",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "Healthcheck operativo exige una ruta que nginx bloquea",
+      "files": [
+        "deploy/ops-healthcheck.sh:66",
+        "deploy/nginx.conf:28-30",
+        "deploy/release-now.sh:100"
+      ],
+      "function": "ops-healthcheck step 2",
+      "evidence": "curl -fsS http://127.0.0.1:${frontend_port}/api/metrics versus location = /api/metrics return 404. set -e aborta.",
+      "impact": "Release y healthcheck fallan incluso con backend saludable, antes de verificar backups/provenance.",
+      "repro": "Comparación exacta de ruta y server config; no HTTP producción ejecutado.",
+      "recommendation": "Consultar métricas desde backend dentro de red Docker; mantener bloqueo público y añadir integration test del nginx real.",
+      "tests": "test-ops-healthcheck-timeout sustituye curl por éxito incondicional, oculta conflicto.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Release y healthcheck fallan incluso con backend saludable, antes de verificar backups/provenance.",
+      "reproduction": "Comparación exacta de ruta y server config; no HTTP producción ejecutado.",
+      "required_tests": "test-ops-healthcheck-timeout sustituye curl por éxito incondicional, oculta conflicto."
+    },
+    {
+      "id": "OPS-03",
+      "severity": "HIGH",
+      "status": "REPRODUCED",
+      "title": "Backup VPS anuncia éxito aunque pg_dump falle",
+      "files": [
+        "backend/backup_database.sh:105-121,183-192"
+      ],
+      "function": "create_backup/main",
+      "evidence": "create_backup se evalúa como condición if: Bash desactiva errexit dentro de función. pipeline pg_dump exit42 seguido gzip es fallido pero se ignora, se crea sidecar y último log retorna0.",
+      "impact": "Backups SQL vacíos/incompletos certificados por checksum, falsa señal de recuperación, además se borran backups antiguos.",
+      "repro": "pg_dump sintético exit42 en PATH y BACKUP_DIR temporal. Exit script0; SQL descomprimido0 bytes; .sha256 existe; SUCCESS. Evidencia /tmp/audit-deploy-backup-repro.json.",
+      "recommendation": "Validar pipeline explícitamente con if ! ...; escribir temporal, comprobar SQL no vacío/gzip, publicar atómicamente sólo tras éxito; no ejecutar retención tras fallo.",
+      "tests": "Reproducción fresca ejecutada; no DB ni backups reales.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Backups SQL vacíos/incompletos certificados por checksum, falsa señal de recuperación, además se borran backups antiguos.",
+      "reproduction": "pg_dump sintético exit42 en PATH y BACKUP_DIR temporal. Exit script0; SQL descomprimido0 bytes; .sha256 existe; SUCCESS. Evidencia /tmp/audit-deploy-backup-repro.json.",
+      "required_tests": "Reproducción fresca ejecutada; no DB ni backups reales."
+    },
+    {
+      "id": "OPS-04",
+      "severity": "HIGH",
+      "status": "REPRODUCED",
+      "title": "Migración monetaria SQLite bloquea arranque por parámetros Decimal",
+      "files": [
+        "backend/app/utils/pricing_policy_migration.py:215-217,225-232",
+        "backend/app/main.py:100-103"
+      ],
+      "function": "run_pricing_policy_migration",
+      "evidence": "SQL text sin tipo enlaza decimal.Decimal a sqlite3, que rechaza binding.",
+      "impact": "Actualización legado SQLite con órdenes USD falla startup, no sirve tráfico.",
+      "repro": "DB in-memory con ai_profile_configs/products/orders/order_items, producto100USD, orden100. ProgrammingError Error binding parameter1 type decimal.Decimal not supported; /tmp/audit-pricing-repro.py + /tmp/audit-deploy-pricing-repro.json.",
+      "recommendation": "Usar parámetros tipados Numeric compatibles o serialización decimal exacta para SQLite, añadir prueba SQLite de migración monetaria.",
+      "tests": "Repro venv exact requirements, Python3.12; tests actuales monetarios usan fixture PostgreSQL.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Actualización legado SQLite con órdenes USD falla startup, no sirve tráfico.",
+      "reproduction": "DB in-memory con ai_profile_configs/products/orders/order_items, producto100USD, orden100. ProgrammingError Error binding parameter1 type decimal.Decimal not supported; /tmp/audit-pricing-repro.py + /tmp/audit-deploy-pricing-repro.json.",
+      "required_tests": "Repro venv exact requirements, Python3.12; tests actuales monetarios usan fixture PostgreSQL."
+    },
+    {
+      "id": "OPS-05",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "Bootstrap VPS nuevo no genera SETUP_TOKEN obligatorio",
+      "files": [
+        "deploy/vps/install-vps.sh:302-353,365-371",
+        "backend/app/config.py:129-132"
+      ],
+      "function": "write_env/init_database",
+      "evidence": "Here-doc backend/.env no contiene SETUP_TOKEN; Settings en production exige al menos32 caracteres. init_db importa app.database/settings.",
+      "impact": "Instalación nueva falla inicialización/arranque pese a documentación de instalador completo.",
+      "repro": "Ejecutar Settings con variables del here-doc y sin token: guard producción rechaza. No instalador real ejecutado.",
+      "recommendation": "Generar token seguro en bootstrap y documentar uso inicial, probar import config con env generado sintético.",
+      "tests": "test-install-vps-db-preservation cubre reejecución, no config bootstrap nuevo.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Instalación nueva falla inicialización/arranque pese a documentación de instalador completo.",
+      "reproduction": "Ejecutar Settings con variables del here-doc y sin token: guard producción rechaza. No instalador real ejecutado.",
+      "required_tests": "test-install-vps-db-preservation cubre reejecución, no config bootstrap nuevo."
+    },
+    {
+      "id": "OPS-06",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "Ruta env relativa recomendada se invalida al cambiar directorio en release",
+      "files": [
+        "deploy/release-now.sh:8,95-97",
+        "deploy/README.md:159",
+        "deploy/ops-healthcheck.sh:8,45",
+        "deploy/backup-now.sh:6",
+        "deploy/restore-backup.sh:6"
+      ],
+      "function": "release-now deployment step",
+      "evidence": "ENV_FILE conserva ./deploy/.env.prod; validadores realpath sólo en procesos hijos. Después cd deploy docker --env-file ./deploy/.env.prod busca deploy/deploy/.env.prod. PROD_ENV_FILE relativa también se resuelve respecto de compose.",
+      "impact": "Comando de lanzamiento documentado falla después de gates costosos; otros entrypoints relativos pueden fallar Compose.",
+      "repro": "Desde raíz release-now ./deploy/.env.prod; seguir resolución cwd antes/después cd, sin desplegar.",
+      "recommendation": "Normalizar ENV_FILE a ruta absoluta tras validar existencia en todos entrypoints. Añadir fake docker que verifica paths.",
+      "tests": "prepare env test cubre validate-prod normalization, no parent release.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Comando de lanzamiento documentado falla después de gates costosos; otros entrypoints relativos pueden fallar Compose.",
+      "reproduction": "Desde raíz release-now ./deploy/.env.prod; seguir resolución cwd antes/después cd, sin desplegar.",
+      "required_tests": "prepare env test cubre validate-prod normalization, no parent release."
+    },
+    {
+      "id": "OPS-07",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "Restore no reemplaza BD existente y no es atómico",
+      "files": [
+        "deploy/restore-backup.sh:26-41",
+        "deploy/backup-now.sh:22-24",
+        "deploy/backup-postgres.sh:24-30"
+      ],
+      "function": "restore-backup",
+      "evidence": "Dumps plain pg_dump sin --clean; restore psql ON_ERROR_STOP sin single transaction ni target limpio. En schema existente primer CREATE falla; comandos previos a cualquier fallo quedan commit.",
+      "impact": "Procedimiento documentado como sobrescritura no restaura instancia existente; fallo en DB vacía puede dejar esquema parcialmente restaurado.",
+      "repro": "Backup generado contiene CREATE TABLE; destino con tabla homónima produce already exists, ON_ERROR_STOP corta. No restore real autorizado/ejecutado.",
+      "recommendation": "Procedimiento explícito restauración a nueva BD limpia con verificación y switch; exigir checksum de archivo actual por hash, transacción donde viable; mantenimiento previo y rollback documentado.",
+      "tests": "DR usa container PostgreSQL limpio; no prueba restore-backup existente.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Procedimiento documentado como sobrescritura no restaura instancia existente; fallo en DB vacía puede dejar esquema parcialmente restaurado.",
+      "reproduction": "Backup generado contiene CREATE TABLE; destino con tabla homónima produce already exists, ON_ERROR_STOP corta. No restore real autorizado/ejecutado.",
+      "required_tests": "DR usa container PostgreSQL limpio; no prueba restore-backup existente."
+    },
+    {
+      "id": "OPS-08",
+      "severity": "HIGH",
+      "status": "CONFIRMED_STATIC",
+      "title": "--truncate migra después de confirmar truncado en transacción separada",
+      "files": [
+        "backend/migrate_sqlite_to_postgres.py:124-132,254-255,270-280"
+      ],
+      "function": "main/_truncate_tables",
+      "evidence": "TRUNCATE ... CASCADE se commit en _truncate_tables antes de iniciar copia target_engine.begin. Si faltan campos/falla FK/copia, rollback sólo revierte inserciones, destino anterior queda vacío.",
+      "impact": "Fallo migración con reemplazo autorizado pierde datos anteriores del destino y cascadas dependientes; sólo existe backup SQLite fuente.",
+      "repro": "Destino con datos, --truncate, fuente sin campo obligatorio: _required_target_columns... falla después del commit truncate. No truncate real ejecutado.",
+      "recommendation": "Preflight completo antes de borrar; integrar truncate+insert en misma transacción, backup del destino y reparar sequences antes de publicar éxito.",
+      "tests": "test_sqlite_to_postgres_migration.py sólo helpers SQLite; no fallo de copia tras truncate PostgreSQL.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Fallo migración con reemplazo autorizado pierde datos anteriores del destino y cascadas dependientes; sólo existe backup SQLite fuente.",
+      "reproduction": "Destino con datos, --truncate, fuente sin campo obligatorio: _required_target_columns... falla después del commit truncate. No truncate real ejecutado.",
+      "required_tests": "test_sqlite_to_postgres_migration.py sólo helpers SQLite; no fallo de copia tras truncate PostgreSQL."
+    },
+    {
+      "id": "OPS-09",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED_STATIC",
+      "title": "Utilidad demo de credenciales elimina otras configuraciones del perfil",
+      "files": [
+        "backend/seed_channel_credentials.py:31-51,183-196,239-244"
+      ],
+      "function": "_parse_profile_config/populate_credentials/clear_credentials",
+      "evidence": "Cuando JSON incluye channel_integrations dict, parser devuelve únicamente ese campo; populate y clear pretenden preservar otros campos pero trabajan con objeto recortado. Config {exchange_rate:24.5,channel_integrations:{...}} pierde exchange_rate; --clear devuelve None.",
+      "impact": "Operador que ejecuta utilidad sobre perfiles existentes pierde tipo de cambio y otras políticas de negocio/configuración. No es ejecutada por startup/deploy canonical.",
+      "repro": "Trazado estático de dict input con exchange_rate e integrations por parser; no utilidad ni DB real ejecutadas.",
+      "recommendation": "Preservar copia completa del dict y normalizar sólo channel_integrations; rechazar producción para demo; tests para preservar configuraciones con --populate/--clear.",
+      "tests": "Lectura completa; sin ejecución según ampliación sólo lectura.",
+      "source_report": "BLOQUE_deploy.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Operador que ejecuta utilidad sobre perfiles existentes pierde tipo de cambio y otras políticas de negocio/configuración. No es ejecutada por startup/deploy canonical.",
+      "reproduction": "Trazado estático de dict input con exchange_rate e integrations por parser; no utilidad ni DB real ejecutadas.",
+      "required_tests": "Lectura completa; sin ejecución según ampliación sólo lectura."
+    },
+    {
+      "id": "FE-01",
+      "severity": "HIGH",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Pagos mixtos con tarjeta calculan/importan totales incompatibles con backend",
+      "evidence": [
+        "src/components/NewOrderDialog.tsx getOrderFinancials 590-642: recargo cardBaseAmount * tasa; total neto + ese recargo",
+        "src/components/NewOrderDialog.tsx handleSubmit 750-767,820-833: método principal = mayor importe; financing_data prima independiente",
+        "backend/app/utils/order_financing.py compute_financing_from_payload 102-150: rechaza efectivo/transferencia con financing_data y calcula recargo sobre total neto-prima",
+        "backend/app/services/order_service.py create_order 236-246,280-287: total calculado persiste y commit; no conciliación breakdown en tramo creación leído"
+      ],
+      "reproduction": "Neto1000, tasa5%, efectivo600 tarjeta400 prima0: UI1020; payload metodo efectivo + financing_data ->400. Efectivo400 tarjeta600 prima0: UI1030; backend total1050 y breakdown1030. Para extrafinanciamiento con monto tarjeta1000, plazo6 tasa10% y tarjeta normal5%: UI1100 pero breakdown1050 y método tarjeta (no financiamiento).",
+      "impact": "Bloquea venta mixta o guarda cobro desglose diferente del total; modalidad financiamiento también pierde su enum si hay desglose.",
+      "recommendation": "Definir un contrato único de base tarjeta/financiamiento; mantener modalidad elegida, deducir pagos no tarjeta de monto financiado y validar suma breakdown vs total en servidor.",
+      "tests": [
+        "NewOrderDialog.test.tsx sólo nombre faltante",
+        "tests/browser/financing.spec.ts sólo alta banco, ninguna venta financiada",
+        "Añadir UI+PostgreSQL cash/card, transfer/card, financiación, prima, tasa0 y redondeos"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Bloquea venta mixta o guarda cobro desglose diferente del total; modalidad financiamiento también pierde su enum si hay desglose.",
+      "required_tests": [
+        "NewOrderDialog.test.tsx sólo nombre faltante",
+        "tests/browser/financing.spec.ts sólo alta banco, ninguna venta financiada",
+        "Añadir UI+PostgreSQL cash/card, transfer/card, financiación, prima, tasa0 y redondeos"
+      ]
+    },
+    {
+      "id": "FE-02",
+      "severity": "HIGH",
+      "status": "RIESGO CONFIRMADO EN CLIENTE; DEDUP BACKEND A CRUZAR CON PADRE",
+      "title": "Reintentos automáticos repiten mutaciones no idempotentes",
+      "evidence": [
+        "src/lib/apiClient.ts request 338-401: retries=3 para cualquier method, UUID nuevo por intento, Failed to fetch reintenta",
+        "src/lib/apiClient.ts createOrder 1203-1206, createStockTransfer1315-1321, restockProduct1079-1085: POST mediante request",
+        "backend/app/services/order_service.py create_order 284: commit antes de entregar respuesta"
+      ],
+      "reproduction": "POST venta accesorio efectivo con stock>=2. Backend confirma commit; perder/resetear respuesta al cliente para que fetch rechace Failed to fetch. Cliente envía el mismo cuerpo otra vez con X-Request-ID diferente.",
+      "impact": "Cliente puede duplicar venta, stock o traslado por fallo de respuesta; consumos con IMEI/referencia únicos podrían fallar en vez de duplicar, sin resolver incertidumbre del usuario.",
+      "recommendation": "Reintentar sólo lecturas seguras mientras no exista idempotencia servidor; para mutaciones usar clave estable de operación persistida y respuesta deduplicada transaccional.",
+      "tests": [
+        "apiClient.test.ts no cubre fallo red después commit ni reintentos POST",
+        "Necesario backend+cliente con pérdida respuesta tras commit"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Cliente puede duplicar venta, stock o traslado por fallo de respuesta; consumos con IMEI/referencia únicos podrían fallar en vez de duplicar, sin resolver incertidumbre del usuario.",
+      "required_tests": [
+        "apiClient.test.ts no cubre fallo red después commit ni reintentos POST",
+        "Necesario backend+cliente con pérdida respuesta tras commit"
+      ]
+    },
+    {
+      "id": "FE-03",
+      "severity": "MEDIUM",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Venta rechazada cierra y borra el formulario como si hubiese terminado",
+      "evidence": [
+        "src/App.tsx NewOrderDialog.onSubmit 2429-2432 captura sin relanzar",
+        "src/components/NewOrderDialog.tsx handleSubmit 813-837 await onSubmit y cierra; resetForm207-245 al cerrar"
+      ],
+      "reproduction": "Completar venta válida en UI, responder400 (stock cambiado, referencia repetida, límite precio) al POST. App muestra toast error pero resuelve Promise; diálogo llama onOpenChange(false) y borra cliente/items.",
+      "impact": "Usuario pierde entrada y puede confundir fallo con éxito. Si POST guarda pero GET products falla, también informa Error al crear orden aunque ya fue creada.",
+      "recommendation": "Propagar error de creación; separar persistencia confirmada de refresco fallido, mantener formulario cuando creación no confirmada.",
+      "tests": [
+        "NewOrderDialog.test.tsx no prueba rechazo onSubmit",
+        "App.saleCompletion.test.ts inspección texto, no integración submit"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Usuario pierde entrada y puede confundir fallo con éxito. Si POST guarda pero GET products falla, también informa Error al crear orden aunque ya fue creada.",
+      "required_tests": [
+        "NewOrderDialog.test.tsx no prueba rechazo onSubmit",
+        "App.saleCompletion.test.ts inspección texto, no integración submit"
+      ]
+    },
+    {
+      "id": "FE-04",
+      "severity": "HIGH",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Traslado multi-modelo anunciado como una operación deja resultado parcial y repetir duplica líneas",
+      "evidence": [
+        "src/components/TransferStockDialog.tsx handleSubmit 313-333: for POSTs individuales, catch conserva todas las líneas",
+        "src/components/TransferStockDialog.tsx DialogDescription346-347 dice mover varios modelos en una sola operación"
+      ],
+      "reproduction": "Dos accesorios A y B en traslado. POST A201; POST B409 por stock concurrente o500. A ya pendiente en servidor, UI sólo error y sigue con A/B. Volver Registrar repite POST A antes de B.",
+      "impact": "Incumple atomicidad comercial; reserva/despacha A aunque lote no terminó, segunda ejecución puede duplicar A. No se reportan IDs exitosos ni refresca stock en fallo.",
+      "recommendation": "Endpoint batch con transacción única; mientras se implemente, mostrar y conservar progreso por línea, no reenviar exitosas, reconciliar antes de reintentar.",
+      "tests": [
+        "Sin test TransferStockDialog",
+        "E2E transfer-lifecycle.spec.ts sólo un accesorio; agregar lote+fallo línea2"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Incumple atomicidad comercial; reserva/despacha A aunque lote no terminó, segunda ejecución puede duplicar A. No se reportan IDs exitosos ni refresca stock en fallo.",
+      "required_tests": [
+        "Sin test TransferStockDialog",
+        "E2E transfer-lifecycle.spec.ts sólo un accesorio; agregar lote+fallo línea2"
+      ]
+    },
+    {
+      "id": "FE-05",
+      "severity": "HIGH",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Caché global de negocio permite mezclar datos de usuarios/ubicaciones entre sesiones y pestañas",
+      "evidence": [
+        "src/App.tsx MainApp84-89 usa useKV inventory-products/orders/profiles/locations sin user/backend namespace",
+        "src/App.tsx logout269-275 elimina auth pero no datasets ni dataLoaded",
+        "src/App.tsx loadData381-434 no invalida previos al nuevo usuario, sin cancelación/respuesta guard; catch mantiene data y marca loaded",
+        "src/hooks/use-kv.ts load+storage73-88 lee mismas claves; src/lib/kvStorage.ts prefix spark-kv sin usuario",
+        "src/lib/apiClient.ts token283-299 queda en memoria; no evento storage auth"
+      ],
+      "reproduction": "A ubicación1 carga datos; logout e ingresar B con orders:view ubicación2; bloquear GET de carga B: siguen orders A y dataLoaded true. Dos pestañas mantienen token en memoria distinto tras login/logout global y datasets de una se propagan por storage a otra.",
+      "impact": "Exposición de clientes/ventas/stock fuera del alcance sesión actual, transitoria o hasta recarga exitosa; servidor no autoriza estos datos leídos desde navegador.",
+      "recommendation": "Estado negocio sólo en memoria o caché segregada por backend+usuario+alcance; limpiar/invalidate al logout/auth cambio, cancelar solicitudes antiguas y sincronizar auth entre tabs.",
+      "tests": [
+        "No tests App aislamiento sesión/tab",
+        "Añadir dos usuarios ubicaciones disjuntas, carga fallida y responses fuera de orden"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Exposición de clientes/ventas/stock fuera del alcance sesión actual, transitoria o hasta recarga exitosa; servidor no autoriza estos datos leídos desde navegador.",
+      "required_tests": [
+        "No tests App aislamiento sesión/tab",
+        "Añadir dos usuarios ubicaciones disjuntas, carga fallida y responses fuera de orden"
+      ]
+    },
+    {
+      "id": "FE-06",
+      "severity": "MEDIUM",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Lista transferencias corta silenciosamente a la primera página de50",
+      "evidence": [
+        "src/lib/apiClient.ts listStockTransfers1326-1356 sólo una request sin page/per_page y descarta total/pages",
+        "backend/app/routers/stock_transfers.py list_transfers184-185 defaults page1 per_page50",
+        "src/components/TransferListDialog.tsx loadTransfers69-79 filtra ubicación local;291-293 estados locales"
+      ],
+      "reproduction": "51+ transferencias visibles, transferencia pendiente antigua fuera primera50. Abrir En tránsito puede mostrar ninguna aunque servidor tiene pendientes en página2. Filtro ubicación se aplica después del corte.",
+      "impact": "Oculta recepciones pendientes e inventario en tránsito; contadores e historial falsos.",
+      "recommendation": "Paginar todas o implementar paginación UI con filtros estado/ubicación enviados servidor y total visible.",
+      "tests": [
+        "apiClient tests paginan users/roles/permissions pero no stock-transfers",
+        "TransferList test usa array2; agregar51+ y pendiente página2"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Oculta recepciones pendientes e inventario en tránsito; contadores e historial falsos.",
+      "required_tests": [
+        "apiClient tests paginan users/roles/permissions pero no stock-transfers",
+        "TransferList test usa array2; agregar51+ y pendiente página2"
+      ]
+    },
+    {
+      "id": "FE-07",
+      "severity": "MEDIUM",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Notas API desaparecen de tarjeta y editor por notes/notas",
+      "evidence": [
+        "backend/app/schemas/order.py OrderResponse369: notes; routers/orders.py serialize260: notes=order.notes",
+        "src/lib/apiClient.ts mapApiOrder302-335 spread API sin asignación notas",
+        "src/components/OrderCard.tsx 226-230 sólo order.notas; EditOrderDialog.tsx81,193 inicia order.notas"
+      ],
+      "reproduction": "Crear orden con notes=instrucciones entrega. API responde notes; tarjeta no muestra texto y editor abre vacío. Escribir nueva nota guarda reemplazo sin exponer anterior.",
+      "impact": "Se pierden visualmente instrucciones operativas/historial aunque DB las conserva inicialmente.",
+      "recommendation": "Normalizar en mapa API o usar notes de manera uniforme y migrar alias legacy explícitamente.",
+      "tests": [
+        "No test notas roundtrip de create/list/edit"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Se pierden visualmente instrucciones operativas/historial aunque DB las conserva inicialmente.",
+      "required_tests": [
+        "No test notas roundtrip de create/list/edit"
+      ]
+    },
+    {
+      "id": "FE-08",
+      "severity": "MEDIUM",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Reparación automática sigue escribiendo stock local en producción y anuncia corrección",
+      "evidence": [
+        "src/lib/healthCheck.ts performAutoFix378-392 muta stock_disponible=0",
+        "src/App.tsx HealthCheckDialog.onAutoFix2562-2585 setProducts/fixes setOrders/setProfiles sin servicio API ni guard producción",
+        "src/components/HealthCheckDialog.tsx123-133 botón Reparación Automática"
+      ],
+      "reproduction": "Con snapshot producto stock negativo diagnosticar y Reparación Automática en build productivo: writes spark-kv-inventory-products, toast reparación completada; no PUT/API autorizado y no movimiento auditado.",
+      "impact": "Oculta discrepancia servidor, deja cache distinto de stock_items/DB y aparenta remedio definitivo. No prueba que stock negativo sea alcanzable por transacción normal.",
+      "recommendation": "Eliminar mutación browser negocio producción; diagnóstico servidor de invariantes y ajuste autorizado/auditado o mostrar reparación limitada cache explícita.",
+      "tests": [
+        "runtimePolicy.test.ts confirma inventory-products no es bloqueado",
+        "No test autorepair producción"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Oculta discrepancia servidor, deja cache distinto de stock_items/DB y aparenta remedio definitivo. No prueba que stock negativo sea alcanzable por transacción normal.",
+      "required_tests": [
+        "runtimePolicy.test.ts confirma inventory-products no es bloqueado",
+        "No test autorepair producción"
+      ]
+    },
+    {
+      "id": "FE-09",
+      "severity": "MEDIUM",
+      "status": "INCONSISTENCIA UI CONFIRMADA; COMPORTAMIENTO BACKEND GARANTIA A CRUZAR",
+      "title": "Accesorios serializados no tienen selección/validación IMEI en edición y garantía",
+      "evidence": [
+        "src/components/EditOrderDialog.tsx fetchIMEIs251, handleSubmit390-396 y selector644 se basan sólo categoria celular",
+        "src/components/ReturnDialog.tsx handleSubmit115 y campos UI238 se basan sólo categoria celular",
+        "src/components/NewOrderDialog.tsx selector1200 y carga529 sí soportan is_serialized"
+      ],
+      "reproduction": "Producto categoria accesorio is_serialized=true vendido con serial. Editar/agregar a orden o garantía: interfaz no ofrece IMEI para accesorio, mientras NewOrder sí ofrece selección.",
+      "impact": "Contrato serializado inconsistente; usuario no puede completar selección requerida desde UI, depende rechazo backend. En celulares is_serialized=false schema venta usa OR mientras selector usa?? y exige IMEI invisible.",
+      "recommendation": "Unificar función isSerialized por contrato servidor y soportar serial alfanumérico donde permitido en todos los flujos.",
+      "tests": [
+        "ReturnDialog.test.tsx sólo celular",
+        "NewOrderDialog test no serialized=false",
+        "Añadir accesorios serializados y celulares flagfalse"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Contrato serializado inconsistente; usuario no puede completar selección requerida desde UI, depende rechazo backend. En celulares is_serialized=false schema venta usa OR mientras selector usa?? y exige IMEI invisible.",
+      "required_tests": [
+        "ReturnDialog.test.tsx sólo celular",
+        "NewOrderDialog test no serialized=false",
+        "Añadir accesorios serializados y celulares flagfalse"
+      ]
+    },
+    {
+      "id": "FE-10",
+      "severity": "MEDIUM",
+      "status": "CONFIRMADO POR CODIGO",
+      "title": "Enviar fotos permite múltiples clics concurrentes; selección archivos comparte estado entre clientes",
+      "evidence": [
+        "src/components/PhotoRequestsDashboard.tsx handleSendToCustomer117-133 setUploadingtrue",
+        "src/components/PhotoRequestsDashboard.tsx botón285-296 no disabledUploading, mismo para Rechazar299-323",
+        "src/components/PhotoRequestsDashboard.tsx state16-20 selectedFiles/mediaUrl global y handleOpenRequest43-57 no limpia"
+      ],
+      "reproduction": "Abrir solicitud clienteA seleccionar archivos y cerrar sin subir. Abrir clienteB: mismos selectedFiles/mediaUrl presentes y botón sube a B. Doble clic Enviar genera dos POST concurrentes.",
+      "impact": "Riesgo enviar foto al cliente incorrecto/duplicada; deduplicación envío backend necesita verificación separada.",
+      "recommendation": "Estado borrador por requestId o limpiar al cambiar/cerrar; deshabilitar acciones durante operación y exigir idempotencia envío servidor.",
+      "tests": [
+        "No tests dashboard ni dos clientes/tabs/submit concurrente"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Riesgo enviar foto al cliente incorrecto/duplicada; deduplicación envío backend necesita verificación separada.",
+      "required_tests": [
+        "No tests dashboard ni dos clientes/tabs/submit concurrente"
+      ]
+    },
+    {
+      "id": "FE-11",
+      "severity": "LOW",
+      "status": "DEFECTO LATENTE CONFIRMADO; SIN CONSUMIDOR ACTUAL",
+      "title": "Hook WebSocket reconecta tras disconnect/cleanup usando token antiguo",
+      "evidence": [
+        "src/hooks/use-photo-request-websocket.ts onclose79-88 programa connect incondicional si autoReconnect;disconnect99-109 cierra socket después limpiar timer",
+        "src/hooks/use-photo-request-websocket.ts useEffect111-121 cleanup disconnect; rg usePhotoRequestWebSocket sólo definición, ningún consumidor actual"
+      ],
+      "reproduction": "Montar hook con token; disconnect/unmount -> close emite onclose asincrónico después clearTimeout; programa nuevo connect con closure token anterior.",
+      "impact": "Fuga sockets y eventos luego logout si se conecta este hook. No afecta dashboard actual que usa polling; hallazgo latente.",
+      "recommendation": "Flag disposed/manualDisconnect y handlers nulos antes close; controlar reconexión según generación/token vigente.",
+      "tests": [
+        "Sin test hook; fake WebSocket cerrar/unmount/tokenchange"
+      ],
+      "runtime_validation": "NO EJECUTADA: padre ejecuta suites; ningún test corrido por este agente",
+      "source_report": "BLOQUE_frontend.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Fuga sockets y eventos luego logout si se conecta este hook. No afecta dashboard actual que usa polling; hallazgo latente.",
+      "required_tests": [
+        "Sin test hook; fake WebSocket cerrar/unmount/tokenchange"
+      ]
+    },
+    {
+      "id": "SEC-AI-001",
+      "severity": "HIGH",
+      "title": "JWT sin permiso IA accede a conversaciones e inventario global",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/ai_intelligence.py:444-459 acepta cualquier usuario activo",
+        "backend/app/routers/ai_slug_integrity.py:56-72 delega context sin autorización adicional",
+        "backend/app/routers/ai_intelligence.py:1111-1149 selecciona cliente por teléfono suministrado; 1176-1304 stock sin scope; 1400-1403 historial sin perfil; 1490-1522 devuelve memoria e historial"
+      ],
+      "reproduction": "Usuario Invitado activo, o usuario limitado a tienda A, POST /api/ai/context con slug válido y teléfono de cliente B. Obtiene previous_context, ai_memory, admin_phone e inventario exacto de otras ubicaciones; no requiere OpenAI.",
+      "recommendation": "Separar credencial de integración acotada por perfil/canal de JWT staff; exigir permiso IA y acceso cliente/perfil/ubicación. Filtrar todos los recuperadores y limitar datos de respuesta.",
+      "tests": [
+        "Negativos Invitado sin ai:manage, usuario scope A frente B, teléfono ajeno y perfil diferente; verificar 403 y no mutaciones."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Negativos Invitado sin ai:manage, usuario scope A frente B, teléfono ajeno y perfil diferente; verificar 403 y no mutaciones."
+      ]
+    },
+    {
+      "id": "SEC-AI-002",
+      "severity": "HIGH",
+      "title": "Creación de ventas por IA omite orders:create",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/ai_intelligence.py:2223-2229 depende solo _require_ai_integration_auth",
+        "backend/app/routers/ai_intelligence.py:2146-2197 solo valida ubicación para JWT",
+        "backend/app/services/order_service.py:159-245 no verifica permiso orders:create",
+        "backend/app/utils/location_access.py:7-28 permite todas ubicaciones a roles sistema sin filas explícitas"
+      ],
+      "reproduction": "JWT Invitado activo sin orders:create y sin filas UserLocationAccess; POST /api/ai/create-order con perfil válido, ubicación e item con stock no serializado. Pasa RBAC y llega a venta/stock. Incluso cuenta sin rol con can_edit explícito pasa.",
+      "recommendation": "Para JWT exigir orders:create además de can_edit; para servicio acotar perfiles y ubicaciones autorizadas. Aplicar el mismo guard a order_intent de handle-message.",
+      "tests": [
+        "Prueba DB PostgreSQL con Invitado y stock: 403, stock/órdenes inmutables; mismo caso vía order_intent."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Prueba DB PostgreSQL con Invitado y stock: 403, stock/órdenes inmutables; mismo caso vía order_intent."
+      ]
+    },
+    {
+      "id": "SEC-AI-003",
+      "severity": "HIGH",
+      "title": "Respuesta duplicada puede pertenecer a otro cliente",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/ai_intelligence.py:2245-2269 latest_assistant filtra sales_profile_id y role, no customer_id ni message_id"
+      ],
+      "reproduction": "Procesar mensaje A con ID M; luego cliente B genera última respuesta en mismo perfil; reintentar M como A. reply devuelve contenido de B. Puede provocarse con payload message_id arbitrario conocido.",
+      "recommendation": "Persistir respuesta vinculada a clave mensaje/canal/cuenta/cliente y devolver solo esa respuesta; jamás fallback al último assistant del perfil.",
+      "tests": [
+        "Dos clientes intercalados y retries; assert reply de A y ausencia texto de B. test_ai_workflow.py:481-512 solo cubre mismo cliente."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Dos clientes intercalados y retries; assert reply de A y ausencia texto de B. test_ai_workflow.py:481-512 solo cubre mismo cliente."
+      ]
+    },
+    {
+      "id": "SEC-AI-004",
+      "severity": "HIGH",
+      "title": "Pronóstico rápido evade restricción por ubicación",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/forecasting.py:14-28 recibe location_id libre y no usa current_user para scope",
+        "backend/app/services/forecasting_service.py:26-29 location_id sustituye scope; 64-106 stock/ventas se consultan globalmente si omitido"
+      ],
+      "reproduction": "Usuario reports:view limitado a A solicita /api/forecasting/predict?location_id=B o sin filtro; obtiene stock exacto y demanda de B/global.",
+      "recommendation": "Alinear con analytics/forecast: validar ubicación y require_location_access, aplicar location_ids accesibles por defecto.",
+      "tests": [
+        "Usuario scoped A: B 403; sin filtro solo A; no filas acceso retorna vacío para roles custom."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Usuario scoped A: B 403; sin filtro solo A; no filas acceso retorna vacío para roles custom."
+      ]
+    },
+    {
+      "id": "CH-001",
+      "severity": "HIGH",
+      "title": "Corrección de webhook no cubre idempotencia del endpoint IA ni limpieza compartida",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/channel_webhook_integrity.py:34-99,360-470 recupera pending_delivery y release de fallos",
+        "backend/app/routers/ai_intelligence.py:493-530 elimina todo registro expirado y commit previo a procesamiento",
+        "backend/app/routers/ai_intelligence.py:2245-2269 no libera reclamo ante fallo posterior"
+      ],
+      "reproduction": "A) /api/ai/handle-message con message_id: fallo get_ai_context/OpenAI/order y retry: duplicate-guard sin completar efecto. B) insertar pending_delivery/manual_recovery expirado; cualquier handle-message nuevo con ID ejecuta cleanup y borra respuesta de recuperación; retry webhook vuelve a IA.",
+      "recommendation": "Unificar protocolo de deduplicación y limpieza; preservar estados ambiguos/delivery pendientes en TODOS consumidores. Persistir estado/resultado y decidir recovery antes de replay.",
+      "tests": [
+        "PostgreSQL fallo antes/después de side effects + retry IA; fila pending_delivery/manual_recovery expirada sobrevive limpieza IA; retry no repite órdenes/fotos."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "PostgreSQL fallo antes/después de side effects + retry IA; fila pending_delivery/manual_recovery expirada sobrevive limpieza IA; retry no repite órdenes/fotos."
+      ]
+    },
+    {
+      "id": "CH-005",
+      "severity": "MEDIUM",
+      "title": "n8n sigue con contrato training inválido y sin entrega Meta",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "docs/n8n/whatsapp_ai_flow.json: nodo Enviar a Cola POST /api/ai/training-queue con sales_profile_id/question/original_answer",
+        "backend/app/routers/ai_intelligence.py:1681-1698 ruta POST real /training/submit; 1721-1725 training-queue solo GET",
+        "docs/n8n/whatsapp_ai_flow.json: Responder WhatsApp es respondToWebhook, no nodo Meta Graph",
+        "docs/INTEGRACION_N8N.md: contratos contradictorios context/log/training"
+      ],
+      "reproduction": "Importar plantilla; rama entrenamiento llama método inexistente (405); response webhook por sí misma no envía mensaje Graph. No se verificó ejecución n8n ni puente externo que transforme respuesta.",
+      "recommendation": "Definir ruta oficial nativa vs puente n8n, corregir endpoint/esquema y referencia datos del webhook tras HTTP request; añadir envío real o documentar adaptador.",
+      "tests": [
+        "Staging sin clientes reales: contrato entrada-context-reply-training-entrega y retry; verificar nodo Meta simulado."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Staging sin clientes reales: contrato entrada-context-reply-training-entrega y retry; verificar nodo Meta simulado."
+      ]
+    },
+    {
+      "id": "CH-006",
+      "severity": "MEDIUM",
+      "title": "Clave deduplicación global sin cuenta/canal/cliente",
+      "status": "RIESGO DE DISEÑO CONFIRMADO; COLISIÓN REAL NO VERIFICADA",
+      "evidence": [
+        "backend/app/models/ai.py:102-106 message_id unique global",
+        "backend/app/routers/channel_webhook_integrity.py:71-81 lookup solo ID",
+        "backend/app/routers/channel_webhook_integrity.py:277-321 cached_delivery_context y envío usan event.channel/customer_id sin cotejar claim.customer_phone/channel"
+      ],
+      "reproduction": "Colisión ID en dos canales/cuentas: segundo mensaje se omite; si primero pending_delivery, segunda entrega puede reutilizar su respuesta al recipient del segundo evento. Factibilidad de colisión real Meta no demostrada; API IA permite IDs libres.",
+      "recommendation": "Clave compuesta canal/cuenta/message_id, enlazar recipient/profile inmutable y validar reintento. Separar namespace IDs IA/nativos.",
+      "tests": [
+        "Mismo ID distintos canales/cuentas/customer: no omisión ni reenvío cruzado."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Mismo ID distintos canales/cuentas/customer: no omisión ni reenvío cruzado."
+      ]
+    },
+    {
+      "id": "PHOTO-001",
+      "severity": "MEDIUM",
+      "title": "Fotos ignoran canal de origen persistido",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/photo_requests.py:147 guarda origin_channel",
+        "backend/app/routers/photo_requests.py:245-256 resolver usa notas/primer canal y omite origin_channel",
+        "backend/app/routers/channel_webhook_integrity.py:259-266 construye payload sin channel_hint",
+        "backend/app/routers/ai_intelligence.py:2283-2297 infiere primer canal perfil para solicitud"
+      ],
+      "reproduction": "Perfil canales [whatsapp,instagram], solicitud origin_channel=instagram sin notas especiales: envío selecciona whatsapp. En webhook Instagram la IA también infiere WhatsApp.",
+      "recommendation": "Propagar canal/cuenta reales desde IncomingEvent y resolver primero origin_channel validado; conservar account context para entrega.",
+      "tests": [
+        "Perfil multicanal: solicitudes IG/Messenger salen por canal/cuenta originales."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Perfil multicanal: solicitudes IG/Messenger salen por canal/cuenta originales."
+      ]
+    },
+    {
+      "id": "PHOTO-002",
+      "severity": "MEDIUM",
+      "title": "Envío de lote de fotos no es reintentable sin duplicados",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/photo_requests.py:690-695 selecciona media sin lock",
+        "backend/app/routers/photo_requests.py:734-757 y 775-795 envía media secuencial y caption",
+        "backend/app/routers/photo_requests.py:804-826 marca todos después de todas entregas"
+      ],
+      "reproduction": "Dos media: primera aceptada, segunda/caption falla. Todas quedan unsent; retry reenvía primera. Dos llamadas concurrentes ven mismo lote y entregan dos veces.",
+      "recommendation": "Reclamo transaccional/outbox por media y guardar ID/estado de entrega inmediatamente; cuarentena de resultados ambiguos, concurrencia e idempotencia.",
+      "tests": [
+        "Mock Meta acepta media1 y falla media2/caption; retry solo pendiente. Dos solicitudes concurrentes PostgreSQL no duplican."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Mock Meta acepta media1 y falla media2/caption; retry solo pendiente. Dos solicitudes concurrentes PostgreSQL no duplican."
+      ]
+    },
+    {
+      "id": "AN-001",
+      "severity": "MEDIUM",
+      "title": "Analytics y forecast usan fecha creación en lugar de fecha venta",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/analytics.py:92-114 usa Order.created_at y <= last_month_end (date a medianoche)",
+        "backend/app/services/forecasting_service.py:109-125 usa Order.created_at",
+        "backend/app/routers/ai_business_integrity.py:101-112 usa effective_sale_column, contraparte ya canónica"
+      ],
+      "reproduction": "Orden pendiente creada hace 2 meses y completada hoy: no computa venta actual en analytics/forecast. Venta último día mes a 12:00 queda fuera revenue_last_month.",
+      "recommendation": "Usar effective_sale_column/at, ventanas [inicio, siguiente_inicio) y acordar moneda/refunds con reportes canónicos.",
+      "tests": [
+        "Venta validada posterior creación; último día mes mediodía y límite siguiente mes; reconciliación con reportes."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Venta validada posterior creación; último día mes mediodía y límite siguiente mes; reconciliación con reportes."
+      ]
+    },
+    {
+      "id": "AN-002",
+      "severity": "MEDIUM",
+      "title": "Cache forecast ignora parámetros y caducidad",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/routers/analytics.py:149-162 cacheable no considera days_history ni limit y retorna summary tal cual",
+        "backend/app/routers/analytics.py:177-183 cache almacena resultado ya truncado",
+        "backend/app/jobs/forecasting_job.py:32-40 precalcula 90 días sin metadato days_history"
+      ],
+      "reproduction": "Consulta history60 limit1 precarga cache; siguiente history365 limit200 devuelve summary limit1/history60. Sin scheduler, cache permanece hasta restart o force_refresh.",
+      "recommendation": "Clave por filtros/history/scope, cache objeto completo y aplicar limit por solicitud, TTL explícito.",
+      "tests": [
+        "Requests history/limit distintos devuelven datos propios; avance reloj invalida cache."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Requests history/limit distintos devuelven datos propios; avance reloj invalida cache."
+      ]
+    },
+    {
+      "id": "AUTH-001",
+      "severity": "MEDIUM",
+      "title": "Cambiar contraseña no invalida JWT anterior",
+      "status": "CONFIRMADO POR CÓDIGO",
+      "evidence": [
+        "backend/app/auth.py:44-87 JWT valida sub/exp y usuario activo",
+        "backend/app/routers/auth_router.py:453-454 y 580-581 cambia hash sin token version"
+      ],
+      "reproduction": "Token robado válido; usuario/admin cambia contraseña; JWT anterior sigue autorizado hasta exp. Si username antiguo se reutiliza en otra cuenta, sub puede apuntar a nueva identidad.",
+      "recommendation": "JWT con subject ID estable y token_version/password_changed_at; revocar sesiones tras cambio/reset contraseña.",
+      "tests": [
+        "Token anterior rechazado tras reset; reutilizar username no migra identidad."
+      ],
+      "execution": "No ejecutado; validación estática, sin servicios reales",
+      "source_report": "BLOQUE_security-ai.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "required_tests": [
+        "Token anterior rechazado tras reset; reutilizar username no migra identidad."
+      ]
+    },
+    {
+      "id": "T01",
+      "severity": "MEDIUM",
+      "kind": "confirmed_test_gap",
+      "evidence": [
+        "tests/e2e/test_postgres_runtime_e2e.py:219-230"
+      ],
+      "finding": "El único E2E PostgreSQL acepta competidor 500/503 como éxito de control de concurrencia; no comprueba ausencia de orden, items, pagos o ledger parcial del perdedor.",
+      "recommendation": "Exigir estado de conflicto esperado 400/409 y mensaje, exactamente una orden e items/IMEI/stock/historial coherentes; forzar solapamiento con barrera.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "El único E2E PostgreSQL acepta competidor 500/503 como éxito de control de concurrencia; no comprueba ausencia de orden, items, pagos o ledger parcial del perdedor.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T02",
+      "severity": "MEDIUM",
+      "kind": "confirmed_test_gap",
+      "evidence": [
+        "src/components/__tests__/NewOrderDialog.test.tsx:26-45",
+        "src/__tests__/App.saleCompletion.test.ts:1-26"
+      ],
+      "finding": "NewOrderDialog solo comprueba nombre vacío; tests de App son inspección textual y no ejecutan App. No verifican venta real serializada, pagos múltiples, financiamiento, selección localización, error/reintento ni estados UI al fallar API.",
+      "recommendation": "Añadir tests montaje con MSW y browser PostgreSQL para venta completa y error, verificando payload y persistencia final.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "NewOrderDialog solo comprueba nombre vacío; tests de App son inspección textual y no ejecutan App. No verifican venta real serializada, pagos múltiples, financiamiento, selección localización, error/reintento ni estados UI al fallar API.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T03",
+      "severity": "MEDIUM",
+      "kind": "confirmed_test_gap",
+      "evidence": [
+        "backend/tests/test_sqlite_to_postgres_migration.py:14-99"
+      ],
+      "finding": "Suite de migración SQLite->PostgreSQL utiliza SQLite como target en todos los casos; no verifica conversión PG, secuencias, constraints ni rollback de migración completa.",
+      "recommendation": "Añadir CLI completo sobre SQLite legacy y schema PG aislado con datos representativos, referencias, inserción posterior, fallo intermedio y rollback.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "Suite de migración SQLite->PostgreSQL utiliza SQLite como target en todos los casos; no verifica conversión PG, secuencias, constraints ni rollback de migración completa.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T04",
+      "severity": "MEDIUM",
+      "kind": "confirmed_test_robustness",
+      "evidence": [
+        "backend/tests/test_stock_concurrency.py:85-169"
+      ],
+      "finding": "test_transfer_reservation_blocks_concurrent_order usa barrier.wait y join sin timeout; workers no capturan errores inesperados. Un worker caído y otro ok puede satisfacer asserts generales; deadlock puede colgar gate.",
+      "recommendation": "Timeouts de barrera, lock_timeout/statement_timeout PostgreSQL, errores compartidos, join acotado y comprobar dos outcomes con conflicto exacto.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "test_transfer_reservation_blocks_concurrent_order usa barrier.wait y join sin timeout; workers no capturan errores inesperados. Un worker caído y otro ok puede satisfacer asserts generales; deadlock puede colgar gate.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T05",
+      "severity": "MEDIUM",
+      "kind": "test_environment_safety_gap",
+      "evidence": [
+        "tests/e2e/test_postgres_runtime_e2e.py:40-51",
+        "tests/e2e/test_postgres_runtime_e2e.py:103-194"
+      ],
+      "finding": "E2E PG usa DATABASE_URL recibido sin aislamiento ni guardia de DB descartable. Hace setup inicial y escrituras; solo verifica prefijo postgresql.",
+      "recommendation": "Crear schema/test database único mediante helper y cleanup; rechazar explícitamente DSN no destinado a pruebas.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "E2E PG usa DATABASE_URL recibido sin aislamiento ni guardia de DB descartable. Hace setup inicial y escrituras; solo verifica prefijo postgresql.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T06",
+      "severity": "LOW",
+      "kind": "confirmed_test_gap",
+      "evidence": [
+        "src/components/__tests__/DailyCloseDialog.test.tsx:64-101",
+        "src/components/__tests__/ReturnDialog.test.tsx:54-125",
+        "src/components/__tests__/TransferListDialog.test.tsx:43-135"
+      ],
+      "finding": "Cierre, devolución y recepción frontend solo mockean éxito; falta rechazar promesas, mantener diálogo/datos, bloquear doble submit y evitar callback éxito/refresh falso ante error.",
+      "recommendation": "Añadir mockRejectedValue y doble clic/concurrent submit; asserts callback no invocado y UI permite retry coherente.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "Cierre, devolución y recepción frontend solo mockean éxito; falta rechazar promesas, mantener diálogo/datos, bloquear doble submit y evitar callback éxito/refresh falso ante error.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "T07",
+      "severity": "INFORMATIONAL",
+      "kind": "coverage_limit",
+      "evidence": [
+        "backend/conftest.py:75-103",
+        "backend/tests/test_api_usage.py:48-71"
+      ],
+      "finding": "Fixtures por defecto suplantan auth como superusuario. Las suites de negocio prueban DB y rutas pero no autenticación JWT; api_usage Uvicorn también fakea auth. Negativos existentes en suites dedicadas sí son sustantivos y E2E SQLite autentica realmente.",
+      "recommendation": "Separar fixture client autenticado real por defecto de client bypass explícito; parametrizar RBAC real en endpoints críticos. No interpretar número backend como cobertura auth completa.",
+      "source_report": "BLOQUE_tests.json",
+      "title": "Fixtures por defecto suplantan auth como superusuario. Las suites de negocio prueban DB y rutas pero no autenticación JWT; api_usage Uvicorn también fakea auth. Negativos existentes en suites dedicadas sí son sustantivos y E2E SQLite autentica realmente.",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-01",
+      "severity": "HIGH",
+      "status": "confirmed_static",
+      "title": "Arranque Windows resembra PostgreSQL y puede sobrescribir stock existente",
+      "refs": [
+        "start-backend.bat:38-42",
+        "backend/init_db.py:20-27,80-83",
+        "backend/app/utils/demo_seed.py:293-329",
+        "backend/app/config.py:33-35"
+      ],
+      "evidence": "El BAT decide inicializar por ausencia de inventory.db, independiente de DATABASE_URL. En PostgreSQL ese archivo normalmente no existe; init_db --with-data opera en engine configurado y _sync_stock actualiza cantidades existentes a valores demo sin StockHistory en rama update. No ejecutado.",
+      "recommendation": "Separar creación esquema de seeding; nunca sembrar en launcher; datos demo solo operación explícita sobre entorno aislado.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-02",
+      "severity": "HIGH",
+      "status": "confirmed_static",
+      "title": "cleanup_v2 elimina documentación canónica",
+      "refs": [
+        "cleanup_v2.sh:32-34,39-48,97-101"
+      ],
+      "evidence": "Incluye COMIENZA_AQUI.md (existente y requerido por AGENTS) en FILES_TO_DELETE; mv sin -n puede sobrescribir docs/ARQUITECTURA.md si existe fuente histórica. CWD sin anclaje. No ejecutado.",
+      "recommendation": "Retirar utilidades destructivas legacy o convertirlas a plan/dry-run explícito con backup y lista validada.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-03",
+      "severity": "MEDIUM",
+      "status": "confirmed_render",
+      "title": "Calendar pierde botones accesibles para navegar meses",
+      "refs": [
+        "src/components/ui/calendar.tsx:61-67",
+        "node_modules/react-day-picker/dist/cjs/components/Nav.js",
+        "src/components/AdvancedSearchDialog.tsx:104-110"
+      ],
+      "evidence": "DayPicker9 espera PreviousMonthButton/NextMonthButton interactivos; wrapper devuelve svg. SSR produce nav con dos SVG type=button sin button/role/tabIndex. Navegación mouse mantiene onclick, pero Tab/Enter/Space nativos faltan; SVG incluye Chevron hijo redundante.",
+      "recommendation": "Mantener botones de DayPicker y personalizar Chevron, actualizar classNames al API v9. Verificar rango y navegación teclado.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-04",
+      "severity": "LOW",
+      "status": "confirmed_render",
+      "title": "Progress omite valor semántico ARIA",
+      "refs": [
+        "src/components/ui/progress.tsx:6-25"
+      ],
+      "evidence": "value se extrae y sólo modifica transform; no pasa a Root. SSR value65 da data-state indeterminate sin aria-valuenow. Consumido en SettingsDialog, OptimizationInsightsDialog, AIForecastingDialog.",
+      "recommendation": "Pasar value a Root y verificar ARIA 0/65/100.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-05",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "test-system tolera tests frontend fallidos y concluye éxito",
+      "refs": [
+        "test-system.sh:3-4,10"
+      ],
+      "evidence": "npm run test:coverage || echo ... continúa; backend exitoso hace terminar script 0 y Todas las pruebas finalizaron.",
+      "recommendation": "Propagar estado no cero de todos gates; no tratar tests fallidos como ausencia de tests.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-06",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Quickstart canónico llama setup faltante",
+      "refs": [
+        "start-all.sh:9-26",
+        "README.md:38-55",
+        "COMIENZA_AQUI.md:5-12"
+      ],
+      "evidence": "Cuando no existe backend/venv o node_modules hace chmod/ejecución setup-complete.sh; archivo no existe en SHA. Sigue sin set-e y puede anunciar configuración/arranque exitosos. .venv permitido por otros launchers tampoco lo reconoce.",
+      "recommendation": "Alinear quickstart a instalación existente, crear venv explícitamente y usar launcher fail-fast con checks reales.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-07",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Simulaciones n8n no autentican discovery protegido y simulan éxito por prints",
+      "refs": [
+        "test_n8n_simulation.py:21-36",
+        "simulate_whatsapp_flow.py:13-29",
+        "verify_learning.py:11-17",
+        "backend/app/routers/sales_profiles.py:61"
+      ],
+      "evidence": "GET sales-profiles sin bearer ni _headers; endpoint exige check_any_permission. X-N8N-Token no sustituye JWT de discovery. Scripts retornan/capturan excepciones sin exit no cero; test_n8n_flow no tiene asserts y puede pasar pytest tras error. Algunos POST log no comprueban status y anuncian éxito.",
+      "recommendation": "Usar JWT de usuario fixture autorizado, service endpoints con token separado, timeout y raise/assert por cada resultado; aislar datos demo y cleanup.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-08",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Configurador PostgreSQL rompe credenciales con caracteres normales e interpola SQL privilegiado",
+      "refs": [
+        "setup-postgres.sh:120-142,156,179"
+      ],
+      "evidence": "Password con apóstrofe se inserta literalmente en CREATE USER PASSWORD; identificadores sin quoting/validación; operaciones psql ignoran PG_HOST/PG_PORT elegidos, conectan al postgres local. URL no percent-encode para @ / #, sed replacement no escapa &, |.",
+      "recommendation": "Usar quoting identificadores/literales psql, destino host/port único y URL con urllib quote; escribir dotenv sin sed interpolado.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-09",
+      "severity": "LOW",
+      "status": "confirmed_static",
+      "title": "Root check_*.py auditan SQLite legacy y ocultan fallos",
+      "refs": [
+        "check_db_direct.py:4-25",
+        "check_ai_tables.py:4-36",
+        "check_user_role.py:5-31",
+        "check_users_schema.py:6-36",
+        "inspect_last_order.py:4-8"
+      ],
+      "evidence": "Rutas inventory.db fijas no DATABASE_URL; varios imprimen error pero código0. inspect_last_order abre connect sin comprobar existencia y crea archivo vacío. No validan PostgreSQL productivo.",
+      "recommendation": "Marcar compatibilidad SQLite, URI mode=ro y códigos de salida correctos; herramientas productivas deben usar engine config explícito y no exponer registros cliente.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-10",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "reset_system anuncia reseteo aunque no aplica a PostgreSQL y mata uvicorn globalmente",
+      "refs": [
+        "reset_system.sh:6-23"
+      ],
+      "evidence": "pkill -f uvicorn mata todos procesos coincidentes del usuario; rm backend/inventory.db ignora DATABASE_URL y sin backup; init_db crea tablas sin vaciar PG existente. No set-e y siempre anuncia éxito. No ejecutado.",
+      "recommendation": "Retirar reset legacy del camino operativo; pruebas sólo DB aislada, PID concreto y confirmación/backup explícitos.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-11",
+      "severity": "LOW",
+      "status": "confirmed_static",
+      "title": "Dialog y AlertDialog fuerzan pantalla completa también desktop",
+      "refs": [
+        "src/components/ui/dialog.tsx:59-62",
+        "src/components/ui/alert-dialog.tsx:58-60"
+      ],
+      "evidence": "!w-screen !h-[100dvh] !max-w-none !max-h-none son important y prevalecen sobre sm:w/height/max*. La intención responsive y max-width del caller no se aplica.",
+      "recommendation": "Limitar important al breakpoint móvil o quitarlo; comprobar contenido crítico desktop/mobile.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "UTIL-12",
+      "severity": "LOW",
+      "status": "confirmed_static_unused",
+      "title": "ChartTooltipContent oculta valores cero",
+      "refs": [
+        "src/components/ui/chart.tsx:248-252"
+      ],
+      "evidence": "Guard item.value && devuelve 0 desnudo en React, sin span ni formato previsto; cero se oculta o queda texto crudo. No consumidores de wrapper chart fuera UI encontrados; bug latente.",
+      "recommendation": "Comprobar != null y renderizar formato para 0.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "DOC-01",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "LIMITATIONS contradice conversión USD implementada",
+      "refs": [
+        "docs/LIMITATIONS.md:5-15",
+        "docs/ARQUITECTURA.md:17",
+        "docs/PROMPT_NEGOCIACION_BOT.md:79-92",
+        "backend/app/utils/order_currency.py:15-59",
+        "backend/app/services/order_service.py:176"
+      ],
+      "evidence": "LIMITATIONS afirma no conversión automática/moneda solo compatibilidad; helper convierte catálogo+costo USD a HNL con exchange_rate del perfil y fallback25; la guía negociación lo describe. Arquitectura HNL final es correcto pero compatibilidad-only es impreciso.",
+      "recommendation": "Documentar catálogo USD→ledger HNL, tasa utilizada y límites reales sobre historial y monedas soportadas.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "DOC-02",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Guías de producción vigentes aparentes omiten gates y dan falsa preparación",
+      "refs": [
+        "SETUP_PRODUCCION_RAPIDO.md:1-14,105-128,218",
+        "docs/PROD_INFRA_SECURITY.md:17-35,87-96",
+        "docs/DEPLOYMENT_PROD.md:42-49,94-105",
+        "setup-production.sh:203"
+      ],
+      "evidence": "Guías antiguas no rotuladas histórico remiten a root setup manual/cron o compose sin perfiles backup/offsite y no gate validate-prod; afirman producción lista. Contradicen runbook canónico que exige offsite, DR, secretos fuertes, CI y reglas release.",
+      "recommendation": "Convertir cada guía histórica a redirect/banner canónico; scripts root producción deben delegar a deploy gate.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "DOC-03",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Integración n8n tiene JSON corrupto y contratos obsoletos",
+      "refs": [
+        "docs/INTEGRACION_N8N.md:23-37,66-99,146-159",
+        "docs/AI_REPORTING_SCOPE.md:13-28",
+        "TEST_N8N.md:25-35"
+      ],
+      "evidence": "§3 JSON queda abierto y se mezcla con §4; sales_profile_id/query y message_source/platform vs scripts actuales slug/message_content/role/content; seguridad dice API pública y propone implementar auth pese RBAC existente. AI scope aún exige N8N y marca Prometheus futuro aunque runbook actual los soporta.",
+      "recommendation": "Reescribir usando schemas actuales y una prueba contractual fixture; autenticación exacta X-N8N-Token versus JWT.",
+      "source_report": "BLOQUE_utilities.json",
+      "baseline_sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+      "business_impact": "Consultar evidencia y explicación del bloque; requiere validación del alcance real antes de corregir.",
+      "reproduction": "Escenario descrito por evidencia estática; reproducción runtime pendiente salvo resultado explícito en el bloque.",
+      "required_tests": "Añadir regresión específica y ejecutar gates aplicables en entorno descartable."
+    },
+    {
+      "id": "PROD-01",
+      "severity": "HIGH",
+      "status": "OBSERVED_READ_ONLY",
+      "title": "Producción no tiene provenance verificable y conserva cambios fuera de GitHub",
+      "evidence": [
+        "2026-10-14 GET https://invjear.com/api/health y /api/ready HTTP200; X-Release-SHA: unknown.",
+        "WorkingDirectory systemd /var/www/inventario/backend; checkout HEAD1cfa35e9ba2e1db28e43285fac482d18021426ef sucio: backend/backup_database.sh,src/App.tsx,src/components/AIStatusWidget.tsx,tests/browser/receipt.spec.ts.",
+        "Comparación blob working files contra SHA auditado: 348 src+backend/app,346 iguales,diferentes App.tsx y AIStatusWidget.tsx; ningún ausente. No prueba el bundle servido."
+      ],
+      "business_impact": "No se puede garantizar que pruebas de GitHub representan frontend desplegado ni rollback reproducible.",
+      "reproduction": "GET health/ready y comparación de blobs de solo lectura; no cambió configuración ni archivos VPS.",
+      "recommendation": "Tras fase auditada y autorización, recuperar diffs por PR y desplegar checkout limpio con APP_BUILD_SHA y artefactos identificados.",
+      "required_tests": "Verificar header SHA esperado, bundle/imágenes, ausencia deriva y smoke real."
+    },
+    {
+      "id": "PROD-02",
+      "severity": "HIGH",
+      "status": "OBSERVED_READ_ONLY",
+      "title": "Backup off-site obligatorio sin destino configurado",
+      "evidence": [
+        "Solo presencia de variables en /var/www/inventario/backend/.env: REQUIRE_OFFSITE_BACKUP=true; BACKUP_RCLONE_DESTINATION vacío/ausente. No se expusieron secretos.",
+        "Issue38 abierto; rulesets API sólo21015275 branch main activo, no tag v*."
+      ],
+      "business_impact": "Pérdida de servidor puede dejar sin copia externa recuperable. ReadinessHTTP200 no valida offsite.",
+      "reproduction": "Comprobar presencia booleana de configuración y evidencia privada de copia; copia real no ejecutada en auditoría.",
+      "recommendation": "Configurar destino externo tras decisión/credenciales; copia y verificación por contenido y restauración aislada.",
+      "required_tests": "rclone check download, restore DR con RPO/RTO completo, reglas tags."
+    }
+  ]
+}

@@ -1,0 +1,1039 @@
+{
+  "sha": "dba6763391d12c6c91c9904cba36725710f9280a",
+  "agent": "utilities_ui",
+  "status": "IMPLEMENTED/STATIC AUDIT; only Calendar/Progress render reproduced",
+  "coverage": [
+    {
+      "path": "AGENTS.md",
+      "status": "complete_read",
+      "lines": 165,
+      "kind": "documentation"
+    },
+    {
+      "path": "src/components/ui/accordion.tsx",
+      "status": "complete_read",
+      "lines": 64,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/alert-dialog.tsx",
+      "status": "complete_read",
+      "lines": 160,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/alert.tsx",
+      "status": "complete_read",
+      "lines": 66,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/aspect-ratio.tsx",
+      "status": "complete_read",
+      "lines": 10,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/avatar.tsx",
+      "status": "complete_read",
+      "lines": 53,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/badge.tsx",
+      "status": "complete_read",
+      "lines": 46,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/breadcrumb.tsx",
+      "status": "complete_read",
+      "lines": 110,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/button.tsx",
+      "status": "complete_read",
+      "lines": 59,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/calendar.tsx",
+      "status": "complete_read",
+      "lines": 74,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/card.tsx",
+      "status": "complete_read",
+      "lines": 92,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/carousel.tsx",
+      "status": "complete_read",
+      "lines": 242,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/chart.tsx",
+      "status": "complete_read",
+      "lines": 363,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/checkbox.tsx",
+      "status": "complete_read",
+      "lines": 32,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/collapsible.tsx",
+      "status": "complete_read",
+      "lines": 32,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/command.tsx",
+      "status": "complete_read",
+      "lines": 177,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/context-menu.tsx",
+      "status": "complete_read",
+      "lines": 254,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/dialog.tsx",
+      "status": "complete_read",
+      "lines": 139,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/drawer.tsx",
+      "status": "complete_read",
+      "lines": 130,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu.tsx",
+      "status": "complete_read",
+      "lines": 259,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/form.tsx",
+      "status": "complete_read",
+      "lines": 165,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/hover-card.tsx",
+      "status": "complete_read",
+      "lines": 42,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/input-otp.tsx",
+      "status": "complete_read",
+      "lines": 77,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/input.tsx",
+      "status": "complete_read",
+      "lines": 25,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/label.tsx",
+      "status": "complete_read",
+      "lines": 24,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/menubar.tsx",
+      "status": "complete_read",
+      "lines": 276,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/navigation-menu.tsx",
+      "status": "complete_read",
+      "lines": 168,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/pagination.tsx",
+      "status": "complete_read",
+      "lines": 125,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/popover.tsx",
+      "status": "complete_read",
+      "lines": 48,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/progress.tsx",
+      "status": "complete_read",
+      "lines": 29,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/radio-group.tsx",
+      "status": "complete_read",
+      "lines": 45,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/resizable.tsx",
+      "status": "complete_read",
+      "lines": 54,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/scroll-area.tsx",
+      "status": "complete_read",
+      "lines": 58,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/select.tsx",
+      "status": "complete_read",
+      "lines": 185,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/separator.tsx",
+      "status": "complete_read",
+      "lines": 28,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/sheet.tsx",
+      "status": "complete_read",
+      "lines": 137,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/sidebar.tsx",
+      "status": "complete_read",
+      "lines": 726,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/skeleton.tsx",
+      "status": "complete_read",
+      "lines": 14,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/slider.tsx",
+      "status": "complete_read",
+      "lines": 63,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/sonner.tsx",
+      "status": "complete_read",
+      "lines": 21,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/switch.tsx",
+      "status": "complete_read",
+      "lines": 31,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/table.tsx",
+      "status": "complete_read",
+      "lines": 114,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/tabs.tsx",
+      "status": "complete_read",
+      "lines": 66,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/textarea.tsx",
+      "status": "complete_read",
+      "lines": 18,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/toggle-group.tsx",
+      "status": "complete_read",
+      "lines": 73,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/toggle.tsx",
+      "status": "complete_read",
+      "lines": 45,
+      "kind": "ui"
+    },
+    {
+      "path": "src/components/ui/tooltip.tsx",
+      "status": "complete_read",
+      "lines": 59,
+      "kind": "ui"
+    },
+    {
+      "path": "TS_FIX.py",
+      "status": "complete_read",
+      "lines": 34,
+      "kind": "utility_config"
+    },
+    {
+      "path": "api-examples-nuevo-sistema.json",
+      "status": "complete_read",
+      "lines": 447,
+      "kind": "utility_config"
+    },
+    {
+      "path": "browser_cleanup_script.js",
+      "status": "complete_read",
+      "lines": 23,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check-production-setup.sh",
+      "status": "complete_read",
+      "lines": 275,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_ai_tables.py",
+      "status": "complete_read",
+      "lines": 36,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_db_direct.py",
+      "status": "complete_read",
+      "lines": 25,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_luhn.py",
+      "status": "complete_read",
+      "lines": 33,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_roles.py",
+      "status": "complete_read",
+      "lines": 29,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_user_role.py",
+      "status": "complete_read",
+      "lines": 33,
+      "kind": "utility_config"
+    },
+    {
+      "path": "check_users_schema.py",
+      "status": "complete_read",
+      "lines": 39,
+      "kind": "utility_config"
+    },
+    {
+      "path": "cleanup.sh",
+      "status": "complete_read",
+      "lines": 77,
+      "kind": "utility_config"
+    },
+    {
+      "path": "cleanup_system.py",
+      "status": "complete_read",
+      "lines": 155,
+      "kind": "utility_config"
+    },
+    {
+      "path": "cleanup_v2.sh",
+      "status": "complete_read",
+      "lines": 105,
+      "kind": "utility_config"
+    },
+    {
+      "path": "components.json",
+      "status": "complete_read",
+      "lines": 21,
+      "kind": "utility_config"
+    },
+    {
+      "path": "eslint.config.js",
+      "status": "complete_read",
+      "lines": 33,
+      "kind": "utility_config"
+    },
+    {
+      "path": "inspect_last_order.py",
+      "status": "complete_read",
+      "lines": 74,
+      "kind": "utility_config"
+    },
+    {
+      "path": "package.json",
+      "status": "complete_read",
+      "lines": 121,
+      "kind": "utility_config"
+    },
+    {
+      "path": "playwright.config.ts",
+      "status": "complete_read",
+      "lines": 16,
+      "kind": "utility_config"
+    },
+    {
+      "path": "reset_system.sh",
+      "status": "complete_read",
+      "lines": 33,
+      "kind": "utility_config"
+    },
+    {
+      "path": "runtime.config.json",
+      "status": "complete_read",
+      "lines": 3,
+      "kind": "utility_config"
+    },
+    {
+      "path": "setup-postgres.sh",
+      "status": "complete_read",
+      "lines": 255,
+      "kind": "utility_config"
+    },
+    {
+      "path": "setup-production.sh",
+      "status": "complete_read",
+      "lines": 205,
+      "kind": "utility_config"
+    },
+    {
+      "path": "setup-sentry.sh",
+      "status": "complete_read",
+      "lines": 273,
+      "kind": "utility_config"
+    },
+    {
+      "path": "simple_tsc.py",
+      "status": "complete_read",
+      "lines": 34,
+      "kind": "utility_config"
+    },
+    {
+      "path": "simulate_whatsapp_flow.py",
+      "status": "complete_read",
+      "lines": 96,
+      "kind": "utility_config"
+    },
+    {
+      "path": "spark.meta.json",
+      "status": "complete_read",
+      "lines": 4,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-all-postgres.sh",
+      "status": "complete_read",
+      "lines": 133,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-all.sh",
+      "status": "complete_read",
+      "lines": 128,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-backend-codespaces.sh",
+      "status": "complete_read",
+      "lines": 59,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-backend.bat",
+      "status": "complete_read",
+      "lines": 60,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-backend.sh",
+      "status": "complete_read",
+      "lines": 76,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-frontend.bat",
+      "status": "complete_read",
+      "lines": 54,
+      "kind": "utility_config"
+    },
+    {
+      "path": "start-frontend.sh",
+      "status": "complete_read",
+      "lines": 72,
+      "kind": "utility_config"
+    },
+    {
+      "path": "tailwind.config.js",
+      "status": "complete_read",
+      "lines": 142,
+      "kind": "utility_config"
+    },
+    {
+      "path": "test-system.sh",
+      "status": "complete_read",
+      "lines": 10,
+      "kind": "utility_config"
+    },
+    {
+      "path": "test_luhn.py",
+      "status": "complete_read",
+      "lines": 339,
+      "kind": "utility_config"
+    },
+    {
+      "path": "test_n8n_simulation.py",
+      "status": "complete_read",
+      "lines": 224,
+      "kind": "utility_config"
+    },
+    {
+      "path": "theme.json",
+      "status": "complete_read",
+      "lines": 1,
+      "kind": "utility_config"
+    },
+    {
+      "path": "tsconfig.json",
+      "status": "complete_read",
+      "lines": 38,
+      "kind": "utility_config"
+    },
+    {
+      "path": "verify_learning.py",
+      "status": "complete_read",
+      "lines": 45,
+      "kind": "utility_config"
+    },
+    {
+      "path": "vite.config.ts",
+      "status": "complete_read",
+      "lines": 92,
+      "kind": "utility_config"
+    },
+    {
+      "path": "src/vite-end.d.ts",
+      "status": "complete_read",
+      "lines": 32,
+      "kind": "utility_config"
+    },
+    {
+      "path": "README.md",
+      "status": "complete_read",
+      "lines": 136,
+      "kind": "documentation"
+    },
+    {
+      "path": "COMIENZA_AQUI.md",
+      "status": "complete_read",
+      "lines": 82,
+      "kind": "documentation"
+    },
+    {
+      "path": "CHECKLIST_PRODUCCION.md",
+      "status": "complete_read",
+      "lines": 96,
+      "kind": "documentation"
+    },
+    {
+      "path": "DEPLOY_CHECKLIST.md",
+      "status": "complete_read",
+      "lines": 99,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/LIMITATIONS.md",
+      "status": "complete_read",
+      "lines": 81,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/AI_REPORTING_SCOPE.md",
+      "status": "complete_read",
+      "lines": 84,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/PRODUCCION_FINAL.md",
+      "status": "complete_read",
+      "lines": 242,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/ARQUITECTURA.md",
+      "status": "complete_read",
+      "lines": 480,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/OPERACION.md",
+      "status": "complete_read",
+      "lines": 57,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/DEPENDENCY_MAINTENANCE.md",
+      "status": "complete_read",
+      "lines": 15,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/PREPRODUCTION_MAINTENANCE_PLAN.md",
+      "status": "complete_read",
+      "lines": 39,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/PRODUCCION_COMPLETA.md",
+      "status": "complete_read",
+      "lines": 46,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/PROD_INFRA_SECURITY.md",
+      "status": "complete_read",
+      "lines": 96,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/SYNC_STRATEGY.md",
+      "status": "complete_read",
+      "lines": 62,
+      "kind": "documentation"
+    },
+    {
+      "path": "SECURITY.md",
+      "status": "complete_read",
+      "lines": 25,
+      "kind": "documentation"
+    },
+    {
+      "path": "PHOTO_REQUESTS_TODOS.md",
+      "status": "complete_read",
+      "lines": 37,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/CONVENCION_NOMBRES.md",
+      "status": "complete_read",
+      "lines": 84,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/EXECUCION_PARALELA_PLAN.md",
+      "status": "complete_read",
+      "lines": 74,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/REFACTORING_STATUS.md",
+      "status": "complete_read",
+      "lines": 66,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/RBAC_REFACTOR_PLAN.md",
+      "status": "complete_read",
+      "lines": 69,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/SEGURIDAD.md",
+      "status": "complete_read",
+      "lines": 33,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/VALIDATION_PLAN.md",
+      "status": "complete_read",
+      "lines": 81,
+      "kind": "documentation"
+    },
+    {
+      "path": "INICIO_RAPIDO.md",
+      "status": "complete_read",
+      "lines": 247,
+      "kind": "documentation"
+    },
+    {
+      "path": "SETUP_PRODUCCION_RAPIDO.md",
+      "status": "complete_read",
+      "lines": 227,
+      "kind": "documentation"
+    },
+    {
+      "path": "TEST_N8N.md",
+      "status": "complete_read",
+      "lines": 98,
+      "kind": "documentation"
+    },
+    {
+      "path": "AUDIT_SUMMARY.md",
+      "status": "complete_read",
+      "lines": 62,
+      "kind": "documentation"
+    },
+    {
+      "path": "AUDIT_REPORT.md",
+      "status": "complete_read",
+      "lines": 158,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/ACTUALIZAR_INSTALACION_EXISTENTE.md",
+      "status": "complete_read",
+      "lines": 170,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/DEPLOYMENT_PROD.md",
+      "status": "complete_read",
+      "lines": 105,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/DIAGNOSTICO_MODELO_VENTAS.md",
+      "status": "complete_read",
+      "lines": 143,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/INTEGRACION_N8N.md",
+      "status": "complete_read",
+      "lines": 159,
+      "kind": "documentation"
+    },
+    {
+      "path": "docs/PROMPT_NEGOCIACION_BOT.md",
+      "status": "complete_read",
+      "lines": 141,
+      "kind": "documentation"
+    },
+    {
+      "path": "package-lock.json",
+      "status": "partial",
+      "lines": 9993,
+      "reviewed": "JSON parsed, selected installed dependency versions; no exhaustive lockfile review"
+    },
+    {
+      "path": "CHANGELOG_AI_IMPROVEMENTS_V2.md",
+      "status": "not_reviewed",
+      "lines": 210,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "CHANNELS_CONFIGURATION.md",
+      "status": "not_reviewed",
+      "lines": 529,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "PHOTO_REQUESTS_SYSTEM.md",
+      "status": "not_reviewed",
+      "lines": 488,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "PRODUCTION_IMPROVEMENTS.md",
+      "status": "not_reviewed",
+      "lines": 490,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/DEPLOYMENT.md",
+      "status": "not_reviewed",
+      "lines": 494,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/ESTADO_IA.md",
+      "status": "not_reviewed",
+      "lines": 380,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/GUIA_REFACTORIZACION.md",
+      "status": "not_reviewed",
+      "lines": 754,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/GUIA_TESTING.md",
+      "status": "not_reviewed",
+      "lines": 326,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/GUIA_TRANSFERENCIAS.md",
+      "status": "not_reviewed",
+      "lines": 259,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/INTEGRACION.md",
+      "status": "not_reviewed",
+      "lines": 211,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/MANUAL_COMPLETO.md",
+      "status": "not_reviewed",
+      "lines": 466,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/PRD.md",
+      "status": "not_reviewed",
+      "lines": 274,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/RESUMEN_MEJORAS.md",
+      "status": "not_reviewed",
+      "lines": 609,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/TESTING_PLAN.md",
+      "status": "not_reviewed",
+      "lines": 511,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/TESTING_RESULTS.md",
+      "status": "not_reviewed",
+      "lines": 371,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    },
+    {
+      "path": "docs/VALIDACION.md",
+      "status": "not_reviewed",
+      "lines": 302,
+      "reason": "Bounded documentation extension; substantial files deferred, no completeness claim"
+    }
+  ],
+  "findings": [
+    {
+      "id": "UTIL-01",
+      "severity": "HIGH",
+      "status": "confirmed_static",
+      "title": "Arranque Windows resembra PostgreSQL y puede sobrescribir stock existente",
+      "refs": [
+        "start-backend.bat:38-42",
+        "backend/init_db.py:20-27,80-83",
+        "backend/app/utils/demo_seed.py:293-329",
+        "backend/app/config.py:33-35"
+      ],
+      "evidence": "El BAT decide inicializar por ausencia de inventory.db, independiente de DATABASE_URL. En PostgreSQL ese archivo normalmente no existe; init_db --with-data opera en engine configurado y _sync_stock actualiza cantidades existentes a valores demo sin StockHistory en rama update. No ejecutado.",
+      "recommendation": "Separar creación esquema de seeding; nunca sembrar en launcher; datos demo solo operación explícita sobre entorno aislado."
+    },
+    {
+      "id": "UTIL-02",
+      "severity": "HIGH",
+      "status": "confirmed_static",
+      "title": "cleanup_v2 elimina documentación canónica",
+      "refs": [
+        "cleanup_v2.sh:32-34,39-48,97-101"
+      ],
+      "evidence": "Incluye COMIENZA_AQUI.md (existente y requerido por AGENTS) en FILES_TO_DELETE; mv sin -n puede sobrescribir docs/ARQUITECTURA.md si existe fuente histórica. CWD sin anclaje. No ejecutado.",
+      "recommendation": "Retirar utilidades destructivas legacy o convertirlas a plan/dry-run explícito con backup y lista validada."
+    },
+    {
+      "id": "UTIL-03",
+      "severity": "MEDIUM",
+      "status": "confirmed_render",
+      "title": "Calendar pierde botones accesibles para navegar meses",
+      "refs": [
+        "src/components/ui/calendar.tsx:61-67",
+        "node_modules/react-day-picker/dist/cjs/components/Nav.js",
+        "src/components/AdvancedSearchDialog.tsx:104-110"
+      ],
+      "evidence": "DayPicker9 espera PreviousMonthButton/NextMonthButton interactivos; wrapper devuelve svg. SSR produce nav con dos SVG type=button sin button/role/tabIndex. Navegación mouse mantiene onclick, pero Tab/Enter/Space nativos faltan; SVG incluye Chevron hijo redundante.",
+      "recommendation": "Mantener botones de DayPicker y personalizar Chevron, actualizar classNames al API v9. Verificar rango y navegación teclado."
+    },
+    {
+      "id": "UTIL-04",
+      "severity": "LOW",
+      "status": "confirmed_render",
+      "title": "Progress omite valor semántico ARIA",
+      "refs": [
+        "src/components/ui/progress.tsx:6-25"
+      ],
+      "evidence": "value se extrae y sólo modifica transform; no pasa a Root. SSR value65 da data-state indeterminate sin aria-valuenow. Consumido en SettingsDialog, OptimizationInsightsDialog, AIForecastingDialog.",
+      "recommendation": "Pasar value a Root y verificar ARIA 0/65/100."
+    },
+    {
+      "id": "UTIL-05",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "test-system tolera tests frontend fallidos y concluye éxito",
+      "refs": [
+        "test-system.sh:3-4,10"
+      ],
+      "evidence": "npm run test:coverage || echo ... continúa; backend exitoso hace terminar script 0 y Todas las pruebas finalizaron.",
+      "recommendation": "Propagar estado no cero de todos gates; no tratar tests fallidos como ausencia de tests."
+    },
+    {
+      "id": "UTIL-06",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Quickstart canónico llama setup faltante",
+      "refs": [
+        "start-all.sh:9-26",
+        "README.md:38-55",
+        "COMIENZA_AQUI.md:5-12"
+      ],
+      "evidence": "Cuando no existe backend/venv o node_modules hace chmod/ejecución setup-complete.sh; archivo no existe en SHA. Sigue sin set-e y puede anunciar configuración/arranque exitosos. .venv permitido por otros launchers tampoco lo reconoce.",
+      "recommendation": "Alinear quickstart a instalación existente, crear venv explícitamente y usar launcher fail-fast con checks reales."
+    },
+    {
+      "id": "UTIL-07",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Simulaciones n8n no autentican discovery protegido y simulan éxito por prints",
+      "refs": [
+        "test_n8n_simulation.py:21-36",
+        "simulate_whatsapp_flow.py:13-29",
+        "verify_learning.py:11-17",
+        "backend/app/routers/sales_profiles.py:61"
+      ],
+      "evidence": "GET sales-profiles sin bearer ni _headers; endpoint exige check_any_permission. X-N8N-Token no sustituye JWT de discovery. Scripts retornan/capturan excepciones sin exit no cero; test_n8n_flow no tiene asserts y puede pasar pytest tras error. Algunos POST log no comprueban status y anuncian éxito.",
+      "recommendation": "Usar JWT de usuario fixture autorizado, service endpoints con token separado, timeout y raise/assert por cada resultado; aislar datos demo y cleanup."
+    },
+    {
+      "id": "UTIL-08",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Configurador PostgreSQL rompe credenciales con caracteres normales e interpola SQL privilegiado",
+      "refs": [
+        "setup-postgres.sh:120-142,156,179"
+      ],
+      "evidence": "Password con apóstrofe se inserta literalmente en CREATE USER PASSWORD; identificadores sin quoting/validación; operaciones psql ignoran PG_HOST/PG_PORT elegidos, conectan al postgres local. URL no percent-encode para @ / #, sed replacement no escapa &, |.",
+      "recommendation": "Usar quoting identificadores/literales psql, destino host/port único y URL con urllib quote; escribir dotenv sin sed interpolado."
+    },
+    {
+      "id": "UTIL-09",
+      "severity": "LOW",
+      "status": "confirmed_static",
+      "title": "Root check_*.py auditan SQLite legacy y ocultan fallos",
+      "refs": [
+        "check_db_direct.py:4-25",
+        "check_ai_tables.py:4-36",
+        "check_user_role.py:5-31",
+        "check_users_schema.py:6-36",
+        "inspect_last_order.py:4-8"
+      ],
+      "evidence": "Rutas inventory.db fijas no DATABASE_URL; varios imprimen error pero código0. inspect_last_order abre connect sin comprobar existencia y crea archivo vacío. No validan PostgreSQL productivo.",
+      "recommendation": "Marcar compatibilidad SQLite, URI mode=ro y códigos de salida correctos; herramientas productivas deben usar engine config explícito y no exponer registros cliente."
+    },
+    {
+      "id": "UTIL-10",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "reset_system anuncia reseteo aunque no aplica a PostgreSQL y mata uvicorn globalmente",
+      "refs": [
+        "reset_system.sh:6-23"
+      ],
+      "evidence": "pkill -f uvicorn mata todos procesos coincidentes del usuario; rm backend/inventory.db ignora DATABASE_URL y sin backup; init_db crea tablas sin vaciar PG existente. No set-e y siempre anuncia éxito. No ejecutado.",
+      "recommendation": "Retirar reset legacy del camino operativo; pruebas sólo DB aislada, PID concreto y confirmación/backup explícitos."
+    },
+    {
+      "id": "UTIL-11",
+      "severity": "LOW",
+      "status": "confirmed_static",
+      "title": "Dialog y AlertDialog fuerzan pantalla completa también desktop",
+      "refs": [
+        "src/components/ui/dialog.tsx:59-62",
+        "src/components/ui/alert-dialog.tsx:58-60"
+      ],
+      "evidence": "!w-screen !h-[100dvh] !max-w-none !max-h-none son important y prevalecen sobre sm:w/height/max*. La intención responsive y max-width del caller no se aplica.",
+      "recommendation": "Limitar important al breakpoint móvil o quitarlo; comprobar contenido crítico desktop/mobile."
+    },
+    {
+      "id": "UTIL-12",
+      "severity": "LOW",
+      "status": "confirmed_static_unused",
+      "title": "ChartTooltipContent oculta valores cero",
+      "refs": [
+        "src/components/ui/chart.tsx:248-252"
+      ],
+      "evidence": "Guard item.value && devuelve 0 desnudo en React, sin span ni formato previsto; cero se oculta o queda texto crudo. No consumidores de wrapper chart fuera UI encontrados; bug latente.",
+      "recommendation": "Comprobar != null y renderizar formato para 0."
+    },
+    {
+      "id": "DOC-01",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "LIMITATIONS contradice conversión USD implementada",
+      "refs": [
+        "docs/LIMITATIONS.md:5-15",
+        "docs/ARQUITECTURA.md:17",
+        "docs/PROMPT_NEGOCIACION_BOT.md:79-92",
+        "backend/app/utils/order_currency.py:15-59",
+        "backend/app/services/order_service.py:176"
+      ],
+      "evidence": "LIMITATIONS afirma no conversión automática/moneda solo compatibilidad; helper convierte catálogo+costo USD a HNL con exchange_rate del perfil y fallback25; la guía negociación lo describe. Arquitectura HNL final es correcto pero compatibilidad-only es impreciso.",
+      "recommendation": "Documentar catálogo USD→ledger HNL, tasa utilizada y límites reales sobre historial y monedas soportadas."
+    },
+    {
+      "id": "DOC-02",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Guías de producción vigentes aparentes omiten gates y dan falsa preparación",
+      "refs": [
+        "SETUP_PRODUCCION_RAPIDO.md:1-14,105-128,218",
+        "docs/PROD_INFRA_SECURITY.md:17-35,87-96",
+        "docs/DEPLOYMENT_PROD.md:42-49,94-105",
+        "setup-production.sh:203"
+      ],
+      "evidence": "Guías antiguas no rotuladas histórico remiten a root setup manual/cron o compose sin perfiles backup/offsite y no gate validate-prod; afirman producción lista. Contradicen runbook canónico que exige offsite, DR, secretos fuertes, CI y reglas release.",
+      "recommendation": "Convertir cada guía histórica a redirect/banner canónico; scripts root producción deben delegar a deploy gate."
+    },
+    {
+      "id": "DOC-03",
+      "severity": "MEDIUM",
+      "status": "confirmed_static",
+      "title": "Integración n8n tiene JSON corrupto y contratos obsoletos",
+      "refs": [
+        "docs/INTEGRACION_N8N.md:23-37,66-99,146-159",
+        "docs/AI_REPORTING_SCOPE.md:13-28",
+        "TEST_N8N.md:25-35"
+      ],
+      "evidence": "§3 JSON queda abierto y se mezcla con §4; sales_profile_id/query y message_source/platform vs scripts actuales slug/message_content/role/content; seguridad dice API pública y propone implementar auth pese RBAC existente. AI scope aún exige N8N y marca Prometheus futuro aunque runbook actual los soporta.",
+      "recommendation": "Reescribir usando schemas actuales y una prueba contractual fixture; autenticación exacta X-N8N-Token versus JWT."
+    }
+  ],
+  "verification": [
+    "13 root shell files bash -n exit0",
+    "14 root Python scripts ast.parse OK without executing imports",
+    "Vite SSR Calendar/Progress artifact /tmp/utilities-render-evidence.txt; optimizeDeps discovery disabled; exit0",
+    "git status --short remained empty"
+  ],
+  "limitations": [
+    "No destructive utility executed; no live DB/simulator operations",
+    "No browser E2E/Windows runtime performed",
+    "No exhaustive dependency lock audit",
+    "Chart SSR attempt inconclusive because ResponsiveContainer has no SSR size; zero finding based on exact conditional",
+    "Source snippets supporting currency/auth/seeding inspected only; full coverage credited to other agents if independently reviewed"
+  ]
+}
