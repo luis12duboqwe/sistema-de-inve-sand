@@ -507,3 +507,69 @@ def test_mixed_card_rejects_wrong_surcharge_without_creating_order(client, db_se
     assert result.status_code == 400, result.text
     db_session.expire_all()
     assert db_session.query(Order).filter(Order.customer_phone == "70008822").count() == 0
+
+
+def test_sale_audit_failure_rolls_back_order_stock_and_imei(client, db_session, monkeypatch):
+    import pytest
+    from app.models import Order, Stock, ProductIMEI
+    from app.routers import orders as orders_router
+
+    location, profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    before_stock = db_session.query(Stock).filter_by(
+        product_id=product["id"], location_id=location.id,
+    ).one().cantidad_disponible
+
+    def failed_audit(*args, **kwargs):
+        raise RuntimeError("injected audit storage failure")
+
+    monkeypatch.setattr(orders_router, "log_audit_event", failed_audit)
+    payload = _order_payload(profile, location, product, phone="70000980")
+    with pytest.raises(RuntimeError, match="injected audit"):
+        client.post("/api/orders", json=payload)
+
+    db_session.expire_all()
+    assert db_session.query(Order).filter_by(customer_phone="70000980").count() == 0
+    stock = db_session.query(Stock).filter_by(
+        product_id=product["id"], location_id=location.id,
+    ).one()
+    assert stock.cantidad_disponible == before_stock
+    imei = db_session.query(ProductIMEI).filter_by(imei="111111111111111").one()
+    assert imei.vendido is False
+    assert imei.order_id is None
+
+
+def test_manual_nonserialized_stock_audit_failure_rollback(client, db_session, monkeypatch):
+    import pytest
+    from decimal import Decimal
+    from uuid import uuid4
+    from app.models import Product, Stock, Location, StockHistory
+    from app.routers import products as products_router
+
+    tag = uuid4().hex[:12]
+    location = Location(nombre=f"Ajuste Seguro {tag}", tipo="tienda", activo=True)
+    product = Product(sku=f"SAFE-STOCK-{tag}", nombre="Accesorio prueba",
+                      categoria="accesorio", marca="Test", modelo=tag,
+                      condicion="nuevo", precio=Decimal("50"), activo=True,
+                      is_serialized=False)
+    db_session.add_all([location, product])
+    db_session.flush()
+    stock = Stock(product_id=product.id, location_id=location.id, cantidad_disponible=5)
+    db_session.add(stock)
+    db_session.commit()
+
+    def failed_audit(*args, **kwargs):
+        raise RuntimeError("injected stock audit failure")
+
+    monkeypatch.setattr(products_router, "log_audit_event", failed_audit)
+    with pytest.raises(RuntimeError, match="injected stock audit"):
+        client.post(f"/api/products/{product.id}/stock/location/{location.id}?cantidad=7")
+
+    db_session.expire_all()
+    persisted = db_session.query(Stock).filter_by(
+        product_id=product.id, location_id=location.id,
+    ).one()
+    assert persisted.cantidad_disponible == 5
+    assert db_session.query(StockHistory).filter_by(
+        product_id=product.id, referencia_tipo="manual_adjustment",
+    ).count() == 0
