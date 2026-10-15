@@ -40,9 +40,11 @@ export function usePhotoRequestWebSocket(
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectCountRef = useRef(0)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const canConnectRef = useRef(false)
+  const generationRef = useRef(0)
 
   const connect = useCallback(() => {
-    if (!authToken) {
+    if (!canConnectRef.current || !authToken) {
       setError('No authentication token provided')
       return
     }
@@ -51,15 +53,18 @@ export function usePhotoRequestWebSocket(
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const wsUrl = `${protocol}//${window.location.host}/ws/photo-requests`
 
+      const epoch = generationRef.current
       const ws = new WebSocket(wsUrl, ['access_token', authToken])
 
       ws.onopen = () => {
+        if (!canConnectRef.current || generationRef.current !== epoch) return
         setConnected(true)
         setError(null)
         reconnectCountRef.current = 0
       }
 
       ws.onmessage = (event) => {
+        if (!canConnectRef.current || generationRef.current !== epoch) return
         try {
           const data: PhotoRequestEvent = JSON.parse(event.data)
           setLastEvent(data)
@@ -70,15 +75,19 @@ export function usePhotoRequestWebSocket(
       }
 
       ws.onerror = () => {
-        setError('WebSocket connection error')
+        if (canConnectRef.current && generationRef.current === epoch) {
+          setError('WebSocket connection error')
+        }
       }
 
       ws.onclose = () => {
+        if (!canConnectRef.current || generationRef.current !== epoch) return
+        if (wsRef.current === ws) wsRef.current = null
         setConnected(false)
         if (autoReconnect && reconnectCountRef.current < maxReconnectAttempts) {
           reconnectCountRef.current += 1
           reconnectTimeoutRef.current = setTimeout(() => {
-            connect()
+            if (canConnectRef.current && generationRef.current === epoch) connect()
           }, reconnectDelay)
         }
       }
@@ -92,11 +101,14 @@ export function usePhotoRequestWebSocket(
   }, [authToken, onEvent, autoReconnect, reconnectDelay, maxReconnectAttempts])
 
   const disconnect = useCallback(() => {
+    canConnectRef.current = false
+    generationRef.current += 1
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = null
     }
     if (wsRef.current) {
+      wsRef.current.onclose = null
       wsRef.current.close()
       wsRef.current = null
     }
@@ -104,6 +116,7 @@ export function usePhotoRequestWebSocket(
   }, [])
 
   useEffect(() => {
+    canConnectRef.current = Boolean(authToken)
     if (authToken) {
       connect()
     }
@@ -113,11 +126,17 @@ export function usePhotoRequestWebSocket(
     }
   }, [authToken, connect, disconnect])
 
+  const reconnect = useCallback(() => {
+    if (!authToken) return
+    canConnectRef.current = true
+    connect()
+  }, [authToken, connect])
+
   return {
     connected,
     lastEvent,
     error,
     disconnect,
-    reconnect: connect
+    reconnect
   }
 }
