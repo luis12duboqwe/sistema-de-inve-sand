@@ -234,6 +234,7 @@ def populate_credentials():
         print(f"❌ Error al cargar credenciales: {e}")
         db.rollback()
         db.close()
+        raise
 
 
 def clear_credentials():
@@ -272,6 +273,7 @@ def clear_credentials():
         print(f"❌ Error al limpiar: {e}")
         db.rollback()
         db.close()
+        raise
 
 
 def main():

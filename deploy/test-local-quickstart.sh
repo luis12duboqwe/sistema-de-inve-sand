@@ -19,6 +19,22 @@ chmod +x "$TEMP/bin/pkill"
  fi
 )
 grep -Fxq "important production data" "$TEMP/inventory.db"
+# Deprecated SQL configurator is read-only and must never invoke psql/sudo/sed.
+cat > "$TEMP/bin/psql" <<'EOF'
+#!/usr/bin/env bash
+echo 'Unexpected SQL operation from retired setup' >&2
+exit 97
+EOF
+chmod +x "$TEMP/bin/psql"
+(
+ cd "$TEMP"
+ PATH="$TEMP/bin:$PATH" bash "$ROOT/setup-postgres.sh" --plan >/dev/null
+ if PATH="$TEMP/bin:$PATH" bash "$ROOT/setup-postgres.sh" >/dev/null 2>&1; then
+   echo 'Legacy SQL configurator must fail closed' >&2; exit 1
+ fi
+)
+bash -n "$ROOT/setup-postgres.sh"
+
 # Local launcher refuses production and missing prerequisites without sudo/pkill.
 if ENVIRONMENT=production bash "$ROOT/start-all.sh" >/dev/null 2>&1; then
   echo "Local launcher accepted production" >&2; exit 1
