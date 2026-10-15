@@ -102,21 +102,43 @@ create_backup() {
         return 1
     fi
     
-    # Realizar backup
-    PGPASSWORD="$DB_PASSWORD" pg_dump \
+    # Ejecutar en archivo temporal; al estar create_backup dentro de un if,
+    # set -e no garantiza detectar fallos internos del pipeline.
+    local temp_file="${backup_file}.partial.${BASHPID}"
+    local temp_checksum="${backup_file}.sha256.partial.${BASHPID}"
+    if ! ( set -o pipefail; PGPASSWORD="$DB_PASSWORD" pg_dump \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
         -U "$DB_USER" \
         -d "$DB_NAME" \
         --no-password \
-        | gzip > "$backup_file"
-    
-    # Verificar tamaño
-    local size=$(du -h "$backup_file" | cut -f1)
+        | gzip > "$temp_file" ); then
+        log "❌ ERROR: pg_dump o gzip falló; no se publicará un respaldo incompleto"
+        rm -f -- "$temp_file" "$temp_checksum"
+        return 1
+    fi
+
+    local uncompressed_bytes
+    if ! gzip -t "$temp_file" || ! uncompressed_bytes="$(gzip -cd "$temp_file" | wc -c)" || [[ "$uncompressed_bytes" -eq 0 ]]; then
+        log "❌ ERROR: el respaldo está vacío o corrupto"
+        rm -f -- "$temp_file" "$temp_checksum"
+        return 1
+    fi
+
+    if ! mv -- "$temp_file" "$backup_file"; then
+        log "❌ ERROR: no se pudo publicar el respaldo"
+        rm -f -- "$temp_file" "$temp_checksum"
+        return 1
+    fi
+    if ! sha256sum "$backup_file" > "$temp_checksum" || ! mv -- "$temp_checksum" "${backup_file}.sha256"; then
+        log "❌ ERROR: no se pudo generar el checksum"
+        rm -f -- "$backup_file" "$temp_checksum"
+        return 1
+    fi
+
+    local size
+    size="$(du -h "$backup_file" | cut -f1)"
     log "✓ Backup guardado: $backup_file ($size)"
-    
-    # Generar checksum
-    sha256sum "$backup_file" > "${backup_file}.sha256"
     log "✓ Checksum generado: ${backup_file}.sha256"
     CREATED_BACKUP_FILE="$backup_file"
 }
@@ -144,8 +166,8 @@ verify_backup() {
             return 1
         fi
     else
-        log "⚠️  No hay checksum para verificar"
-        return 0
+        log "❌ ERROR: Falta checksum del respaldo"
+        return 1
     fi
 }
 
@@ -181,11 +203,14 @@ main() {
     
     # Ejecutar backup
     if create_backup "$backup_type"; then
-        # Limpiar backups antiguos
+        # Verificar ANTES de eliminar respaldos históricos.
+        if ! verify_backup "$CREATED_BACKUP_FILE"; then
+            log "❌ BACKUP FALLÓ VERIFICACIÓN; se conserva el historial"
+            send_notification "ERROR" "La verificación del backup de $DB_NAME falló"
+            return 1
+        fi
+
         cleanup_old_backups
-        
-        # Verificar último backup
-        verify_backup "$CREATED_BACKUP_FILE"
         
         # Logs de resumen
         log "✅ BACKUP COMPLETADO EXITOSAMENTE"

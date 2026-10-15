@@ -341,8 +341,13 @@ class ApiClient {
     retries = 3
   ): Promise<T> {
     let lastError: Error | null = null
-    
-    for (let attempt = 0; attempt < retries; attempt++) {
+    // Hasta que las mutaciones tengan idempotencia transaccional en el backend,
+    // repetir un POST/PUT/PATCH/DELETE ante una respuesta perdida puede duplicar ventas.
+    const method = (options.method ?? 'GET').toUpperCase()
+    const safeToRetry = ['GET', 'HEAD', 'OPTIONS'].includes(method)
+    const maxAttempts = safeToRetry ? Math.max(1, retries) : 1
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const apiBaseUrl = await getApiUrl()
         const url = `${apiBaseUrl}${endpoint}`
@@ -394,7 +399,7 @@ class ApiClient {
         lastError = error instanceof Error ? error : new Error('Unknown error')
         
         // Si es un error de red (Failed to fetch), reintentamos
-        if (lastError.message.includes('Failed to fetch') && attempt < retries - 1) {
+        if (safeToRetry && lastError.message.includes('Failed to fetch') && attempt < maxAttempts - 1) {
           console.warn(`API request failed for ${endpoint} (attempt ${attempt + 1}/${retries}), retrying...`)
           // Espera progresiva: 500ms, 1000ms, 1500ms
           await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 500))
