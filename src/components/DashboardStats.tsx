@@ -1,4 +1,5 @@
 import { Card } from '@/components/ui/card'
+import { filterDashboardOrders, sumScopedRefunds } from '@/lib/dashboardScope'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -304,6 +305,30 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const activeProducts = products.filter(p => p.activo).length
   const totalProducts = products.length
 
+  // All chart widgets and refund calculations must share the SAME visible
+  // order scope. Service aggregates do not accept these UI filters.
+  const hasActiveChartFilters = chartsOnly && (
+    filterLocationId !== 'all' ||
+    filterCanalFilter !== 'all' ||
+    filterProfileId !== 'all' ||
+    Boolean(filterDateFrom) || Boolean(filterDateTo)
+  )
+  const scopedOrders = useMemo(() => filterDashboardOrders(orders, {
+    chartsOnly,
+    locationId: filterLocationId,
+    channel: filterCanalFilter,
+    profileId: filterProfileId,
+    dateFrom: filterDateFrom,
+    dateTo: filterDateTo,
+  }), [
+    orders, chartsOnly, filterLocationId, filterCanalFilter,
+    filterProfileId, filterDateFrom, filterDateTo,
+  ])
+  const scopedOrderIds = useMemo(
+    () => new Set(scopedOrders.map(order => order.id)),
+    [scopedOrders],
+  )
+
   const refundAmountByReturnId = useMemo(() => {
     const amountMap = new Map<number, number>()
 
@@ -329,12 +354,10 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   }, [returnsData, orders])
 
   const getRefundAmountInRange = useCallback((startDate: Date, endDate: Date) => {
-    return returnsData.reduce((sum, productReturn) => {
-      const returnDate = new Date(productReturn.created_at)
-      if (returnDate < startDate || returnDate > endDate) return sum
-      return sum + (refundAmountByReturnId.get(productReturn.id) || 0)
-    }, 0)
-  }, [returnsData, refundAmountByReturnId])
+    return sumScopedRefunds(
+      returnsData, scopedOrderIds, refundAmountByReturnId, startDate, endDate,
+    )
+  }, [returnsData, scopedOrderIds, refundAmountByReturnId])
 
   const pendingOrders = orders.filter(o => o.estado === 'pendiente').length
   const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado)).length
@@ -402,32 +425,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const outOfStockProducts = mergedDashboardStats.out_of_stock_count
   const inventoryValue = mergedDashboardStats.total_inventory_value
 
-  const filteredOrders = useMemo(() => {
-    if (!chartsOnly) return orders
-    let result = orders
-    if (filterLocationId !== 'all') {
-      const locId = parseInt(filterLocationId, 10)
-      result = result.filter(o => o.source_location_id === locId)
-    }
-    if (filterCanalFilter !== 'all') {
-      result = result.filter(o => o.canal === filterCanalFilter)
-    }
-    if (filterProfileId !== 'all') {
-      const profileId = parseInt(filterProfileId, 10)
-      result = result.filter(o => o.sales_profile_id === profileId)
-    }
-    if (filterDateFrom) {
-      const from = new Date(filterDateFrom)
-      from.setHours(0, 0, 0, 0)
-      result = result.filter(o => new Date(o.created_at) >= from)
-    }
-    if (filterDateTo) {
-      const to = new Date(filterDateTo)
-      to.setHours(23, 59, 59, 999)
-      result = result.filter(o => new Date(o.created_at) <= to)
-    }
-    return result
-  }, [chartsOnly, orders, filterLocationId, filterCanalFilter, filterProfileId, filterDateFrom, filterDateTo])
+  const filteredOrders = scopedOrders
 
   const chartOrders = chartsOnly ? filteredOrders : orders
 
@@ -491,7 +489,9 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       .slice(0, 5)
   }, [chartOrders])
 
-  const topProducts = serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts
+  const topProducts = hasActiveChartFilters
+    ? fallbackTopProducts
+    : (serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts)
 
   const inventorySummaryMap = useMemo(() => {
     const map = new Map<number, StockSummaryByLocation>()
@@ -544,7 +544,9 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     }).filter(s => s.ordenes > 0)
   }, [locations, chartOrders])
 
-  const statsByLocation = serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation
+  const statsByLocation = hasActiveChartFilters
+    ? fallbackStatsByLocation
+    : (serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation)
 
   // V2.0: Stats by sales profile
   const statsByProfile = useMemo(() => {
