@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import { getKV } from '@/lib/kvStorage'
 import { clearLegacyBusinessStorage } from '@/lib/sessionCachePolicy'
@@ -256,7 +256,7 @@ function MainApp() {
     }
   }, [useAPI, currentUser])
 
-  const clearBusinessSession = () => {
+  const clearBusinessSession = useCallback(() => {
     setProducts([])
     setOrders([])
     setProfiles([])
@@ -265,7 +265,7 @@ function MainApp() {
     setDataLoaded(false)
     setSelectedProducts(new Set())
     setSelectedOrders(new Set())
-  }
+  }, [setProducts, setOrders, setProfiles, setLocations])
 
   const handleLoginSuccess = (user: User, _token: string) => {
     clearBusinessSession()
@@ -274,13 +274,13 @@ function MainApp() {
     setShowLoginDialog(false)
   }
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     clearBusinessSession()
     apiClient.logout()
     sessionStorage.removeItem('auth_user')
     setCurrentUser(null)
     setShowLoginDialog(true)
-  }
+  }, [clearBusinessSession])
 
   // Listen for unauthorized events from apiClient
   useEffect(() => {
@@ -293,7 +293,7 @@ function MainApp() {
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized)
     }
-  }, [])
+  }, [handleLogout])
 
   const { result: healthCheckResult, isRunning: isHealthCheckRunning, runCheck, performAutoFix } = useHealthCheck(
     products ?? [],
