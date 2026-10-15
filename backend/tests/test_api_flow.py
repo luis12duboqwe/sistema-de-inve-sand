@@ -573,3 +573,38 @@ def test_manual_nonserialized_stock_audit_failure_rollback(client, db_session, m
     assert db_session.query(StockHistory).filter_by(
         product_id=product.id, referencia_tipo="manual_adjustment",
     ).count() == 0
+
+
+def test_dashboard_and_location_stock_value_convert_usd_to_hnl(client, db_session):
+    from decimal import Decimal
+    from uuid import uuid4
+    from app.models import Product, Stock, Location
+
+    tag = uuid4().hex[:10]
+    location = Location(nombre=f"Sede Divisa {tag}", tipo="tienda", activo=True)
+    usd = Product(
+        sku=f"USD-{tag}", nombre="Accesorio USD", categoria="accesorio",
+        marca="Test", modelo="Dolar", condicion="nuevo", precio=Decimal("100"),
+        costo=Decimal("100"), moneda="USD", activo=True, is_serialized=False,
+    )
+    hnl = Product(
+        sku=f"HNL-{tag}", nombre="Accesorio HNL", categoria="accesorio",
+        marca="Test", modelo="Lempira", condicion="nuevo", precio=Decimal("100"),
+        costo=Decimal("100"), moneda="Lps", activo=True, is_serialized=False,
+    )
+    db_session.add_all([location, usd, hnl])
+    db_session.flush()
+    db_session.add_all([
+        Stock(product_id=usd.id, location_id=location.id, cantidad_disponible=1),
+        Stock(product_id=hnl.id, location_id=location.id, cantidad_disponible=1),
+    ])
+    db_session.commit()
+
+    dashboard = client.get(f"/api/reports/dashboard?location_id={location.id}")
+    assert dashboard.status_code == 200, dashboard.text
+    assert Decimal(str(dashboard.json()["total_inventory_value"])) == Decimal("2600")
+
+    summary = client.get("/api/reports/stock-summary-by-location")
+    assert summary.status_code == 200, summary.text
+    row = next(item for item in summary.json() if item["location_id"] == location.id)
+    assert Decimal(str(row["valor_inventario"])) == Decimal("2600")
