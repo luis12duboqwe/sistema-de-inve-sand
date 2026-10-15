@@ -174,3 +174,46 @@ def test_concurrent_warranty_returns_cannot_return_same_sold_units_twice(
     assert stock is not None
     assert int(stock.cantidad_disponible or 0) == 0
     assert int(stock.cantidad_defectuosa or 0) == 2
+
+
+def test_warranty_idempotency_replays_after_lost_response_without_extra_stock_change(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    from uuid import uuid4
+    from app.models import ReturnItem
+    order, product, location = _create_paid_plus_gift_order(
+        client, db_session, customer_name="Cliente Idempotencia Garantía",
+    )
+    payload = {
+        "order_id": order["id"],
+        "reason": "Garantía después de respuesta perdida",
+        "items": [{
+            "product_id": product["id"],
+            "quantity": 1,
+            "condition": "defectuoso",
+            "action": "warranty_exchange",
+        }],
+    }
+    headers = {"Idempotency-Key": "warranty-" + uuid4().hex}
+    first = client.post("/api/returns", json=payload, headers=headers)
+    assert first.status_code == 201, first.text
+    again = client.post("/api/returns", json=payload, headers=headers)
+    assert again.status_code == 201, again.text
+    assert first.json() == again.json()
+    db_session.expire_all()
+    assert db_session.query(Return).filter_by(order_id=order["id"]).count() == 1
+    assert db_session.query(ReturnItem).filter_by(return_id=first.json()["id"]).count() == 1
+    stock = db_session.query(Stock).filter_by(
+        product_id=product["id"], location_id=location.id,
+    ).one()
+    assert int(stock.cantidad_defectuosa) == 1
+    assert int(stock.cantidad_disponible) == 2
+
+    changed = client.post(
+        "/api/returns",
+        json={**payload, "reason": "Otra garantía"},
+        headers=headers,
+    )
+    assert changed.status_code == 409
+    assert db_session.query(Return).filter_by(order_id=order["id"]).count() == 1
