@@ -1329,9 +1329,11 @@ class ApiClient {
   // V2.0: Stock Transfers between Locations
   async createStockTransfer(transfer: CreateStockTransferRequest): Promise<StockTransfer> {
     try {
+      const { idempotency_key, ...transferPayload } = transfer
       return this.request('/stock-transfers', {
         method: 'POST',
-        body: JSON.stringify(transfer)
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+        body: JSON.stringify(transferPayload)
       })
     } catch (error) {
       console.error('Error creating stock transfer:', error)

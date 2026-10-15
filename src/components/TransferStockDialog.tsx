@@ -307,6 +307,7 @@ export function TransferStockDialog({
         notas: notes.trim() || undefined,
         imeis: line.imeis.length > 0 ? line.imeis : undefined,
         created_by: 'Sistema',
+        idempotency_key: line.id.replace(/[^A-Za-z0-9_-]/g, '_'),
       })
     }
 

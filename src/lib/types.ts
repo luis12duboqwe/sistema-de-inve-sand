@@ -728,6 +728,7 @@ export interface StockTransfer {
 }
 
 export interface CreateStockTransferRequest {
+  idempotency_key?: string
   product_id: number
   from_location_id: number  // V2.0: ID de ubicación origen
   to_location_id: number  // V2.0: ID de ubicación destino
