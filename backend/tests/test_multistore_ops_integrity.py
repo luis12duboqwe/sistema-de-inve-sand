@@ -251,3 +251,34 @@ def test_concurrent_duplicate_purchase_receipt_only_applies_once(db_session):
     )
     assert stock.cantidad_disponible == 1
     assert db_session.query(PurchaseReceipt).filter(PurchaseReceipt.location_id == location_id).count() == 1
+
+
+def test_purchase_receipt_retry_with_same_key_does_not_duplicate_stock(client, db_session):
+    suffix = uuid4().hex
+    loc = Location(nombre=f"Compra idempotente {suffix}", tipo="tienda", activo=True)
+    product = _product(suffix)
+    db_session.add_all([loc, product])
+    db_session.commit()
+    payload = {
+        "location_id": loc.id, "supplier_id": None,
+        "invoice_number": f"INV-IDEMP-{suffix[:9]}",
+        "items": [{"product_id": product.id, "quantity": 3, "unit_cost": 100, "imeis": []}],
+    }
+    headers = {"Idempotency-Key": "purchase-" + uuid4().hex}
+    first = client.post("/api/multistore-control/purchase-receipts", json=payload, headers=headers)
+    assert first.status_code == 200, first.text
+    again = client.post("/api/multistore-control/purchase-receipts", json=payload, headers=headers)
+    assert again.status_code == first.status_code, again.text
+    assert again.json() == first.json()
+    db_session.expire_all()
+    assert db_session.query(PurchaseReceipt).filter_by(location_id=loc.id).count() == 1
+    stock = db_session.query(Stock).filter_by(product_id=product.id, location_id=loc.id).one()
+    assert stock.cantidad_disponible == 3
+
+    bad = client.post(
+        "/api/multistore-control/purchase-receipts",
+        json={**payload, "invoice_number": f"DIFFERENT-{suffix}"},
+        headers=headers,
+    )
+    assert bad.status_code == 409
+
