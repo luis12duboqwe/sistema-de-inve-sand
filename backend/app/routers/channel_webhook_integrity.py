@@ -1,3 +1,4 @@
+from app.channel_audit import channel_metrics
 """Canonical webhook delivery guards for Meta-backed sales channels."""
 
 from __future__ import annotations
@@ -393,6 +394,8 @@ async def _handle_channel_webhook_integrity(
     failed: list[Dict[str, str]] = []
 
     for event in events:
+        # Count every provider-delivered event, including retries.
+        channel_metrics.increment_messages_received(channel)
         claim_state = _claim_message(
             request,
             db,
@@ -401,13 +404,16 @@ async def _handle_channel_webhook_integrity(
             customer_phone=event.customer_id,
         )
         if claim_state == "duplicate":
+            channel_metrics.increment_duplicates(channel)
             skipped_duplicates += 1
             continue
 
         if claim_state == "retry_delivery":
             try:
                 processed.append(await _retry_cached_delivery(event, request, db))
+                channel_metrics.increment_messages_sent(channel)
             except Exception as exc:
+                channel_metrics.increment_api_errors(channel)
                 logger.warning("Cached webhook delivery retry failed for %s: %s", channel, exc)
                 failed.append({"customer_id": event.customer_id, "error": str(getattr(exc, "detail", exc))})
             continue
@@ -437,8 +443,10 @@ async def _handle_channel_webhook_integrity(
                 message_id=event.external_message_id,
                 claim_state=claim_state,
             )
+            channel_metrics.increment_messages_sent(channel)
             processed.append(result)
         except Exception as exc:
+            channel_metrics.increment_api_errors(channel)
             logger.warning("Webhook %s message failed: %s", channel, exc)
             if reply_prepared:
                 _mark_delivery_failed(
