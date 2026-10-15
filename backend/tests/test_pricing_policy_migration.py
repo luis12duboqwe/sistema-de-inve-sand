@@ -277,7 +277,10 @@ def test_pricing_policy_sqlite_legacy_usd_order_migrates_without_decimal_binding
             conn.execute(text(stmt))
         conn.execute(text("INSERT INTO ai_profile_configs(id,max_discount_rate,context_rules) VALUES(1,0.02,'')"))
         conn.execute(text("INSERT INTO products VALUES(1,100,60,'USD')"))
-        conn.execute(text("""INSERT INTO sales_profiles VALUES(1,'{"exchange_rate":24.50}')"""))
+        conn.execute(
+            text("INSERT INTO sales_profiles VALUES(1,:config)"),
+            {"config": '{"exchange_rate":24.50}'},
+        )
         conn.execute(text("INSERT INTO orders VALUES(1,100,NULL,NULL,1,NULL)"))
         conn.execute(text("INSERT INTO order_items VALUES(1,1,1,100,60)"))
     try:
