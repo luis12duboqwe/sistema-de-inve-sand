@@ -1610,7 +1610,8 @@ export class InventoryService {
         financing_details: financingDetailsString,
         estado: 'pendiente',
         created_at: new Date().toISOString(),
-        notas: request.notas,
+        notes: request.notes ?? request.notas,
+        notas: request.notes ?? request.notas,
         updated_at: new Date().toISOString(),
         trade_ins: newTradeIns
       }
@@ -3904,7 +3905,8 @@ export class InventoryService {
         from_location_id: request.from_location_id,
         to_location_id: request.to_location_id,
         cantidad: request.cantidad,
-        notas: request.notas,
+        notes: request.notes ?? request.notas,
+        notas: request.notes ?? request.notas,
         estado: 'pendiente',
         created_at: new Date().toISOString(),
         created_by: request.created_by,

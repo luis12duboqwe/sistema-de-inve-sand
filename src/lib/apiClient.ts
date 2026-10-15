@@ -264,6 +264,8 @@ interface ApiOrderResponse {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
+  notes?: string
+  notas?: string
   items: {
     id: number
     product_id: number
@@ -311,6 +313,8 @@ class ApiClient {
       ...apiOrder,
       customer_name: String(apiOrder.customer_name || ''),
       customer_phone: String(apiOrder.customer_phone || ''),
+      notes: apiOrder.notes ?? apiOrder.notas,
+      notas: apiOrder.notes ?? apiOrder.notas,
       items: (apiOrder.items || []).map(item => {
         const product = item.product
         const productMapped = product

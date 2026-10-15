@@ -75,6 +75,7 @@ import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUt
 import { inventoryServiceFactory, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { updateOrderStatusWithoutDailyClose } from '@/lib/orderStatusActions'
 import { buildMultiStoreViewModel, hasAppPermission } from '@/lib/appViewModel'
+import { isProductionBuild } from '@/lib/runtimePolicy'
 import { motion } from 'framer-motion'
 import PublicCatalog from '@/components/PublicCatalog'
 
@@ -2438,29 +2439,35 @@ function MainApp() {
         locations={locations.filter(l => l.activo)}
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
+          // Rejection/uncertain response must propagate so UI retains the draft.
+          let created: OrderWithItems
           try {
-            const created = await service.createOrder(newOrder)
-            setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
-            
-            const updatedProducts = await service.getProducts()
-            setProducts(updatedProducts)
-            
-            // Try to link order to AI interaction if phone number exists
-            if (newOrder.customer_phone) {
-              try {
-                await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
-              } catch (e) {
-                console.warn('⚠️ No se pudo vincular orden a interacción:', e)
-                // Don't fail the whole operation if linking fails
-              }
-            }
-            
-            toast.success('Orden creada exitosamente')
-            setShowNewOrderDialog(false)
+            created = await service.createOrder(newOrder)
           } catch (error) {
-            console.error('❌ Error al crear orden:', error)
-            toast.error(`Error al crear orden: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+            toast.error(`Venta no confirmada: ${error instanceof Error ? error.message : 'Error desconocido'}. Ante corte de conexión, revise historial antes de intentar de nuevo.`, { duration: 12000 })
+            throw error
           }
+
+          setOrders((current: OrderWithItems[]) => [
+            created,
+            ...(current ?? []).filter(item => item.id !== created.id),
+          ])
+          // An already committed sale is not failed just because a refresh fails.
+          try {
+            setProducts(await service.getProducts())
+          } catch (error) {
+            console.error('Fallo refrescando productos después de la venta:', error)
+            toast.warning('Venta registrada, inventario en pantalla desactualizado. Recargue para verificar.', { duration: 10000 })
+          }
+          if (newOrder.customer_phone) {
+            try {
+              await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
+            } catch (error) {
+              console.warn('No se pudo enlazar orden a conversación IA:', error)
+            }
+          }
+          toast.success(`Venta #${created.id} registrada`)
+          setShowNewOrderDialog(false)
         }}
       />
 
@@ -2599,11 +2606,16 @@ function MainApp() {
         open={showHealthCheckDialog}
         onOpenChange={setShowHealthCheckDialog}
         result={healthCheckResult}
+        allowAutoFix={!isProductionBuild() && !useAPI}
         isRunning={isHealthCheckRunning}
         onRunCheck={async () => {
           await runCheck()
         }}
         onAutoFix={() => {
+          if (isProductionBuild() || useAPI) {
+            toast.error('La reparación automática de inventario sólo se permite en modo local de pruebas; use ajustes autorizados y auditados en el servidor.')
+            return
+          }
           const fixes = performAutoFix()
           if (fixes) {
             setProducts(fixes.products)
