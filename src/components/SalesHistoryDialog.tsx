@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { Location, OrderWithItems, SalesProfile } from '@/lib/types'
 import { isFinalSaleStatus } from '@/lib/orderStatus'
+import { accountingSaleDate } from '@/lib/reportUtils'
 
 interface SalesHistoryDialogProps {
   open: boolean
@@ -103,25 +104,25 @@ export function SalesHistoryDialog({
         if (dateFrom) {
           const from = new Date(dateFrom)
           from.setHours(0, 0, 0, 0)
-          if (new Date(order.created_at) < from) return false
+          if (accountingSaleDate(order) < from) return false
         }
 
         if (dateTo) {
           const to = new Date(dateTo)
           to.setHours(23, 59, 59, 999)
-          if (new Date(order.created_at) > to) return false
+          if (accountingSaleDate(order) > to) return false
         }
 
         return true
       })
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort((a, b) => accountingSaleDate(b).getTime() - accountingSaleDate(a).getTime())
   }, [completedOrders, locationFilter, profileFilter, channelFilter, dateFrom, dateTo])
 
   const dailySummary = useMemo(() => {
     const map = new Map<string, { date: string; orders: number; total: number }>()
 
     for (const order of filteredOrders) {
-      const dateKey = format(new Date(order.created_at), 'yyyy-MM-dd')
+      const dateKey = format(accountingSaleDate(order), 'yyyy-MM-dd')
       const current = map.get(dateKey) || { date: dateKey, orders: 0, total: 0 }
       current.orders += 1
       current.total += Number(order.total || 0)
@@ -135,7 +136,7 @@ export function SalesHistoryDialog({
     const map = new Map<string, { weekStart: string; orders: number; total: number }>()
 
     for (const order of filteredOrders) {
-      const weekKey = getWeekKey(new Date(order.created_at))
+      const weekKey = getWeekKey(accountingSaleDate(order))
       const current = map.get(weekKey) || { weekStart: weekKey, orders: 0, total: 0 }
       current.orders += 1
       current.total += Number(order.total || 0)
@@ -158,7 +159,7 @@ export function SalesHistoryDialog({
     filteredOrders.forEach(order => {
       rows.push([
         String(order.id),
-        format(new Date(order.created_at), 'dd/MM/yyyy HH:mm'),
+        format(accountingSaleDate(order), 'dd/MM/yyyy HH:mm'),
         order.customer_name || 'N/A',
         order.sellerName,
         order.locationName,
@@ -296,7 +297,7 @@ export function SalesHistoryDialog({
                 {filteredOrders.map(order => (
                   <TableRow key={order.id}>
                     <TableCell>#{order.id}</TableCell>
-                    <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm')}</TableCell>
+                    <TableCell>{format(accountingSaleDate(order), 'dd/MM/yyyy HH:mm')}</TableCell>
                     <TableCell>{order.customer_name || 'N/A'}</TableCell>
                     <TableCell>{order.sellerName}</TableCell>
                     <TableCell>{order.locationName}</TableCell>

@@ -26,6 +26,7 @@ import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { isFinalSaleStatus } from '@/lib/orderStatus'
+import { accountingSaleDate } from '@/lib/reportUtils'
 
 const ALERT_STYLES: Record<InventoryAlert['alert_level'], { label: string; className: string }> = {
   out_of_stock: {
@@ -381,12 +382,12 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
     const finalSaleOrders = orders.filter(o => isFinalSaleStatus(o.estado))
     const ordersToday = finalSaleOrders.filter(o => {
-      const createdAt = new Date(o.created_at)
+      const createdAt = accountingSaleDate(o)
       return createdAt >= startOfToday && createdAt <= endOfToday
     })
-    const ordersThisMonth = finalSaleOrders.filter(o => new Date(o.created_at) >= startOfMonth)
+    const ordersThisMonth = finalSaleOrders.filter(o => accountingSaleDate(o) >= startOfMonth)
     const ordersLastMonth = finalSaleOrders.filter(o => {
-      const createdAt = new Date(o.created_at)
+      const createdAt = accountingSaleDate(o)
       return createdAt >= startOfLastMonth && createdAt <= endOfLastMonth
     })
 
@@ -432,7 +433,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const last7Days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i)
     const dayOrders = chartOrders.filter(o => {
-      const orderDate = new Date(o.created_at)
+      const orderDate = accountingSaleDate(o)
       return isSameDay(orderDate, date)
     })
     const start = new Date(date)
@@ -622,7 +623,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const yearStart = new Date(now.getFullYear(), 0, 1)
 
     const sumOrders = (startDate: Date) => {
-      const periodOrders = validOrders.filter(order => new Date(order.created_at) >= startDate)
+      const periodOrders = validOrders.filter(order => accountingSaleDate(order) >= startDate)
       const grossRevenue = periodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
       const refunds = getRefundAmountInRange(startDate, now)
       return {
@@ -639,7 +640,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     // Gráfica diaria: ingresos por hora (0-23)
     const hourlyData = Array.from({ length: 24 }, (_, h) => {
       const hourOrders = validOrders.filter(o => {
-        const d = new Date(o.created_at)
+        const d = accountingSaleDate(o)
         return isSameDay(d, now) && d.getHours() === h
       })
       const hourStart = new Date(now)
@@ -656,7 +657,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const weeklyChartData = Array.from({ length: 7 }, (_, i) => {
       const dayDate = new Date(weekStart)
       dayDate.setDate(dayDate.getDate() + i)
-      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayOrders = validOrders.filter(o => isSameDay(accountingSaleDate(o), dayDate))
       const dayStart = new Date(dayDate)
       dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(dayDate)
@@ -670,7 +671,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     const monthlyChartData = Array.from({ length: daysInMonth }, (_, i) => {
       const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1)
-      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayOrders = validOrders.filter(o => isSameDay(accountingSaleDate(o), dayDate))
       const dayStart = new Date(dayDate)
       dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(dayDate)
@@ -686,7 +687,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       const mStart = new Date(now.getFullYear(), m, 1)
       const mEnd = new Date(now.getFullYear(), m + 1, 0, 23, 59, 59, 999)
       const mOrders = validOrders.filter(o => {
-        const d = new Date(o.created_at)
+        const d = accountingSaleDate(o)
         return d >= mStart && d <= mEnd
       })
       const gross = mOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)
