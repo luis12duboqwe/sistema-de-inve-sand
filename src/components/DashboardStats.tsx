@@ -158,22 +158,45 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         return null
       })
 
+      const failedSections: string[] = []
+      const recordFailure = (section: string) => (error: unknown) => {
+        failedSections.push(section)
+        console.error(`Error consultando ${section} del dashboard:`, error)
+      }
       const [stats, report, alerts, salesByLocation, stockByLocation, returnsResult, insights] = await Promise.all([
-        inventoryServiceInstance.getDashboardStats().catch(() => null),
-        inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(() => null),
-        inventoryServiceInstance.getInventoryAlerts().catch(() => []),
-        inventoryServiceInstance.getSalesSummaryByLocation().catch(() => []),
-        inventoryServiceInstance.getStockSummaryByLocation(true).catch(() => []),
-        inventoryServiceInstance.getReturns().catch(() => []),
-        insightsPromise
+        inventoryServiceInstance.getDashboardStats().catch(error => {
+          recordFailure('indicadores')(error)
+          return null
+        }),
+        inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(error => {
+          recordFailure('informe de ventas')(error)
+          return null
+        }),
+        inventoryServiceInstance.getInventoryAlerts().catch(error => {
+          recordFailure('alertas de inventario')(error)
+          return []
+        }),
+        inventoryServiceInstance.getSalesSummaryByLocation().catch(error => {
+          recordFailure('ventas por ubicación')(error)
+          return []
+        }),
+        inventoryServiceInstance.getStockSummaryByLocation(true).catch(error => {
+          recordFailure('stock por ubicación')(error)
+          return []
+        }),
+        inventoryServiceInstance.getReturns().catch(error => {
+          recordFailure('devoluciones')(error)
+          return []
+        }),
+        insightsPromise,
       ])
 
-      if (stats) {
-        setDashboardMetrics(stats)
-      }
-      if (report) {
-        setSalesReport(report)
-      }
+      // An empty backend result and an unavailable endpoint mean different things.
+      setDashboardMetrics(stats)
+      setSalesReport(report)
+      setApiError(failedSections.length
+        ? `No se pudieron verificar: ${failedSections.join(', ')}. Los datos visibles pueden ser parciales.`
+        : null)
       // Deduplicar alertas por product_id (el backend devuelve una por ubicación).
       // Conservamos el nivel más crítico y sumamos el stock de todas las ubicaciones.
       const ALERT_LEVEL_PRIORITY: Record<string, number> = { out_of_stock: 3, critical: 2, low: 1 }
@@ -204,7 +227,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         setBusinessInsights(null)
         setInsightsSource(null)
       }
-      setLastUpdated(new Date().toISOString())
+      if (failedSections.length === 0) setLastUpdated(new Date().toISOString())
     } catch (error) {
       console.error('Error loading dashboard insights:', error)
       const message = error instanceof Error ? error.message : 'Error desconocido'
