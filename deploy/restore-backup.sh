@@ -23,6 +23,8 @@ if [ ! -f "$BACKUP_FILE" ]; then
   exit 1
 fi
 
+ENV_FILE="$(realpath "$ENV_FILE")"
+
 if [ -f "${BACKUP_FILE}.sha256" ]; then
   echo "Validando checksum..."
   sha256sum -c "${BACKUP_FILE}.sha256"
