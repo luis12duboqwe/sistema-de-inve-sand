@@ -95,7 +95,7 @@ export function ManageFAQsDialog({
       const faqData = {
         pregunta_clave: pregunta.trim(),
         respuesta: respuesta.trim(),
-        categoria: categoria.trim() || undefined,
+        categoria: categoria.trim() || 'General',
         activa
       }
 
@@ -174,7 +174,7 @@ export function ManageFAQsDialog({
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label htmlFor="categoria">Categoría (Opcional)</Label>
+                  <Label htmlFor="categoria">Categoría (opcional; por defecto General)</Label>
                   <Input
                     id="categoria"
                     value={categoria}
