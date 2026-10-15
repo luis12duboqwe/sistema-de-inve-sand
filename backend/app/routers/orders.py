@@ -464,7 +464,8 @@ def create_order(
             endpoint="POST /api/orders",
             payload=order.model_dump(mode="json"),
             require_key=prod_settings.is_production(),
-    )        if claim.replay is not None:
+    )
+        if claim.replay is not None:
             return OrderResponse.model_validate(claim.replay)
         created_order = service.create_order(order, current_user=current_user, commit=False)
         log_audit_event(
