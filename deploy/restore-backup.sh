@@ -21,7 +21,10 @@ fi
 ENV_FILE="$(realpath "$ENV_FILE")"
 BACKUP_FILE="$(realpath "$BACKUP_FILE")"
 source_db="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
-source_db="${source_db%
+if [[ ! "$source_db" =~ ^[a-z][a-z0-9_]*$ ]]; then
+  echo 'POSTGRES_DB debe ser un nombre sin comillas, válido y explícito.' >&2
+  exit 2
+fi
 if [[ -z "$source_db" || "$TARGET_DB" == "$source_db" ]]; then
   echo 'RECHAZADO: el destino coincide con la BD activa.' >&2
   exit 2
