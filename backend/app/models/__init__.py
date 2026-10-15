@@ -17,6 +17,7 @@ from .finance import Bank, FinancingOption
 from .photos import PhotoRequest, PhotoRequestMediaItem
 from .ai import ProcessedMessage
 from .system import SystemConfig
+from .idempotency import BusinessRequestKey
 from .control import (
     AuditLog,
     LocationDailyClose,
@@ -59,6 +60,7 @@ __all__ = [
     "PhotoRequest",
     "PhotoRequestMediaItem",
     "SystemConfig",
+    "BusinessRequestKey",
     "UserLocationAccess",
     "AuditLog",
     "PurchaseReceipt",

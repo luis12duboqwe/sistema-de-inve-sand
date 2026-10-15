@@ -608,3 +608,29 @@ def test_dashboard_and_location_stock_value_convert_usd_to_hnl(client, db_sessio
     assert summary.status_code == 200, summary.text
     row = next(item for item in summary.json() if item["location_id"] == location.id)
     assert Decimal(str(row["valor_inventario"])) == Decimal("2600")
+
+def test_idempotent_order_creation_replays_response_without_double_stock_sale(client, db_session):
+    from app.models import Order, Stock
+
+    location, profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    payload = _order_payload(profile, location, product, phone="70000612")
+    headers = {"Idempotency-Key": "order-single-retry-2026"}
+
+    created = client.post("/api/orders", json=payload, headers=headers)
+    assert created.status_code == 201, created.text
+    replay = client.post("/api/orders", json=payload, headers=headers)
+    assert replay.status_code == 201, replay.text
+    assert replay.json()["id"] == created.json()["id"]
+
+    db_session.expire_all()
+    assert db_session.query(Order).filter_by(customer_phone="70000612").count() == 1
+    stock = db_session.query(Stock).filter_by(
+        product_id=product["id"], location_id=location.id
+    ).one()
+    assert stock.cantidad_disponible == 0
+
+    changed = {**payload, "customer_name": "Another customer"}
+    conflict = client.post("/api/orders", json=changed, headers=headers)
+    assert conflict.status_code == 409, conflict.text
+    assert db_session.query(Order).filter_by(customer_phone="70000612").count() == 1

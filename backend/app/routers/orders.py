@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Any, List, Optional, Tuple, cast
 from decimal import Decimal
@@ -41,6 +41,7 @@ from app.utils.stock_manager import StockManager, StockValidationError
 from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_close_code
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.audit import log_audit_event
+from app.utils.business_idempotency import claim_business_request, save_business_response
 
 
 logger = logging.getLogger(__name__)
@@ -443,15 +444,25 @@ def search_orders(
 
 @router.post("", response_model=OrderResponse, status_code=201, dependencies=[Depends(check_permission("orders:create"))])
 def create_order(
-    order: OrderCreate, 
+    order: OrderCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(check_permission("orders:create"))
+    current_user: Optional[User] = Depends(check_permission("orders:create")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """Crea una orden usando OrderService para centralizar la lógica V2.0."""
     if current_user and order.source_location_id:
         require_location_access(db, current_user, order.source_location_id, "can_edit")
     service = OrderService(db)
     try:
+        claim = claim_business_request(
+            db,
+            key=idempotency_key,
+            identity_id=int(current_user.id) if current_user else 0,
+            endpoint="POST /api/orders",
+            payload=order.model_dump(mode="json"),
+        )
+        if claim.replay is not None:
+            return OrderResponse.model_validate(claim.replay)
         created_order = service.create_order(order, current_user=current_user, commit=False)
         log_audit_event(
             db, action="order.create", entity_type="order",
@@ -463,6 +474,7 @@ def create_order(
         # Stock, serialized IMEIs, order and audit share one durable commit.
         db.flush()
         result = _serialize_order(created_order)
+        save_business_response(claim, result.model_dump(mode="json"))
         db.commit()
         return result
     except Exception:

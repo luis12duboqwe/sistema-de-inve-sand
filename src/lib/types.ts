@@ -618,6 +618,8 @@ export interface OrderWithItems extends Order {
 }
 
 export interface CreateOrderRequest {
+  /** Stable across retries of the same draft, never reuse for another sale. */
+  idempotency_key?: string
   profile_slug?: string  // LEGACY V1 (opcional)
   sales_profile_slug?: string  // V2.0: Slug del perfil de venta
   source_location_id: number  // V2.0: ID de ubicación origen (obligatorio)

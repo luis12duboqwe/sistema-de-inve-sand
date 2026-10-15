@@ -1197,8 +1197,9 @@ class ApiClient {
 
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
     try {
+      const { idempotency_key, ...orderPayload } = request
       const sanitizedRequest = {
-        ...request,
+        ...orderPayload,
         customer_phone: String(request.customer_phone || '').trim()
       }
 
@@ -1212,6 +1213,7 @@ class ApiClient {
       
       const apiOrder = await this.request<ApiOrderResponse>('/orders', {
         method: 'POST',
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
         body: JSON.stringify(sanitizedRequest),
       })
 

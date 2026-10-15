@@ -140,6 +140,8 @@ export function NewOrderDialog({
   const [notas, setNotas] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const idempotencyKeyRef = useRef<string | null>(null)
+  const idempotencyPayloadRef = useRef<string | null>(null)
 
   // V2.1: Financing State
   const [banks, setBanks] = useState<Bank[]>([])
@@ -221,6 +223,8 @@ export function NewOrderDialog({
   useEffect(() => {
     if (!open) {
       resetForm()
+      idempotencyKeyRef.current = null
+      idempotencyPayloadRef.current = null
       setScanInput('')
     }
   }, [open])
@@ -808,9 +812,7 @@ export function NewOrderDialog({
       return
     }
 
-    setIsSubmitting(true)
-    try {
-      await onSubmit({
+    const orderRequest: CreateOrderRequest = {
         profile_slug: profiles[0]?.slug || undefined,
         sales_profile_slug: salesProfileSlug,
         source_location_id: sourceLocationId!,
@@ -836,7 +838,16 @@ export function NewOrderDialog({
                 ? 0 : parsedDownPayment || undefined
             }
           : undefined
-      })
+      }
+    const fingerprint = JSON.stringify(orderRequest)
+    if (!idempotencyKeyRef.current || idempotencyPayloadRef.current !== fingerprint) {
+      idempotencyKeyRef.current = crypto.randomUUID()
+      idempotencyPayloadRef.current = fingerprint
+    }
+
+    setIsSubmitting(true)
+    try {
+      await onSubmit({ ...orderRequest, idempotency_key: idempotencyKeyRef.current })
 
       onOpenChange(false)
     } catch (error) {
