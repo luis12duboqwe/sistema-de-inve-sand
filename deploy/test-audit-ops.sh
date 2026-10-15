@@ -17,7 +17,7 @@ BACKUP_DIR=/app/backups
 EOF
 PROD_ENV_FILE="$TMP_DIR/.env.prod" docker compose \
     --env-file "$TMP_DIR/.env.prod" \
-    -f "$ROOT_DIR/deploy/docker-compose.prod.yml" \
+    -f "$ROOT_DIR/deploy/docker-compose.prod.yml" --profile backup \
     config --format json > "$TMP_DIR/compose.json"
 python3 - "$TMP_DIR/compose.json" <<'PY'
 import json,sys
