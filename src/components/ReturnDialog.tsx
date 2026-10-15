@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
+import { requiresSerialTracking, isValidWarrantySerial } from '@/lib/serialPolicy'
 import type { OrderWithItems, CreateReturnRequest, ReturnItem } from '@/lib/types'
 
 interface ReturnDialogProps {
@@ -34,13 +35,13 @@ interface ReturnDialogProps {
 
 /** Mantiene únicamente los 15 dígitos del IMEI sin autocompletar mientras el scanner escribe. */
 function normalizeImeiInput(raw: string): string {
-  return raw.replace(/\D/g, '').slice(0, 15)
+  return raw.replace(/\D/g, '').slice(0, 17)
 }
 
 /** Completa un IMEI TAC+serial de 14 dígitos únicamente cuando termina la captura. */
-function finalizeImeiInput(raw: string): string {
+function finalizeImeiInput(raw: string, isPhone: boolean): string {
   const digits = normalizeImeiInput(raw)
-  if (digits.length === 14) {
+  if (isPhone && digits.length === 14) {
     return digits + calculateLuhnCheckDigit(digits)
   }
   return digits
@@ -84,11 +85,11 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
 
   const handleImeiFinalize = useCallback((itemId: number, field: 'defective' | 'replacement') => {
     if (field === 'defective') {
-      setImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+      setImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '', order.items.find(item => item.id === itemId)?.product?.categoria === 'celular') }))
     } else {
-      setReplacementImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '') }))
+      setReplacementImeis(prev => ({ ...prev, [itemId]: finalizeImeiInput(prev[itemId] || '', order.items.find(item => item.id === itemId)?.product?.categoria === 'celular') }))
     }
-  }, [])
+  }, [order.items])
 
   const handleSubmit = async () => {
     const itemsToReturn: ReturnItem[] = []
@@ -103,17 +104,18 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
       }
 
       const isPhone = item.product?.categoria === 'celular'
-      const defectiveImei = finalizeImeiInput(imeis[item.id] || '')
-      const replacementImei = finalizeImeiInput(replacementImeis[item.id] || '')
+      const serialized = requiresSerialTracking(item.product)
+      const defectiveImei = finalizeImeiInput(imeis[item.id] || '', isPhone)
+      const replacementImei = finalizeImeiInput(replacementImeis[item.id] || '', isPhone)
 
-      if (isPhone) {
+      if (serialized) {
         if (!defectiveImei) {
           toast.error(`Escanea el IMEI del equipo defectuoso para "${item.product?.nombre}"`)
           defectiveImeiRefs.current[item.id]?.focus()
           return
         }
-        if (defectiveImei.length !== 15) {
-          toast.error(`El IMEI del equipo defectuoso debe tener 15 dígitos para "${item.product?.nombre}"`)
+        if (!isValidWarrantySerial(defectiveImei, isPhone)) {
+          toast.error(`El identificador defectuoso debe ser numérico de 14-17 dígitos (celular: 15) para "${item.product?.nombre}"`)
           defectiveImeiRefs.current[item.id]?.focus()
           return
         }
@@ -122,8 +124,8 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
           replacementImeiRefs.current[item.id]?.focus()
           return
         }
-        if (replacementImei.length !== 15) {
-          toast.error(`El IMEI del equipo de reemplazo debe tener 15 dígitos para "${item.product?.nombre}"`)
+        if (!isValidWarrantySerial(replacementImei, isPhone)) {
+          toast.error(`El identificador de reemplazo debe ser numérico de 14-17 dígitos (celular: 15) para "${item.product?.nombre}"`)
           replacementImeiRefs.current[item.id]?.focus()
           return
         }
@@ -139,7 +141,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
         condition: conditions[item.id] || 'defectuoso',
         action: 'warranty_exchange',
         imei: defectiveImei || undefined,
-        replacement_imei: isPhone ? (replacementImei || undefined) : undefined,
+        replacement_imei: serialized ? (replacementImei || undefined) : undefined,
       })
     }
 
@@ -181,7 +183,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
     }
   }
 
-  const isPhone = (category?: string) => category === 'celular'
+  const isSerialized = requiresSerialTracking
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -219,7 +221,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                       <span className="text-xs text-muted-foreground">
                         (Comprados: {item.cantidad})
                       </span>
-                      {isPhone(item.product?.categoria) && (
+                      {isSerialized(item.product) && (
                         <Badge variant="outline" className="text-xs">Con IMEI</Badge>
                       )}
                     </div>
@@ -267,7 +269,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                           Acción: <strong>Cambio por garantía</strong>
                         </div>
 
-                        {isPhone(item.product?.categoria) && (
+                        {isSerialized(item.product) && (
                           <div className="rounded-lg border border-dashed p-3 space-y-3">
                             <p className="text-xs font-semibold uppercase tracking-wide">
                               Registro de IMEIs del cambio
@@ -292,7 +294,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                                       replacementImeiRefs.current[item.id]?.focus()
                                     }
                                   }}
-                                  maxLength={15}
+                                  maxLength={17}
                                 />
                                 <Button
                                   type="button"
@@ -306,9 +308,9 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                               </div>
                               {imeis[item.id] && (
                                 <p className="text-xs text-muted-foreground">
-                                  {imeis[item.id].length === 15
-                                    ? 'IMEI válido (15 dígitos)'
-                                    : `${imeis[item.id].length} dígitos — se esperan 15`}
+                                  {isValidWarrantySerial(imeis[item.id], item.product?.categoria === 'celular')
+                                    ? 'Identificador numérico válido'
+                                    : `${imeis[item.id].length} dígitos — se esperan 14-17 (celular 15)`}
                                 </p>
                               )}
                             </div>
@@ -331,7 +333,7 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                                       handleImeiFinalize(item.id, 'replacement')
                                     }
                                   }}
-                                  maxLength={15}
+                                  maxLength={17}
                                 />
                                 <Button
                                   type="button"
@@ -345,9 +347,9 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
                               </div>
                               {replacementImeis[item.id] && (
                                 <p className="text-xs text-muted-foreground">
-                                  {replacementImeis[item.id].length === 15
-                                    ? 'IMEI válido (15 dígitos)'
-                                    : `${replacementImeis[item.id].length} dígitos — se esperan 15`}
+                                  {isValidWarrantySerial(replacementImeis[item.id], item.product?.categoria === 'celular')
+                                    ? 'Identificador numérico válido'
+                                    : `${replacementImeis[item.id].length} dígitos — se esperan 14-17 (celular 15)`}
                                 </p>
                               )}
                             </div>
