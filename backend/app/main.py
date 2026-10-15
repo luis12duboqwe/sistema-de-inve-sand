@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
-import re
 from time import perf_counter
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -63,6 +62,7 @@ from app.utils.prometheus_metrics import (
     REQUESTS_IN_FLIGHT,
     REQUESTS_TOTAL,
     render_prometheus_metrics,
+    metric_route_template,
 )
 from app.utils.rate_limiter import get_api_general_limiter
 from app.utils.runtime_metrics import RuntimeMetrics
@@ -87,9 +87,6 @@ HEALTH_PATHS = {
     "/metrics/prometheus",
     "/api/metrics/prometheus",
 }
-
-PATH_ID_PATTERN = re.compile(r"/\d+|/[0-9a-fA-F-]{16,}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -238,14 +235,14 @@ async def collect_runtime_metrics(request: Request, call_next):
     started = perf_counter()
     response = None
     raw_path = request.url.path
-    metrics_path = PATH_ID_PATTERN.sub("/{id}", raw_path)
-    try:
+     try:
         response = await call_next(request)
         return response
     finally:
         elapsed_ms = (perf_counter() - started) * 1000
         status = response.status_code if response is not None else 500
         runtime_metrics.on_request_end(elapsed_ms, status)
+        metrics_path = metric_route_template(raw_path, request.scope.get("route"))
         REQUESTS_TOTAL.labels(request.method, metrics_path, str(status)).inc()
         REQUEST_LATENCY_SECONDS.labels(request.method, metrics_path).observe(
             elapsed_ms / 1000

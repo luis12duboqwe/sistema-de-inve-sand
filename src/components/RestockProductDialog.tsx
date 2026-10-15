@@ -57,6 +57,12 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false
+      // Los seriales escaneados pertenecen a un producto y una sesión concreta.
+      // No se pueden reutilizar tras cerrar/reabrir el formulario.
+      setImeis([''])
+      setScanInput('')
+      setProductId('')
+      setProductSearch('')
       return
     }
 
@@ -123,12 +129,19 @@ export function RestockProductDialog({ open, onOpenChange, products, locations, 
     setScanInput('')
   }
 
+  const discardScannedSerials = () => {
+    setImeis([''])
+    setScanInput('')
+  }
+
   const handleProductSearchChange = (value: string) => {
+    discardScannedSerials()
     setProductSearch(value)
     setProductId('')
   }
 
   const handleSelectProduct = (product: ProductWithStock) => {
+    if (String(product.id) !== productId) discardScannedSerials()
     setProductId(String(product.id))
     setProductSearch(product.nombre)
   }

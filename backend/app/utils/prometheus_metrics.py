@@ -36,6 +36,20 @@ AUTH_LOGIN_EVENTS_TOTAL = Counter(
 )
 
 
+def metric_route_template(raw_path: str, route: object | None) -> str:
+    """Fixed-cardinality labels from registered routes only; never user URL segments.
+
+    StaticFiles mounts do not necessarily populate scope.route, therefore uploads
+    are collapsed explicitly before inspecting the route object.
+    """
+    if raw_path == "/uploads" or raw_path.startswith("/uploads/"):
+        return "/uploads/{path}"
+    template = getattr(route, "path", None)
+    if isinstance(template, str) and template.startswith("/") and len(template) <= 180:
+        return template
+    return "/__unmatched__"
+
+
 def render_prometheus_metrics() -> bytes:
     """Devuelve el payload de métricas en formato Prometheus."""
     return generate_latest()

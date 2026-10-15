@@ -154,7 +154,7 @@ function MainApp() {
 
   useEffect(() => {
     const token = apiClient.getToken()
-    const storedUser = localStorage.getItem('auth_user')
+    const storedUser = sessionStorage.getItem('auth_user')
     let cancelled = false
     
     // Only show login if using API mode
@@ -168,7 +168,7 @@ function MainApp() {
             .then((freshUser) => {
               if (cancelled) return
               setCurrentUser(freshUser)
-              localStorage.setItem('auth_user', JSON.stringify(freshUser))
+              sessionStorage.setItem('auth_user', JSON.stringify(freshUser))
             })
             .catch((error) => {
               if (cancelled) return
@@ -254,15 +254,28 @@ function MainApp() {
     }
   }, [useAPI, currentUser])
 
+  const clearBusinessSession = () => {
+    setProducts([])
+    setOrders([])
+    setProfiles([])
+    setSalesProfiles([])
+    setLocations([])
+    setDataLoaded(false)
+    setSelectedProducts(new Set())
+    setSelectedOrders(new Set())
+  }
+
   const handleLoginSuccess = (user: User, _token: string) => {
+    clearBusinessSession()
     setCurrentUser(user)
-    localStorage.setItem('auth_user', JSON.stringify(user))
+    sessionStorage.setItem('auth_user', JSON.stringify(user))
     setShowLoginDialog(false)
   }
 
   const handleLogout = () => {
+    clearBusinessSession()
     apiClient.logout()
-    localStorage.removeItem('auth_user')
+    sessionStorage.removeItem('auth_user')
     setCurrentUser(null)
     setShowLoginDialog(true)
   }
@@ -378,10 +391,23 @@ function MainApp() {
   )
 
   useEffect(() => {
+    // No conservar el resultado de solicitudes iniciadas con otra identidad.
+    let cancelled = false
+    // Cada cambio de sesión/permisos limpia la información empresarial
+    // antes de iniciar las nuevas lecturas. No reutilizar caché entre cuentas.
+    if (useAPI) {
+      setProducts([])
+      setOrders([])
+      setProfiles([])
+      setSalesProfiles([])
+      setLocations([])
+      setDataLoaded(false)
+    }
+
     const loadData = async () => {
       if (!isInitialized) return
       if (useAPI && !currentUser) return
-      
+
       try {
         
         // AUTO-RESET: Limpiar datos locales una sola vez para asegurar limpieza
@@ -405,6 +431,7 @@ function MainApp() {
           (canViewSettings || canViewOrders || canCreateOrders) && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
           (canViewSettings || canViewLocations || canCreateOrders || canAccessMultiStoreControl) && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
+        if (cancelled) return
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
@@ -412,13 +439,15 @@ function MainApp() {
         setLocations(loadedLocations)
         setDataLoaded(true)
       } catch (error) {
+        if (cancelled) return
         console.error('❌ Error loading data:', error)
         toast.error(`Error al cargar datos: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-        setDataLoaded(true)
+        setDataLoaded(false)
       }
     }
 
-    loadData()
+    void loadData()
+    return () => { cancelled = true }
   }, [isInitialized, useAPI, apiUrl, currentUser, canViewInventory, canViewOrders, canViewSettings, canCreateOrders, canViewLocations, canAccessMultiStoreControl, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
 
   const handleBulkDeleteProducts = async () => {

@@ -34,6 +34,8 @@ jobs:
         run: bash deploy/test-dr-drill.sh
       - name: Test audited operations and backup wiring
         run: bash deploy/test-audit-ops.sh
+      - name: Test legacy utilities do not mutate business data
+        run: bash deploy/test-audit-legacy-utilities.sh
 
   test-frontend:
     runs-on: ubuntu-latest

@@ -286,11 +286,13 @@ interface ApiOrderResponse {
 }
 
 class ApiClient {
-  private token: string | null = localStorage.getItem('auth_token')
+  private token: string | null = sessionStorage.getItem('auth_token')
 
   setToken(token: string) {
     this.token = token
-    localStorage.setItem('auth_token', token)
+    sessionStorage.setItem('auth_token', token)
+    // Eliminar credenciales legacy compartidas entre pestañas.
+    localStorage.removeItem('auth_token')
   }
 
   getToken(): string | null {
@@ -299,6 +301,7 @@ class ApiClient {
 
   logout() {
     this.token = null
+    sessionStorage.removeItem('auth_token')
     localStorage.removeItem('auth_token')
   }
 
