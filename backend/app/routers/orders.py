@@ -451,10 +451,23 @@ def create_order(
     if current_user and order.source_location_id:
         require_location_access(db, current_user, order.source_location_id, "can_edit")
     service = OrderService(db)
-    created_order = service.create_order(order, current_user=current_user)
-    log_audit_event(db, action="order.create", entity_type="order", entity_id=created_order.id, location_id=created_order.source_location_id, user=current_user, after_data=order.model_dump())
-    db.commit()
-    return _serialize_order(created_order)
+    try:
+        created_order = service.create_order(order, current_user=current_user, commit=False)
+        log_audit_event(
+            db, action="order.create", entity_type="order",
+            entity_id=created_order.id,
+            location_id=created_order.source_location_id,
+            user=current_user,
+            after_data=order.model_dump(),
+        )
+        # Stock, serialized IMEIs, order and audit share one durable commit.
+        db.flush()
+        result = _serialize_order(created_order)
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:edit"))])

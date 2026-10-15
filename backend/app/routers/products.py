@@ -732,10 +732,23 @@ def update_product_stock(
     """
     require_location_access(db, current_user, location_id, "can_edit")
 
-    stock = db.query(Stock).filter(
-        Stock.product_id == product_id,
-        Stock.location_id == location_id
-    ).first()
+    product = (
+        db.query(Product).filter(Product.id == product_id)
+        .with_for_update(key_share=True).first()
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if product.is_serialized or product.categoria == "celular":
+        raise HTTPException(
+            status_code=409,
+            detail="El stock serializado se modifica únicamente mediante operaciones de IMEIs",
+        )
+    stock = (
+        db.query(Stock).filter(
+            Stock.product_id == product_id,
+            Stock.location_id == location_id,
+        ).with_for_update().first()
+    )
     
     if not stock:
         raise HTTPException(
@@ -1293,81 +1306,79 @@ def set_product_stock_at_location(
     location_id: int,
     cantidad: int = Query(..., ge=0, description="Cantidad de stock en esta ubicación"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
 ):
+    """Set non-serialized stock with the same Product -> Stock lock protocol as restock.
+
+    Writes stock, history and the audit event in a single transaction; a failed
+    history/audit insert must never leave the quantity adjusted without trace.
     """
-    Establecer o actualizar el stock de un producto en una ubicación específica.
-    """
-    # Verificar que el producto existe
-    product = db.query(Product).filter(Product.id == product_id).first()
+    location = _require_active_location_for_stock(db, current_user, location_id)
+    product = (
+        db.query(Product).filter(Product.id == product_id)
+        .with_for_update(key_share=True).first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
-    location = _require_active_location_for_stock(db, current_user, location_id)
-    
-    # Buscar o crear el registro de stock
-    stock = db.query(Stock).filter(
-        Stock.product_id == product_id,
-        Stock.location_id == location_id
-    ).first()
-    
-    stock_anterior = stock.cantidad_disponible if stock else 0
-    reservado = stock.cantidad_reservada if stock else 0
-    
-    if reservado > cantidad:
+    if product.is_serialized or product.categoria == "celular":
         raise HTTPException(
-            status_code=400,
-            detail=f"No se puede establecer stock menor al reservado. Reservado: {reservado}, Nuevo stock: {cantidad}"
+            status_code=409,
+            detail="El stock de artículos serializados se ajusta únicamente mediante IMEIs.",
         )
-    
-    if stock:
-        stock.cantidad_disponible = cantidad
-    else:
-        stock = Stock(
+
+    try:
+        stock = (
+            db.query(Stock)
+            .filter(Stock.product_id == product_id, Stock.location_id == location_id)
+            .with_for_update()
+            .first()
+        )
+        previous = int(stock.cantidad_disponible or 0) if stock else 0
+        reserved = int(stock.cantidad_reservada or 0) if stock else 0
+        if cantidad < reserved:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede establecer stock menor al reservado ({reserved}).",
+            )
+        if stock is None:
+            stock = Stock(
+                product_id=product_id, location_id=location_id,
+                cantidad_disponible=cantidad, cantidad_reservada=0,
+            )
+            db.add(stock)
+            db.flush()
+        else:
+            stock.cantidad_disponible = cantidad
+
+        delta = cantidad - previous
+        db.add(StockHistory(
             product_id=product_id,
             location_id=location_id,
-            cantidad_disponible=cantidad,
-            cantidad_reservada=0
+            tipo_cambio="ajuste",
+            cantidad=delta,
+            stock_anterior=previous,
+            stock_nuevo=cantidad,
+            referencia_tipo="manual_adjustment",
+            notas="Ajuste manual de stock",
+            usuario=current_user.username,
+        ))
+        log_audit_event(
+            db, action="stock.manual_adjust", entity_type="stock",
+            entity_id=stock.id, location_id=location_id, user=current_user,
+            before_data={"cantidad_disponible": previous},
+            after_data={"cantidad_disponible": cantidad},
         )
-        db.add(stock)
-    
-    db.commit()
-    db.refresh(stock)
-    
-    # Registrar en historial de stock
-    from app.models import StockHistory
-    # Determinar tipo de cambio según la operación
-    if cantidad > stock_anterior:
-        tipo_cambio = "ajuste"  # Incremento
-        cantidad_cambio = cantidad - stock_anterior
-    elif cantidad < stock_anterior:
-        tipo_cambio = "ajuste"  # Decremento
-        cantidad_cambio = stock_anterior - cantidad  # Siempre positivo para decrementos en este endpoint
-    else:
-        tipo_cambio = "ajuste"  # Sin cambio real
-        cantidad_cambio = 0
-    
-    stock_history = StockHistory(
-        product_id=product_id,
-        location_id=location_id,
-        tipo_cambio=tipo_cambio,
-        cantidad=cantidad_cambio if cantidad > stock_anterior else -cantidad_cambio,  # Positivo=entrada, Negativo=salida
-        stock_anterior=stock_anterior,
-        stock_nuevo=cantidad,
-        referencia_tipo="manual_adjustment",
-        notas="Ajuste manual de stock",
-        usuario=current_user.username
-    )
-    db.add(stock_history)
-    db.commit()
-    
-    return {
-        "product_id": product_id,
-        "location_id": location_id,
-        "location_name": location.nombre,
-        "cantidad": stock.cantidad_disponible,
-        "message": f"Stock actualizado en {location.nombre}"
-    }
+        db.commit()
+        return {
+            "product_id": product_id,
+            "location_id": location_id,
+            "location_name": location.nombre,
+            "cantidad": cantidad,
+            "message": f"Stock actualizado en {location.nombre}",
+        }
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/{product_id}/stock/total", dependencies=[Depends(check_permission("inventory:view"))])
