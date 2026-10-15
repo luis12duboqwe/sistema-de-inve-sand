@@ -117,7 +117,19 @@ def _release_pending_order_reservations(db: Session, order: Order, user_identifi
         if not stock:
             continue
 
-        if stock.cantidad_reservada >= item.cantidad:
+        # Las órdenes creadas por OrderService ya descontaron stock al crear.
+        # Nunca liberar reservas agregadas de otros flujos en ese caso.
+        if _order_has_sale_history(db, order.id, item.product_id):
+            stock_manager.increase_stock(
+                product_id=item.product_id,
+                location_id=order.source_location_id,
+                quantity=item.cantidad,
+                operation_type="devolucion",
+                notes=f"{notes} (venta de esta orden previamente descontada)",
+                user_id=user_identifier,
+                create_if_missing=True,
+            )
+        elif stock.cantidad_reservada >= item.cantidad:
             stock_manager.release_reservation(
                 stock=stock,
                 quantity=item.cantidad,
@@ -127,16 +139,6 @@ def _release_pending_order_reservations(db: Session, order: Order, user_identifi
                 is_rejection=True,
                 tipo_cambio="venta_reserva_liberada",
                 referencia_tipo="order_cancelled",
-            )
-        elif _order_has_sale_history(db, order.id, item.product_id):
-            stock_manager.increase_stock(
-                product_id=item.product_id,
-                location_id=order.source_location_id,
-                quantity=item.cantidad,
-                operation_type="devolucion",
-                notes=f"{notes} (orden pendiente legacy con stock ya descontado)",
-                user_id=user_identifier,
-                create_if_missing=True,
             )
 
     _release_order_imei_reservations(db, order.id, user_identifier, notes)
@@ -155,6 +157,11 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
         if not stock:
             raise HTTPException(status_code=404, detail=f"No existe stock para el producto {item.product_id} en la ubicación de la orden")
 
+        # El historial propio demuestra que OrderService ya descontó este ítem.
+        # La reserva agregada podría pertenecer a un traslado u otra operación.
+        if _order_has_sale_history(db, order.id, item.product_id):
+            continue
+
         if stock.cantidad_reservada >= item.cantidad:
             stock_manager.release_reservation(
                 stock=stock,
@@ -172,7 +179,7 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
                 user_id=user_identifier,
                 order_id=order.id,
             )
-        elif not _order_has_sale_history(db, order.id, item.product_id):
+        else:
             raise HTTPException(
                 status_code=409,
                 detail=f"La orden #{order.id} no tiene reserva suficiente para el producto {item.product_id}",
@@ -609,7 +616,17 @@ def update_order(
                         Stock.product_id == item.product_id,
                         Stock.location_id == order.source_location_id,
                     ).with_for_update().first()
-                    if stock and stock.cantidad_reservada >= item.cantidad:
+                    if stock and _order_has_sale_history(db, order.id, item.product_id):
+                        stock_manager.increase_stock(
+                            product_id=item.product_id,
+                            location_id=order.source_location_id,
+                            quantity=item.cantidad,
+                            operation_type="devolucion",
+                            notes=f"Actualización de orden #{order.id} - Item previamente vendido restaurado",
+                            user_id=user_identifier,
+                            create_if_missing=True,
+                        )
+                    elif stock and stock.cantidad_reservada >= item.cantidad:
                         stock_manager.release_reservation(
                             stock=stock,
                             quantity=item.cantidad,
@@ -619,16 +636,6 @@ def update_order(
                             is_rejection=True,
                             tipo_cambio="venta_reserva_liberada",
                             referencia_tipo="order_update",
-                        )
-                    elif stock and _order_has_sale_history(db, order.id, item.product_id):
-                        stock_manager.increase_stock(
-                            product_id=item.product_id,
-                            location_id=order.source_location_id,
-                            quantity=item.cantidad,
-                            operation_type="devolucion",
-                            notes=f"Actualización de orden #{order.id} - Item legacy restaurado",
-                            user_id=user_identifier,
-                            create_if_missing=True
                         )
                 else:
                     # Legacy: Sin ubicación específica - Mantener lógica manual limitada
