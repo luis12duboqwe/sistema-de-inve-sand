@@ -104,8 +104,8 @@ create_backup() {
     
     # Ejecutar en archivo temporal; al estar create_backup dentro de un if,
     # set -e no garantiza detectar fallos internos del pipeline.
-    local temp_file="${backup_file}.partial.$"
-    local temp_checksum="${backup_file}.sha256.partial.$"
+    local temp_file="${backup_file}.partial.${BASHPID}"
+    local temp_checksum="${backup_file}.sha256.partial.${BASHPID}"
     if ! ( set -o pipefail; PGPASSWORD="$DB_PASSWORD" pg_dump \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
