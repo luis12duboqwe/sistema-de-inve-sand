@@ -36,6 +36,7 @@ if ! [[ "$BACKUP_READY_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || \
   exit 1
 fi
 
+ENV_FILE="$(realpath "$ENV_FILE")"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 REQUIRE_OFFSITE_BACKUP="$(read_env_value REQUIRE_OFFSITE_BACKUP)"
 REQUIRE_OFFSITE_BACKUP="${REQUIRE_OFFSITE_BACKUP,,}"
@@ -56,14 +57,15 @@ if [ "$REQUIRE_OFFSITE_BACKUP" = "true" ] && ! grep -Fxq "backup-offsite" <<<"$r
   exit 1
 fi
 
-echo "[2/4] Verificando /api/health, /api/ready y /api/metrics..."
+echo "[2/4] Verificando /api/health, /api/ready y métricas internas..."
 frontend_port="$(read_env_value FRONTEND_PORT)"
 frontend_port="${frontend_port:-80}"
 curl -fsS -D /tmp/inventory_health_headers.txt \
   "http://127.0.0.1:${frontend_port}/api/health" \
   -o /tmp/inventory_health.json
 curl -fsS "http://127.0.0.1:${frontend_port}/api/ready" >/tmp/inventory_ready.json
-curl -fsS "http://127.0.0.1:${frontend_port}/api/metrics" >/tmp/inventory_metrics.json
+PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T backend \
+  sh -c 'curl -fsS http://127.0.0.1:8000/api/metrics' >/tmp/inventory_metrics.json
 echo "health: $(cat /tmp/inventory_health.json)"
 echo "ready: $(cat /tmp/inventory_ready.json)"
 echo "metrics: $(cat /tmp/inventory_metrics.json)"
