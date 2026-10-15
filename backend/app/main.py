@@ -66,12 +66,10 @@ from app.utils.prometheus_metrics import (
 )
 from app.utils.rate_limiter import get_api_general_limiter
 from app.utils.runtime_metrics import RuntimeMetrics
-from app.utils.sentry_config import init_sentry
 
 
 setup_logging()
 initialize_observability()
-init_sentry()
 install_order_integrity_guards()
 install_order_item_currency_guards()
 logger = logging.getLogger(__name__)

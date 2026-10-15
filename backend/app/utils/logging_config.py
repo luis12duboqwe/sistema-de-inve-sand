@@ -16,6 +16,8 @@ from pathlib import Path
 from datetime import UTC, datetime
 from typing import Optional
 import json
+from contextvars import ContextVar, Token
+from threading import Lock
 
 from app.config import settings
 
@@ -219,35 +221,47 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-class LogContext:
-    """
-    Context manager para agregar contexto temporal a los logs.
-    
-    Uso:
-        with LogContext(user_id=123, request_id="abc"):
-            logger.info("Operación realizada")  # Incluirá user_id y request_id
-    """
-    
-    def __init__(self, **kwargs):
-        self.context = kwargs
-        self.old_factory = None
-    
-    def __enter__(self):
-        old_factory = logging.getLogRecordFactory()
-        
-        def record_factory(*args, **kwargs):
-            record = old_factory(*args, **kwargs)
-            for key, value in self.context.items():
+_log_context: ContextVar[dict[str, object]] = ContextVar("softmobile_log_context", default={})
+_log_factory_lock = Lock()
+_log_factory_installed = False
+
+
+def _install_context_record_factory() -> None:
+    """Install once, not once per request; ContextVar isolates asyncio tasks."""
+    global _log_factory_installed
+    if _log_factory_installed:
+        return
+    with _log_factory_lock:
+        if _log_factory_installed:
+            return
+        original = logging.getLogRecordFactory()
+
+        def context_factory(*args, **kwargs):
+            record = original(*args, **kwargs)
+            for key, value in _log_context.get().items():
                 setattr(record, key, value)
             return record
-        
-        self.old_factory = old_factory
-        logging.setLogRecordFactory(record_factory)
+
+        logging.setLogRecordFactory(context_factory)
+        _log_factory_installed = True
+
+
+class LogContext:
+    """Nested per-task fields with deterministic cleanup."""
+
+    def __init__(self, **kwargs):
+        self.context = kwargs
+        self._token: Token | None = None
+
+    def __enter__(self):
+        _install_context_record_factory()
+        self._token = _log_context.set({**_log_context.get(), **self.context})
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.old_factory:
-            logging.setLogRecordFactory(self.old_factory)
+        if self._token is not None:
+            _log_context.reset(self._token)
+            self._token = None
 
 
 # Función helper para logging de operaciones críticas con contexto
