@@ -44,63 +44,14 @@ except ImportError:
 
 
 def init_sentry() -> None:
-    """Inicializa Sentry para capturar y reportar errores."""
-    
-    if not _sentry_available or sentry_sdk is None:
-        logger.debug("sentry-sdk no disponible, inicialización omitida")
-        return
+    """Compatibility entrypoint: delegate to the single canonical Sentry owner.
 
-    assert FastApiIntegration is not None
-    assert SqlalchemyIntegration is not None
-    assert LoggingIntegration is not None
-    
-    sentry_dsn = os.getenv("SENTRY_DSN")
-    
-    if not sentry_dsn:
-        logger.debug("SENTRY_DSN no configurado, monitoreo deshabilitado")
-        return
-    
-    environment = os.getenv("SENTRY_ENVIRONMENT", "production")
-    traces_sample_rate = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
-    
-    logger.info(f"🔍 Inicializando Sentry (env: {environment})")
-    
-    try:
-        sentry_sdk.init(
-            # DSN del proyecto Sentry
-            dsn=sentry_dsn,
-            
-            # Ambiente
-            environment=environment,
-            
-            # Integración con FastAPI
-            integrations=[
-                FastApiIntegration(),
-                SqlalchemyIntegration(),
-                LoggingIntegration(
-                    level=logging.INFO,
-                    event_level=logging.ERROR
-                ),
-            ],
-            
-            # Tasa de muestreo (0.1 = 10% de transacciones)
-            # Reducir para producción de alto tráfico
-            traces_sample_rate=traces_sample_rate,
-            
-            # Capturar errores en logs
-            attach_stacktrace=True,
-            
-            # Release (cambiar según versión)
-            release="2.0.0",
-            
-            # Debug mode (desactivar en producción)
-            debug=os.getenv("DEBUG", "false").lower() == "true",
-        )
-        
-        logger.info("✓ Sentry inicializado correctamente")
-        
-    except Exception as e:
-        logger.error(f"❌ Error inicializando Sentry: {e}")
+    Older utilities used to call sentry_sdk.init a second time using a
+    conflicting DSN/sampling/PII configuration. Never reinitialize it here.
+    """
+    from app.utils.observability import initialize_observability
+
+    initialize_observability()
 
 
 def capture_exception(exc: Exception, context: Optional[Mapping[str, Any]] = None) -> Optional[str]:
