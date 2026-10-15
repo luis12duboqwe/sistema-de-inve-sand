@@ -1,159 +1,41 @@
-# Guía de Integración con n8n - Sistema de Inteligencia de Ventas
+# n8n ↔ SoftMobile — contrato de integración (borrador)
 
-Esta guía explica cómo conectar tu flujo de trabajo de n8n con el Sistema de Inventario Multi-Ubicación para habilitar las capacidades de IA.
+Este documento cubre la comunicación con la API, **no certifica entrega efectiva de WhatsApp, Messenger o Instagram**.
 
-## Visión General
+## Prerrequisitos
+- Habilitar `ENABLE_AI_FEATURES` solamente cuando el servicio tenga credenciales, permisos y política de límites; de lo contrario mantenerlo inactivo.
+- Configurar `N8N_AUTH_TOKEN` o credencial de servicio permitida por `_require_ai_integration_auth` sin incluirla en el repositorio.
+- Los webhooks de Meta requieren firma HMAC de la petición: el *verify token* sirve sólo para el desafío GET de alta y **no autentica eventos POST**.
+- Mantener n8n y API detrás de HTTPS; no registrar teléfonos, JWT ni secretos en logs.
+- La cuenta/perfil de ventas y sucursal se deben verificar de extremo a extremo.
+- Nunca volver a enviar un POST que pudiera haber creado una venta o enviado un mensaje sin antes conciliar el resultado.
 
-El sistema expone una API dedicada en `/api/ai/*` diseñada específicamente para ser consumida por agentes de IA (n8n, LangChain, Flowise).
+## Endpoints de IA (vía API protegida)
 
-El flujo general ahora se apalanca completamente en la API propia (sin llamadas directas a OpenAI desde n8n):
-1. **Recibir Mensaje**: n8n recibe un mensaje de WhatsApp/Facebook/Instagram.
-2. **Obtener Contexto**: n8n consulta al sistema (`POST /api/ai/context`) para obtener el "cerebro" del bot actual (prompt, inventario, historial).
-3. **Generar Respuesta**: n8n delega la respuesta al backend (`POST /api/ai/reply`), que usa OpenAI oficial y registra la conversación automáticamente.
-4. **Registrar Interacción Opcional**: Los logs se crean desde `/api/ai/reply`, pero puedes añadir anotaciones manuales vía `/api/ai/log` si el flujo lo requiere.
-5. **Manejo de Excepciones**: Si la IA no sabe la respuesta, n8n puede enviarla a la cola de entrenamiento (`POST /api/ai/training-queue`).
+### Contexto
+`POST /api/ai/context`
+```json
+{"sales_profile_slug":"bot-whatsapp","customer_phone":"50470000000","customer_name":"Cliente","message_content":"¿Hay iPhone disponible?"}
+```
 
-## Endpoints de la API
+### Respuesta del bot
+`POST /api/ai/reply`: mismo payload base; el backend responde con `reply`, `model`, `tokens_used` y `context`. No implica entrega a Meta.
 
-### 1. Obtener Contexto ("El Cerebro")
-Este es el endpoint más importante. Devuelve todo lo que la IA necesita saber para responder.
+### Mensaje idempotente
+`POST /api/ai/handle-message`: payload de respuesta más `message_id` estable del canal y `channel_hint`. Los mensajes duplicados o de resultado ambiguo pueden requerir conciliación manual (HTTP 409). La respuesta no se debe copiar al historial de otro cliente.
 
-- **URL**: `POST /api/ai/context`
-- **Body**:
-  ```json
-  {
-    "sales_profile_id": 1,       // ID del perfil (bot) que está respondiendo
-    "customer_phone": "50499998888", // Teléfono del cliente (para buscar historial)
-    "customer_name": "Juan Perez",   // Opcional, si se conoce
-    "query": "Tienen iPhone 13?"     // La pregunta del usuario (para búsqueda semántica futura)
-  }
-  ```
-- **Respuesta**:
-  ```json
-  {
-    "system_prompt": "Eres 'Vendedor Estrella', un asistente amable...", // Personalidad configurada
-    "inventory_context": "Inventario disponible: iPhone 13 (5 unids) - $800...", // Resumen de stock
-    "customer_context": "Cliente VIP. Última compra: hace 2 días.", // Historial CRM
-    "recent_interactions": [...] // Últimos 5 mensajes para mantener el hilo
-  }
-  ```
+### Entrenamiento
+`POST /api/ai/training/submit`
+```json
+{"sales_profile_slug":"bot-whatsapp","customer_question":"¿Cuánto tarda la entrega?","ai_proposed_answer":"Consultar con un agente"}
+```
+El endpoint `GET /api/ai/training-queue` es para consultar la cola, no para crear ejemplos mediante POST.
 
-### 2. Registrar Interacción
-Guarda el historial para que el sistema aprenda y para mostrarlo en "Insights de Clientes".
+### Webhooks Meta
+`GET /api/channels/{whatsapp|messenger|instagram}/webhook`: validación del desafío con token.
+`POST /api/channels/{whatsapp|messenger|instagram}/webhook`: petición con firma HMAC validada antes de procesar. No confundir ambos controles.
 
-- **URL**: `POST /api/ai/log`
-- **Body**:
-  ```json
-  {
-    "sales_profile_id": 1,
-    "customer_phone": "50499998888",
-    "message_content": "Sí, tenemos iPhone 13 en azul.",
-    "message_source": "ai", // 'user' o 'ai'
-    "platform": "whatsapp"
-  }
-  ```
+## Ejemplo n8n
+[docs/n8n/whatsapp_ai_flow.json](n8n/whatsapp_ai_flow.json) es un borrador de respuesta HTTP al **webhook de n8n**. El nodo *Respond to Webhook* **no envía un mensaje por Meta**. Requiere agregar el envío oficial al proveedor, verificar permisos, registrar delivery IDs, limitar reintentos y probar con una cuenta de prueba antes de habilitarlo para clientes.
 
-### 3. Cola de Entrenamiento
-Si la IA detecta que no puede responder o el usuario pide un humano.
-
-- **URL**: `POST /api/ai/training-queue`
-- **Body**:
-  ```json
-  {
-### 4. Generar Respuesta (OpenAI administrado por backend)
-Centraliza el llamado al modelo y el guardado del historial.
-
-- **URL**: `POST /api/ai/reply`
-- **Body**:
-  ```json
-  {
-    "sales_profile_slug": "bot-whatsapp",
-    "customer_phone": "50499998888",
-    "customer_name": "Juan Perez",
-    "message_content": "Hola, tienen iPhone 13?",
-    "conversation_override": [
-      { "role": "user", "content": "Hola" },
-      { "role": "assistant", "content": "Bienvenido" }
-    ]
-  }
-  ```
-- **Respuesta**:
-  ```json
-  {
-    "reply": "Sí, tenemos iPhone 13 en azul y negro.",
-    "tokens_used": 324,
-    "model": "gpt-4o-mini",
-    "context": { "bot_config": { "model": "gpt-4o-mini" }, "relevant_inventory": "..." }
-  }
-  ```
-- **Notas**:
-  - Este endpoint registra automáticamente los mensajes de usuario y de la IA en `InteractionLog`.
-  - Requiere las variables `ENABLE_AI_FEATURES=true` y `OPENAI_API_KEY` configuradas en el backend.
-  - Úsalo con `N8N_AUTH_TOKEN` o un token Bearer de servicio si expones la API a internet.
-
-    "sales_profile_id": 1,
-    "question": "¿Aceptan Bitcoin?",
-### Paso 1: Webhook (WhatsApp)
-Recibe el mensaje entrante.
-- Output: `body.from`, `body.text.body`
-
-### Paso 2: HTTP Request (Get Context)
-- **Method**: POST
-- **URL**: `https://tu-api.com/api/ai/context`
-- **Body**:
-  ```json
-  {
-    "sales_profile_slug": "bot-whatsapp",
-    "customer_phone": "={{ $json.body.from }}",
-    "customer_name": "={{ $json.body.profile?.name || "" }}",
-    "message_content": "={{ $json.body.text.body }}"
-  }
-  ```
-
-### Paso 3: HTTP Request (AI Reply)
-- **Method**: POST
-- **URL**: `https://tu-api.com/api/ai/reply`
-- **Body**:
-  ```json
-  {
-    "sales_profile_slug": "bot-whatsapp",
-    "customer_phone": "={{ $json.body.from }}",
-    "customer_name": "={{ $json.body.profile?.name || "" }}",
-    "message_content": "={{ $json.body.text.body }}"
-  }
-  ```
-- ✅ Respuesta incluye `reply`, `tokens_used` y todo el `context` que usó el modelo.
-- ✅ No necesitas llamar a OpenAI ni registrar logs manualmente (el backend lo hace).
-
-### Paso 4: (Opcional) HTTP Request (Log Extra)
-Si quieres añadir metadatos adicionales (por ejemplo, clasificación de intención), usa `/api/ai/log`.
-
-### Paso 5: HTTP Request (Training Queue)
-Cuando la IA no tenga respuesta de calidad, envía el mensaje a `/api/ai/training-queue`.
-
-### Paso 6: Webhook Response (WhatsApp)
-Envía `{{$node["AI Reply"].json.reply}}` al usuario.
-
-> 💡 **Plantilla lista para importar**: usa `docs/n8n/whatsapp_ai_flow.json` para crear el workflow completo (inlcuye nodos de contexto, reply, logging y training). Solo debes configurar `BASE_API_URL`, `N8N_AUTH_TOKEN` y el `sales_profile_slug`.
-### Paso 5: HTTP Request (Log AI Response)
-Registra lo que respondió la IA.
-- **URL**: `/api/ai/log`
-- **Body**: `source: "ai"`, `content: ={{ $node["OpenAI"].json.content }}`
-
-### Paso 6: Webhook Response (WhatsApp)
-Envía la respuesta al usuario.
-
-## Configuración de Perfiles
-
-Para que esto funcione, debes configurar tus perfiles en el sistema:
-1. Ve a la pestaña **Canales**.
-2. Haz clic en el botón **IA** en la tarjeta del perfil.
-3. Define el **Prompt del Sistema** (Personalidad).
-4. Activa las opciones de inventario/precios según lo que quieras que la IA sepa.
-
-## Seguridad
-
-Actualmente, la API es pública si se despliega sin autenticación adicional. Se recomienda:
-1. Implementar Basic Auth o Bearer Token en `backend/app/main.py` si se expone a internet. Define `N8N_AUTH_TOKEN` y haz que todos los requests lo envíen en `Authorization: Bearer ...`.
-2. O usar un túnel seguro / VPN entre n8n y el servidor.
-3. Mantener `ENABLE_AI_FEATURES=false` en entornos donde no se haya configurado el workflow.
+No activar automáticamente el flujo con tráfico real mientras falten esas pruebas.

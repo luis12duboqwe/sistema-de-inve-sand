@@ -2,17 +2,16 @@
 
 Este documento enumera únicamente limitaciones **vigentes**. Las limitaciones históricas ya corregidas se eliminan para evitar contradicciones con el código y la documentación productiva canónica.
 
-## 1. Soporte Multi-moneda
-**Estado**: No contemplado en v2.0 (decisión estratégica).
+## 1. Moneda operativa HNL y productos USD
+**Estado:** la moneda contable de la venta es **HNL**. El sistema convierte determinados precios de productos marcados USD utilizando la tasa del contexto de la venta y normaliza valores de inventario/pronósticos donde está implementado.
 
-Aunque `Product` conserva el campo `moneda` por compatibilidad, la operación comercial, cierres y KPIs están diseñados para **Lempiras (HNL)**.
+**Limitaciones vigentes:**
+- No es una contabilidad multinacional o multimoneda completa: reportes antiguos, exportaciones y flujos legacy pueden no compartir la misma tasa.
+- No hay aún una tabla transaccional universal de tasas históricas auditables para todas las operaciones.
+- No se permite sumar USD y HNL directamente sin normalizar unidades.
+- La exactitud financiera exige comparar venta, `OrderItem.costo_unitario`, moneda/tasa efectiva, recargos y conciliación bancaria en PostgreSQL.
 
-**Limitaciones**:
-- No hay conversión automática de divisas.
-- No se deben mezclar monedas dentro de una misma venta.
-- No existen tasas de cambio históricas aplicadas por transacción.
-
-Si se reabre esta función en una versión futura, deberá incorporarse `currency_code`, tasa aplicada a la operación y contabilidad/reportes multi-moneda.
+No describir la conversión USD→HNL como inexistente: esa restricción ya no coincide con el código.
 
 ## 2. Costos históricos
 **Estado**: ✅ Implementado.
