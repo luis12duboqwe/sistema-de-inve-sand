@@ -4,7 +4,7 @@ test('completes a cash sale through the UI',async({page})=>{test.setTimeout(6000
  await page.getByLabel('Usuario').fill((process.env.E2E_USERNAME||'e2eadmin')); await page.getByLabel('Contraseña').fill((process.env.E2E_PASSWORD||'StageOnly!2026')); await page.getByRole('button',{name:'Ingresar'}).click()
  await expect(page.getByText('E2E Admin',{exact:true})).toBeVisible()
  const api=process.env.E2E_API_URL||'http://127.0.0.1:8100'; const suffix=Date.now().toString(); const store=`E2E Tienda ${suffix}`; const seller=`E2E Vendedor ${suffix}`; const sku=`E2E-SKU-${suffix}`; const imei='35'+suffix.padEnd(13,'9').slice(0,13)
- const token=await page.evaluate(()=>localStorage.getItem('auth_token')); const headers={Authorization:`Bearer ${token}`}
+ const token=await page.evaluate(()=>sessionStorage.getItem('auth_token')); const headers={Authorization:`Bearer ${token}`}
  const loc=await page.request.post(`${api}/api/locations`,{headers,data:{nombre:store,tipo:'tienda',activo:true}}); expect(loc.status()).toBe(201); const location=await loc.json()
  const prof=await page.request.post(`${api}/api/sales-profiles`,{headers,data:{name:seller,slug:`e2e-vendedor-${suffix}`,tipo:'vendedor_humano',active:true}}); expect(prof.status()).toBe(201)
  const prod=await page.request.post(`${api}/api/products`,{headers,data:{sku,nombre:`E2E Producto ${suffix}`,categoria:'celular',marca:'E2E',modelo:'Phone',condicion:'nuevo',precio:1000,costo:700,is_serialized:true,stock_inicial:1,initial_location_id:location.id,imeis:[imei]}}); expect(prod.status()).toBe(201)
