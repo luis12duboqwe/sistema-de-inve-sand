@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from _pytest.monkeypatch import MonkeyPatch
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token
+from app.auth import create_user_access_token
 from app.middleware import business_integrity
 from app.models import User
 
@@ -56,7 +56,7 @@ def test_photo_create_allows_verified_active_user_when_service_token_missing(
     db_session.commit()
 
     _force_production_without_photo_service_token(monkeypatch)
-    token = create_access_token({"sub": user.username})
+    token = create_user_access_token(user)
 
     response = client.post(
         "/api/photo-requests/create",

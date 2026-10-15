@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
+import hmac
 import jwt
 from jwt import PyJWTError as JWTError
 from passlib.context import CryptContext
@@ -9,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import User
-from app.schemas import TokenData
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -42,6 +43,34 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
+def _user_password_claim(user: User) -> str:
+    """The HMAC changes whenever the password hash or account ID changes."""
+    message = f"{user.id}:{user.hashed_password}".encode("utf-8")
+    return hmac.new(settings.secret_key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def create_user_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
+    if user.id is None:
+        raise ValueError("Persisted user required")
+    return create_access_token(
+        {"sub": user.username, "uid": user.id, "pwdv": _user_password_claim(user)},
+        expires_delta=expires_delta,
+    )
+
+
+def validate_user_token_claims(payload: dict, user: User) -> bool:
+    """Fail closed for old username-only sessions and for password changes."""
+    uid = payload.get("uid")
+    password_version = payload.get("pwdv")
+    return (
+        type(uid) is int
+        and uid == user.id
+        and payload.get("sub") == user.username
+        and isinstance(password_version, str)
+        and hmac.compare_digest(password_version, _user_password_claim(user))
+    )
+
+
 def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
     """Authenticate a user by username and password"""
     user = db.query(User).filter(User.username == username).first()
@@ -67,15 +96,15 @@ async def get_current_user(
         if not token:
             raise credentials_exception
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
-        if username is None:
+        username = payload.get("sub")
+        user_id = payload.get("uid")
+        if not isinstance(username, str) or not username or type(user_id) is not int:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    
-    user = db.query(User).filter(User.username == token_data.username).first()
-    if user is None:
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not validate_user_token_claims(payload, user):
         raise credentials_exception
     if not user.is_active:
         # A valid token no longer represents an authenticated session once the

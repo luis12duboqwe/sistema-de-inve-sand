@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import User
+from app.auth import validate_user_token_claims
 from app.utils.websocket_manager import get_connection_manager
 
 
@@ -54,11 +55,14 @@ async def get_user_from_ws(
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: Optional[str] = payload.get("sub")
-        if not username:
+        user_id = payload.get("uid")
+        if not isinstance(username, str) or not username or type(user_id) is not int:
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token payload")
-        user = db.query(User).filter(User.username == username).first()
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="User not found")
+        if not validate_user_token_claims(payload, user):
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Revoked or invalid token")
         if not user.is_active:
             raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Inactive user")
         if required_permission and not _user_has_permission(user, required_permission):

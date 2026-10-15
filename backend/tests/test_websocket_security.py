@@ -5,6 +5,7 @@ import pytest
 from fastapi import WebSocketException, status
 
 from app.config import settings
+from app.auth import create_user_access_token
 from app.routers import websocket as websocket_router
 
 
@@ -54,7 +55,9 @@ class FakeManager:
 
 
 def _token(subject: str = "alice") -> str:
-    return jwt.encode({"sub": subject}, settings.secret_key, algorithm=settings.algorithm)
+    user = _user()
+    user.username = subject
+    return create_user_access_token(user)
 
 
 def _user(*, active=True, superuser=False, permissions=()):
@@ -64,6 +67,7 @@ def _user(*, active=True, superuser=False, permissions=()):
     return SimpleNamespace(
         id=1,
         username="alice",
+        hashed_password="test-hash",
         is_active=active,
         is_superuser=superuser,
         role=role,

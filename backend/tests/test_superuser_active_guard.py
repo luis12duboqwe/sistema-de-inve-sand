@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth import (
-    create_access_token,
+    create_user_access_token,
     get_current_superuser,
     get_current_user,
     get_current_user_optional,
@@ -38,7 +38,7 @@ def test_inactive_user_is_rejected_as_unauthorized_during_base_jwt_resolution(db
     user = _superuser(active=False)
     db_session.add(user)
     db_session.commit()
-    token = create_access_token({"sub": user.username})
+    token = create_user_access_token(user)
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(get_current_user(token=token, db=db_session))
@@ -52,7 +52,7 @@ def test_optional_auth_treats_inactive_user_as_unauthenticated(db_session):
     user = _superuser(active=False)
     db_session.add(user)
     db_session.commit()
-    token = create_access_token({"sub": user.username})
+    token = create_user_access_token(user)
 
     resolved = asyncio.run(get_current_user_optional(token=token, db=db_session))
 
