@@ -1,3 +1,4 @@
+import pytest
 import json
 from typing import Any
 
@@ -295,3 +296,64 @@ def test_delivered_message_remains_deduplicated_without_rerunning_ai(
     assert duplicate.json()["skipped_duplicates"] == 1
     assert ai_calls == ["Hola"]
     assert sent == ["Una sola respuesta"]
+
+def test_cross_customer_message_id_collision_never_sends_cached_reply(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from datetime import datetime, UTC, timedelta
+
+    monkeypatch.setattr(prod_settings, "META_APP_SECRET", "")
+    message_id = "wamid.CROSS-CUSTOMER-PENDING-REPLY"
+    db_session.add(ProcessedMessage(
+        message_id=message_id,
+        channel="whatsapp",
+        customer_phone="50411111111",
+        reply_text="Información privada del cliente anterior",
+        delivery_status="pending_delivery",
+        expires_at=datetime.now(UTC) + timedelta(hours=2),
+    ))
+    db_session.commit()
+    sends = []
+
+    async def record_send(*args: Any, **kwargs: Any) -> None:
+        sends.append(args)
+
+    monkeypatch.setattr(channel_integrations, "_send_channel_reply", record_send)
+    response = client.post(
+        "/api/channels/whatsapp/webhook",
+        json=_whatsapp_payload(message_id),
+    )
+    assert response.status_code == 409, response.text
+    assert sends == []
+    db_session.expire_all()
+    row = db_session.query(ProcessedMessage).filter_by(message_id=message_id).one()
+    assert row.delivery_status == "pending_delivery"
+    assert row.reply_text == "Información privada del cliente anterior"
+
+
+def test_channel_collision_does_not_consume_another_channels_claim(db_session):
+    from datetime import datetime, UTC, timedelta
+    from app.routers.channel_webhook_integrity import _claim_message
+
+    message_id = "wamid.CROSS-CHANNEL-PENDING"
+    db_session.add(ProcessedMessage(
+        message_id=message_id, channel="instagram",
+        customer_phone="50499991111",
+        reply_text="Respuesta de Instagram",
+        delivery_status="pending_delivery",
+        expires_at=datetime.now(UTC) + timedelta(hours=2),
+    ))
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as error:
+        _claim_message(
+            request=None, db=db_session, message_id=message_id,
+            channel="whatsapp", customer_phone="50499991111",
+        )
+    assert error.value.status_code == 409
+    db_session.expire_all()
+    row = db_session.query(ProcessedMessage).filter_by(message_id=message_id).one()
+    assert row.delivery_status == "pending_delivery"
+    assert row.reply_text == "Respuesta de Instagram"

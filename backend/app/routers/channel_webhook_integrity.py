@@ -77,6 +77,14 @@ def _claim_message(
             if existing is None:
                 return "duplicate"
 
+            # Global message_id uniqueness cannot isolate unrelated channels or
+            # customers. Never deliver a cached response to the wrong recipient.
+            if existing.channel != channel or existing.customer_phone != customer_phone:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Message ID collision across channel or recipient; manual reconciliation required",
+                )
+
             state = str(existing.delivery_status or "").strip().lower()
             if state == "pending_delivery" and existing.reply_text:
                 # Only a confirmed send failure is auto-retryable. An ambiguous
@@ -89,6 +97,9 @@ def _claim_message(
 
             db.rollback()
             return "duplicate"
+        except HTTPException:
+            db.rollback()
+            raise
         except Exception:
             db.rollback()
             logger.exception("Could not inspect existing webhook delivery claim")
@@ -305,6 +316,8 @@ def _cached_delivery_context(
     ).first()
     if claim is None or not claim.reply_text:
         raise HTTPException(status_code=409, detail="No existe respuesta pendiente para reintentar")
+    if claim.channel != event.channel or claim.customer_phone != event.customer_id:
+        raise HTTPException(status_code=409, detail="El destinatario o canal no coincide con la respuesta retenida")
 
     profile = None
     if claim.sales_profile_id:
