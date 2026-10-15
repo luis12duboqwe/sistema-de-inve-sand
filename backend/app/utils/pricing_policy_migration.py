@@ -36,6 +36,13 @@ def _q(value: object) -> Decimal:
     return Decimal(str(value or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def _sql_money(value: Decimal | None, dialect: str) -> Decimal | str | None:
+    """sqlite3 cannot bind Decimal through untyped SQL text; strings retain cents."""
+    if value is None:
+        return None
+    return str(value) if dialect == "sqlite" else value
+
+
 def _rate_from_config(raw: object) -> Decimal:
     try:
         config = raw if isinstance(raw, dict) else json.loads(str(raw or "{}"))
@@ -214,7 +221,7 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                             )
                         conn.execute(
                             text("UPDATE order_items SET precio_unitario=:price, costo_unitario=:cost WHERE id=:id"),
-                            {"price": new_price, "cost": new_cost, "id": row["item_id"]},
+                            {"price": _sql_money(new_price, dialect), "cost": _sql_money(new_cost, dialect), "id": row["item_id"]},
                         )
 
                     order_row = conn.execute(
@@ -225,7 +232,7 @@ def run_pricing_policy_migration(*, bind: Engine | None = None) -> bool:
                     conn.execute(
                         text("UPDATE orders SET total=:total, payment_breakdown=:payments, financing_details=:financing WHERE id=:id"),
                         {
-                            "total": (_q(order_row["total"]) * rate).quantize(CENT, rounding=ROUND_HALF_UP),
+                            "total": _sql_money((_q(order_row["total"]) * rate).quantize(CENT, rounding=ROUND_HALF_UP), dialect),
                             "payments": _scale_json_money(order_row["payment_breakdown"], rate, money_keys),
                             "financing": _scale_json_money(order_row["financing_details"], rate, money_keys),
                             "id": order_id,
