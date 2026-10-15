@@ -387,17 +387,24 @@ export function analyzeProductMix(
       isFinalOrder(o) && finalSaleTimestamp(o) >= thirtyDaysAgo
     )
 
-    const totalRevenue = productOrders.reduce((sum, order) => {
-      const item = order.items.find(i => i.product_id === product.id)
-      return sum + ((item?.precio_unitario || 0) * (item?.cantidad || 0))
-    }, 0)
+    const historicalLines = productOrders.flatMap(order =>
+      order.items.filter(item => item.product_id === product.id && !item.es_regalo_promocion)
+    )
+    const totalRevenue = historicalLines.reduce((sum, item) =>
+      sum + item.precio_unitario * item.cantidad, 0)
+    const totalQuantity = historicalLines.reduce((sum, item) => sum + item.cantidad, 0)
 
-    const totalQuantity = productOrders.reduce((sum, order) => {
-      const item = order.items.find(i => i.product_id === product.id)
-      return sum + (item?.cantidad || 0)
-    }, 0)
-
-    const profit = totalRevenue - (totalQuantity * product.precio * 0.6)
+    // Price/cost in the present-day catalog is not historical unit COGS.
+    // Do not accuse a product of loss unless every sale line has a real cost.
+    const hasCostHistory = historicalLines.length > 0
+      && historicalLines.every(item =>
+        item.costo_unitario !== undefined && item.costo_unitario !== null
+        && Number.isFinite(Number(item.costo_unitario)) && Number(item.costo_unitario) >= 0
+      )
+    const actualCost = hasCostHistory
+      ? historicalLines.reduce((sum, item) => sum + Number(item.costo_unitario) * item.cantidad, 0)
+      : 0
+    const profit = hasCostHistory ? totalRevenue - actualCost : null
     return { product, revenue: totalRevenue, quantity: totalQuantity, profit }
   })
 
@@ -421,8 +428,8 @@ export function analyzeProductMix(
   }
 
   const poorPerformers = productPerformance
-    .filter(p => p.revenue > 0 && p.profit < 0)
-    .sort((a, b) => a.profit - b.profit)
+    .filter(p => p.revenue > 0 && p.profit !== null && p.profit < 0)
+    .sort((a, b) => (a.profit ?? 0) - (b.profit ?? 0))
     .slice(0, 3)
 
   if (poorPerformers.length > 0) {
@@ -434,7 +441,7 @@ export function analyzeProductMix(
       value: poorPerformers.length,
       reasoning: `${poorPerformers.length} productos vendiendo por debajo del costo. Están destruyendo margen.`,
       action: `Revisar precios inmediatamente o descontinuar. No seguir invirtiendo en inventario de estos SKUs`,
-      impact: Math.round(Math.abs(poorPerformers.reduce((sum, p) => sum + p.profit, 0)))
+      impact: Math.round(Math.abs(poorPerformers.reduce((sum, p) => sum + (p.profit ?? 0), 0)))
     })
   }
 
