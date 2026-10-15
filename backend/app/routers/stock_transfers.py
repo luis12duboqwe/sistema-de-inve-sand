@@ -116,7 +116,8 @@ def create_transfer(
         endpoint="POST /api/stock-transfers",
         payload=transfer.model_dump(mode="json"),
         require_key=prod_settings.is_production(),
-    )    if claim.replay is not None:
+    )
+    if claim.replay is not None:
         return StockTransferResponse.model_validate(claim.replay)
     
     # Inicializar StockManager
