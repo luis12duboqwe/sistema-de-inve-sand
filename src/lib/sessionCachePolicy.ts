@@ -1,19 +1,19 @@
 import { isProductionBuild } from './runtimePolicy'
 
-const SESSION_ONLY_BUSINESS_KEYS = new Set([
-  'inventory-products',
-  'inventory-orders',
-  'inventory-profiles',
-  'inventory-locations',
-])
+const BUSINESS_KEY_PREFIX = 'inventory-'
 
 /** Remove historical per-user datasets and auth material from shared tabs. */
 export function clearLegacyBusinessStorage(
-  storage: Pick<Storage, 'removeItem'> = localStorage,
+  storage: Pick<Storage, 'length' | 'key' | 'removeItem'> = localStorage,
   productionBuild = isProductionBuild(),
 ): void {
   if (!productionBuild) return
-  for (const key of SESSION_ONLY_BUSINESS_KEYS) storage.removeItem(`spark-kv-${key}`)
+  const oldKeys: string[] = []
+  for (let index = 0; index < storage.length; index++) {
+    const key = storage.key(index)
+    if (key?.startsWith('spark-kv-' + BUSINESS_KEY_PREFIX)) oldKeys.push(key)
+  }
+  for (const key of oldKeys) storage.removeItem(key)
   storage.removeItem('auth_user')
   storage.removeItem('auth_token')
 }
@@ -23,5 +23,5 @@ export function isSessionOnlyBusinessKey(
   key: string,
   productionBuild = isProductionBuild(),
 ): boolean {
-  return productionBuild && SESSION_ONLY_BUSINESS_KEYS.has(key)
+  return productionBuild && key.startsWith(BUSINESS_KEY_PREFIX)
 }

@@ -10,7 +10,6 @@ import { toast } from 'sonner'
 import { Wrench, CheckCircle, Gear } from '@phosphor-icons/react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import type { ProductWithStock, Location } from '@/lib/types'
-import { useKV } from '@/hooks/use-kv'
 import { TradeInPoliciesDialog } from './TradeInPoliciesDialog'
 import { validateTradeInActivation, type TradeInActivationDraft } from '@/lib/validation/tradeInActivationSchema'
 
@@ -21,7 +20,8 @@ interface PendingTradeInsDialogProps {
 
 export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDialogProps) {
   const [products, setProducts] = useState<ProductWithStock[]>([])
-  const [locations] = useKV<Location[]>('inventory-locations', [])
+  const [locations, setLocations] = useState<Location[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<ProductWithStock | null>(null)
   const [showPolicies, setShowPolicies] = useState(false)
   
@@ -58,7 +58,15 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
 
   useEffect(() => {
     if (open) {
-      loadPendingProducts()
+      void loadPendingProducts()
+      // En producción las ubicaciones no se leen de un KV compartido entre
+      // identidades. El backend devuelve sólo las sedes autorizadas.
+      void inventoryServiceInstance.getLocations()
+        .then(setLocations)
+        .catch(() => {
+          setLocations([])
+          toast.error('No se pudieron cargar las ubicaciones autorizadas')
+        })
     }
   }, [open])
 
@@ -78,7 +86,7 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
   }
 
   const handleActivate = async () => {
-    if (!selectedProduct) return
+    if (!selectedProduct || isSubmitting) return
 
     const validation = validateTradeInActivation(activationForm)
     if (!validation.ok) {
@@ -93,6 +101,8 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
       return
     }
 
+    setIsSubmitting(true)
+    let activated = false
     try {
       await inventoryServiceInstance.updateProduct(selectedProduct.id, {
         ...selectedProduct,
@@ -104,6 +114,7 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
         activo: true,
         is_serialized: true
       })
+      activated = true
 
       const currentLocationId = selectedProduct.stock_items?.find(s => s.cantidad_disponible > 0)?.location_id
       const targetLocationId = parseInt(activationForm.targetLocationId)
@@ -119,17 +130,26 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
         }
 
         await inventoryServiceInstance.createStockTransfer(transferPayload)
-        toast.success('Producto activado y transferido exitosamente')
+        toast.success('Producto activado; transferencia solicitada, pendiente de recepción')
       } else {
         toast.success('Producto activado exitosamente')
       }
 
       setSelectedProduct(null)
       setFormErrors({})
-      loadPendingProducts()
+      void loadPendingProducts()
     } catch (error) {
       console.error(error)
-      toast.error('Error al activar producto')
+      if (activated) {
+        toast.error('Retoma YA activada en origen; el traslado no se confirmó. Revise Transferencias antes de repetir, para evitar duplicados.', { duration: 12000 })
+        // La activación fue confirmada: no ofrecer reenviar la misma mutación.
+        setSelectedProduct(null)
+        void loadPendingProducts()
+      } else {
+        toast.error('No se pudo confirmar la activación. Revise el estado antes de reintentar.')
+      }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -242,7 +262,7 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
             </div>
 
             <DialogFooter>
-               <Button onClick={handleActivate} className="w-full bg-green-600 hover:bg-green-700">
+               <Button onClick={handleActivate} disabled={isSubmitting} className="w-full bg-green-600 hover:bg-green-700">
                  <CheckCircle className="mr-2 h-4 w-4" />
                  Aprobar y Activar para Venta
                </Button>
