@@ -1,4 +1,3 @@
-from app.channel_audit import channel_metrics
 """Canonical webhook delivery guards for Meta-backed sales channels."""
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.channel_audit import channel_metrics
 from app.config_production import prod_settings
 from app.database import get_db
 from app.models import ProcessedMessage, SalesProfile
