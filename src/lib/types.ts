@@ -126,6 +126,8 @@ export interface PurchaseReceiptItemInput {
 }
 
 export interface PurchaseReceiptInput {
+  /** Same idempotency key for retry of an uncertain response; not persisted. */
+  idempotency_key?: string
   supplier_id?: number
   location_id: number
   invoice_number?: string

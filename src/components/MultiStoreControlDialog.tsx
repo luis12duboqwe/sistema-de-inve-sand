@@ -728,7 +728,12 @@ export function MultiStoreControlDialog({
     appendScannerTokens(scanEntry)
   }
 
+  // Keep request identity through ambiguous network failures, not across new receipts.
+  const receiptRetryKey = useRef<string | null>(null)
+  const receiptRetryPayload = useRef<string | null>(null)
+
   const handleCreateReceipt = async () => {
+    if (submitting) return
     if (!selectedLocationId) {
       toast.error('Seleccione ubicación')
       return
@@ -754,15 +759,27 @@ export function MultiStoreControlDialog({
       return
     }
 
+    const businessPayload = {
+      supplier_id: selectedSupplierId !== 'none' ? Number(selectedSupplierId) : undefined,
+      location_id: Number(selectedLocationId),
+      invoice_number: receiptInvoice.trim() || undefined,
+      notes: receiptNotes.trim() || undefined,
+      items,
+    }
+    const fingerprint = JSON.stringify(businessPayload)
+    if (!receiptRetryKey.current || receiptRetryPayload.current !== fingerprint) {
+      receiptRetryKey.current = crypto.randomUUID()
+      receiptRetryPayload.current = fingerprint
+    }
+
     setSubmitting(true)
     try {
       await inventoryServiceInstance.createPurchaseReceipt({
-        supplier_id: selectedSupplierId !== 'none' ? Number(selectedSupplierId) : undefined,
-        location_id: Number(selectedLocationId),
-        invoice_number: receiptInvoice.trim() || undefined,
-        notes: receiptNotes.trim() || undefined,
-        items,
+        ...businessPayload,
+        idempotency_key: receiptRetryKey.current,
       })
+      receiptRetryKey.current = null
+      receiptRetryPayload.current = null
       toast.success(`Recepción registrada con ${items.length} producto(s)`)
       setReceiptInvoice('')
       setReceiptNotes('')
@@ -770,7 +787,8 @@ export function MultiStoreControlDialog({
       await loadData()
       await onInventoryChanged?.()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error al registrar recepción')
+      toast.error('No se pudo confirmar la recepción. Revise la lista antes de repetir; si vuelve a intentar sin cambios se reutiliza la misma clave.', { duration: 12000 })
+      console.error('Error al registrar recepción', error)
     } finally {
       setSubmitting(false)
     }

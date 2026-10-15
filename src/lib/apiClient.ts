@@ -2317,9 +2317,11 @@ class ApiClient {
   }
 
   async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    const { idempotency_key, ...payload } = data
     return this.request<PurchaseReceipt>('/multistore-control/purchase-receipts', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+      body: JSON.stringify(payload),
     })
   }
 
