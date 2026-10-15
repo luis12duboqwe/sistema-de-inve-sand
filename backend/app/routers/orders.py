@@ -194,8 +194,12 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
     """Serializa un producto para incluirlo en la respuesta de una orden."""
     from app.routers.products import _serialize_product
-    response = _serialize_product(product)
-    
+    # A reader with access to la sede de origen de la orden no adquiere por
+    # ello acceso a stock/IMEIs del mismo producto en otras tiendas.
+    # Sin ubicación (órdenes legacy), no exponer stock global anidado.
+    allowed_locations = [location_id] if location_id is not None else []
+    response = _serialize_product(product, allowed_locations)
+
     # Adapt to structure expected without crashing
     payload = response.model_dump()
     return payload
