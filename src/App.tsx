@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import { getKV } from '@/lib/kvStorage'
+import { clearLegacyBusinessStorage } from '@/lib/sessionCachePolicy'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -78,6 +79,7 @@ import { motion } from 'framer-motion'
 import PublicCatalog from '@/components/PublicCatalog'
 
 function MainApp() {
+  useEffect(() => { clearLegacyBusinessStorage() }, [])
   const [backendConnected, setBackendConnected] = useState(false)
   const { isInitialized, isLoading } = useInitializeData()
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
