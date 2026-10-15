@@ -6,6 +6,9 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+from typing import Callable
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 import requests
 
@@ -49,10 +52,42 @@ def _assert_isolated_postgres_dsn(database_url: str) -> None:
         )
 
 
-def _start_backend() -> tuple[subprocess.Popen, str]:
+def _create_isolated_schema_url(database_url: str) -> tuple[str, Callable[[], None]]:
+    """Each destructive E2E execution uses a unique disposable PostgreSQL schema."""
+    schema_name = f"softmobile_e2e_{uuid.uuid4().hex[:16]}"
+    admin_engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with admin_engine.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+    except Exception:
+        admin_engine.dispose()
+        raise
+
+    parsed = make_url(database_url)
+    if "options" in parsed.query:
+        with admin_engine.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
+        admin_engine.dispose()
+        raise AssertionError("E2E must not inherit a custom PostgreSQL search_path")
+    isolated = parsed.update_query_dict({
+        "options": f"-csearch_path={schema_name}",
+    }).render_as_string(hide_password=False)
+
+    def cleanup() -> None:
+        try:
+            with admin_engine.begin() as conn:
+                conn.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
+        finally:
+            admin_engine.dispose()
+
+    return isolated, cleanup
+
+
+def _start_backend() -> tuple[subprocess.Popen, str, Callable[[], None]]:
     database_url = os.environ.get("DATABASE_URL", "")
     _assert_isolated_postgres_dsn(database_url)
 
+    isolated_url, cleanup = _create_isolated_schema_url(database_url)
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     env = os.environ.copy()
@@ -60,7 +95,7 @@ def _start_backend() -> tuple[subprocess.Popen, str]:
         {
             "ENVIRONMENT": "testing",
             "DEBUG": "true",
-            "DATABASE_URL": database_url,
+            "DATABASE_URL": isolated_url,
             "SENTRY_DISABLED": "true",
             "ENABLE_AI_FEATURES": "false",
             "PYTHONPATH": str(BACKEND_DIR),
@@ -92,8 +127,9 @@ def _start_backend() -> tuple[subprocess.Popen, str]:
     except Exception:
         process.terminate()
         output, _ = process.communicate(timeout=10)
+        cleanup()
         raise AssertionError(f"No se pudo iniciar el backend PostgreSQL:\n{output}")
-    return process, base_url
+    return process, base_url, cleanup
 
 
 def _stop_backend(process: subprocess.Popen) -> None:
@@ -143,7 +179,7 @@ def _items(payload):
 
 
 def test_postgres_real_auth_readiness_and_stock_concurrency():
-    process, base_url = _start_backend()
+    process, base_url, cleanup = _start_backend()
     try:
         ready = requests.get(f"{base_url}/api/ready", timeout=5)
         assert ready.status_code == 200
@@ -252,6 +288,7 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
         assert matched["stock_disponible"] == 0
     finally:
         _stop_backend(process)
+        cleanup()
 
 
 def test_pg_runtime_e2e_rejects_any_prod_or_remote_database():
@@ -268,3 +305,26 @@ def test_pg_runtime_e2e_rejects_any_prod_or_remote_database():
     _assert_isolated_postgres_dsn(
         "postgresql+psycopg2://inventory_e2e:password@127.0.0.1:5432/inventory_e2e"
     )
+
+
+def test_pg_e2e_schema_is_unique_and_cannot_mutate_public_schema():
+    db_url = os.environ["DATABASE_URL"]
+    _assert_isolated_postgres_dsn(db_url)
+    isolated_url, cleanup = _create_isolated_schema_url(db_url)
+    try:
+        isolated_engine = create_engine(isolated_url)
+        with isolated_engine.begin() as conn:
+            namespace = conn.execute(text("SELECT current_schema()")).scalar_one()
+            assert namespace.startswith("softmobile_e2e_")
+            conn.execute(text("CREATE TABLE e2e_isolation_probe(id INTEGER)"))
+        isolated_engine.dispose()
+        live_engine = create_engine(db_url)
+        with live_engine.connect() as conn:
+            count = conn.execute(text(
+                "SELECT count(*) FROM information_schema.tables "
+                "WHERE table_schema='public' AND table_name='e2e_isolation_probe'"
+            )).scalar_one()
+            assert count == 0
+        live_engine.dispose()
+    finally:
+        cleanup()
