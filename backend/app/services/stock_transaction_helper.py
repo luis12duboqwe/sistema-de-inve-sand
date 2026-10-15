@@ -265,6 +265,16 @@ class StockTransactionHelper:
         if not trade_ins_payload:
             return trade_in_total
 
+        # Dos líneas de retoma con el mismo IMEI representan un solo equipo físico.
+        # Rechazar antes de crear productos, stock o historial.
+        trade_in_imeis = [
+            str(getattr(item, "imei", "") or "").strip()
+            for item in trade_ins_payload
+        ]
+        provided_imeis = [imei for imei in trade_in_imeis if imei]
+        if len(provided_imeis) != len(set(provided_imeis)):
+            raise HTTPException(status_code=400, detail="La retoma contiene IMEIs duplicados")
+
         if db_order is None:
             return trade_in_total
 
