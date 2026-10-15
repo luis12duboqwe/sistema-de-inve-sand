@@ -1763,7 +1763,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.listTrainingQueue(status)
     } catch (error) {
       console.error('Error listing training queue (unified):', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to list training queue')
     }
   }
 
@@ -1793,7 +1793,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.getCustomers(search)
     } catch (error) {
       console.error('Error getting customers (unified):', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to load customers')
     }
   }
 
@@ -1843,7 +1843,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.getAIProfileConfig(salesProfileId)
     } catch (error) {
       console.error('Error getting AI config (unified):', error)
-      return null
+      throw error instanceof Error ? error : new Error('Failed to load AI configuration')
     }
   }
 
@@ -1933,7 +1933,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.getStockHistory(productId, params)
     } catch (error) {
       console.error('Error getting stock history (unified):', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to load stock history')
     }
   }
 
@@ -1943,7 +1943,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.getLocationStockHistory(locationId, params)
     } catch (error) {
       console.error('Error getting location stock history (unified):', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to load location stock history')
     }
   }
 
@@ -1953,7 +1953,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.getProfileStockHistory(profileId, params)
     } catch (error) {
       console.error('Error getting profile stock history (unified):', error)
-      return []
+      throw error instanceof Error ? error : new Error('Failed to load profile stock history')
     }
   }
 
@@ -1983,7 +1983,7 @@ class UnifiedInventoryService implements IInventoryService {
       return service.listFAQs(params)
     } catch (error) {
       console.error('Error listing FAQs (unified):', error)
-      return { items: [], total: 0, pages: 0 }
+      throw error instanceof Error ? error : new Error('Failed to load FAQ list')
     }
   }
 
