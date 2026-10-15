@@ -447,6 +447,11 @@ class StockTransactionHelper:
 
                 if not imei_record:
                     raise HTTPException(status_code=400, detail=f"IMEI {imei_value} no existe en inventario")
+                if int(imei_record.product_id) != product_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"IMEI {imei_value} no pertenece al producto {product_id} de esta garantía",
+                    )
 
                 imei_order_id = int(getattr(imei_record, "order_id", 0) or 0)
                 vendido_flag = bool(getattr(imei_record, "vendido", False))
@@ -473,6 +478,12 @@ class StockTransactionHelper:
             # --- Validar IMEI del equipo de reemplazo (solo para warranty_exchange) ---
             replacement_imei_value: Optional[str] = None
             replacement_imei_record: Optional[ProductIMEI] = None
+
+            if is_serialized_product and action == "warranty_exchange" and not replacement_imei_value_raw:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El producto serializado {product_sku} requiere un IMEI de reemplazo para completar la garantía",
+                )
 
             if replacement_imei_value_raw:
                 if action != "warranty_exchange":
