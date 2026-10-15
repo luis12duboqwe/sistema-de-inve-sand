@@ -36,6 +36,8 @@ jobs:
         run: bash deploy/test-audit-ops.sh
       - name: Test legacy utilities do not mutate business data
         run: bash deploy/test-audit-legacy-utilities.sh
+      - name: Test safe isolated database restore
+        run: bash deploy/test-safe-restore.sh
 
   test-frontend:
     runs-on: ubuntu-latest

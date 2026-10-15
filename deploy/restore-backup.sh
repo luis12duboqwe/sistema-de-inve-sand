@@ -1,49 +1,62 @@
 #!/usr/bin/env bash
-
+# Restore exclusivamente en una base de datos nueva y aislada. Cutover manual.
 set -euo pipefail
-
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${1:-$DEPLOY_DIR/.env.prod}"
 BACKUP_FILE="${2:-}"
-CONFIRM_FLAG="${3:-}"
+CONFIRM="${3:-}"
+TARGET_DB="${4:-}"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
-
-if [ -z "$BACKUP_FILE" ]; then
-  echo "Uso: ./deploy/restore-backup.sh [env_file] <backup.sql.gz> [--yes]" >&2
-  exit 1
+if [[ -z "$BACKUP_FILE" || "$CONFIRM" != "--yes" || -z "$TARGET_DB" ]]; then
+  echo 'Uso: restore-backup.sh <env_file> <backup.sql.gz> --yes <nombre_bd_nueva>' >&2
+  exit 2
 fi
-
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Falta $ENV_FILE" >&2
-  exit 1
+if [[ ! -f "$ENV_FILE" || ! -f "$BACKUP_FILE" ]]; then
+  echo 'Faltan env o backup' >&2; exit 2
 fi
-
-if [ ! -f "$BACKUP_FILE" ]; then
-  echo "Backup no encontrado: $BACKUP_FILE" >&2
-  exit 1
+if [[ ! "$TARGET_DB" =~ ^[a-z][a-z0-9_]{2,48}$ ]] ||
+   [[ "$TARGET_DB" == postgres || "$TARGET_DB" == template0 || "$TARGET_DB" == template1 ]]; then
+  echo 'Nombre destino inválido' >&2; exit 2
 fi
-
 ENV_FILE="$(realpath "$ENV_FILE")"
-
-if [ -f "${BACKUP_FILE}.sha256" ]; then
-  echo "Validando checksum..."
-  sha256sum -c "${BACKUP_FILE}.sha256"
-else
-  echo "Advertencia: no existe archivo checksum ${BACKUP_FILE}.sha256" >&2
+BACKUP_FILE="$(realpath "$BACKUP_FILE")"
+source_db="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '\r"' | tr -d "'")"
+if [[ -z "$source_db" || "$TARGET_DB" == "$source_db" ]]; then
+  echo 'RECHAZADO: el destino coincide con la BD activa.' >&2
+  exit 2
 fi
-
-if [ "$CONFIRM_FLAG" != "--yes" ]; then
-  echo "Esta operación sobrescribirá la base de datos de producción." >&2
-  echo "Re-ejecuta con --yes para confirmar." >&2
+if [[ ! -f "${BACKUP_FILE}.sha256" ]]; then
+  echo 'Falta checksum obligatorio. Abortando.' >&2; exit 2
+fi
+expected_hash="$(awk 'NR==1 { print $1 }' "${BACKUP_FILE}.sha256")"
+actual_hash="$(sha256sum "$BACKUP_FILE" | awk '{ print $1 }')"
+if [[ ! "$expected_hash" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "${expected_hash,,}" != "$actual_hash" ]]; then
+  echo 'Checksum SHA256 inválido. Abortando.' >&2; exit 2
+fi
+gzip -t "$BACKUP_FILE" || { echo 'Backup gzip inválido' >&2; exit 2; }
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+# createdb falla si el destino ya existe. Jamás truncar o eliminar datos activos.
+PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db sh -c '
+  set -eu
+  target="$1"
+  if [ "$target" = "$POSTGRES_DB" ]; then
+    echo "Destino coincide con la base en servicio" >&2; exit 3
+  fi
+  PGPASSWORD="$POSTGRES_PASSWORD" createdb -U "$POSTGRES_USER" "$target"
+' sh "$TARGET_DB"
+echo "Restaurando en base aislada $TARGET_DB con transacción única..."
+if ! gunzip -c "$BACKUP_FILE" | PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$1"' sh "$TARGET_DB"; then
+  echo "Restauración aislada fallida. La BD de producción no se modificó." >&2
   exit 1
 fi
-
-echo "Restaurando backup en PostgreSQL..."
-gunzip -c "$BACKUP_FILE" | PROD_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
-  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-
-echo "Verificando conexión post-restauración..."
-PROD_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T db \
-  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT NOW();"'
-
-echo "Restauración completada correctamente."
+# Comprobar presencia de cinco tablas de negocio antes de declarar recuperable.
+table_count="$(PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -A -t -U "$POSTGRES_USER" -d "$1" -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'','\''orders'\'','\''products'\'','\''stock'\'','\''schema_migrations'\'')"' sh "$TARGET_DB")"
+table_count="${table_count//$'\r'/}"
+if [[ ! "$table_count" =~ ^[0-9]+$ || "$table_count" -lt 5 ]]; then
+  echo "Esquema incompleto ($table_count/5 tablas); no conmutar producción." >&2
+  exit 1
+fi
+echo "Base AISLADA restaurada y comprobada: $TARGET_DB."
+echo 'No se cambió la conexión de producción. Hacer pruebas y aprobar plan de cutover/rollback.'
