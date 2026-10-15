@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, X, Camera, PaperPlaneTilt } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from './ui/button'
@@ -16,6 +16,7 @@ export function PhotoRequestsDashboard() {
   const [mediaUrl, setMediaUrl] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const operationRef = useRef<number | null>(null)
 
   useEffect(() => {
     void loadPendingRequests()
@@ -40,6 +41,9 @@ export function PhotoRequestsDashboard() {
   }
 
   const handleOpenRequest = async (request: PhotoRequest) => {
+    if (operationRef.current !== null) return
+    setSelectedFiles([])
+    setMediaUrl('')
     try {
       setSelectedRequest(request)
       if (request.status === 'pending') {
@@ -55,11 +59,13 @@ export function PhotoRequestsDashboard() {
   }
 
   const handleUploadMedia = async (requestId: number) => {
+    if (operationRef.current !== null || selectedRequest?.id !== requestId) return
     if (!mediaUrl.trim() && selectedFiles.length === 0) {
       toast.error('Ingresa una URL o selecciona archivo(s)')
       return
     }
 
+    operationRef.current = requestId
     try {
       setUploading(true)
 
@@ -97,11 +103,14 @@ export function PhotoRequestsDashboard() {
       toast.error('Error al cargar foto')
       console.error(error)
     } finally {
+      operationRef.current = null
       setUploading(false)
     }
   }
 
   const handleSendToCustomer = async (requestId: number) => {
+    if (operationRef.current !== null || selectedRequest?.id !== requestId) return
+    operationRef.current = requestId
     try {
       setUploading(true)
       await apiClient.sendPhotosToCustomer(requestId)
@@ -115,6 +124,7 @@ export function PhotoRequestsDashboard() {
       toast.error('Error al enviar fotos')
       console.error(error)
     } finally {
+      operationRef.current = null
       setUploading(false)
     }
   }
@@ -157,7 +167,13 @@ export function PhotoRequestsDashboard() {
         const activeRequest = selectedRequest?.id === request.id ? selectedRequest : request
 
         return (
-          <Dialog key={request.id}>
+          <Dialog key={request.id} onOpenChange={open => {
+            if (!open && operationRef.current === null) {
+              setSelectedFiles([])
+              setMediaUrl('')
+              setSelectedRequest(null)
+            }
+          }}>
             <DialogTrigger asChild>
               <div
                 className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
@@ -284,7 +300,8 @@ export function PhotoRequestsDashboard() {
                 <div className="flex gap-2 pt-4 border-t">
                   {activeRequest.status !== 'completed' && activeRequest.media_items && activeRequest.media_items.length > 0 && (
                     <Button
-                      onClick={() => handleSendToCustomer(activeRequest.id)}
+                      onClick={() => { void handleSendToCustomer(activeRequest.id) }}
+                      disabled={uploading}
                       className="flex-1"
                       variant="default"
                     >
@@ -294,7 +311,10 @@ export function PhotoRequestsDashboard() {
                   )}
 
                   <Button
+                    disabled={uploading}
                     onClick={() => {
+                      if (operationRef.current !== null) return
+                      operationRef.current = activeRequest.id
                       void (async () => {
                         try {
                           setUploading(true)
@@ -308,6 +328,7 @@ export function PhotoRequestsDashboard() {
                           toast.error('Error al rechazar solicitud')
                           console.error(error)
                         } finally {
+                          operationRef.current = null
                           setUploading(false)
                         }
                       })()
