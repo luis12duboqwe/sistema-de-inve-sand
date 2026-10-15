@@ -218,3 +218,17 @@ async def test_admin_websocket_requires_superuser(monkeypatch):
         (status.WS_1008_POLICY_VIOLATION, "Admin access required")
     ]
     assert manager.disconnected == [(websocket, "admin")]
+
+
+@pytest.mark.asyncio
+async def test_websocket_token_is_revoked_after_password_hash_changes():
+    user = _user(permissions=("photo_requests:list",))
+    old = create_user_access_token(user)
+    user.hashed_password = "new-test-hash"
+    websocket = FakeWebSocket(f"access_token, {old}")
+    with pytest.raises(WebSocketException) as error:
+        await websocket_router.get_user_from_ws(
+            websocket, FakeSession(user), required_permission="photo_requests:list",
+        )
+    assert error.value.code == status.WS_1008_POLICY_VIOLATION
+    assert error.value.reason == "Revoked or invalid token"

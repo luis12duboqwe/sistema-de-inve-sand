@@ -61,3 +61,36 @@ def test_legacy_username_only_jwt_is_rejected(db_session):
     with pytest.raises(HTTPException) as error:
         asyncio.run(get_current_user(token=old, db=db_session))
     assert error.value.status_code == 401
+
+
+def test_password_update_endpoint_revokes_previous_bearer(client, db_session):
+    from app.auth import get_current_user, get_current_active_user
+    from app.main import app
+
+    user = _user("password-endpoint")
+    db_session.add(user)
+    db_session.commit()
+    old = create_user_access_token(user)
+    previous_current_user = app.dependency_overrides.pop(get_current_user, None)
+    previous_active_user = app.dependency_overrides.pop(get_current_active_user, None)
+    try:
+        first = client.get("/api/auth/me", headers={"Authorization": f"Bearer {old}"})
+        assert first.status_code == 200, first.text
+        updated = client.put(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {old}"},
+            json={"password": "AnotherStrongSecret!2026"},
+        )
+        assert updated.status_code == 200, updated.text
+
+        rejected = client.get("/api/auth/me", headers={"Authorization": f"Bearer {old}"})
+        assert rejected.status_code == 401
+        db_session.expire_all()
+        fresh = create_user_access_token(db_session.get(User, user.id))
+        accepted = client.get("/api/auth/me", headers={"Authorization": f"Bearer {fresh}"})
+        assert accepted.status_code == 200, accepted.text
+    finally:
+        if previous_current_user is not None:
+            app.dependency_overrides[get_current_user] = previous_current_user
+        if previous_active_user is not None:
+            app.dependency_overrides[get_current_active_user] = previous_active_user
