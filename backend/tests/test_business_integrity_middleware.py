@@ -10,11 +10,10 @@ from .helpers import seed_location_and_sales_profile
 
 
 def _force_production_without_photo_service_token(monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        type(business_integrity.prod_settings),
-        "is_production",
-        lambda self: True,
-    )
+    # Patch the concrete settings instance referenced by both the middleware
+    # and the photo endpoint. Replacing its classmethod on the class proved
+    # unreliable when other tests updated the settings class.
+    monkeypatch.setattr(business_integrity.prod_settings, "is_production", lambda: True)
     monkeypatch.setattr(business_integrity.prod_settings, "N8N_AUTH_TOKEN", "")
 
 
