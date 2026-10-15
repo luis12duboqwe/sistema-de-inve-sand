@@ -20,7 +20,52 @@ if [[ ! "$TARGET_DB" =~ ^[a-z][a-z0-9_]{2,48}$ ]] ||
 fi
 ENV_FILE="$(realpath "$ENV_FILE")"
 BACKUP_FILE="$(realpath "$BACKUP_FILE")"
-source_db="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '\r"' | tr -d "'")"
+source_db="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+source_db="${source_db%
+if [[ -z "$source_db" || "$TARGET_DB" == "$source_db" ]]; then
+  echo 'RECHAZADO: el destino coincide con la BD activa.' >&2
+  exit 2
+fi
+if [[ ! -f "${BACKUP_FILE}.sha256" ]]; then
+  echo 'Falta checksum obligatorio. Abortando.' >&2; exit 2
+fi
+expected_hash="$(awk 'NR==1 { print $1 }' "${BACKUP_FILE}.sha256")"
+actual_hash="$(sha256sum "$BACKUP_FILE" | awk '{ print $1 }')"
+if [[ ! "$expected_hash" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "${expected_hash,,}" != "$actual_hash" ]]; then
+  echo 'Checksum SHA256 inválido. Abortando.' >&2; exit 2
+fi
+gzip -t "$BACKUP_FILE" || { echo 'Backup gzip inválido' >&2; exit 2; }
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+# createdb falla si el destino ya existe. Jamás truncar o eliminar datos activos.
+PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db sh -c '
+  set -eu
+  target="$1"
+  if [ "$target" = "$POSTGRES_DB" ]; then
+    echo "Destino coincide con la base en servicio" >&2; exit 3
+  fi
+  PGPASSWORD="$POSTGRES_PASSWORD" createdb -U "$POSTGRES_USER" "$target"
+' sh "$TARGET_DB"
+echo "Restaurando en base aislada $TARGET_DB con transacción única..."
+if ! gunzip -c "$BACKUP_FILE" | PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$1"' sh "$TARGET_DB"; then
+  echo "Restauración aislada fallida. La BD de producción no se modificó." >&2
+  exit 1
+fi
+# Comprobar presencia de cinco tablas de negocio antes de declarar recuperable.
+table_count="$(PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -A -t -U "$POSTGRES_USER" -d "$1" -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'','\''orders'\'','\''products'\'','\''stock'\'','\''schema_migrations'\'')"' sh "$TARGET_DB")"
+table_count="${table_count//$'\r'/}"
+if [[ ! "$table_count" =~ ^[0-9]+$ || "$table_count" -lt 5 ]]; then
+  echo "Esquema incompleto ($table_count/5 tablas); no conmutar producción." >&2
+  exit 1
+fi
+echo "Base AISLADA restaurada y comprobada: $TARGET_DB."
+echo 'No se cambió la conexión de producción. Hacer pruebas y aprobar plan de cutover/rollback.'
+\\r'}"
+source_db="${source_db#\\\"}"
+source_db="${source_db%\\\"}"
+source_db="${source_db#\\'}"
+source_db="${source_db%\\'}"
 if [[ -z "$source_db" || "$TARGET_DB" == "$source_db" ]]; then
   echo 'RECHAZADO: el destino coincide con la BD activa.' >&2
   exit 2
