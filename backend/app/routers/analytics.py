@@ -15,10 +15,13 @@ from app.auth import check_permission, User
 from app.services.forecasting_service import generate_sales_forecasts, summarize_forecasts
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_validators import validate_location_exists
+from app.utils.order_integrity import effective_sale_column
+from app.utils.order_currency import DEFAULT_HNL_PER_USD
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
 FINAL_SALE_STATUSES = ["completada", "validada"]
+FORECAST_CACHE_TTL = timedelta(minutes=30)
 
 
 def _scope_orders(query, accessible_location_ids: list[int] | None):
@@ -43,6 +46,9 @@ def get_dashboard_stats(
     first_day_month = today.replace(day=1)
     last_month_end = first_day_month - timedelta(days=1)
     last_month_start = last_month_end.replace(day=1)
+    month_start_dt = datetime.combine(first_day_month, datetime.min.time())
+    last_month_start_dt = datetime.combine(last_month_start, datetime.min.time())
+    sale_at = effective_sale_column(Order)
 
     accessible_location_ids = get_accessible_location_ids(db, current_user, "can_view")
     scoped_location_ids = accessible_location_ids
@@ -80,8 +86,13 @@ def get_dashboard_stats(
 
     # Inventory Value
     # Cost * Total Stock
+    unit_value = func.coalesce(func.nullif(Product.costo, 0), Product.precio)
+    unit_value_hnl = case(
+        (func.upper(func.trim(Product.moneda)).in_(["USD", "US$", "$"]), unit_value * DEFAULT_HNL_PER_USD),
+        else_=unit_value,
+    )
     inventory_value = db.query(
-        func.sum(func.coalesce(Product.costo, Product.precio) * stock_subquery.c.total_stock)
+        func.sum(unit_value_hnl * stock_subquery.c.total_stock)
     ).join(stock_subquery, Product.id == stock_subquery.c.product_id).scalar() or 0
 
     # Order stats
@@ -90,26 +101,26 @@ def get_dashboard_stats(
     
     today_start = datetime.combine(today, datetime.min.time())
     orders_today_query = db.query(Order).filter(
-        Order.created_at >= today_start,
+        sale_at >= today_start,
         Order.estado.in_(FINAL_SALE_STATUSES)
     )
     total_orders_today = _scope_orders(orders_today_query, scoped_location_ids).count()
     
     revenue_today_query = db.query(func.sum(Order.total)).filter(
-        Order.created_at >= today_start,
+        sale_at >= today_start,
         Order.estado.in_(FINAL_SALE_STATUSES)
     )
     total_revenue_today = _scope_orders(revenue_today_query, scoped_location_ids).scalar() or 0
 
     revenue_month_query = db.query(func.sum(Order.total)).filter(
-        Order.created_at >= first_day_month,
+        sale_at >= month_start_dt,
         Order.estado.in_(FINAL_SALE_STATUSES)
     )
     total_revenue_month = _scope_orders(revenue_month_query, scoped_location_ids).scalar() or 0
 
     revenue_last_month_query = db.query(func.sum(Order.total)).filter(
-        Order.created_at >= last_month_start,
-        Order.created_at <= last_month_end,
+        sale_at >= last_month_start_dt,
+        sale_at < month_start_dt,
         Order.estado.in_(FINAL_SALE_STATUSES)
     )
     total_revenue_last_month = _scope_orders(revenue_last_month_query, scoped_location_ids).scalar() or 0
@@ -156,31 +167,40 @@ def generate_forecast(
         and payload.trend in (None, "any")
     )
 
+    cached_forecasts = None
     if cacheable:
         cache = getattr(request.app.state, "forecast_cache", None)
-        if cache and cache.get("summary"):
-            return cache["summary"]
+        if isinstance(cache, dict):
+            generated_at = cache.get("generated_at")
+            if isinstance(generated_at, datetime) and generated_at.tzinfo is None:
+                generated_at = generated_at.replace(tzinfo=UTC)
+            if (
+                isinstance(generated_at, datetime)
+                and timedelta(0) <= datetime.now(UTC) - generated_at < FORECAST_CACHE_TTL
+                and cache.get("days_history") == payload.days_history
+                and isinstance(cache.get("forecasts"), list)
+            ):
+                cached_forecasts = cache["forecasts"]
 
-    forecasts = generate_sales_forecasts(
+    forecasts = cached_forecasts if cached_forecasts is not None else generate_sales_forecasts(
         db,
         days_history=payload.days_history,
         product_ids=payload.product_ids,
         location_ids=scoped_location_ids,
     )
 
-    if payload.min_confidence:
-        forecasts = [f for f in forecasts if f.confidence >= payload.min_confidence]
-
-    if payload.trend and payload.trend != "any":
-        forecasts = [f for f in forecasts if f.trend == payload.trend]
-
-    forecasts = forecasts[: payload.limit]
-    summary = summarize_forecasts(db, forecasts)
-
-    if cacheable:
+    if cacheable and cached_forecasts is None:
         request.app.state.forecast_cache = {
             "generated_at": datetime.now(UTC),
-            "summary": summary,
+            "days_history": payload.days_history,
+            "forecasts": forecasts,
         }
+
+    if payload.min_confidence:
+        forecasts = [forecast for forecast in forecasts if forecast.confidence >= payload.min_confidence]
+    if payload.trend and payload.trend != "any":
+        forecasts = [forecast for forecast in forecasts if forecast.trend == payload.trend]
+
+    summary = summarize_forecasts(db, forecasts[:payload.limit])
 
     return summary
