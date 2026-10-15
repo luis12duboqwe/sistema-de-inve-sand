@@ -228,7 +228,7 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
             responses = list(executor.map(create_order, ["A", "B"]))
 
         statuses = sorted(response.status_code for response in responses)
-        assert statuses == [201, 409] or statuses == [400, 201], (
+        assert statuses in ([201, 400], [201, 409]), (
             "Los fallos 500/503 no demuestran concurrencia correcta: "
             + str([(response.status_code, response.text) for response in responses])
         )
