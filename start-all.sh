@@ -1,128 +1,49 @@
-#!/bin/bash
-
-echo "=========================================="
-echo "🚀 INICIO RÁPIDO - TODO EN UNO"
-echo "=========================================="
-echo ""
-
-# Verificar si ya está configurado
-if [ ! -d "backend/venv" ] || [ ! -d "node_modules" ]; then
-    echo "⚙️  Primera vez - Configurando sistema..."
-    echo ""
-    
-    # Verificar python3-venv
-    if ! dpkg -l | grep -q python3.*-venv; then
-        echo "📦 Instalando python3-venv..."
-        sudo apt update && sudo apt install -y python3.11-venv python3-full
-    fi
-    
-    # Ejecutar setup completo
-    chmod +x setup-complete.sh
-    ./setup-complete.sh
-    
-    echo ""
-    echo "✅ Configuración completada"
-    echo ""
+#!/usr/bin/env bash
+# Inicio LOCAL únicamente; no aprovisiona ni reescribe bases de datos.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+ENVIRONMENT="${ENVIRONMENT:-development}"
+if [[ "$ENVIRONMENT" == "production" || "$ENVIRONMENT" == "prod" ]]; then
+  echo "No ejecutar start-all.sh en producción: usar deploy/release-now.sh" >&2
+  exit 2
 fi
-
-echo "🎬 Iniciando sistema en 3 procesos..."
-echo ""
-
-# Hacer scripts ejecutables
-chmod +x start-backend.sh start-frontend.sh
-
-# Función para cleanup
+if [[ ! -d node_modules ]]; then
+  echo "Faltan dependencias frontend: ejecute npm ci --legacy-peer-deps" >&2
+  exit 2
+fi
+PYTHON=""
+if [[ -x backend/.venv/bin/python ]]; then
+  PYTHON="backend/.venv/bin/python"
+elif [[ -x backend/venv/bin/python ]]; then
+  PYTHON="backend/venv/bin/python"
+else
+  echo "Falta entorno virtual: python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt" >&2
+  exit 2
+fi
+if [[ ! -f backend/.env ]]; then
+  echo "Falta backend/.env; configurar DATABASE_URL para una base local de desarrollo." >&2
+  exit 2
+fi
+if ! grep -Eq '^DATABASE_URL=' backend/.env; then
+  echo "Falta DATABASE_URL; NO se creará una BD automáticamente." >&2
+  exit 2
+fi
+command -v npm >/dev/null || { echo "npm no instalado" >&2; exit 2; }
+backend_pid=""
+frontend_pid=""
 cleanup() {
-    echo ""
-    echo "🛑 Deteniendo servicios..."
-    pkill -P $$ 2>/dev/null
-    exit 0
+  trap - EXIT INT TERM
+  if [[ -n "$backend_pid" ]]; then kill "$backend_pid" 2>/dev/null || true; fi
+  if [[ -n "$frontend_pid" ]]; then kill "$frontend_pid" 2>/dev/null || true; fi
+  wait 2>/dev/null || true
 }
-
-trap cleanup INT TERM
-
-# ============================================================
-# Iniciar PostgreSQL via Docker (si está configurado)
-# ============================================================
-if grep -q "postgresql" backend/.env 2>/dev/null; then
-    if command -v docker &>/dev/null; then
-        echo "🐘 Iniciando PostgreSQL (Docker)..."
-
-        DB_URL=$(grep "^DATABASE_URL=" backend/.env | cut -d'=' -f2-)
-        if [ -n "$DB_URL" ]; then
-            eval "$(python3 - <<PY
-from urllib.parse import urlparse, unquote
-import shlex
-
-url = urlparse("""$DB_URL""")
-values = {
-    "POSTGRES_USER": unquote(url.username or "inventory_user"),
-    "POSTGRES_PASSWORD": unquote(url.password or ""),
-    "POSTGRES_DB": (url.path or "/inventory_db").lstrip("/") or "inventory_db",
-    "POSTGRES_PORT": str(url.port or 5432),
-}
-for key, value in values.items():
-    if value:
-        print(f"export {key}={shlex.quote(value)}")
-PY
-)"
-        fi
-
-        # Si el contenedor ya existe, solo iniciarlo; si no, levantarlo con compose
-        if docker ps -a --format '{{.Names}}' | grep -q "^inventory-postgres$"; then
-            docker start inventory-postgres > /dev/null 2>&1
-        elif [ -f "docker-compose.yml" ]; then
-            docker compose up -d postgres > /dev/null 2>&1
-        fi
-
-        # Esperar a que PostgreSQL esté listo (hasta 20 segundos)
-        echo -n "   Esperando conexión a PostgreSQL"
-        for i in $(seq 1 20); do
-            if docker exec inventory-postgres pg_isready -U "${POSTGRES_USER:-inventory_user}" -d "${POSTGRES_DB:-inventory_db}" -q 2>/dev/null; then
-                echo " ✅"
-                break
-            fi
-            echo -n "."
-            sleep 1
-        done
-        echo ""
-    else
-        echo "⚠️  Docker no encontrado. Asegúrate que PostgreSQL esté corriendo manualmente."
-        echo ""
-    fi
-fi
-
-# Iniciar backend
-echo "🔧 Iniciando backend en puerto 8000..."
-cd backend
-source venv/bin/activate
-python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 2>&1 | sed 's/^/[BACKEND] /' &
-BACKEND_PID=$!
-cd ..
-
-# Esperar 3 segundos
-sleep 3
-
-# Iniciar frontend
-echo "🎨 Iniciando frontend en puerto 5173..."
-npm run dev -- --host 0.0.0.0 2>&1 | sed 's/^/[FRONTEND] /' &
-FRONTEND_PID=$!
-
-echo ""
-echo "=========================================="
-echo "✅ SISTEMA INICIADO"
-echo "=========================================="
-echo ""
-echo "🌐 URLs:"
-echo "  Frontend:  http://localhost:5173"
-echo "  Backend:   http://localhost:8000"
-echo "  API Docs:  http://localhost:8000/docs"
-echo "  pgAdmin:   http://localhost:5050  (si está habilitado)"
-echo ""
-echo "🛑 Presiona Ctrl+C para detener ambos"
-echo ""
-echo "=========================================="
-echo ""
-
-# Esperar
-wait
+trap cleanup EXIT INT TERM
+echo "Iniciando FastAPI local en 127.0.0.1:8000"
+(cd backend && "./${PYTHON#backend/}" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000) &
+backend_pid=$!
+echo "Iniciando Vite local en 127.0.0.1:5173"
+npm run dev -- --host 127.0.0.1 &
+frontend_pid=$!
+# wait -n exits when either process fails; trap terminates the other.
+wait -n "$backend_pid" "$frontend_pid"

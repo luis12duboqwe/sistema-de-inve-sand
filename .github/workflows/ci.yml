@@ -38,6 +38,8 @@ jobs:
         run: bash deploy/test-audit-legacy-utilities.sh
       - name: Test safe isolated database restore
         run: bash deploy/test-safe-restore.sh
+      - name: Test legacy reset and development quickstart
+        run: bash deploy/test-local-quickstart.sh
 
   test-frontend:
     runs-on: ubuntu-latest

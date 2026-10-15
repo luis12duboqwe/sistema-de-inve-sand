@@ -15,15 +15,17 @@ Uso:
 
 import json
 import argparse
+import os
+from app.config_production import prod_settings
 import random
 import string
-from typing import Dict, cast
+from typing import Any, Dict, cast
 from app.database import SessionLocal
 from app.models import SalesProfile
 
 
 ChannelCredentialsMap = Dict[str, Dict[str, str]]
-ChannelIntegrationsConfig = Dict[str, ChannelCredentialsMap]
+ChannelIntegrationsConfig = Dict[str, Any]
 
 
 def _parse_profile_config(raw_config: object) -> ChannelIntegrationsConfig:
@@ -47,12 +49,29 @@ def _parse_profile_config(raw_config: object) -> ChannelIntegrationsConfig:
                             for key, value in creds_dict.items()
                             if isinstance(key, str) and value is not None
                         }
-                return {"channel_integrations": normalized_integrations}
+                return {**parsed_dict, "channel_integrations": normalized_integrations}
             return cast(ChannelIntegrationsConfig, parsed_dict)
     except (TypeError, json.JSONDecodeError):
         pass
 
     return {"channel_integrations": {}}
+
+
+def _assert_demo_only() -> None:
+    """Refuse destructive fake-credential writes to production profile data."""
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    if environment in {"production", "prod"} or prod_settings.is_production:
+        raise RuntimeError("Se prohíbe sembrar o borrar credenciales demo en producción")
+
+
+def _merge_test_integrations(raw_config: object, generated: dict) -> dict:
+    original = _parse_profile_config(raw_config)
+    return {**original, "channel_integrations": generated.get("channel_integrations", {})}
+
+
+def _without_channel_integrations(raw_config: object) -> dict:
+    original = _parse_profile_config(raw_config)
+    return {key: value for key, value in original.items() if key != "channel_integrations"}
 
 
 def generate_test_token(prefix: str = "test", length: int = 32) -> str:
@@ -167,6 +186,7 @@ def show_current_status():
 
 def populate_credentials():
     """Carga credenciales de prueba en todos los perfiles activos."""
+    _assert_demo_only()
     db = SessionLocal()
     try:
         profiles = db.query(SalesProfile).filter(SalesProfile.active == True).all()
@@ -190,8 +210,7 @@ def populate_credentials():
             new_config = get_channel_credentials(canales_raw)
             
             # Preservar otras configuraciones si existen
-            existing_config = _parse_profile_config(cast(object, profile.configuracion))
-            existing_config.update(new_config)
+            existing_config = _merge_test_integrations(cast(object, profile.configuracion), new_config)
             
             # Guardar
             cast(object, profile).__setattr__("configuracion", json.dumps(existing_config))
@@ -219,6 +238,7 @@ def populate_credentials():
 
 def clear_credentials():
     """Limpia todas las credenciales de canal."""
+    _assert_demo_only()
     db = SessionLocal()
     try:
         profiles = db.query(SalesProfile).filter(SalesProfile.active == True).all()
@@ -237,7 +257,7 @@ def clear_credentials():
             
             # Remover channel_integrations pero preservar otras config
             if "channel_integrations" in existing_config:
-                del existing_config["channel_integrations"]
+                existing_config = _without_channel_integrations(cast(object, profile.configuracion))
                 cast(object, profile).__setattr__("configuracion", json.dumps(existing_config) if existing_config else None)
                 db.add(profile)
                 print(f"✓ {str(profile.name)}: Credenciales removidas")
@@ -274,7 +294,10 @@ def main():
         help="Regenerar credenciales (equivalente a --clear seguido de --populate)"
     )
     
+    parser.add_argument("--confirm-demo-only", action="store_true", help="Confirmar que la base es de demostración y descartable")
     args = parser.parse_args()
+    if (args.populate or args.clear or args.generate) and not args.confirm_demo_only:
+        parser.error("Las operaciones destructivas requieren --confirm-demo-only")
     
     # Por defecto, mostrar estado si no hay argumentos
     if not (args.populate or args.clear or args.generate):
