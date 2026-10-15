@@ -126,7 +126,10 @@ export function PendingTradeInsDialog({ open, onOpenChange }: PendingTradeInsDia
           to_location_id: targetLocationId,
           cantidad: 1,
           notas: 'Transferencia automática por activación de retoma',
-          imeis: [activationForm.imei]
+          imeis: [activationForm.imei],
+          // Cada activación origina como máximo una transferencia pendiente;
+          // el backend exige clave estable en producción.
+          idempotency_key: crypto.randomUUID()
         }
 
         await inventoryServiceInstance.createStockTransfer(transferPayload)

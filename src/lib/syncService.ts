@@ -478,7 +478,10 @@ async function handleOrderEvent(event: SyncEvent, context: SyncContext): Promise
       }
 
       const request = buildOrderCreateRequest(order, items, payload, context)
-      const created = await apiClient.createOrder(request)
+      const created = await apiClient.createOrder({
+        ...request,
+        idempotency_key: `sync-order-${event.id}`,
+      })
       return {
         metadata: { remote_id: created.id },
         newIds: order.id !== undefined ? [{ entity: 'order', localId: order.id, remoteId: created.id }] : undefined
@@ -516,7 +519,11 @@ async function handleStockTransferEvent(event: SyncEvent, context: SyncContext):
       }
 
       const request = buildStockTransferCreateRequest(transfer, payload, context)
-      const created = await apiClient.createStockTransfer(request)
+      // Una reejecución del mismo evento del diario debe crear la misma entidad.
+      const created = await apiClient.createStockTransfer({
+        ...request,
+        idempotency_key: `sync-transfer-${event.id}`,
+      })
       return {
         metadata: { remote_id: created.id },
         newIds:
