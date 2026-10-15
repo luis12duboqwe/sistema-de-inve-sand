@@ -116,6 +116,7 @@ def test_ai_message_failure_is_quarantined_not_replayed(client, db_session, monk
     from app.main import app
 
     monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    monkeypatch.setattr(prod_settings, "OPENAI_API_KEY", "dummy-test-key")
     profile = SalesProfile(name="AI quarantined", slug="ai-quarantined-" + uuid4().hex,
                            tipo="bot_ia", canales='["whatsapp"]', active=True)
     db_session.add(profile)
