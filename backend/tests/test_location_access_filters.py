@@ -433,7 +433,7 @@ def test_order_nested_product_never_exposes_other_store_stock_or_imei(client, db
     for result in responses:
         assert result.status_code == 200, result.text
         payload = result.json()
-        orders = payload.get("items", []) if "items" in payload else [payload]
+        orders = [payload] if "customer_name" in payload else payload["items"]
         for item in orders[0]["items"]:
             nested = item["product"]
             if nested and nested["id"] == product.id:
