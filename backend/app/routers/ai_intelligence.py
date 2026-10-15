@@ -498,7 +498,16 @@ def _build_local_fallback_reply(context: AIContextResponse, user_message: str) -
 
 def _cleanup_processed_messages(db: Session) -> None:
     now = _utcnow()
-    db.query(ProcessedMessage).filter(ProcessedMessage.expires_at <= now).delete(synchronize_session=False)
+    # Only completed rows with no pending/ambiguous delivery are purgeable.
+    # In particular the webhook recovery protocol and AI workflows may still
+    # need manual reconciliation after their expiration deadline.
+    db.query(ProcessedMessage).filter(
+        ProcessedMessage.expires_at <= now,
+        or_(
+            ProcessedMessage.delivery_status.is_(None),
+            ProcessedMessage.delivery_status == "delivered",
+        ),
+    ).delete(synchronize_session=False)
 
 
 def _mark_message_processed(
@@ -525,6 +534,7 @@ def _mark_message_processed(
         channel=channel,
         customer_phone=customer_phone,
         sales_profile_id=sales_profile_id,
+        delivery_status="ai_processing",
         expires_at=now + timedelta(hours=max(1, ttl_hours)),
     )
     db.add(entry)
@@ -2282,6 +2292,12 @@ def handle_message_without_n8n(
                 or existing.channel != (request.channel_hint or _infer_channel_from_sales_profile(profile))
             ):
                 raise HTTPException(status_code=409, detail="Identificador de mensaje asociado a otra conversación")
+            state = str(getattr(existing, "delivery_status", "") or "").lower()
+            if state in {"ai_processing", "ai_manual_recovery"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Mensaje IA en proceso o pendiente de conciliación manual",
+                )
             # Nunca devolver la última respuesta del perfil: podría pertenecer
             # a un cliente distinto o a otro mensaje.
             duplicate_reply = "Mensaje ya procesado recientemente."

@@ -86,3 +86,68 @@ def test_duplicate_message_cannot_return_other_customer_reply(client, db_session
     assert duplicate.status_code == 200, duplicate.text
     assert duplicate.json()["model"] == "duplicate-guard"
     assert "SECRETO_CLIENTE_B" not in duplicate.json()["reply"]
+
+def test_expired_webhook_delivery_claim_survives_ai_cleanup(db_session):
+    from datetime import UTC, datetime, timedelta
+    from app.models import ProcessedMessage
+    from app.routers.ai_intelligence import _cleanup_processed_messages
+    from uuid import uuid4
+
+    message_id = "recovery-" + uuid4().hex
+    db_session.add(ProcessedMessage(
+        message_id=message_id, channel="whatsapp",
+        customer_phone="50470001234", sales_profile_id=None,
+        delivery_status="pending_delivery", reply_text="Respuesta pendiente",
+        expires_at=datetime.now(UTC) - timedelta(hours=2),
+    ))
+    db_session.commit()
+    _cleanup_processed_messages(db_session)
+    db_session.commit()
+    retained = db_session.query(ProcessedMessage).filter_by(message_id=message_id).one()
+    assert retained.reply_text == "Respuesta pendiente"
+    assert retained.delivery_status == "pending_delivery"
+
+
+def test_ai_message_failure_is_quarantined_not_replayed(client, db_session, monkeypatch):
+    from uuid import uuid4
+    from app.config_production import prod_settings
+    from app.models import ProcessedMessage, SalesProfile
+    from app.routers import ai_intelligence
+    from app.main import app
+
+    monkeypatch.setattr(prod_settings, "ENABLE_AI_FEATURES", True)
+    profile = SalesProfile(name="AI quarantined", slug="ai-quarantined-" + uuid4().hex,
+                           tipo="bot_ia", canales='["whatsapp"]', active=True)
+    db_session.add(profile)
+    db_session.commit()
+    msg_id = "ai-failing-" + uuid4().hex
+    calls = []
+
+    def fail_after_claim(*_args, **_kwargs):
+        calls.append("called")
+        raise RuntimeError("artificial external service outage")
+
+    monkeypatch.setattr(ai_intelligence, "get_ai_context", fail_after_claim)
+    payload = {
+        "sales_profile_slug": profile.slug,
+        "customer_phone": "50470005551",
+        "customer_name": "Test AI retry",
+        "message_content": "hola",
+        "message_id": msg_id,
+        "channel_hint": "whatsapp",
+    }
+    # The isolated integration route must quarantine the already-persisted claim.
+    from app.routers.ai_slug_integrity import handle_message_without_n8n_integrity
+    from app.schemas import AIHandleMessageRequest
+    with pytest.raises(RuntimeError):
+        handle_message_without_n8n_integrity(
+            AIHandleMessageRequest.model_validate(payload), db_session, None
+        )
+    stored = db_session.query(ProcessedMessage).filter_by(message_id=msg_id).one()
+    assert stored.delivery_status == "ai_manual_recovery"
+    with pytest.raises(HTTPException) as duplicate:
+        handle_message_without_n8n_integrity(
+            AIHandleMessageRequest.model_validate(payload), db_session, None
+        )
+    assert duplicate.value.status_code == 409
+    assert calls == ["called"]
