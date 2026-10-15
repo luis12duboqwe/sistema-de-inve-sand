@@ -157,3 +157,42 @@ def test_serialized_warranty_rejects_missing_replacement_imei(db_session):
     assert error.value.status_code == 400
     assert "requiere un IMEI de reemplazo" in str(error.value.detail)
     assert db_session.get(ProductIMEI, original.id).vendido is True
+
+
+def test_trade_in_cannot_take_over_imei_sold_from_other_store(db_session):
+    product_sold, trade_in_product = _product(), _product()
+    original_location, intake_location = _location(), _location()
+    db_session.add_all([product_sold, trade_in_product, original_location, intake_location])
+    db_session.flush()
+    order = _order(db_session, original_location, product_sold)
+    sold_serial = _serial(product_sold, original_location, order_id=order.id)
+    db_session.add(sold_serial)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as error:
+        StockTransactionHelper(db_session)._upsert_trade_in_imei(
+            imei_value=sold_serial.imei, product_id=trade_in_product.id,
+            location_id=intake_location.id, order_id=order.id,
+            user_label="audit",
+        )
+    assert error.value.status_code == 409
+    db_session.refresh(sold_serial)
+    assert sold_serial.product_id == product_sold.id
+    assert sold_serial.location_id == original_location.id
+    assert sold_serial.vendido is True
+    assert sold_serial.order_id == order.id
+
+
+def test_trade_in_rejects_duplicate_imei_in_payload_before_writing(db_session):
+    duplicated = "356123456789012"
+    trade_ins = [
+        SimpleNamespace(imei=duplicated, valor_estimado=Decimal("1000"), marca="QA", modelo="M1"),
+        SimpleNamespace(imei=duplicated, valor_estimado=Decimal("1000"), marca="QA", modelo="M1"),
+    ]
+    with pytest.raises(HTTPException) as error:
+        StockTransactionHelper(db_session).process_trade_ins(
+            trade_ins_payload=trade_ins, db_order=None,
+            profile_id_for_order=None, source_location_id=1, user_label="audit",
+        )
+    assert error.value.status_code == 400
+    assert "duplicados" in str(error.value.detail)
