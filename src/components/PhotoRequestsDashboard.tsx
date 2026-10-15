@@ -7,12 +7,15 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Badge } from './ui/badge'
 import { apiClient } from '@/lib/apiClient'
+import { uploadPhotosSequentially } from '@/lib/photoUploadBatch'
 import type { PhotoRequest } from '@/lib/types'
 
 export function PhotoRequestsDashboard() {
   const [pendingRequests, setPendingRequests] = useState<PhotoRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRequest, setSelectedRequest] = useState<PhotoRequest | null>(null)
+  const [activeDialogId, setActiveDialogId] = useState<number | null>(null)
+  const selectionEpochRef = useRef(0)
   const [mediaUrl, setMediaUrl] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
@@ -42,24 +45,26 @@ export function PhotoRequestsDashboard() {
 
   const handleOpenRequest = async (request: PhotoRequest) => {
     if (operationRef.current !== null) return
+    const epoch = ++selectionEpochRef.current
+    setActiveDialogId(request.id)
     setSelectedFiles([])
     setMediaUrl('')
+    setSelectedRequest(request)
     try {
-      setSelectedRequest(request)
-      if (request.status === 'pending') {
-        await apiClient.claimPhotoRequest(request.id)
-      }
-      const updatedRequest = await apiClient.getPhotoRequest(request.id)
-      setSelectedRequest(updatedRequest)
+      if (request.status === 'pending') await apiClient.claimPhotoRequest(request.id)
+      const latest = await apiClient.getPhotoRequest(request.id)
+      if (selectionEpochRef.current !== epoch) return
+      setSelectedRequest(latest)
       await loadPendingRequests(false)
     } catch (error) {
+      if (selectionEpochRef.current !== epoch) return
       console.error(error)
-      toast.error('Error al reclamar la solicitud')
+      toast.error('No se pudo verificar la solicitud; consulte el historial antes de repetir')
     }
   }
 
   const handleUploadMedia = async (requestId: number) => {
-    if (operationRef.current !== null || selectedRequest?.id !== requestId) return
+    if (operationRef.current !== null || selectedRequest?.id !== requestId || activeDialogId !== requestId) return
     if (!mediaUrl.trim() && selectedFiles.length === 0) {
       toast.error('Ingresa una URL o selecciona archivo(s)')
       return
@@ -69,29 +74,30 @@ export function PhotoRequestsDashboard() {
     try {
       setUploading(true)
 
-      const uploadPromises: Promise<any>[] = []
-
-      if (selectedFiles.length > 0) {
-        for (const file of selectedFiles) {
-          uploadPromises.push(apiClient.uploadPhotoFile(requestId, file))
-        }
+      const tasks: Array<() => Promise<unknown>> = []
+      for (const file of selectedFiles) {
+        tasks.push(() => apiClient.uploadPhotoFile(requestId, file))
+      }
+      const urls = mediaUrl.split(',').map(u => u.trim()).filter(Boolean)
+      for (const url of urls) {
+        tasks.push(() => apiClient.uploadPhotoMedia(requestId, {
+          media_url: url,
+          media_type: 'photo',
+        }))
       }
 
-      if (mediaUrl.trim()) {
-        const urls = mediaUrl.split(',').map(u => u.trim()).filter(Boolean)
-        for (const url of urls) {
-          uploadPromises.push(apiClient.uploadPhotoMedia(requestId, {
-            media_url: url,
-            media_type: 'photo'
-          }))
-        }
-      }
-
-      await Promise.all(uploadPromises)
-
-      toast.success('Foto(s) cargada(s) exitosamente')
+      const uploaded = await uploadPhotosSequentially(tasks)
+      // Never replay uncertain uploads: one may have committed before a timeout.
       setMediaUrl('')
       setSelectedFiles([])
+      if (uploaded.failure) {
+        toast.error(
+          `Carga parcial o incierta: ${uploaded.confirmed} de ${tasks.length} confirmadas. Revise las fotos registradas antes de repetir.`,
+          { duration: 12000 },
+        )
+      } else {
+        toast.success('Foto(s) cargada(s) exitosamente')
+      }
 
       if (selectedRequest?.id === requestId) {
         const updatedRequest = await apiClient.getPhotoRequest(requestId)
@@ -100,7 +106,7 @@ export function PhotoRequestsDashboard() {
 
       await loadPendingRequests()
     } catch (error) {
-      toast.error('Error al cargar foto')
+      toast.error('Error al cargar foto; compruebe el historial antes de reenviar')
       console.error(error)
     } finally {
       operationRef.current = null
@@ -109,7 +115,7 @@ export function PhotoRequestsDashboard() {
   }
 
   const handleSendToCustomer = async (requestId: number) => {
-    if (operationRef.current !== null || selectedRequest?.id !== requestId) return
+    if (operationRef.current !== null || selectedRequest?.id !== requestId || activeDialogId !== requestId) return
     operationRef.current = requestId
     try {
       setUploading(true)
@@ -118,6 +124,7 @@ export function PhotoRequestsDashboard() {
       toast.success('Fotos enviadas al cliente')
       if (selectedRequest?.id === requestId) {
         setSelectedRequest(null)
+        setActiveDialogId(null)
       }
       await loadPendingRequests()
     } catch (error) {
@@ -170,8 +177,13 @@ export function PhotoRequestsDashboard() {
         const activeRequest = selectedRequest?.id === request.id ? selectedRequest : request
 
         return (
-          <Dialog key={request.id} onOpenChange={open => {
-            if (!open && operationRef.current === null) {
+          <Dialog key={request.id} open={activeDialogId === request.id} onOpenChange={open => {
+            if (operationRef.current !== null) return
+            if (open) {
+              void handleOpenRequest(request)
+            } else if (activeDialogId === request.id) {
+              selectionEpochRef.current += 1
+              setActiveDialogId(null)
               setSelectedFiles([])
               setMediaUrl('')
               setSelectedRequest(null)
@@ -180,7 +192,6 @@ export function PhotoRequestsDashboard() {
             <DialogTrigger asChild>
               <div
                 className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
-                onClick={() => { void handleOpenRequest(request) }}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
