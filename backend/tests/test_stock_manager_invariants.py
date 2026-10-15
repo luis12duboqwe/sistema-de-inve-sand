@@ -139,39 +139,50 @@ def test_concurrent_double_decrement_never_leaves_negative(tmp_path):
         session.close()
 
     barrier = threading.Barrier(2)
-    errors = []
+    unexpected_errors: list[Exception] = []
+    outcomes: list[str] = []
 
     def worker():
-        s = SessionLocal()
+        session = SessionLocal()
+        manager = StockManager(session)
         try:
-            st = s.query(Stock).filter(Stock.product_id == product_id, Stock.location_id == loc_id).first()
-            barrier.wait()
-            st.cantidad_disponible -= 4
-            s.flush()
-            s.commit()
-        except Exception as e:  # noqa: BLE001
-            s.rollback()
-            errors.append(e)
+            # Both start at once; each must acquire the canonical pessimistic lock.
+            barrier.wait(timeout=10)
+            _product, locked_stock, _imeis = manager.validate_and_lock_stock(
+                product_id=product_id, location_id=loc_id, quantity=4
+            )
+            manager.decrease_stock(stock=locked_stock, quantity=4, operation_type="sale")
+            session.commit()
+            outcomes.append("ok")
+        except (HTTPException, StockValidationError):
+            session.rollback()
+            outcomes.append("rejected")
+        except Exception as exc:
+            session.rollback()
+            unexpected_errors.append(exc)
         finally:
-            s.close()
+            session.close()
 
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert all(not thread.is_alive() for thread in threads), "Stock writer deadlock"
+    assert not unexpected_errors, [repr(exc) for exc in unexpected_errors]
+    assert sorted(outcomes) == ["ok", "rejected"], outcomes
 
-    # Stock final nunca debe ser negativo ni violar invariantes
-    s = SessionLocal()
+    check = SessionLocal()
     try:
-        final = s.query(Stock).filter(Stock.product_id == product_id, Stock.location_id == loc_id).first()
-        assert final is not None
-        assert final.cantidad_disponible >= 0
-        assert final.cantidad_reservada >= 0
-        assert final.cantidad_reservada <= final.cantidad_disponible
+        stock = check.query(Stock).filter(
+            Stock.product_id == product_id, Stock.location_id == loc_id
+        ).one()
+        # A valid single decrement is 5 - 4 = 1. A lost update that allows
+        # both writers to succeed would fail the outcomes assertion above.
+        assert stock.cantidad_disponible == 1
+        assert stock.cantidad_reservada == 0
     finally:
-        s.close()
+        check.close()
         cleanup()
 
 
@@ -197,35 +208,46 @@ def test_concurrent_reserve_does_not_overbook(tmp_path):
         session.close()
 
     barrier = threading.Barrier(2)
-    errors = []
+    outcomes: list[str] = []
+    unexpected_errors: list[Exception] = []
 
-    def worker(qty):
-        s = SessionLocal()
-        mgr = StockManager(s)
+    def worker():
+        session = SessionLocal()
+        manager = StockManager(session)
         try:
-            st = s.query(Stock).filter(Stock.product_id == product_id, Stock.location_id == loc_id).first()
-            barrier.wait()
-            mgr.reserve_stock(stock=st, quantity=qty, transfer_id=42)
-            s.commit()
-        except Exception as e:  # noqa: BLE001
-            s.rollback()
-            errors.append(e)
+            barrier.wait(timeout=10)
+            _product, locked_stock, _imeis = manager.validate_and_lock_stock(
+                product_id=product_id, location_id=loc_id,
+                quantity=3, operation_type="transfer_out",
+            )
+            manager.reserve_stock(stock=locked_stock, quantity=3, transfer_id=42)
+            session.commit()
+            outcomes.append("ok")
+        except (HTTPException, StockValidationError):
+            session.rollback()
+            outcomes.append("rejected")
+        except Exception as exc:
+            session.rollback()
+            unexpected_errors.append(exc)
         finally:
-            s.close()
+            session.close()
 
-    t1 = threading.Thread(target=worker, args=(3,))
-    t2 = threading.Thread(target=worker, args=(3,))
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert all(not thread.is_alive() for thread in threads), "Reservation deadlock"
+    assert not unexpected_errors, [repr(exc) for exc in unexpected_errors]
+    assert sorted(outcomes) == ["ok", "rejected"], outcomes
 
-    s = SessionLocal()
+    check = SessionLocal()
     try:
-        final = s.query(Stock).filter(Stock.product_id == product_id, Stock.location_id == loc_id).first()
-        assert final is not None
-        assert final.cantidad_reservada <= final.cantidad_disponible
-        assert final.cantidad_disponible >= 0
+        stock = check.query(Stock).filter(
+            Stock.product_id == product_id, Stock.location_id == loc_id
+        ).one()
+        assert stock.cantidad_disponible == 5
+        assert stock.cantidad_reservada == 3
     finally:
-        s.close()
+        check.close()
         cleanup()
