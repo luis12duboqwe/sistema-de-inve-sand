@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -26,6 +26,9 @@ export function AIProfileConfigDialog({
 }: AIProfileConfigDialogProps) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const requestSeqRef = useRef(0)
+  const activeProfileRef = useRef<number | null>(salesProfileId)
   
   const [config, setConfig] = useState<Partial<AIProfileConfig>>({
     model_name: 'gpt-4o',
@@ -37,48 +40,74 @@ export function AIProfileConfigDialog({
   })
 
   useEffect(() => {
-    if (open && salesProfileId) {
-      loadConfig(salesProfileId)
+    requestSeqRef.current += 1
+    activeProfileRef.current = open ? salesProfileId : null
+    const sequence = requestSeqRef.current
+
+    if (!open || !salesProfileId) {
+      setLoading(false)
+      setLoadFailed(false)
+      return
+    }
+
+    const id = salesProfileId
+    setLoading(true)
+    setLoadFailed(false)
+    setConfig({
+      sales_profile_id: id,
+      model_name: 'gpt-4o', temperature: 0.7, system_prompt: '',
+      initial_greeting: '', voice_tone: 'formal', is_active: true,
+    })
+
+    const fetchConfig = async () => {
+      try {
+        const data = await inventoryServiceInstance.getAIProfileConfig(id)
+        if (requestSeqRef.current !== sequence || activeProfileRef.current !== id) return
+        if (data && data.sales_profile_id !== id) {
+          throw new Error('Configuración de un perfil IA diferente')
+        }
+        setConfig(data ?? {
+          sales_profile_id: id,
+          model_name: 'gpt-4o', temperature: 0.7,
+          system_prompt: 'Eres un asistente de ventas útil y amable.',
+          initial_greeting: '¡Hola! ¿En qué puedo ayudarte hoy?',
+          voice_tone: 'formal', is_active: true,
+        })
+      } catch (error) {
+        if (requestSeqRef.current !== sequence || activeProfileRef.current !== id) return
+        console.error('Error loading AI config:', error)
+        setLoadFailed(true)
+        toast.error('No se pudo cargar la configuración de IA; guardar está bloqueado.')
+      } finally {
+        if (requestSeqRef.current === sequence && activeProfileRef.current === id) {
+          setLoading(false)
+        }
+      }
+    }
+    void fetchConfig()
+
+    return () => {
+      requestSeqRef.current += 1
+      activeProfileRef.current = null
     }
   }, [open, salesProfileId])
 
-  const loadConfig = async (id: number) => {
-    setLoading(true)
-    try {
-      const data = await inventoryServiceInstance.getAIProfileConfig(id)
-      if (data) {
-        setConfig(data)
-      } else {
-        // Reset to defaults if no config exists
-        setConfig({
-          sales_profile_id: id,
-          model_name: 'gpt-4o',
-          temperature: 0.7,
-          system_prompt: 'Eres un asistente de ventas útil y amable.',
-          initial_greeting: '¡Hola! ¿En qué puedo ayudarte hoy?',
-          voice_tone: 'formal',
-          is_active: true
-        })
-      }
-    } catch (error) {
-      console.error('Error loading AI config:', error)
-      toast.error('Error al cargar la configuración de IA')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const handleSave = async () => {
-    if (!salesProfileId) return
+    if (!salesProfileId || loading || loadFailed || saving ||
+        config.sales_profile_id !== salesProfileId ||
+        activeProfileRef.current !== salesProfileId) return
+    const requestedId = salesProfileId
 
     setSaving(true)
     try {
-      await inventoryServiceInstance.updateAIProfileConfig(salesProfileId, {
+      await inventoryServiceInstance.updateAIProfileConfig(requestedId, {
         ...config,
-        sales_profile_id: salesProfileId
+        sales_profile_id: requestedId
       })
-      toast.success('Configuración de IA guardada exitosamente')
-      onOpenChange(false)
+      if (activeProfileRef.current === requestedId) {
+        toast.success('Configuración de IA guardada exitosamente')
+        onOpenChange(false)
+      }
     } catch (error) {
       console.error('Error saving AI config:', error)
       toast.error('Error al guardar la configuración')
@@ -101,6 +130,8 @@ export function AIProfileConfigDialog({
           <div className="flex justify-center py-8">
             <Spinner className="h-8 w-8 animate-spin text-gray-400" />
           </div>
+        ) : loadFailed ? (
+          <p role="alert" className="p-4 text-destructive">No se pudo cargar la configuración de este perfil. Cierre y vuelva a abrir.</p>
         ) : (
           <div className="space-y-6 py-4">
             <div className="flex items-center justify-between bg-purple-50 p-4 rounded-lg border border-purple-100">
@@ -314,7 +345,7 @@ INSTRUCCIONES CLAVE:
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={saving || loading} className="bg-purple-600 hover:bg-purple-700">
+          <Button onClick={handleSave} disabled={saving || loading || loadFailed || !salesProfileId || config.sales_profile_id !== salesProfileId} className="bg-purple-600 hover:bg-purple-700">
             {saving ? (
               <>
                 <Spinner className="mr-2 h-4 w-4 animate-spin" />
