@@ -852,13 +852,19 @@ export function NewOrderDialog({
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating order:', error)
+      // El servidor pudo haber registrado la venta antes de perder la respuesta.
+      // Conservar el borrador y la misma clave de idempotencia en el reintento.
+      toast.error('No se pudo confirmar la venta. Verifica el historial antes de reintentar; el formulario se conservó.')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={nextOpen => {
+      if (!nextOpen && isSubmitting) return
+      onOpenChange(nextOpen)
+    }}>
       <DialogContent className="flex h-[94vh] w-[96vw] max-w-5xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
         <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
           <DialogTitle className="text-xl">Nueva venta</DialogTitle>
@@ -1849,7 +1855,7 @@ export function NewOrderDialog({
         </div>
 
         <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
           {/* 🔒 Bug #9: Validar que ubicación esté seleccionada */}

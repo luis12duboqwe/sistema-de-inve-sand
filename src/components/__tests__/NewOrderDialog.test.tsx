@@ -91,6 +91,7 @@ describe('NewOrderDialog preserves uncertain sales safely', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(button).toBeEnabled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Verifica el historial/))
     expect((screen.getByLabelText('Nombre del Cliente') as HTMLInputElement).value).toBe('Cliente QA')
 
     await user.click(button)
