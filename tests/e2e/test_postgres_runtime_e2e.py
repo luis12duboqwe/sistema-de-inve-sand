@@ -5,6 +5,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
@@ -36,10 +37,21 @@ def _wait_until_ready(base_url: str, timeout_seconds: int = 45) -> None:
     )
 
 
+def _assert_isolated_postgres_dsn(database_url: str) -> None:
+    """Never run write-heavy auth/inventory E2E against production databases."""
+    parsed = urlsplit(database_url)
+    database = parsed.path.lstrip("/")
+    if (not parsed.scheme.startswith("postgresql")
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or database not in {"inventory_e2e", "inventory_browser_e2e"}):
+        raise AssertionError(
+            "E2E destructivo sólo admite PostgreSQL local y base descartable inventory_e2e."
+        )
+
+
 def _start_backend() -> tuple[subprocess.Popen, str]:
     database_url = os.environ.get("DATABASE_URL", "")
-    if not database_url.lower().startswith("postgresql"):
-        raise AssertionError("Este test requiere DATABASE_URL de PostgreSQL")
+    _assert_isolated_postgres_dsn(database_url)
 
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
@@ -216,8 +228,18 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
             responses = list(executor.map(create_order, ["A", "B"]))
 
         statuses = sorted(response.status_code for response in responses)
-        assert statuses.count(201) == 1, [response.text for response in responses]
-        assert statuses[1] != 201, "Las dos ventas consumieron el mismo stock/IMEI"
+        assert statuses == [201, 409] or statuses == [400, 201], (
+            "Los fallos 500/503 no demuestran concurrencia correcta: "
+            + str([(response.status_code, response.text) for response in responses])
+        )
+        # Debe haberse persistido exactamente una orden válida sin efectos
+        # parciales del segundo intento.
+        orders = _items(_request_json("GET", f"{base_url}/api/orders?per_page=100", headers=headers))
+        matching = [item for item in orders if item["source_location_id"] == location["id"]]
+        assert len(matching) == 1, matching
+        created = matching[0]
+        assert len(created.get("items") or []) == 1, created
+        assert created["items"][0]["product_id"] == product["id"]
 
         products = _items(
             _request_json(
@@ -230,3 +252,19 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
         assert matched["stock_disponible"] == 0
     finally:
         _stop_backend(process)
+
+
+def test_pg_runtime_e2e_rejects_any_prod_or_remote_database():
+    import pytest
+
+    with pytest.raises(AssertionError):
+        _assert_isolated_postgres_dsn(
+            "postgresql+psycopg2://user:pass@production.example:5432/inventory_live"
+        )
+    with pytest.raises(AssertionError):
+        _assert_isolated_postgres_dsn(
+            "postgresql+psycopg2://user:pass@127.0.0.1:5432/inventory_live"
+        )
+    _assert_isolated_postgres_dsn(
+        "postgresql+psycopg2://inventory_e2e:password@127.0.0.1:5432/inventory_e2e"
+    )
