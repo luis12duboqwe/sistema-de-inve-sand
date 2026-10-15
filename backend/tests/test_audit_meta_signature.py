@@ -84,9 +84,6 @@ def test_meta_webhook_rejects_missing_invalid_or_altered_signature_before_claim(
 def test_production_missing_meta_secret_rejects_webhook_before_any_side_effect(
     client, db_session, monkeypatch,
 ):
-    from fastapi import HTTPException
-    from app.routers import channel_integrations
-
     monkeypatch.setattr(prod_settings, "META_APP_SECRET", "")
     monkeypatch.setattr(prod_settings, "is_production", lambda: True)
 
