@@ -635,31 +635,32 @@ class StockTransactionHelper:
         order_id: int,
         user_label: str,
     ) -> None:
-        imei_record = self.db.query(ProductIMEI).filter(ProductIMEI.imei == imei_value).first()
-        if imei_record:
-            setattr(imei_record, "product_id", product_id)
-            setattr(imei_record, "location_id", location_id)
-            setattr(imei_record, "vendido", False)
-            setattr(imei_record, "order_id", None)
-            setattr(imei_record, "sold_at", None)
-            setattr(imei_record, "supplier_id", None)
-            setattr(imei_record, "received_at", _utcnow())
-            setattr(imei_record, "acquisition_type", "retoma")
-            setattr(imei_record, "received_notes", f"Ingreso por retoma en orden #{order_id}")
-            setattr(imei_record, "received_by", user_label)
-        else:
-            imei_record = ProductIMEI(
-                product_id=product_id,
-                location_id=location_id,
-                imei=imei_value,
-                vendido=False,
-                supplier_id=None,
-                received_at=_utcnow(),
-                acquisition_type="retoma",
-                received_notes=f"Ingreso por retoma en orden #{order_id}",
-                received_by=user_label,
+        # Nunca reasignar por retoma un IMEI previamente conocido: puede estar
+        # vendido, reservado o pertenecer a otra tienda. Un lifecycle de recompra
+        # necesita conciliación de propiedad, stock e historial explícitos.
+        existing = (
+            self.db.query(ProductIMEI)
+            .filter(ProductIMEI.imei == imei_value)
+            .with_for_update()
+            .first()
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El IMEI {imei_value} ya existe en el inventario; requiere conciliación de retoma",
             )
-            self.db.add(imei_record)
+        imei_record = ProductIMEI(
+            product_id=product_id,
+            location_id=location_id,
+            imei=imei_value,
+            vendido=False,
+            supplier_id=None,
+            received_at=_utcnow(),
+            acquisition_type="retoma",
+            received_notes=f"Ingreso por retoma en orden #{order_id}",
+            received_by=user_label,
+        )
+        self.db.add(imei_record)
 
         imei_history = IMEIHistory(
             imei=imei_value,
