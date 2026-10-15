@@ -272,6 +272,8 @@ def _serialize_order(order: Order) -> OrderResponse:
         notes=order.notes,
         delivery_date=order.delivery_date,
         created_at=order.created_at,
+        completed_at=order.completed_at,
+        validada_at=order.validada_at,
         items=items_response,
         trade_ins=trade_ins_response
     )

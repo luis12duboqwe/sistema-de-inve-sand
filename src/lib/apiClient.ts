@@ -264,6 +264,8 @@ interface ApiOrderResponse {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
+  completed_at?: string | null
+  validada_at?: string | null
   notes?: string
   notas?: string
   items: {

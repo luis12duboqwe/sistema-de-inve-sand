@@ -1,6 +1,13 @@
 import type { ProductWithStock, OrderWithItems } from './types'
 import { isFinalSaleStatus } from './orderStatus'
 
+/** A completed sale counts on its finalized date, not the date the order was opened. */
+export function finalSaleTimestamp(order: OrderWithItems): Date {
+  return new Date(order.completed_at || order.validada_at || order.created_at)
+}
+
+const isFinalOrder = (order: OrderWithItems): boolean => isFinalSaleStatus(order.estado)
+
 export interface OptimizationMetrics {
   optimizationScore: number
   potentialRevenue: number
@@ -108,7 +115,7 @@ export function calculateOptimizationScore(
 
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const recentOrders = orders.filter(o => new Date(o.created_at) >= thirtyDaysAgo)
+  const recentOrders = orders.filter(o => isFinalOrder(o) && finalSaleTimestamp(o) >= thirtyDaysAgo)
   const salesVelocityScore = recentOrders.length > 0 ? Math.min(100, (recentOrders.length / activeProducts.length) * 50) : 0
   score += salesVelocityScore * weights.salesVelocity
 
@@ -130,7 +137,7 @@ export function analyzePricing(
   products.filter(p => p.activo).forEach(product => {
     const productOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.created_at) >= thirtyDaysAgo
+      isFinalOrder(o) && finalSaleTimestamp(o) >= thirtyDaysAgo
     )
 
     const totalSold = productOrders.reduce((sum, order) => {
@@ -197,7 +204,7 @@ export function analyzeInventory(
   products.filter(p => p.activo).forEach(product => {
     const recentOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.created_at) >= ninetyDaysAgo
+      isFinalOrder(o) && finalSaleTimestamp(o) >= ninetyDaysAgo
     )
 
     const totalSold = recentOrders.reduce((sum, order) => {
@@ -279,21 +286,22 @@ export function analyzeCustomers(orders: OrderWithItems[]): CustomerInsight[] {
     lastOrder: Date 
   }>()
 
-  orders.forEach(order => {
-    const key = order.customer_phone || 'unknown'
+  orders.filter(isFinalOrder).forEach(order => {
+    const key = order.customer_phone?.trim()
+    if (!key) return // No fusionar todos los anónimos como un único cliente VIP.
     if (!customerMap.has(key)) {
       customerMap.set(key, {
         name: order.customer_name,
         phone: order.customer_phone,
         orders: [],
         totalSpent: 0,
-        lastOrder: new Date(order.created_at)
+        lastOrder: finalSaleTimestamp(order)
       })
     }
     const customer = customerMap.get(key)!
     customer.orders.push(order)
     customer.totalSpent += order.total
-    const orderDate = new Date(order.created_at)
+    const orderDate = finalSaleTimestamp(order)
     if (orderDate > customer.lastOrder) {
       customer.lastOrder = orderDate
     }
@@ -341,8 +349,9 @@ export function analyzeCustomers(orders: OrderWithItems[]): CustomerInsight[] {
     }
   })
 
-  const avgOrderValue = orders.length > 0 
-    ? orders.reduce((sum, o) => sum + o.total, 0) / orders.length 
+  const finalOrders = orders.filter(isFinalOrder)
+  const avgOrderValue = finalOrders.length > 0
+    ? finalOrders.reduce((sum, o) => sum + o.total, 0) / finalOrders.length
     : 0
 
   if (avgOrderValue > 0) {
@@ -375,7 +384,7 @@ export function analyzeProductMix(
   const productPerformance = products.filter(p => p.activo).map(product => {
     const productOrders = orders.filter(o => 
       o.items.some(item => item.product_id === product.id) &&
-      new Date(o.created_at) >= thirtyDaysAgo
+      isFinalOrder(o) && finalSaleTimestamp(o) >= thirtyDaysAgo
     )
 
     const totalRevenue = productOrders.reduce((sum, order) => {
@@ -465,8 +474,9 @@ export function analyzeOperations(
   const insights: OperationalInsight[] = []
 
   const ordersByDay = new Map<number, number>()
-  orders.forEach(order => {
-    const day = new Date(order.created_at).getDay()
+  const completedSales = orders.filter(isFinalOrder)
+  completedSales.forEach(order => {
+    const day = finalSaleTimestamp(order).getDay()
     ordersByDay.set(day, (ordersByDay.get(day) || 0) + 1)
   })
 
@@ -480,7 +490,7 @@ export function analyzeOperations(
       area: 'Patrones de demanda',
       metric: 'Día pico',
       value: days[peakDay[0]],
-      reasoning: `${days[peakDay[0]]} concentra ${peakDay[1]} órdenes, ${Math.round((peakDay[1] / orders.length) * 100)}% del total.`,
+      reasoning: `${days[peakDay[0]]} concentra ${peakDay[1]} órdenes, ${Math.round((peakDay[1] / completedSales.length) * 100)}% del total.`,
       action: `Asegurar personal y stock adecuado los ${days[peakDay[0]]}s. Planear promociones en días de baja demanda.`
     })
   }
@@ -509,8 +519,9 @@ export function analyzeOperations(
     })
   }
 
-  const avgOrderValue = orders.length > 0 
-    ? orders.reduce((sum, o) => sum + o.total, 0) / orders.length 
+  const finalOrders = orders.filter(isFinalOrder)
+  const avgOrderValue = finalOrders.length > 0
+    ? finalOrders.reduce((sum, o) => sum + o.total, 0) / finalOrders.length
     : 0
 
   if (avgOrderValue && avgOrderValue < 500) {
@@ -524,7 +535,6 @@ export function analyzeOperations(
     })
   }
 
-  const _completedOrders = orders.filter(o => isFinalSaleStatus(o.estado)) // Prefix with _ to indicate intentionally unused
   const cancelledOrders = orders.filter(o => o.estado === 'cancelada')
   if (cancelledOrders.length > 0) {
     const cancellationRate = (cancelledOrders.length / orders.length) * 100

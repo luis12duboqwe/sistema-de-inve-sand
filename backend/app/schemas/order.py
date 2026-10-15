@@ -369,6 +369,8 @@ class OrderResponse(BaseModel):
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
     created_at: datetime
+    completed_at: Optional[datetime] = None
+    validada_at: Optional[datetime] = None
     items: List[OrderItemResponse]
     trade_ins: Optional[List[TradeInResponse]] = None
 
@@ -392,6 +394,8 @@ class OrderListResponse(BaseModel):
     notes: Optional[str] = None
     delivery_date: Optional[datetime] = None
     created_at: datetime
+    completed_at: Optional[datetime] = None
+    validada_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

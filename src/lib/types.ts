@@ -555,6 +555,8 @@ export interface Order {
   financing_details?: string // JSON con datos de financiamiento (V2.1)
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
+  completed_at?: string | null
+  validada_at?: string | null
   notes?: string
   delivery_date?: string
   notas?: string
