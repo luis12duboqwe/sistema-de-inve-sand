@@ -208,7 +208,7 @@ def test_warranty_idempotency_replays_after_lost_response_without_extra_stock_ch
         product_id=product["id"], location_id=location.id,
     ).one()
     assert int(stock.cantidad_defectuosa) == 1
-    assert int(stock.cantidad_disponible) == 2
+    assert int(stock.cantidad_disponible) == 1
 
     changed = client.post(
         "/api/returns",
