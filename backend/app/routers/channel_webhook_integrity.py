@@ -293,6 +293,7 @@ def _prepare_incoming_event(
         customer_phone=event.customer_id,
         customer_name=event.customer_name,
         message_content=event.text,
+        channel_hint=event.channel,
         order_intent=None,
     )
     ai_result = legacy_channels.handle_message_without_n8n(ai_payload, db, None)

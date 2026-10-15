@@ -2320,7 +2320,9 @@ def handle_message_without_n8n(
         candidate_products = _find_candidate_products(db, request.message_content, customer, limit=3)
         selected_product = candidate_products[0] if candidate_products else None
         product_name = str(selected_product.nombre) if selected_product and selected_product.nombre else _find_product_name_hint(db, request.message_content)
-        channel = _infer_channel_from_sales_profile(profile)
+        # El mensaje llega desde el canal real; el primer canal del perfil
+        # multicanal NO garantiza el origen ni el destino correcto de las fotos.
+        channel = request.channel_hint or _infer_channel_from_sales_profile(profile)
 
         create_photo_request_internal(
             db=db,
