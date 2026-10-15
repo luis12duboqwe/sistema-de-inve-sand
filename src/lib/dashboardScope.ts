@@ -1,5 +1,3 @@
-import type { OrderWithItems } from './types'
-
 export interface DashboardScope {
   chartsOnly: boolean
   locationId: string
@@ -10,8 +8,15 @@ export interface DashboardScope {
 }
 
 /** One shared UI predicate for charts, ranking tables and refund reconciliation. */
-export function filterDashboardOrders<T extends Pick<OrderWithItems,
-  'id' | 'source_location_id' | 'canal' | 'sales_profile_id' | 'created_at'>>(
+export interface DashboardOrderScopeRecord {
+  id: number
+  source_location_id?: number | null
+  canal: string
+  sales_profile_id?: number | null
+  created_at: string
+}
+
+export function filterDashboardOrders<T extends DashboardOrderScopeRecord>(
   orders: readonly T[],
   scope: DashboardScope,
 ): T[] {
