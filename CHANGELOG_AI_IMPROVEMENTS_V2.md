@@ -1,5 +1,8 @@
 # Mejoras de IA y Sistema de Solicitud de Fotos v2.0
 
+> **DOCUMENTO HISTÓRICO — NO USAR COMO GUÍA DE DESPLIEGUE.**
+> Describe una propuesta de marzo de 2026; algunas rutas y scripts mencionados no están presentes en el repositorio actual. Nunca ejecutar migraciones mencionadas aquí sin comprobar su existencia, disponer de un backup y utilizar el procedimiento verificado de [actualización de instalaciones existentes](docs/ACTUALIZAR_INSTALACION_EXISTENTE.md). No acredita que producción esté actualizada.
+
 **Fecha:** Marzo 10, 2026  
 **Estado:** ✅ Implementado y validado  
 **Commits Pending:** Incluir script migración + este resumen
@@ -142,10 +145,10 @@ Todos usan patrón existente (`getApiUrl()`, autenticación por Bearer token).
 
 ### IX. Migración de Base de Datos
 
-#### `backend/migrate_add_ai_memory_and_queue.py`
-- Script idempotente que agrega colonas si no existen
-- Intended para ejecutar en deployments existentes
-- No rompe si BD ya está actualizada
+#### Ruta histórica no disponible
+- El archivo `backend/migrate_add_ai_memory_and_queue.py` **no existe** en la versión actual verificada.
+- **No ejecutar** ese comando ni crear tablas manualmente en producción.
+- Usar la guía verificada `docs/ACTUALIZAR_INSTALACION_EXISTENTE.md` y evaluar migraciones existentes contra un clon descartable de PostgreSQL antes de modificar una instalación.
 
 ## 🎯 Resultados
 
@@ -199,7 +202,7 @@ Todos usan patrón existente (`getApiUrl()`, autenticación por Bearer token).
 
 Para activar todas las mejoras, asegurarse de:
 1. Usar API mode (no local KV)
-2. Ejecutar migración: `python3 migrate_add_ai_memory_and_queue.py`
+2. **No ejecutar scripts de migración históricos inexistentes.** Seguir `docs/ACTUALIZAR_INSTALACION_EXISTENTE.md` con backup, base descartable y verificación del esquema.
 3. Reiniciar backend (para montar `/uploads`)
 4. Agentes verán badge de fotos pendientes automáticamente
 
