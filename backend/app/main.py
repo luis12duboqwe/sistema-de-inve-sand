@@ -235,7 +235,7 @@ async def collect_runtime_metrics(request: Request, call_next):
     started = perf_counter()
     response = None
     raw_path = request.url.path
-     try:
+    try:
         response = await call_next(request)
         return response
     finally:
