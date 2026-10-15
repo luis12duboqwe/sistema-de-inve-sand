@@ -64,9 +64,10 @@ ws_manager = get_connection_manager()
 
 
 def _valid_photo_request_service_token(request: Request) -> bool:
-    configured_token = getattr(prod_settings, "N8N_AUTH_TOKEN", "")
+    configured_token = (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip()
     if not configured_token:
-        return True
+        # No secret means there is no verifiable service identity.
+        return False
 
     presented_token = (
         request.headers.get("X-AI-Service-Token")
@@ -84,11 +85,24 @@ def require_photo_request_create_auth(
     request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> None:
-    # Production may never trust a forged/absent JWT even if another endpoint
-    # uses optional authentication or a testing override returns a fake user.
+    # An explicitly supplied Bearer credential must NEVER be replaced with
+    # the optional dependency's synthetic/stale user. Apply the rule in every
+    # environment; this also catches misconfigured production environment flags.
+    authorization = (request.headers.get("Authorization") or "").strip()
+    bearer_presented = authorization.lower().startswith("bearer ")
+    verified_user = _has_active_bearer_user(request) if bearer_presented else False
+    if bearer_presented and not verified_user and not _valid_photo_request_service_token(request):
+        if not (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip():
+            raise HTTPException(status_code=503, detail="Photo request integration authentication not configured")
+        raise HTTPException(
+            status_code=401,
+            detail="Photo request integration authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Verify signed JWT, immutable uid, password version AND active status.
     if prod_settings.is_production():
-        if _has_active_bearer_user(request):
+        if verified_user:
             return
         if not (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip():
             raise HTTPException(

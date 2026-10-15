@@ -25,6 +25,7 @@ def test_photo_create_rejects_bogus_bearer_when_service_token_missing(
 ) -> None:
     _, sales_profile = seed_location_and_sales_profile(db_session)
     _force_production_without_photo_service_token(monkeypatch)
+    assert business_integrity.prod_settings.is_production() is True
 
     response = client.post(
         "/api/photo-requests/create",
