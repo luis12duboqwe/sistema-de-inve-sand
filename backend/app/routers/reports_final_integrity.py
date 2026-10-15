@@ -25,6 +25,7 @@ from app.utils.order_integrity import effective_sale_column
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_validators import validate_location_exists
 from app.utils.location_access import require_location_access
+from app.utils.order_currency import DEFAULT_HNL_PER_USD
 
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -212,6 +213,13 @@ def get_dashboard_stats_final(
     stock_query = db.query(Stock).join(Product).filter(Product.activo == True)  # noqa: E712
     stock_query = base._scope_stock(stock_query, location_ids)
     unit_value = func.coalesce(func.nullif(Product.costo, 0), Product.precio)
+    # Inventory valuation is HNL. Convert USD with the documented current
+    # default rate. Historical sale costing uses its own captured FX rate.
+    is_usd = func.upper(func.trim(Product.moneda)).in_(["USD", "US$", "$"])
+    unit_value_hnl = case(
+        (is_usd, unit_value * DEFAULT_HNL_PER_USD),
+        else_=unit_value,
+    )
     stock_stats = stock_query.with_entities(
         func.sum(case((Stock.cantidad_disponible == 0, 1), else_=0)).label("out_of_stock"),
         func.sum(
@@ -220,7 +228,7 @@ def get_dashboard_stats_final(
                 else_=0,
             )
         ).label("low_stock"),
-        func.sum(Stock.cantidad_disponible * unit_value).label("inventory_value"),
+        func.sum(Stock.cantidad_disponible * unit_value_hnl).label("inventory_value"),
     ).first()
 
     low_stock_count = int((stock_stats.low_stock if stock_stats else 0) or 0)
