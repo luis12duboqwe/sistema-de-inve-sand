@@ -205,6 +205,9 @@ export function MultiStoreControlDialog({
     can_count_stock: false,
     can_receive_purchase: false,
   })
+  const [accessLoadedKey, setAccessLoadedKey] = useState<string | null>(null)
+  const [accessLoading, setAccessLoading] = useState(false)
+  const [accessLoadError, setAccessLoadError] = useState(false)
   const [auditLocationId, setAuditLocationId] = useState<string>('all')
   const [auditEntityType, setAuditEntityType] = useState('')
   const [auditAction, setAuditAction] = useState('')
@@ -490,7 +493,12 @@ export function MultiStoreControlDialog({
     if (permissions.canManageLocationAccess) tabs.push('access')
     if (permissions.canViewAudit) tabs.push('audit')
     return tabs
-  }, [permissions])
+  }, [
+    permissions.canViewInventory, permissions.canManagePurchases,
+    permissions.canCountInventory, permissions.canAdjustInventory,
+    permissions.canManageCashCloses, permissions.canViewReports,
+    permissions.canManageLocationAccess, permissions.canViewAudit,
+  ])
 
   const loadData = useCallback(async () => {
     if (!open) return
@@ -545,10 +553,21 @@ export function MultiStoreControlDialog({
     } finally {
       setLoading(false)
     }
-  }, [open, permissions])
+  }, [
+    open, permissions.canViewInventory, permissions.canCountInventory,
+    permissions.canAdjustInventory, permissions.canManagePurchases,
+    permissions.canManageCashCloses, permissions.canViewAudit,
+    permissions.canManageLocationAccess,
+  ])
 
+  const initialOpenRef = useRef(false)
   useEffect(() => {
-    if (open) {
+    if (!open) {
+      initialOpenRef.current = false
+      return
+    }
+    if (!initialOpenRef.current) {
+      initialOpenRef.current = true
       const firstLocationId = activeLocations[0]?.id ? String(activeLocations[0].id) : ''
       setSelectedLocationId(firstLocationId)
       setCountLocationId(firstLocationId)
@@ -564,8 +583,8 @@ export function MultiStoreControlDialog({
         }
         return availableTabs[0] || 'receipts'
       })
-      loadData()
     }
+    void loadData()
   }, [open, activeLocations, firstProductId, availableTabs, initialTab, loadData])
 
   const handleApplyAuditFilters = async () => {
@@ -919,9 +938,59 @@ export function MultiStoreControlDialog({
     }
   }
 
+  // El editor de permisos nunca debe reutilizar flags del usuario/sede anterior.
+  // Cargar primero los valores reales; bloqueo de guardar ante error o respuesta tardía.
+  const accessSelection = accessUserId && accessLocationId
+    ? `${accessUserId}:${accessLocationId}`
+    : null
+  useEffect(() => {
+    let cancelled = false
+    setAccessLoadedKey(null)
+    setAccessLoadError(false)
+    setAccessFlags({
+      can_view: true, can_edit: false, can_close_cash: false,
+      can_count_stock: false, can_receive_purchase: false,
+    })
+    if (!open || !permissions.canManageLocationAccess || !accessSelection) {
+      setAccessLoading(false)
+      return
+    }
+
+    setAccessLoading(true)
+    void inventoryServiceInstance.listUserLocationAccess(Number(accessUserId))
+      .then(accesses => {
+        if (cancelled) return
+        const existing = accesses.find(access => access.location_id === Number(accessLocationId))
+        if (existing) {
+          setAccessFlags({
+            can_view: existing.can_view,
+            can_edit: existing.can_edit,
+            can_close_cash: existing.can_close_cash,
+            can_count_stock: existing.can_count_stock,
+            can_receive_purchase: existing.can_receive_purchase,
+          })
+        }
+        setAccessLoadedKey(accessSelection)
+      })
+      .catch(error => {
+        if (cancelled) return
+        console.error('Error al cargar los permisos existentes por sede', error)
+        setAccessLoadError(true)
+        toast.error('No se pudieron cargar permisos existentes; edición bloqueada')
+      })
+      .finally(() => {
+        if (!cancelled) setAccessLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [open, permissions.canManageLocationAccess, accessSelection, accessUserId, accessLocationId])
+
   const handleSaveAccess = async () => {
     if (!accessUserId || !accessLocationId) {
       toast.error('Seleccione usuario y ubicación')
+      return
+    }
+    if (accessLoading || accessLoadError || accessLoadedKey !== accessSelection) {
+      toast.error('Los permisos de esta sede no están cargados; no se guardará una sobrescritura incompleta')
       return
     }
 
@@ -1517,14 +1586,16 @@ export function MultiStoreControlDialog({
                 </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {accessLoading && <p className="col-span-full text-sm text-muted-foreground">Cargando permisos actuales…</p>}
+                {accessLoadError && <p className="col-span-full text-sm text-destructive">No fue posible leer los permisos. Guardar está bloqueado.</p>}
                 {Object.entries(accessFlags).map(([key, value]) => (
                   <label key={key} className="flex items-center gap-2 rounded-md border p-2 text-sm">
-                    <Checkbox checked={value} onCheckedChange={checked => setAccessFlags(current => ({ ...current, [key]: Boolean(checked) }))} />
+                    <Checkbox checked={value} disabled={accessLoading || accessLoadedKey !== accessSelection || accessLoadError} onCheckedChange={checked => setAccessFlags(current => ({ ...current, [key]: Boolean(checked) }))} />
                     {accessLabels[key as keyof typeof accessLabels]}
                   </label>
                 ))}
               </div>
-              <Button onClick={handleSaveAccess} disabled={submitting || !users.length}>
+              <Button onClick={handleSaveAccess} disabled={submitting || !users.length || accessLoading || accessLoadError || !accessSelection || accessLoadedKey !== accessSelection}>
                 <UserIcon size={16} className="mr-2" />Guardar acceso
               </Button>
             </TabsContent>
