@@ -20,6 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Warning, Package, Download, TrendDown } from '@phosphor-icons/react'
 import type { ProductWithStock, Profile, Location } from '@/lib/types'
+import { formatCsvCell } from '@/lib/exportUtils'
 
 interface LowStockReportDialogProps {
   open: boolean
@@ -58,7 +59,10 @@ export function LowStockReportDialog({
       const locationProducts = products.filter(p => p.activo).map(p => {
         // Find stock for this location
         const stockItem = p.stock_items?.find(s => s.location_id === location.id)
-        const quantity = stockItem?.cantidad_disponible || 0
+        const quantity = stockItem?.stock_libre ?? Math.max(
+          (stockItem?.cantidad_disponible || 0) - (stockItem?.cantidad_reservada || 0),
+          0
+        )
         return { ...p, _locationStock: quantity }
       })
 
@@ -121,7 +125,7 @@ export function LowStockReportDialog({
 
   const exportReport = () => {
     const csvContent = [
-      ['Ubicación', 'Producto', 'SKU', 'Marca', 'Modelo', 'Stock Actual', 'Umbral', 'Severidad'].join(','),
+      ['Ubicación', 'Producto', 'SKU', 'Marca', 'Modelo', 'Stock Libre', 'Umbral', 'Severidad'].map(formatCsvCell).join(','),
       ...filteredProducts.map(({ product, location, severity }) =>
         [
           location.nombre,
@@ -132,7 +136,7 @@ export function LowStockReportDialog({
           (product as any)._locationStock,
           5, // Default threshold
           severity === 'out' ? 'Agotado' : severity === 'critical' ? 'Crítico' : 'Bajo'
-        ].join(',')
+        ].map(formatCsvCell).join(',')
       )
     ].join('\n')
 
@@ -142,6 +146,7 @@ export function LowStockReportDialog({
     link.setAttribute('href', url)
     link.setAttribute('download', `reporte-stock-bajo-${new Date().toISOString().split('T')[0]}.csv`)
     link.click()
+    URL.revokeObjectURL(url)
   }
 
   const getSeverityBadge = (severity: 'out' | 'critical' | 'low') => {
