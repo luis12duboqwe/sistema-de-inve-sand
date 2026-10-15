@@ -42,6 +42,7 @@ from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_c
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.audit import log_audit_event
 from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 logger = logging.getLogger(__name__)
@@ -462,8 +463,8 @@ def create_order(
             identity_id=int(current_user.id) if current_user else 0,
             endpoint="POST /api/orders",
             payload=order.model_dump(mode="json"),
-        )
-        if claim.replay is not None:
+            require_key=prod_settings.is_production(),
+    )        if claim.replay is not None:
             return OrderResponse.model_validate(claim.replay)
         created_order = service.create_order(order, current_user=current_user, commit=False)
         log_audit_event(

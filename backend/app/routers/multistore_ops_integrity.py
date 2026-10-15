@@ -49,6 +49,7 @@ from app.schemas import (
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
 from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 router = APIRouter(prefix="/api/multistore-control", tags=["multistore-control"])
@@ -159,8 +160,8 @@ def create_purchase_receipt_integrity(
         identity_id=int(current_user.id),
         endpoint="POST /api/multistore-control/purchase-receipts",
         payload=payload.model_dump(mode="json"),
-    )
-    if claim.replay is not None:
+        require_key=prod_settings.is_production(),
+    )    if claim.replay is not None:
         return PurchaseReceiptResponse.model_validate(claim.replay)
 
     invoice_number = _normalize_invoice_number(payload.invoice_number)

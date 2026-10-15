@@ -35,8 +35,11 @@ def claim_business_request(
     identity_id: int,
     endpoint: str,
     payload: dict[str, Any],
+    require_key: bool = False,
 ) -> IdempotencyClaim:
     if key is None:
+        if require_key:
+            raise HTTPException(status_code=428, detail="Idempotency-Key obligatoria para crear operaciones de negocio; conserve la misma clave al reintentar")
         return IdempotencyClaim(entry=None)
     if not _KEY_RE.fullmatch(key):
         raise HTTPException(status_code=400, detail="Idempotency-Key debe tener 12-128 caracteres alfanuméricos/guion")

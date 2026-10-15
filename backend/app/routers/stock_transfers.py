@@ -22,6 +22,7 @@ from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_c
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.audit import log_audit_event
 from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock_transfers"])
 logger = logging.getLogger(__name__)
@@ -114,8 +115,8 @@ def create_transfer(
         identity_id=int(current_user.id),
         endpoint="POST /api/stock-transfers",
         payload=transfer.model_dump(mode="json"),
-    )
-    if claim.replay is not None:
+        require_key=prod_settings.is_production(),
+    )    if claim.replay is not None:
         return StockTransferResponse.model_validate(claim.replay)
     
     # Inicializar StockManager
