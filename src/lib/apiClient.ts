@@ -1456,9 +1456,11 @@ class ApiClient {
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     try {
+      const { idempotency_key, ...businessPayload } = returnData
       return this.request<Return>('/returns', {
         method: 'POST',
-        body: JSON.stringify(returnData)
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+        body: JSON.stringify(businessPayload)
       })
     } catch (error) {
       console.error('Error creating return:', error)

@@ -54,6 +54,9 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
   const [replacementImeis, setReplacementImeis] = useState<Record<number, string>>({})
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Keep the same key after an uncertain response; the same physical warranty
+  // must never accidentally create another replacement on retransmission.
+  const pendingAttemptRef = useRef<{ orderId: number; key: string } | null>(null)
 
   const defectiveImeiRefs = useRef<Record<number, HTMLInputElement | null>>({})
   const replacementImeiRefs = useRef<Record<number, HTMLInputElement | null>>({})
@@ -145,9 +148,19 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
       return
     }
 
+    if (isSubmitting) return
+    if (pendingAttemptRef.current?.orderId !== order.id) {
+      pendingAttemptRef.current = {
+        orderId: order.id,
+        key: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `warranty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      }
+    }
     setIsSubmitting(true)
     try {
       const returnData: CreateReturnRequest = {
+        idempotency_key: pendingAttemptRef.current.key,
         order_id: order.id,
         reason,
         created_by: 'Usuario Actual',
@@ -155,11 +168,14 @@ export function ReturnDialog({ open, onOpenChange, order, onSuccess }: ReturnDia
       }
 
       await inventoryServiceInstance.createReturn(returnData)
+      pendingAttemptRef.current = null
       toast.success('Cambio por garantía procesado exitosamente')
       onSuccess()
       onOpenChange(false)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Error al procesar la garantía')
+      toast.error(
+        `${error instanceof Error ? error.message : 'Error al procesar la garantía'}. Si se perdió la conexión, revise el historial antes de repetir.`,
+      )
     } finally {
       setIsSubmitting(false)
     }

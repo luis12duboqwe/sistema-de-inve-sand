@@ -102,7 +102,7 @@ describe('ReturnDialog warranty-only post-sale flow', () => {
     await browserUser.click(screen.getByRole('button', { name: 'Confirmar Cambio / Garantía' }))
 
     await waitFor(() => {
-      expect(mockInventoryService.createReturn).toHaveBeenCalledWith({
+      expect(mockInventoryService.createReturn).toHaveBeenCalledWith(expect.objectContaining({
         order_id: 900,
         reason: '',
         created_by: 'Usuario Actual',
@@ -116,7 +116,9 @@ describe('ReturnDialog warranty-only post-sale flow', () => {
             replacement_imei: '222222222222222',
           },
         ],
-      })
+      }))
+      expect(mockInventoryService.createReturn.mock.calls[0][0].idempotency_key)
+        .toMatch(/^[a-zA-Z0-9_-]{12,128}$/)
     })
     expect(toast.success).toHaveBeenCalledWith('Cambio por garantía procesado exitosamente')
     expect(onSuccess).toHaveBeenCalledTimes(1)

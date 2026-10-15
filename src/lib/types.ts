@@ -36,6 +36,7 @@ export interface ReturnItem {
 }
 
 export interface CreateReturnRequest {
+  idempotency_key?: string
   order_id: number
   reason?: string
   created_by?: string
