@@ -9,8 +9,9 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.models import Location, Order, OrderItem, Product, ProductIMEI, Stock, StockTransfer, User
+from app.models import Location, Order, OrderItem, Product, ProductIMEI, Stock, StockHistory, StockTransfer, User
 from app.routers.stock_transfer_integrity import confirm_transfer_integrity
+from app.routers.orders import _finalize_order_stock, _release_pending_order_reservations
 from app.schemas import StockTransferConfirm
 from app.services.stock_transaction_helper import StockTransactionHelper
 
@@ -196,3 +197,61 @@ def test_trade_in_rejects_duplicate_imei_in_payload_before_writing(db_session):
         )
     assert error.value.status_code == 400
     assert "duplicados" in str(error.value.detail)
+
+
+def _sale_with_other_transfer_reservation(db_session):
+    product, location = _product(serialized=False), _location()
+    db_session.add_all([product, location])
+    db_session.flush()
+    order = Order(
+        source_location_id=location.id, customer_name="Cliente reserva",
+        customer_phone="99999999", canal="tienda",
+        metodo_pago="efectivo", total=Decimal("3000.00"), estado="pendiente",
+    )
+    db_session.add(order)
+    db_session.flush()
+    db_session.add_all([
+        OrderItem(
+            order_id=order.id, product_id=product.id, cantidad=1,
+            precio_unitario=Decimal("3000"), costo_unitario=Decimal("1800"),
+            es_regalo_promocion=False,
+        ),
+        Stock(
+            product_id=product.id, location_id=location.id,
+            cantidad_disponible=9, cantidad_reservada=3, cantidad_defectuosa=0,
+        ),
+        StockHistory(
+            product_id=product.id, location_id=location.id,
+            tipo_cambio="venta", cantidad=-1,
+            stock_anterior=10, stock_nuevo=9,
+            referencia_id=order.id, referencia_tipo="order",
+            usuario="audit",
+        ),
+    ])
+    db_session.commit()
+    db_session.refresh(order)
+    return product, location, order
+
+
+def test_completing_debited_sale_does_not_consume_other_transfer_reservation(db_session):
+    product, location, order = _sale_with_other_transfer_reservation(db_session)
+    _finalize_order_stock(db_session, order, "audit")
+    db_session.flush()
+    stock = db_session.query(Stock).filter_by(
+        product_id=product.id, location_id=location.id,
+    ).one()
+    assert stock.cantidad_disponible == 9
+    assert stock.cantidad_reservada == 3
+
+
+def test_canceling_debited_pending_sale_restores_stock_not_other_reservation(db_session):
+    product, location, order = _sale_with_other_transfer_reservation(db_session)
+    _release_pending_order_reservations(
+        db_session, order, "audit", "Venta cancelada",
+    )
+    db_session.flush()
+    stock = db_session.query(Stock).filter_by(
+        product_id=product.id, location_id=location.id,
+    ).one()
+    assert stock.cantidad_disponible == 10
+    assert stock.cantidad_reservada == 3
