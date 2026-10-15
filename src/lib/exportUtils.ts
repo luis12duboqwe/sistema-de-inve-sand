@@ -2,7 +2,7 @@ import type { ProductWithStock, OrderWithItems } from './types'
 
 export function formatCsvCell(value: unknown): string {
   const raw = value === null || value === undefined ? '' : String(value)
-  const dangerous = typeof value === 'string' && /^[\s\u0000-\u001f]*[=+@-]/.test(raw)
+  const dangerous = typeof value === 'string' && /^[=+@-]/.test(raw.trimStart())
   const safe = dangerous ? "'" + raw : raw
   return '"' + safe.replace(/"/g, '""') + '"'
 }
