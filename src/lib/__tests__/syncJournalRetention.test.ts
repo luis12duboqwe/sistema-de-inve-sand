@@ -14,7 +14,7 @@ describe('unsynced journal retention', () => {
   })
 
   it('rejects writing when every slot contains a pending operation', () => {
-    expect(() => retainedJournalEvents([
+    expect(() => retainedJournalEvents<{ id: number; synced_at?: string }>([
       { id: 1 }, { id: 2 }, { id: 3 },
     ], 2)).toThrow('Diario de sincronización lleno')
   })
