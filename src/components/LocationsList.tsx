@@ -19,6 +19,7 @@ export function LocationsList({ onLocationsChanged }: LocationsListProps = {}) {
   const [useAPI] = useKV<boolean>('settings_use_api', false)
   const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
   const [locations, setLocations] = useState<Location[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
@@ -31,12 +32,15 @@ export function LocationsList({ onLocationsChanged }: LocationsListProps = {}) {
   const [telefono, setTelefono] = useState('')
 
   const loadLocations = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
     try {
       const data = await inventoryServiceInstance.getLocations()
       setLocations(data || [])
     } catch (error) {
       console.error('❌ Error al cargar ubicaciones:', error)
       setLocations([])
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -272,6 +276,12 @@ export function LocationsList({ onLocationsChanged }: LocationsListProps = {}) {
         </Dialog>
       </div>
 
+      {loadError && (
+        <div role="alert" className="mb-4 rounded border border-destructive p-3 text-sm">
+          No fue posible consultar las ubicaciones. Esta lista no está verificada.
+          <Button size="sm" variant="outline" className="ml-2" onClick={() => { void loadLocations() }}>Reintentar</Button>
+        </div>
+      )}
       {/* Filtros */}
       <div className="mb-6">
         <Select value={filterTipo} onValueChange={setFilterTipo}>

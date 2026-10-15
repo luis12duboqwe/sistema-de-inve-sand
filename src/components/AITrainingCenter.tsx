@@ -16,6 +16,7 @@ interface AITrainingCenterProps {
 
 export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) {
   const [items, setItems] = useState<TrainingQueueItem[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState<TrainingQueueItem | null>(null)
   const [correction, setCorrection] = useState('')
@@ -30,10 +31,14 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
 
   const loadItems = async () => {
     setLoading(true)
+    setLoadError(null)
+    setItems([])
+    setSelectedItem(null)
     try {
       const data = await inventoryServiceInstance.listTrainingQueue('pending')
       setItems(data)
     } catch {
+      setLoadError('No fue posible consultar las preguntas pendientes. La lista no está verificada.')
       toast.error('Error al cargar cola de entrenamiento')
     } finally {
       setLoading(false)
@@ -91,6 +96,11 @@ export function AITrainingCenter({ open, onOpenChange }: AITrainingCenterProps) 
             {loading ? (
               <div className="flex justify-center py-8">
                 <Spinner className="h-6 w-6 animate-spin text-gray-400" />
+              </div>
+            ) : loadError ? (
+              <div role="alert" className="rounded border border-destructive/40 p-3 space-y-2 text-sm">
+                <p>{loadError}</p>
+                <Button size="sm" variant="outline" onClick={() => { void loadItems() }}>Reintentar carga</Button>
               </div>
             ) : items.length === 0 ? (
               <div className="text-center py-8 text-gray-500 text-sm">

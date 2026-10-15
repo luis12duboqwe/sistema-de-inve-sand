@@ -1781,7 +1781,7 @@ class ApiClient {
     const collected: import('./types').TrainingQueueItem[] = []
 
     try {
-      while (true) {
+      while (page <= 1000) {
         const params = new URLSearchParams()
         params.append('status', status)
         params.append('per_page', perPage.toString())
@@ -1789,22 +1789,29 @@ class ApiClient {
 
         const endpoint = `/ai/training-queue?${params.toString()}`
         const response = await this.request<PaginatedResponse<import('./types').TrainingQueueItem>>(endpoint)
-        const items = response.items || []
+        if (!Array.isArray(response.items)) {
+          throw new Error('Respuesta de cola de entrenamiento inválida')
+        }
+        const items = response.items
         collected.push(...items)
 
         const total = typeof response.total === 'number' ? response.total : collected.length
         const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
-        if (items.length < perPage || page >= totalPages) {
+        if (page >= totalPages) {
           break
+        }
+        if (items.length === 0) {
+          throw new Error('Cola de entrenamiento incompleta: página vacía antes del final')
         }
 
         page += 1
       }
     } catch (error) {
       console.error('Error fetching training queue:', error)
-      return []
+      throw error
     }
 
+    if (page > 1000) throw new Error('La cola de entrenamiento excede 1000 páginas')
     return collected
   }
 
