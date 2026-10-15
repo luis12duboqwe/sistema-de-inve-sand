@@ -161,7 +161,8 @@ def create_purchase_receipt_integrity(
         endpoint="POST /api/multistore-control/purchase-receipts",
         payload=payload.model_dump(mode="json"),
         require_key=prod_settings.is_production(),
-    )    if claim.replay is not None:
+    )
+    if claim.replay is not None:
         return PurchaseReceiptResponse.model_validate(claim.replay)
 
     invoice_number = _normalize_invoice_number(payload.invoice_number)
