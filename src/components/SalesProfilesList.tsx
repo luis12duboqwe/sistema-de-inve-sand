@@ -438,6 +438,9 @@ export function SalesProfilesList({ onUpdate, canManageAI = false, canManageTech
     }))
   }
 
+  const getVisibleTechnicalChannels = (prefix: string) =>
+    prefix === 'technical' ? (technicalConfigProfile?.canales ?? []) : canales
+
   const renderIntegrationsSection = (prefix: string) => (
     <div className="space-y-4 border-t pt-4">
       <div>
@@ -450,7 +453,7 @@ export function SalesProfilesList({ onUpdate, canManageAI = false, canManageTech
         </p>
       </div>
 
-      {canales.includes('whatsapp') && (
+      {getVisibleTechnicalChannels(prefix).includes('whatsapp') && (
         <div className="border rounded-lg p-3 space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <WhatsappLogo className="w-5 h-5 text-green-600" /> WhatsApp
@@ -485,7 +488,7 @@ export function SalesProfilesList({ onUpdate, canManageAI = false, canManageTech
         </div>
       )}
 
-      {canales.includes('facebook') && (
+      {getVisibleTechnicalChannels(prefix).includes('facebook') && (
         <div className="border rounded-lg p-3 space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <FacebookLogo className="w-5 h-5 text-blue-600" /> Messenger
@@ -520,7 +523,7 @@ export function SalesProfilesList({ onUpdate, canManageAI = false, canManageTech
         </div>
       )}
 
-      {canales.includes('instagram') && (
+      {getVisibleTechnicalChannels(prefix).includes('instagram') && (
         <div className="border rounded-lg p-3 space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <InstagramLogo className="w-5 h-5 text-pink-600" /> Instagram
