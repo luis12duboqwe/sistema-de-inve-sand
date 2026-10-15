@@ -32,6 +32,8 @@ jobs:
         run: bash deploy/test-ops-healthcheck-timeout.sh
       - name: Test DR drill hardening
         run: bash deploy/test-dr-drill.sh
+      - name: Test audited operations and backup wiring
+        run: bash deploy/test-audit-ops.sh
 
   test-frontend:
     runs-on: ubuntu-latest

@@ -12,6 +12,7 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+ENV_FILE="$(realpath "$ENV_FILE")"
 mkdir -p "$OUT_DIR"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 backup_file="$OUT_DIR/manual_${timestamp}.sql.gz"

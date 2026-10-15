@@ -300,8 +300,10 @@ PY"; then
     fi
 
     local secret_key
+    local setup_token
     local channel_key
     secret_key="$(openssl rand -hex 32)"
+    setup_token="$(openssl rand -hex 32)"
     channel_key="$($APP_DIR/backend/venv/bin/python - <<'PY'
 from cryptography.fernet import Fernet
 print(Fernet.generate_key().decode())
@@ -318,6 +320,7 @@ CORS_ORIGINS=https://${DOMAIN},https://${WWW_DOMAIN}
 ALLOWED_HOSTS=${DOMAIN},${WWW_DOMAIN},localhost,127.0.0.1
 
 SECRET_KEY=${secret_key}
+SETUP_TOKEN=${setup_token}
 CHANNEL_ENCRYPTION_KEY=${channel_key}
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 

@@ -50,6 +50,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_CATALOG_WHATSAPP_NUMBER: ${VITE_CATALOG_WHATSAPP_NUMBER:-}
     restart: unless-stopped
     depends_on:
       backend:
@@ -65,6 +66,9 @@ services:
   backup:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Override the backend's /app/backups: this service mounts /backups.
+    environment:
+      BACKUP_DIR: /backups
     profiles:
       - backup
     depends_on:
