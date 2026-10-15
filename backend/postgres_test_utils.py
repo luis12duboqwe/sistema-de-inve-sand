@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Tuple
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Engine
 
 
@@ -24,12 +25,26 @@ def _read_database_url_from_env_file() -> str:
     return ""
 
 
+def assert_safe_test_database_url(database_url: str) -> None:
+    """Fail closed before issuing schema CREATE/DROP against production."""
+    url = make_url(database_url)
+    name = (url.database or "").lower()
+    if not (
+        url.drivername.startswith("postgresql")
+        and (url.host or "").lower() in {"127.0.0.1", "localhost", "::1"}
+        and (name.endswith("_test") or name.endswith("_e2e"))
+    ):
+        raise RuntimeError(
+            "Los tests solo permiten PostgreSQL local y BD descartable "
+            "con nombre terminado en _test o _e2e. Prohibido usar BD de producción."
+        )
+
+
 def get_postgres_database_url() -> str:
     database_url = (os.getenv("DATABASE_URL") or _read_database_url_from_env_file()).strip()
     if not database_url:
         raise RuntimeError("DATABASE_URL no está configurado para las pruebas.")
-    if not database_url.lower().startswith("postgresql"):
-        raise RuntimeError("Las pruebas ahora requieren PostgreSQL.")
+    assert_safe_test_database_url(database_url)
     return database_url
 
 
