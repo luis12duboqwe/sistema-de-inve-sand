@@ -1,3 +1,4 @@
+import { loadAllPages } from './pagination'
 import type { Bank, FinancingOption,
   Profile,
   ProductWithStock,
@@ -1336,31 +1337,29 @@ class ApiClient {
     product_id?: number
     from_location_id?: number
     to_location_id?: number
-    location_id?: number  // Buscar donde la ubicación es origen O destino
+    location_id?: number
     estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
   }): Promise<StockTransfer[]> {
     try {
       const params = new URLSearchParams()
-      if (filters?.product_id) params.append('product_id', filters.product_id.toString())
-      if (filters?.location_id) params.append('location_id', filters.location_id.toString())
-      if (filters?.from_location_id) params.append('from_location_id', filters.from_location_id.toString())
-      if (filters?.to_location_id) params.append('to_location_id', filters.to_location_id.toString())
-      if (filters?.estado) params.append('estado', filters.estado)
-      
-      const queryString = params.toString()
-      const response: any = await this.request(`/stock-transfers${queryString ? '?' + queryString : ''}`)
-      
-      // Mapear respuesta paginada del backend
-      const items = response.items || response
-      
-      // Agregar helper product para facilitar uso en componentes
-      return items.map((t: any) => ({
+      if (filters?.product_id) params.set('product_id', String(filters.product_id))
+      if (filters?.location_id) params.set('location_id', String(filters.location_id))
+      if (filters?.from_location_id) params.set('from_location_id', String(filters.from_location_id))
+      if (filters?.to_location_id) params.set('to_location_id', String(filters.to_location_id))
+      if (filters?.estado) params.set('estado', filters.estado)
+
+      const transfers = await loadAllPages<StockTransfer>(async (page) => {
+        params.set('page', String(page))
+        params.set('per_page', '100')
+        return this.request(`/stock-transfers?${params.toString()}`)
+      })
+      return transfers.map((t: any) => ({
         ...t,
         product: t.product_nombre ? {
           id: t.product_id,
           nombre: t.product_nombre,
-          sku: t.product_sku
-        } : undefined
+          sku: t.product_sku,
+        } : undefined,
       }))
     } catch (error) {
       console.error('Error listing stock transfers:', error)
