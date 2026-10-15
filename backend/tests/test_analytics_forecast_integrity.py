@@ -69,3 +69,24 @@ def test_forecast_cache_history_limit_and_expiration(monkeypatch, db_session):
     request.app.state.forecast_cache["generated_at"] = datetime.now(UTC) - timedelta(minutes=31)
     assert len(run(90, 2).forecasts) == 2
     assert calls == [60, 90, 90]
+
+def test_forecast_revenue_is_normalized_from_usd(client, db_session):
+    from app.schemas import SalesForecast
+    from app.services.forecasting_service import summarize_forecasts
+    location, _ = seed_location_and_sales_profile(db_session)
+    hnl = seed_product(client, location.id, sku="PROJ-HNL-001",
+                       is_serialized=False, categoria="accesorio",
+                       stock_inicial=1, costo=50, precio=100, moneda="Lps")
+    usd = seed_product(client, location.id, sku="PROJ-USD-001",
+                       is_serialized=False, categoria="accesorio",
+                       stock_inicial=1, costo=50, precio=100, moneda="USD")
+    records = [
+        SalesForecast(product_id=product["id"], product_name="Forecast", current_stock=1,
+                      average_daily_sales=1.0, predicted_sales_next_7_days=1,
+                      predicted_sales_next_30_days=1, days_until_stockout=1,
+                      restock_recommendation=0, confidence=.9, trend="stable")
+        for product in (hnl, usd)
+    ]
+    report = summarize_forecasts(db_session, records)
+    assert Decimal(str(report.estimated_revenue_7_days)) == Decimal("2600.00")
+    assert Decimal(str(report.estimated_revenue_30_days)) == Decimal("2600.00")
