@@ -90,8 +90,8 @@ export default function PublicCatalog() {
 
     const encodedMessage = encodeURIComponent(message)
     // Nunca redirigir pedidos a un teléfono de ejemplo o no configurado.
-    const phoneNumber = String(import.meta.env.VITE_CATALOG_WHATSAPP_NUMBER || '').replace(/\\D/g, '')
-    if (!/^\\d{8,15}$/.test(phoneNumber)) {
+    const phoneNumber = String(import.meta.env.VITE_CATALOG_WHATSAPP_NUMBER || '').replace(/\D/g, '')
+    if (!/^\d{8,15}$/.test(phoneNumber)) {
       toast.error('El WhatsApp comercial no está configurado. Contacta a la tienda directamente.')
       return
     }
