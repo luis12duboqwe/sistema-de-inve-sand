@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 from typing import List, Optional
@@ -21,6 +21,7 @@ from app.utils.order_validators import validate_product_exists, validate_locatio
 from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_close_code
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.audit import log_audit_event
+from app.utils.business_idempotency import claim_business_request, save_business_response
 
 router = APIRouter(prefix="/api/stock-transfers", tags=["stock_transfers"])
 logger = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ def _serialize_transfer(transfer: StockTransfer) -> StockTransferResponse:
 def create_transfer(
     transfer: StockTransferCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("inventory:edit"))
+    current_user: User = Depends(check_permission("inventory:edit")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """
     Crea una nueva transferencia de stock entre ubicaciones físicas (V2.0).
@@ -103,6 +105,16 @@ def create_transfer(
     
     # Validar producto
     product = validate_product_exists(db, transfer.product_id)
+
+    claim = claim_business_request(
+        db,
+        key=idempotency_key,
+        identity_id=int(current_user.id),
+        endpoint="POST /api/stock-transfers",
+        payload=transfer.model_dump(mode="json"),
+    )
+    if claim.replay is not None:
+        return StockTransferResponse.model_validate(claim.replay)
     
     # Inicializar StockManager
     stock_manager = StockManager(db)
@@ -159,9 +171,12 @@ def create_transfer(
             after_data=transfer.model_dump(),
         )
             
-        db.commit()
+        db.flush()
         db.refresh(db_transfer)
-        return _serialize_transfer(db_transfer)
+        response = _serialize_transfer(db_transfer)
+        save_business_response(claim, response.model_dump(mode="json"))
+        db.commit()
+        return response
     except StockValidationError as e:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(e))
