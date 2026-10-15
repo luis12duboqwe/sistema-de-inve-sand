@@ -138,7 +138,10 @@ export function PhotoRequestsDashboard() {
       case 'awaiting_upload':
         return <Badge variant="outline">Esperando carga</Badge>
       case 'in_progress':
+      case 'sending':
         return <Badge variant="secondary">En progreso</Badge>
+      case 'delivery_uncertain':
+        return <Badge variant="destructive">Revisión manual de envío</Badge>
       case 'completed':
         return <Badge variant="secondary">Completado</Badge>
       default:
@@ -259,7 +262,7 @@ export function PhotoRequestsDashboard() {
                   </div>
                 )}
 
-                {activeRequest.status !== 'completed' && (
+                {!['completed', 'sending', 'delivery_uncertain', 'declined'].includes(activeRequest.status) && (
                   <div className="space-y-2">
                     <Label>Cargar foto</Label>
                     <div className="flex gap-2">
@@ -298,7 +301,7 @@ export function PhotoRequestsDashboard() {
                 )}
 
                 <div className="flex gap-2 pt-4 border-t">
-                  {activeRequest.status !== 'completed' && activeRequest.media_items && activeRequest.media_items.length > 0 && (
+                  {!['completed', 'sending', 'delivery_uncertain', 'declined'].includes(activeRequest.status) && activeRequest.media_items && activeRequest.media_items.length > 0 && (
                     <Button
                       onClick={() => { void handleSendToCustomer(activeRequest.id) }}
                       disabled={uploading}

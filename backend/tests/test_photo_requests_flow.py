@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import httpx
 from typing import Any, TypedDict
 
 from _pytest.monkeypatch import MonkeyPatch
@@ -397,3 +398,82 @@ def test_ai_handle_message_creates_photo_request_when_customer_asks_for_photos(
     assert created_request.status == "pending"
     assert created_request.sales_profile_id == sales_profile.id
     assert created_request.color_requested == "gris"
+
+
+def test_photo_send_respects_persisted_origin_channel_over_whatsapp_profile(db_session: Session) -> None:
+    profile = _seed_sales_profile_with_whatsapp(db_session)
+    photo = PhotoRequest(
+        sales_profile_id=profile.id, customer_id="50489990000",
+        product_name="Galaxy", origin_channel="instagram",
+        additional_notes="channel:whatsapp",
+    )
+    assert photo_requests_router._resolve_request_channel(photo, profile) == "instagram"
+
+
+def test_photo_delivery_replay_never_sends_media_twice(
+    client: TestClient, db_session: Session, monkeypatch: MonkeyPatch,
+) -> None:
+    _seed_active_user(db_session)
+    profile = _seed_sales_profile_with_whatsapp(db_session)
+    create = client.post(
+        "/api/photo-requests/create",
+        json={"customer_id": "50482001111", "product_name": "Galaxy S25"},
+        params={"sales_profile_slug": profile.slug, "channel": "whatsapp"},
+    )
+    assert create.status_code == 200, create.text
+    request_id = int(create.json()["id"])
+    uploaded = client.post(
+        f"/api/photo-requests/{request_id}/media",
+        json={"media_url": "https://cdn.example.invalid/test.jpg", "media_type": "photo"},
+    )
+    assert uploaded.status_code == 200
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        photo_requests_router.httpx, "AsyncClient",
+        lambda *args, **kwargs: _DummyAsyncClient(calls, *args, **kwargs),
+    )
+    first = client.post(f"/api/photo-requests/{request_id}/send-to-customer")
+    assert first.status_code == 200, first.text
+    accepted_count = len(calls)
+    assert accepted_count == 2
+    duplicate = client.post(f"/api/photo-requests/{request_id}/send-to-customer")
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["status"] == "already_delivered"
+    assert len(calls) == accepted_count
+
+
+def test_unknown_meta_result_blocks_unsafe_photo_resends(
+    client: TestClient, db_session: Session, monkeypatch: MonkeyPatch,
+) -> None:
+    _seed_active_user(db_session)
+    profile = _seed_sales_profile_with_whatsapp(db_session)
+    result = client.post(
+        "/api/photo-requests/create",
+        json={"customer_id": "50482002222", "product_name": "iPhone 14"},
+        params={"sales_profile_slug": profile.slug, "channel": "whatsapp"},
+    )
+    assert result.status_code == 200
+    request_id = int(result.json()["id"])
+    assert client.post(
+        f"/api/photo-requests/{request_id}/media",
+        json={"media_url": "https://cdn.example.invalid/p.jpg", "media_type": "photo"},
+    ).status_code == 200
+    calls: list[str] = []
+
+    class _UncertainClient(_DummyAsyncClient):
+        async def post(self, url: str, **kwargs: Any) -> _MetaResponse:
+            calls.append(url)
+            raise httpx.ReadTimeout("Respuesta de Meta no recibida")
+
+    monkeypatch.setattr(
+        photo_requests_router.httpx, "AsyncClient",
+        lambda *args, **kwargs: _UncertainClient([], *args, **kwargs),
+    )
+    first = client.post(f"/api/photo-requests/{request_id}/send-to-customer")
+    assert first.status_code == 502, first.text
+    db_session.expire_all()
+    row = db_session.query(PhotoRequest).filter_by(id=request_id).one()
+    assert row.status == "delivery_uncertain"
+    retry = client.post(f"/api/photo-requests/{request_id}/send-to-customer")
+    assert retry.status_code == 409, retry.text
+    assert len(calls) == 1
