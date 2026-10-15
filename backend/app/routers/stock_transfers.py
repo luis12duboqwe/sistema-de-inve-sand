@@ -526,7 +526,9 @@ def confirm_transfer(
                     ProductIMEI.transfer_id == None
                 ).limit(received_quantity).all()
         
-        if imeis_to_move:
+        # Una recepción de cero unidades nunca debe mover seriales.
+        # El lote pendiente se libera en origen mediante missing_imeis más abajo.
+        if received_quantity > 0 and imeis_to_move:
             if scanned_imeis_set:
                 imeis_to_move = [imei for imei in imeis_to_move if imei.imei in scanned_imeis_set]
             stock_manager.transfer_imeis(
