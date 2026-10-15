@@ -12,6 +12,7 @@ from app.services.stock_transaction_helper import PreparedReturnItem, StockTrans
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_validators import validate_location_exists
 from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,7 @@ def create_return(
         identity_id=int(current_user.id),
         endpoint="POST /api/returns",
         payload=return_data.model_dump(mode="json"),
+        require_key=prod_settings.is_production(),
     )
     if claim.replay is not None:
         return ReturnResponse.model_validate(claim.replay)
