@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import { ArrowsLeftRight, CheckCircle, MapPin, Plus, Trash } from '@phosphor-ico
 import type { CreateStockTransferRequest, Location, ProductWithStock } from '@/lib/types'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { calculateLuhnCheckDigit } from '@/lib/utils'
+import { submitTransferRequestsSequentially } from '@/lib/transferBatchSubmission'
 
 interface TransferStockDialogProps {
   open: boolean
@@ -90,6 +91,7 @@ export function TransferStockDialog({
   const [lines, setLines] = useState<TransferLine[]>([makeLine(product?.id ?? null)])
   const [loading, setLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const attemptStartedRef = useRef(false)
 
   const selectableProducts = useMemo(() => {
     const byId = new Map<number, ProductWithStock>()
@@ -100,6 +102,7 @@ export function TransferStockDialog({
 
   useEffect(() => {
     if (!open) return
+    attemptStartedRef.current = false
 
     const loadLocations = async () => {
       setLoading(true)
@@ -311,23 +314,34 @@ export function TransferStockDialog({
   }
 
   const handleSubmit = async () => {
+    if (attemptStartedRef.current || isSubmitting) return
     const payloads = validateAndBuildPayloads()
     if (!payloads) return
-
+    // Una confirmación de la API no equivale a un lote atómico.
+    attemptStartedRef.current = true
     setIsSubmitting(true)
     try {
-      for (const payload of payloads) {
-        await inventoryServiceInstance.createStockTransfer(payload)
+      const result = await submitTransferRequestsSequentially(
+        payloads,
+        payload => inventoryServiceInstance.createStockTransfer(payload),
+      )
+      if (result.failure) {
+        // Puede haber ocurrido commit incluso cuando se perdió la respuesta.
+        // Cerrar este intento: no reenviar filas ya confirmadas ni la dudosa.
+        onTransferComplete()
+        onOpenChange(false)
+        toast.error(
+          `Lote parcial: ${result.confirmed.length} de ${payloads.length} solicitudes confirmadas. Revise Transferencias y stock antes de repetir; el fallo pudo haber creado otra solicitud.`,
+          { duration: 12000 },
+        )
+        return
       }
 
       const fromName = locations.find(location => location.id === fromLocationId)?.nombre
       const toName = locations.find(location => location.id === toLocationId)?.nombre
-      toast.success(`Transferencia creada: ${payloads.length} modelo(s) de "${fromName}" a "${toName}"`, { duration: 5000 })
+      toast.success(`${result.confirmed.length} solicitud(es) registradas de "${fromName}" a "${toName}", pendientes de recepción.`, { duration: 5000 })
       onTransferComplete()
       onOpenChange(false)
-    } catch (error) {
-      console.error('Error al transferir stock:', error)
-      toast.error(error instanceof Error ? error.message : 'Error al transferir stock')
     } finally {
       setIsSubmitting(false)
     }
@@ -344,7 +358,7 @@ export function TransferStockDialog({
             Transferir stock entre ubicaciones
           </DialogTitle>
           <DialogDescription>
-            Selecciona origen, destino y uno o varios modelos para moverlos en una sola operación.
+            Cada modelo genera una solicitud independiente. Si alguna falla, las anteriores pueden quedar registradas; revise el historial antes de reintentar.
           </DialogDescription>
         </DialogHeader>
 
