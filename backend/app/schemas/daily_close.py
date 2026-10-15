@@ -22,6 +22,11 @@ class DailyCloseConfigRequest(BaseModel):
     current_code: Optional[str] = Field(None, description="Código actual (requerido si ya existe uno)")
 
 
+class DailyClosePaymentComponent(BaseModel):
+    method: str
+    amount: float
+
+
 class DailyCloseOrderSummary(BaseModel):
     """Resumen de una orden pendiente de validación."""
     id: int
@@ -29,6 +34,7 @@ class DailyCloseOrderSummary(BaseModel):
     customer_phone: str
     canal: str
     metodo_pago: str
+    payment_breakdown: Optional[List[DailyClosePaymentComponent]] = None
     total: float
     estado: str
     source_location_id: Optional[int] = None

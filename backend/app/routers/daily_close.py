@@ -9,9 +9,10 @@ Flujo canónico:
      reservado exclusivamente para movimientos reales de inventario.
 """
 
+import json
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, List, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -46,6 +47,36 @@ def _get_stored_code(db: Session) -> SystemConfig | None:
     return db.query(SystemConfig).filter(SystemConfig.key == DAILY_CLOSE_CODE_KEY).first()
 
 
+def _daily_close_components(order: Any) -> list[dict[str, Any]] | None:
+    """None=legacy without components, []=invalid breakdown (must not misattribute)."""
+    source = getattr(order, "payment_breakdown", None)
+    if not source:
+        return None
+    try:
+        rows = json.loads(source) if isinstance(source, str) else source
+        if not isinstance(rows, list) or not rows:
+            return []
+        parts: list[dict[str, Any]] = []
+        total = Decimal("0")
+        for item in rows:
+            if not isinstance(item, dict):
+                return []
+            method = str(item.get("method") or "")
+            amount = Decimal(str(item.get("amount")))
+            if method not in {"efectivo", "transferencia", "tarjeta", "financiamiento"}:
+                return []
+            if not amount.is_finite() or amount <= 0:
+                return []
+            parts.append({"method": method, "amount": float(amount)})
+            total += amount
+        expected = Decimal(str(getattr(order, "total", 0) or 0))
+        if total.quantize(Decimal("0.01")) != expected.quantize(Decimal("0.01")):
+            return []
+        return parts
+    except (TypeError, ValueError, InvalidOperation, OverflowError, json.JSONDecodeError):
+        return []
+
+
 def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
     order_id = cast(int, getattr(order, "id"))
     customer_name = cast(str, getattr(order, "customer_name"))
@@ -74,6 +105,7 @@ def _build_order_summary(order: Any) -> DailyCloseOrderSummary:
         customer_phone=customer_phone,
         canal=canal,
         metodo_pago=metodo_pago,
+        payment_breakdown=_daily_close_components(order),
         total=float(total_raw),
         estado=estado,
         source_location_id=source_location_id,
