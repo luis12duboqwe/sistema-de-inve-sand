@@ -56,7 +56,8 @@ if ! gunzip -c "$BACKUP_FILE" | PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -
 fi
 # Comprobar presencia de cinco tablas de negocio antes de declarar recuperable.
 table_count="$(PROD_ENV_FILE="$ENV_FILE" "${COMPOSE[@]}" exec -T db \
-  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -A -t -U "$POSTGRES_USER" -d "$1" -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_name IN ('\''users'\'','\''orders'\'','\''products'\'','\''stock'\'','\''schema_migrations'\'')"' sh "$TARGET_DB")"
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -A -t -U "$POSTGRES_USER" -d "$1" -c "$2"' \
+  sh "$TARGET_DB" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users','orders','products','stock','schema_migrations')")"
 table_count="${table_count//$'\r'/}"
 if [[ ! "$table_count" =~ ^[0-9]+$ || "$table_count" -lt 5 ]]; then
   echo "Esquema incompleto ($table_count/5 tablas); no conmutar producción." >&2
