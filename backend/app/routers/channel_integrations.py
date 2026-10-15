@@ -207,6 +207,14 @@ def _resolve_default_sales_profile_slug(channel: str) -> str:
 def _verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> None:
     app_secret = (getattr(prod_settings, "META_APP_SECRET", "") or "").strip()
     if not app_secret:
+        if prod_settings.is_production():
+            # A missing signing secret must never make an internet-facing Meta
+            # webhook silently accept unauthenticated customer/AI commands.
+            raise HTTPException(
+                status_code=503,
+                detail="Webhook Meta deshabilitado: META_APP_SECRET no configurado",
+            )
+        # Local development and isolated test fixtures may not carry Meta keys.
         return
 
     if not signature_header:

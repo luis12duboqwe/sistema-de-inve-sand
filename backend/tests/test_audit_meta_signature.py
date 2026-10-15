@@ -79,3 +79,25 @@ def test_meta_webhook_rejects_missing_invalid_or_altered_signature_before_claim(
         assert response.status_code in (401, 403), response.text
 
     assert db_session.query(ProcessedMessage).filter_by(message_id=message_id).count() == 0
+
+
+def test_production_missing_meta_secret_rejects_webhook_before_any_side_effect(
+    client, db_session, monkeypatch,
+):
+    from fastapi import HTTPException
+    from app.routers import channel_integrations
+
+    monkeypatch.setattr(prod_settings, "META_APP_SECRET", "")
+    monkeypatch.setattr(prod_settings, "is_production", lambda: True)
+
+    raw = _signed_raw_payload("fail-closed-" + uuid4().hex)
+    with_client = client.post(
+        "/api/channels/whatsapp/webhook",
+        content=raw,
+        headers={"content-type": "application/json"},
+    )
+    assert with_client.status_code == 503
+    assert "META_APP_SECRET" in with_client.text
+    assert db_session.query(ProcessedMessage).filter(
+        ProcessedMessage.message_id.like("fail-closed-%"),
+    ).count() == 0
