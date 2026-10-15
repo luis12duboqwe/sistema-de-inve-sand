@@ -83,8 +83,8 @@ describe('NewOrderDialog preserves uncertain sales safely', () => {
     await user.type(screen.getByLabelText('Nombre del Cliente'), 'Cliente QA')
     await user.type(screen.getByLabelText('Teléfono'), '99999999')
 
-    await user.click(screen.getByRole('combobox', { name: /Buscar producto por modelo/i }))
-    await user.click(await screen.findByText(/Funda de prueba QA/))
+    await user.type(screen.getByLabelText('Agregar por escaneo'), 'QA-FUNDA-17')
+    await user.click(screen.getByRole('button', { name: 'Agregar escaneado' }))
 
     const button = screen.getByRole('button', { name: /Completar venta/i })
     await user.click(button)
