@@ -260,3 +260,44 @@ def test_pricing_policy_migration_preserves_hnl_part_of_mixed_order(db_session: 
         assert Decimal(str(row["total"])) == Decimal("1100.00")
         assert Decimal(str(row["usd_price"])) == Decimal("100.00")
         assert Decimal(str(row["hnl_price"])) == Decimal("1000.00")
+
+
+def test_pricing_policy_sqlite_legacy_usd_order_migrates_without_decimal_binding(tmp_path):
+    from sqlalchemy import create_engine
+    db = create_engine(f"sqlite:///{tmp_path / 'pricing-legacy.db'}")
+    schema = [
+        "CREATE TABLE ai_profile_configs (id INTEGER PRIMARY KEY, max_discount_rate NUMERIC, context_rules TEXT)",
+        "CREATE TABLE products (id INTEGER PRIMARY KEY, precio NUMERIC, costo NUMERIC, moneda TEXT)",
+        "CREATE TABLE sales_profiles (id INTEGER PRIMARY KEY, configuracion TEXT)",
+        "CREATE TABLE orders (id INTEGER PRIMARY KEY, total NUMERIC, payment_breakdown TEXT, financing_details TEXT, sales_profile_id INTEGER, profile_id INTEGER)",
+        "CREATE TABLE order_items (id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER, precio_unitario NUMERIC, costo_unitario NUMERIC)",
+    ]
+    with db.begin() as conn:
+        for stmt in schema:
+            conn.execute(text(stmt))
+        conn.execute(text("INSERT INTO ai_profile_configs(id,max_discount_rate,context_rules) VALUES(1,0.02,'')"))
+        conn.execute(text("INSERT INTO products VALUES(1,100,60,'USD')"))
+        conn.execute(
+            text("INSERT INTO sales_profiles VALUES(1,:config)"),
+            {"config": '{"exchange_rate":24.50}'},
+        )
+        conn.execute(text("INSERT INTO orders VALUES(1,100,NULL,NULL,1,NULL)"))
+        conn.execute(text("INSERT INTO order_items VALUES(1,1,1,100,60)"))
+    try:
+        assert run_pricing_policy_migration(bind=db) is True
+        with db.connect() as conn:
+            row = conn.execute(text("""
+                SELECT oi.precio_unitario, oi.costo_unitario, o.total
+                FROM order_items oi JOIN orders o ON o.id=oi.order_id
+            """)).one()
+            assert [Decimal(str(value)).quantize(Decimal("0.01")) for value in row] == [
+                Decimal("2450.00"), Decimal("1470.00"), Decimal("2450.00")
+            ]
+            assert conn.execute(text(
+                "SELECT COUNT(*) FROM schema_migrations WHERE id=:migration_id"
+            ), {"migration_id": ORDER_CURRENCY_MIGRATION_ID}).scalar_one() == 1
+        assert run_pricing_policy_migration(bind=db) is True
+        with db.connect() as conn:
+            assert Decimal(str(conn.execute(text("SELECT total FROM orders")).scalar_one())) == Decimal("2450")
+    finally:
+        db.dispose()
