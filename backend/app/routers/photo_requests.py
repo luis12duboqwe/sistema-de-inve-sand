@@ -40,6 +40,7 @@ from app.schemas.photos import (
     NotifyAgentPayload,
 )
 from app.auth import check_permission, get_current_user_optional
+from app.middleware.business_integrity import _has_active_bearer_user
 from app.config_production import prod_settings
 from app.utils.s3_storage import get_storage_manager
 from app.utils.websocket_manager import get_connection_manager
@@ -83,11 +84,24 @@ def require_photo_request_create_auth(
     request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> None:
-    if current_user and current_user.is_active:
-        return
-
-    if _valid_photo_request_service_token(request):
-        return
+    # Production may never trust a forged/absent JWT even if another endpoint
+    # uses optional authentication or a testing override returns a fake user.
+    # Verify signed JWT, immutable uid, password version AND active status.
+    if prod_settings.is_production():
+        if _has_active_bearer_user(request):
+            return
+        if not (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip():
+            raise HTTPException(
+                status_code=503,
+                detail="Photo request integration authentication not configured",
+            )
+        if _valid_photo_request_service_token(request):
+            return
+    else:
+        if current_user and current_user.is_active:
+            return
+        if _valid_photo_request_service_token(request):
+            return
 
     raise HTTPException(
         status_code=401,
