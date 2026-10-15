@@ -108,7 +108,9 @@ def create_transfer(
 
     claim = claim_business_request(
         db,
-        key=idempotency_key,
+        # FastAPI Header defaults are parameter descriptors when called
+        # directly by internal services/tests, rather than request strings.
+        key=idempotency_key if isinstance(idempotency_key, str) else None,
         identity_id=int(current_user.id),
         endpoint="POST /api/stock-transfers",
         payload=transfer.model_dump(mode="json"),

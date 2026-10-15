@@ -44,6 +44,8 @@ def test_username_reuse_does_not_transfer_session_to_different_user(db_session):
     stolen = create_user_access_token(previous)
     old_id = previous.id
     previous.username = "renamed-old-user"
+    previous.email = "renamed-old-user@example.invalid"
+    db_session.flush()
     another = _user("reused")
     db_session.add(another)
     db_session.commit()
