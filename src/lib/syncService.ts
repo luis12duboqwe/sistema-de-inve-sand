@@ -1,6 +1,7 @@
 import { apiClient } from './apiClient'
 import { getKV } from './kvStorage'
 import { syncJournal } from './syncJournal'
+import { getPendingLocalCreateKeys, resolveGuardedSyncId } from './syncIdGuard'
 import type {
   SyncEvent,
   SyncEntityType,
@@ -87,6 +88,7 @@ type HandlerResult = {
 interface SyncContext {
   kv: ReturnType<typeof getKV>
   idMap: SyncIdMap
+  pendingLocalCreates: Set<string>
   profiles: Profile[]
   salesProfiles: SalesProfile[]
   locations: Location[]
@@ -108,7 +110,7 @@ export const syncService = {
       return { processed: 0, synced: 0, failed: 0, total: 0, pendingEvents: 0 }
     }
 
-    const context = await buildSyncContext(kv)
+    const context = await buildSyncContext(kv, pendingEvents)
     const sortedEvents = [...pendingEvents].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     )
@@ -186,7 +188,7 @@ async function runPreflightChecks(kv: ReturnType<typeof getKV>): Promise<void> {
   await apiClient.checkHealth()
 }
 
-async function buildSyncContext(kv: ReturnType<typeof getKV>): Promise<SyncContext> {
+async function buildSyncContext(kv: ReturnType<typeof getKV>, pendingEvents: SyncEvent[]): Promise<SyncContext> {
   const [idMapRaw, profiles, salesProfiles, locations] = await Promise.all([
     kv.get<SyncIdMap>(SYNC_ID_MAP_KEY),
     kv.get<Profile[]>('inventory-profiles'),
@@ -197,6 +199,7 @@ async function buildSyncContext(kv: ReturnType<typeof getKV>): Promise<SyncConte
   return {
     kv,
     idMap: idMapRaw ?? {},
+    pendingLocalCreates: getPendingLocalCreateKeys(pendingEvents),
     profiles: profiles ?? [],
     salesProfiles: salesProfiles ?? [],
     locations: locations ?? []
@@ -409,13 +412,14 @@ async function handleProductEvent(event: SyncEvent, context: SyncContext): Promi
       }
 
       const initialStock = typeof payload.initialStock === 'number' ? payload.initialStock : 0
-      const locationId = payload.location_id ?? null
+      const locationLocalId = payload.location_id ?? null
+      const locationId = locationLocalId === null ? undefined : resolveNumericRemoteId(context, 'location', locationLocalId)
       const { id, activo: _activo, ...rest } = product
 
       const created = await apiClient.createProduct(
         rest as Omit<Product, 'id' | 'activo'>,
         initialStock,
-        locationId ?? undefined
+        locationId
       )
 
       return {
@@ -778,8 +782,7 @@ function resolveRemoteId(
   if (localId === null || localId === undefined) {
     return undefined
   }
-  const key = buildIdMapKey(entity, localId)
-  return context.idMap[key] ?? localId
+  return resolveGuardedSyncId(context.idMap, context.pendingLocalCreates, entity, localId)
 }
 
 function resolveNumericRemoteId(
