@@ -1,5 +1,12 @@
 import type { ProductWithStock, OrderWithItems } from './types'
 
+export function formatCsvCell(value: unknown): string {
+  const raw = value === null || value === undefined ? '' : String(value)
+  const dangerous = typeof value === 'string' && /^[\s\u0000-\u001f]*[=+@-]/.test(raw)
+  const safe = dangerous ? "'" + raw : raw
+  return '"' + safe.replace(/"/g, '""') + '"'
+}
+
 export function exportToCSV(data: Record<string, unknown>[], filename: string) {
   try {
     if (data.length === 0) {
@@ -9,18 +16,14 @@ export function exportToCSV(data: Record<string, unknown>[], filename: string) {
     const headers = Object.keys(data[0])
     const csvRows: string[] = []
 
-    csvRows.push(headers.join(','))
+    csvRows.push(headers.map(formatCsvCell).join(','))
 
     for (const row of data) {
-      const values = headers.map(header => {
-        const value = row[header]
-        const escaped = ('' + value).replace(/"/g, '\\"')
-        return `"${escaped}"`
-      })
+      const values = headers.map(header => formatCsvCell(row[header]))
       csvRows.push(values.join(','))
     }
 
-    const csvString = csvRows.join('\n')
+    const csvString = '\ufeff' + csvRows.join('\r\n')
     const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
