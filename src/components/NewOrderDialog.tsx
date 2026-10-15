@@ -602,7 +602,7 @@ export function NewOrderDialog({
       const cardBaseAmount = parseFlexibleNumber(cardPaymentAmount) ?? 0
       const bank = selectedBankId ? banks.find(b => b.id === selectedBankId) : undefined
       const cardRate = selectedBankId ? Number(bank?.normal_card_rate || 0) : 0
-      const cardSurcharge = cardBaseAmount * cardRate
+      const cardSurcharge = Math.round((cardBaseAmount * cardRate + Number.EPSILON) * 100) / 100
 
       // Base para financiamiento = (Productos - TradeIns - Prima)
       // La prima se resta ANTES de calcular el recargo, porque eso se paga en efectivo
@@ -829,7 +829,11 @@ export function NewOrderDialog({
           ? {
               bank_id: selectedBankId,
               months: selectedMonths || 0,
-              down_payment: parsedDownPayment || undefined
+              // En pagos mixtos los importes en efectivo/transferencia ya
+              // están contabilizados por separado; no duplicar la prima.
+              down_payment: hasPaymentBreakdown && paymentAmounts.tarjeta > 0
+                && (paymentAmounts.efectivo > 0 || paymentAmounts.transferencia > 0)
+                ? 0 : parsedDownPayment || undefined
             }
           : undefined
       })

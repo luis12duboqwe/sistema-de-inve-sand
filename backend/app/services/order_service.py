@@ -240,6 +240,7 @@ class OrderService:
                 metodo_pago=order.metodo_pago,
                 total_after_tradeins=order_totals.total_after_trade_ins,
                 trade_in_total=order_totals.trade_in_total,
+                payment_breakdown=order.payment_breakdown,
             )
 
             db_order = self._create_order_record(

@@ -465,3 +465,45 @@ def test_confirm_transfer_requires_reserved_stock_and_moves_imeis(client, db_ses
     create_transfer_conflict = client.post("/api/stock-transfers", json=transfer_payload)
     assert create_transfer_conflict.status_code == 409
     assert "Stock insuficiente" in create_transfer_conflict.json().get("detail", "")
+
+def test_mixed_card_payment_applies_surcharge_only_to_card_portion(client, db_session):
+    from decimal import Decimal
+    from uuid import uuid4
+    from app.models import Bank, Order
+
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    bank = Bank(name="Banco Mixto " + uuid4().hex[:10], normal_card_rate=Decimal("0.0500"), active=True)
+    db_session.add(bank)
+    db_session.commit()
+    payload = _order_payload(sales_profile, location, product, phone="70008821", payment=[
+        {"method": "efectivo", "amount": "600.00"},
+        {"method": "tarjeta", "amount": "420.00"},
+    ])
+    payload["financing_data"] = {"bank_id": bank.id, "months": 0, "down_payment": 0}
+    result = client.post("/api/orders", json=payload)
+    assert result.status_code == 201, result.text
+    order = db_session.query(Order).filter(Order.customer_phone == "70008821").one()
+    assert Decimal(str(order.total)) == Decimal("1020.00")
+    assert '"surcharge": 20.0' in (order.financing_details or "")
+
+
+def test_mixed_card_rejects_wrong_surcharge_without_creating_order(client, db_session):
+    from decimal import Decimal
+    from uuid import uuid4
+    from app.models import Bank, Order
+
+    location, sales_profile = seed_location_and_sales_profile(db_session)
+    product = seed_product(client, location.id)
+    bank = Bank(name="Banco Mixto Rechazo " + uuid4().hex[:8], normal_card_rate=Decimal("0.0500"), active=True)
+    db_session.add(bank)
+    db_session.commit()
+    payload = _order_payload(sales_profile, location, product, phone="70008822", payment=[
+        {"method": "efectivo", "amount": "600.00"},
+        {"method": "tarjeta", "amount": "400.00"},
+    ])
+    payload["financing_data"] = {"bank_id": bank.id, "months": 0}
+    result = client.post("/api/orders", json=payload)
+    assert result.status_code == 400, result.text
+    db_session.expire_all()
+    assert db_session.query(Order).filter(Order.customer_phone == "70008822").count() == 0
