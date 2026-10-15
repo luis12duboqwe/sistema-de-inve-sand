@@ -8,22 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'sonner'
-import { useKV } from '@/hooks/use-kv'
-
-// Types matching the backend PublicProductResponse
-interface PublicProduct {
-  id: number
-  nombre: string
-  marca: string
-  modelo: string
-  categoria: string
-  condicion: string
-  precio: number
-  moneda: string
-  capacidad?: string
-  color?: string
-  in_stock: boolean
-}
+import { fetchAllPublicCatalogProducts, type PublicProduct } from '@/lib/publicCatalog'
 
 interface CartItem extends PublicProduct {
   quantity: number
@@ -36,39 +21,28 @@ export default function PublicCatalog() {
   const [category, setCategory] = useState<string>('all')
   const [cart, setCart] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
-  const [apiUrl] = useKV<string>('settings_api_url', 'http://localhost:8000/api')
 
-  // Fetch products
+  // El catálogo público no usa almacenamiento local ni el endpoint de un operador.
   useEffect(() => {
-    const fetchProducts = async () => {
+    const controller = new AbortController()
+    const load = async () => {
       setLoading(true)
       try {
-        const params = new URLSearchParams()
-        if (search) params.append('search', search)
-        if (category && category !== 'all') params.append('category', category)
-        params.append('per_page', '100') // Load plenty for the catalog
-
-        // Use the configured API URL
-        // Remove trailing slash if present to avoid double slashes
-        const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl
-        const url = `${baseUrl}/public/catalog?${params.toString()}`
-        
-        const response = await fetch(url)
-        if (!response.ok) throw new Error('Error al cargar productos')
-        
-        const data = await response.json()
-        setProducts(data.items)
+        const items = await fetchAllPublicCatalogProducts({ search, category, signal: controller.signal })
+        if (!controller.signal.aborted) setProducts(items)
       } catch (error) {
-        console.error(error)
-        toast.error('No se pudo cargar el catálogo')
+        if (!controller.signal.aborted) {
+          console.error(error)
+          setProducts([])
+          toast.error('No se pudo cargar el catálogo')
+        }
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
-
-    const debounce = setTimeout(fetchProducts, 500)
-    return () => clearTimeout(debounce)
-  }, [search, category, apiUrl])
+    const debounce = setTimeout(() => { void load() }, 500)
+    return () => { clearTimeout(debounce); controller.abort() }
+  }, [search, category])
 
   // Cart Logic
   const addToCart = (product: PublicProduct) => {
@@ -115,8 +89,12 @@ export default function PublicCatalog() {
     message += "\n\n¿Me confirman disponibilidad?"
 
     const encodedMessage = encodeURIComponent(message)
-    // Replace with actual business number
-    const phoneNumber = "50499999999" 
+    // Nunca redirigir pedidos a un teléfono de ejemplo o no configurado.
+    const phoneNumber = String(import.meta.env.VITE_CATALOG_WHATSAPP_NUMBER || '').replace(/\\D/g, '')
+    if (!/^\\d{8,15}$/.test(phoneNumber)) {
+      toast.error('El WhatsApp comercial no está configurado. Contacta a la tienda directamente.')
+      return
+    }
     window.open(`https://wa.me/${phoneNumber}?text=${encodedMessage}`, '_blank')
   }
 
