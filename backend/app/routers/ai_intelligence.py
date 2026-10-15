@@ -446,6 +446,12 @@ def _require_ai_integration_auth(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     if current_user and current_user.is_active:
+        # A valid JWT is not permission to access AI conversation memory or
+        # to issue side-effecting AI commands.
+        if not current_user.is_superuser:
+            permissions = getattr(getattr(current_user, "role", None), "permissions", None) or []
+            if not any(getattr(permission, "slug", None) == "ai:manage" for permission in permissions):
+                raise HTTPException(status_code=403, detail="Permission denied. Required: ai:manage")
         return current_user
 
     if _is_valid_ai_service_token(request):
@@ -1079,7 +1085,16 @@ def get_ai_context(
     profile = db.query(SalesProfile).filter(SalesProfile.slug == request.sales_profile_slug).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Sales Profile not found")
-    
+
+    # El contexto incluye conversaciones, memoria e inventario de varias sedes.
+    # Hasta implementar un context builder filtrado por ubicación, impedir que
+    # JWTs de operadores limitados lo consulten con un teléfono arbitrario.
+    if auth_context is not None and get_accessible_location_ids(db, auth_context, "can_view") is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="El contexto IA global requiere permiso sobre todas las ubicaciones",
+        )
+
     # V2.3: Extraer Tasa de Cambio y Configuración del Perfil
     exchange_rate = 25.0 # Default fallback
     try:
@@ -1535,7 +1550,7 @@ def generate_ai_reply(
     if not prod_settings.OPENAI_API_KEY:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY no esta configurada")
 
-    context = get_ai_context(request, db)
+    context = get_ai_context(request, db, auth_context)
     messages = _compose_ai_messages(context, request.message_content, request.conversation_override)
 
     try:
@@ -2155,6 +2170,10 @@ def _create_order_from_ai_payload(
         raise HTTPException(status_code=400, detail="source_location_id debe ser mayor a 0")
 
     if auth_context is not None:
+        if not auth_context.is_superuser:
+            permissions = getattr(getattr(auth_context, "role", None), "permissions", None) or []
+            if not any(getattr(permission, "slug", None) == "orders:create" for permission in permissions):
+                raise HTTPException(status_code=403, detail="Permission denied. Required: orders:create")
         require_location_access(db, auth_context, request.source_location_id, "can_edit")
 
     resolved_items: List[Dict[str, Any]] = []
@@ -2253,11 +2272,19 @@ def handle_message_without_n8n(
         )
         if not stored:
             _increment_metric("duplicate_messages")
-            latest_assistant = db.query(InteractionLog).filter(
-                InteractionLog.sales_profile_id == profile.id,
-                InteractionLog.role == "assistant",
-            ).order_by(InteractionLog.created_at.desc()).first()
-            duplicate_reply = latest_assistant.content if latest_assistant and latest_assistant.content else "Mensaje ya procesado recientemente."
+            existing = db.query(ProcessedMessage).filter(
+                ProcessedMessage.message_id == request.message_id,
+                ProcessedMessage.expires_at > _utcnow(),
+            ).first()
+            if existing and (
+                existing.sales_profile_id != profile.id
+                or existing.customer_phone != _normalize_phone(request.customer_phone)
+                or existing.channel != (request.channel_hint or _infer_channel_from_sales_profile(profile))
+            ):
+                raise HTTPException(status_code=409, detail="Identificador de mensaje asociado a otra conversación")
+            # Nunca devolver la última respuesta del perfil: podría pertenecer
+            # a un cliente distinto o a otro mensaje.
+            duplicate_reply = "Mensaje ya procesado recientemente."
             context = get_ai_context(request, db, auth_context)
             return AIHandleMessageResponse(
                 reply=duplicate_reply,

@@ -407,3 +407,53 @@ def test_restricted_ai_user_cannot_create_order_in_blocked_location(client, db_s
     )
 
     assert response.status_code == 403, response.text
+
+
+def test_order_nested_product_never_exposes_other_store_stock_or_imei(client, db_session):
+    location_a, location_b = _seed_two_store_data(db_session)
+    product = db_session.query(Product).filter(Product.sku == "LOC-ONE").one()
+    db_session.add_all([
+        Stock(product_id=product.id, location_id=location_b.id, cantidad_disponible=99),
+        ProductIMEI(product_id=product.id, location_id=location_b.id,
+                    imei="356123456789018", vendido=False),
+    ])
+    db_session.commit()
+
+    app.dependency_overrides[get_current_user] = _restricted_user
+    app.dependency_overrides[get_current_user_optional] = _restricted_user
+    app.dependency_overrides[get_current_active_user] = _restricted_user
+
+    responses = [
+        client.get("/api/orders?per_page=50"),
+        client.post("/api/orders/search", json={}),
+    ]
+    order = db_session.query(Order).filter(Order.source_location_id == location_a.id, Order.estado == "completada").first()
+    assert order is not None
+    responses.append(client.get(f"/api/orders/{order.id}"))
+    for result in responses:
+        assert result.status_code == 200, result.text
+        payload = result.json()
+        orders = payload.get("items", []) if "items" in payload else [payload]
+        for item in orders[0]["items"]:
+            nested = item["product"]
+            if nested and nested["id"] == product.id:
+                assert {s["location_id"] for s in nested.get("stock_items") or []} == {location_a.id}
+                assert nested["stock_disponible"] == 3
+                assert "356123456789018" not in (nested.get("imeis") or [])
+
+
+def test_forecasting_only_includes_allowed_locations(client, db_session):
+    location_a, location_b = _seed_two_store_data(db_session)
+    app.dependency_overrides[get_current_user] = _restricted_user
+    app.dependency_overrides[get_current_user_optional] = _restricted_user
+    app.dependency_overrides[get_current_active_user] = _restricted_user
+
+    scoped = client.get("/api/forecasting/predict")
+    assert scoped.status_code == 200, scoped.text
+    assert {x["product_name"] for x in scoped.json()} == {"Marca Uno"}
+
+    denied = client.get(f"/api/forecasting/predict?location_id={location_b.id}")
+    assert denied.status_code == 403
+
+    allowed = client.get(f"/api/forecasting/predict?location_id={location_a.id}")
+    assert allowed.status_code == 200, allowed.text
