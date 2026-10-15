@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import {
   Dialog,
@@ -51,8 +51,37 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
   const [editingId, setEditingId] = useState<string | null>(null)
   const [recordedKeys, setRecordedKeys] = useState<ShortcutBinding | null>(null)
   const [conflictError, setConflictError] = useState<string | null>(null)
+  const keydownListenerRef = useRef<((event: KeyboardEvent) => void) | null>(null)
+  const captureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const stopRecording = useCallback(() => {
+    if (keydownListenerRef.current) {
+      window.removeEventListener('keydown', keydownListenerRef.current)
+      keydownListenerRef.current = null
+    }
+    if (captureTimeoutRef.current !== null) {
+      clearTimeout(captureTimeoutRef.current)
+      captureTimeoutRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) stopRecording()
+    return () => stopRecording()
+  }, [open, stopRecording])
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      stopRecording()
+      setEditingId(null)
+      setRecordedKeys(null)
+      setConflictError(null)
+    }
+    onOpenChange(nextOpen)
+  }
 
   const handleStartRecording = (id: string) => {
+    stopRecording()
     setEditingId(id)
     setRecordedKeys(null)
     setConflictError(null)
@@ -65,7 +94,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
         setEditingId(null)
         setRecordedKeys(null)
         setConflictError(null)
-        window.removeEventListener('keydown', handleKeyDown)
+        stopRecording()
         return
       }
 
@@ -88,15 +117,19 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown, { once: false })
-
-    setTimeout(() => {
-      window.removeEventListener('keydown', handleKeyDown)
+    keydownListenerRef.current = handleKeyDown
+    window.addEventListener('keydown', handleKeyDown)
+    captureTimeoutRef.current = setTimeout(() => {
+      stopRecording()
+      setEditingId(null)
+      setRecordedKeys(null)
+      setConflictError(null)
     }, 30000)
   }
 
   const handleSaveBinding = () => {
     if (!editingId || !recordedKeys || conflictError) return
+    stopRecording()
 
     setPreferences((current) => ({
       ...(current || {}),
@@ -110,12 +143,17 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
   }
 
   const handleCancelEdit = () => {
+    stopRecording()
     setEditingId(null)
     setRecordedKeys(null)
     setConflictError(null)
   }
 
   const handleResetAll = () => {
+    stopRecording()
+    setEditingId(null)
+    setRecordedKeys(null)
+    setConflictError(null)
     setPreferences(initializeShortcutPreferences())
     toast.success('Atajos restaurados a valores predeterminados')
   }
@@ -148,7 +186,7 @@ export function CustomizeShortcutsDialog({ open, onOpenChange }: CustomizeShortc
   }, {} as Record<string, typeof DEFAULT_SHORTCUTS>)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between text-2xl">
