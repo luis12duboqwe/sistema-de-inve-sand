@@ -8,7 +8,7 @@ interface CountSnapshot {
   location_id: number
   items: CountLine[]
 }
-interface LocalStockRow { product_id: number; location_id: number; cantidad_disponible: number; cantidad_reservada?: number }
+interface LocalStockRow { product_id: number; location_id?: number; cantidad_disponible: number; cantidad_reservada?: number }
 interface LocalProduct { id: number; is_serialized?: boolean }
 interface LocalSerial { imei: string; product_id: number; location_id?: number; vendido: boolean; transfer_id?: number; order_id?: number }
 
