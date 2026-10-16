@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validateLocalPurchaseReceipt } from './purchaseReceiptValidation'
 
 // Simple Async Lock to prevent race conditions in Local Mode
 class AsyncLock {
@@ -4810,9 +4811,13 @@ export class InventoryService {
   async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
     const release = await inventoryLock.acquire()
     try {
-      const [receipts, stock, products, productImeis, imeiHistory, stockHistory] = await Promise.all([
-        this.loadPurchaseReceipts(), this.getStock(), this.loadProducts(), this.loadProductIMEIs(), this.loadIMEIHistory(), this.loadStockHistory()
+      const [receipts, stock, products, productImeis, imeiHistory, stockHistory, locations, suppliers] = await Promise.all([
+        this.loadPurchaseReceipts(), this.getStock(), this.loadProducts(), this.loadProductIMEIs(), this.loadIMEIHistory(), this.loadStockHistory(),
+        this.loadLocations(), this.loadSuppliers(),
       ])
+      // Validate the ENTIRE intake before mutating stock, prices or IMEI history.
+      // One rejected row must not partially apply earlier rows in the same batch.
+      validateLocalPurchaseReceipt(data, { products, locations, suppliers, existingImeis: productImeis })
       const now = new Date().toISOString()
       if (data.invoice_number && receipts.some(receipt =>
         receipt.location_id === data.location_id &&
@@ -4831,7 +4836,7 @@ export class InventoryService {
       const items = data.items.map((item, index) => {
         const product = products.find(candidate => candidate.id === item.product_id)
         if (!product) throw new Error(`Producto ${item.product_id} no encontrado`)
-        const imeis = item.imeis || []
+        const imeis = (item.imeis || []).map(imei => imei.trim())
         if (product.is_serialized && imeis.length !== item.quantity) throw new Error(`Producto ${product.nombre} requiere ${item.quantity} IMEI(s)`)
         if (imeis.some(imei => productImeis.some(existing => existing.imei === imei))) throw new Error(`Hay IMEIs duplicados en la recepción de ${product.nombre}`)
 
