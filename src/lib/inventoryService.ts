@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validateLocalReturnRequest } from './localReturnIntegrity'
 import { assertLocalOrderDeletionAllowed } from './localOrderDeletionIntegrity'
 import { validateLocalOrderStatusChange } from './localOrderStatusIntegrity'
 import { assertLocalInventoryCountIsFresh } from './localInventoryCountIntegrity'
@@ -5083,20 +5084,25 @@ export class InventoryService {
   }
 
   async createReturn(request: CreateReturnRequest): Promise<Return> {
+    const release = await inventoryLock.acquire()
     try {
-      const [returns, orders, stock, stockHistory, imeis, imeiHistory] = await Promise.all([
+      const [returns, orders, stock, stockHistory, imeis, imeiHistory, orderItems, products] = await Promise.all([
         this.loadReturns(),
         this.loadOrders(),
         this.getStock(),
         this.loadStockHistory(),
         this.loadProductIMEIs(),
-        this.loadIMEIHistory()
+        this.loadIMEIHistory(),
+        this.getOrderItems(),
+        this.loadProducts(),
       ])
 
       const order = orders.find(o => o.id === request.order_id)
       if (!order) {
         throw new Error(`Order ${request.order_id} not found`)
       }
+      // Reject duplicate refunds and invalid replacement IMEIs before any state mutation.
+      validateLocalReturnRequest(request, order, orderItems, returns, products, imeis, stock)
 
       const nextReturnId = Math.max(0, ...returns.map(r => r.id)) + 1
       const now = new Date().toISOString()
@@ -5202,6 +5208,11 @@ export class InventoryService {
               imeiRecord.vendido = false
               imeiRecord.order_id = undefined
               imeiRecord.sold_at = undefined
+              // Defective IMEIs are quarantined, never available for resale.
+              if (isDefective) {
+                imeiRecord.location_id = undefined
+                imeiRecord.acquisition_type = 'garantia_defectuoso'
+              }
 
               // Add IMEI History
               const nextIMEIHistoryId = Math.max(0, ...updatedIMEIHistory.map(h => h.id)) + 1
@@ -5320,6 +5331,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error creating return:', error)
       throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
