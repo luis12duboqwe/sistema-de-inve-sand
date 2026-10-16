@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { assertLocalInventoryCountIsFresh } from './localInventoryCountIntegrity'
 import { validateLocalTransferRequest } from './localTransferIntegrity'
 import { validatedLocalFinancingRate, originalLocalSaleTotal } from './localFinancingIntegrity'
 import { validateLocalPurchaseReceipt } from './purchaseReceiptValidation'
@@ -4942,6 +4943,9 @@ export class InventoryService {
       const count = counts.find(candidate => candidate.id === countId)
       if (!count) throw new Error('Conteo no encontrado')
       if (count.status !== 'draft') throw new Error('Solo se pueden aprobar conteos en borrador')
+      // Snapshot must match the CURRENT location stock and serial ownership.
+      // A sale/transfer since scanning requires a new physical count.
+      assertLocalInventoryCountIsFresh(count, stock, products, productImeis)
       let nextStockId = Math.max(0, ...stock.map(item => item.id)) + 1
       let nextHistoryId = Math.max(0, ...stockHistory.map(item => item.id)) + 1
       let nextImeiHistoryId = Math.max(0, ...imeiHistory.map(item => item.id)) + 1
