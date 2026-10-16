@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validatedLocalFinancingRate, originalLocalSaleTotal } from './localFinancingIntegrity'
 import { validateLocalPurchaseReceipt } from './purchaseReceiptValidation'
 
 // Simple Async Lock to prevent race conditions in Local Mode
@@ -1559,11 +1560,11 @@ export class InventoryService {
         const banks = await this.getBanks(true)
         const bank = banks.find(b => b.id === bankId)
         
-        if (!bank) {
+        if (!bank || !bank.active) {
            throw new Error(`Banco con ID ${bankId} no encontrado o inactivo`)
         }
 
-        let rate = bank.normal_card_rate || 0.04 // Default fallback
+        let rate = validatedLocalFinancingRate(bank.normal_card_rate)
         const bankName = bank.name
 
         if (months > 0) {
@@ -1571,7 +1572,7 @@ export class InventoryService {
            if (!option) {
               throw new Error(`Opción de financiamiento de ${months} meses no encontrada para ${bank.name}`)
            }
-           rate = option.rate
+           rate = validatedLocalFinancingRate(option.rate)
         }
         
         const surcharge = amountToFinance * rate
@@ -1588,7 +1589,7 @@ export class InventoryService {
           rate: Number(rate.toFixed(4)),
           surcharge: Number(surcharge.toFixed(2)),
           monthly_payment: Number(monthlyPayment.toFixed(2)),
-          original_total: Number((total + tradeInTotal).toFixed(2)),
+          original_total: originalLocalSaleTotal(amountToFinance + downPayment, tradeInTotal),
           down_payment: downPayment,
           financed_amount: Number(amountToFinance.toFixed(2))
         })
@@ -7063,7 +7064,7 @@ export class InventoryService {
         id: nextId,
         name: bank.name || 'Nuevo Banco',
         active: bank.active ?? true,
-        normal_card_rate: bank.normal_card_rate || 0.04,
+        normal_card_rate: validatedLocalFinancingRate(bank.normal_card_rate ?? 0),
         financing_options: []
       }
 
