@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validateLocalTransferRequest } from './localTransferIntegrity'
 import { validatedLocalFinancingRate, originalLocalSaleTotal } from './localFinancingIntegrity'
 import { validateLocalPurchaseReceipt } from './purchaseReceiptValidation'
 
@@ -3831,7 +3832,11 @@ export class InventoryService {
   }
 
   async createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer> {
+    // Serialize reserve/update in this tab to avoid two transfers consuming
+    // the same free stock. Production uses PostgreSQL locks, never local KV.
+    const release = await inventoryLock.acquire()
     try {
+      validateLocalTransferRequest(request)
       const [products, stock, locations, transfers] = await Promise.all([
         this.loadProducts(),
         this.getStock(),
@@ -3840,7 +3845,7 @@ export class InventoryService {
       ])
 
       const product = products.find(p => p.id === request.product_id)
-      if (!product) throw new Error(`Product ${request.product_id} not found`)
+      if (!product || !product.activo) throw new Error(`Product ${request.product_id} not found or inactive`)
 
       const fromLocation = locations.find(l => l.id === request.from_location_id)
       if (!fromLocation) throw new Error(`Source location ${request.from_location_id} not found`)
@@ -3988,6 +3993,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error creating stock transfer:', error)
       throw new Error(`Failed to create stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
