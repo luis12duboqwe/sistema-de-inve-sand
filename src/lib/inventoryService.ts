@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validateLocalOrderStatusChange } from './localOrderStatusIntegrity'
 import { assertLocalInventoryCountIsFresh } from './localInventoryCountIntegrity'
 import { validateLocalTransferRequest } from './localTransferIntegrity'
 import { validatedLocalFinancingRate, originalLocalSaleTotal } from './localFinancingIntegrity'
@@ -2024,6 +2025,12 @@ export class InventoryService {
     estado: Order['estado'],
     _validationCode?: string
   ): Promise<OrderWithItems> {
+    if (estado === 'cancelada') {
+      // The cancel workflow must reconcile reservations, serials and stock.
+      // Merely changing the state would leave the inventory allocated forever.
+      return this.cancelOrder(orderId)
+    }
+    const release = await inventoryLock.acquire()
     try {
       const [orders, orderItems, stock, imeis, imeiHistory, stockHistory] = await Promise.all([
         this.loadOrders(),
@@ -2040,6 +2047,7 @@ export class InventoryService {
       }
 
       const previousStatus = orders[orderIndex].estado
+      validateLocalOrderStatusChange(previousStatus, estado)
       const finalStatuses: Array<Order['estado']> = ['completada', 'validada']
       if (!finalStatuses.includes(previousStatus) && finalStatuses.includes(estado)) {
         const order = orders[orderIndex]
@@ -2108,6 +2116,13 @@ export class InventoryService {
         }
       }
 
+      const effectiveSaleTime = new Date().toISOString()
+      if (estado === 'completada' && !orders[orderIndex].completed_at) {
+        orders[orderIndex].completed_at = effectiveSaleTime
+      }
+      if (estado === 'validada' && !orders[orderIndex].validada_at) {
+        orders[orderIndex].validada_at = effectiveSaleTime
+      }
       orders[orderIndex].estado = estado
       await this.setOrders(orders)
       await this.setStock(stock)
@@ -2138,6 +2153,8 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
