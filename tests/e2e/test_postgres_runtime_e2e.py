@@ -83,7 +83,7 @@ def _create_isolated_schema_url(database_url: str) -> tuple[str, Callable[[], No
     return isolated, cleanup
 
 
-def _start_backend() -> tuple[subprocess.Popen, str, Callable[[], None]]:
+def _start_backend() -> tuple[subprocess.Popen, str, Callable[[], None], str]:
     database_url = os.environ.get("DATABASE_URL", "")
     _assert_isolated_postgres_dsn(database_url)
 
@@ -129,7 +129,7 @@ def _start_backend() -> tuple[subprocess.Popen, str, Callable[[], None]]:
         output, _ = process.communicate(timeout=10)
         cleanup()
         raise AssertionError(f"No se pudo iniciar el backend PostgreSQL:\n{output}")
-    return process, base_url, cleanup
+    return process, base_url, cleanup, isolated_url
 
 
 def _stop_backend(process: subprocess.Popen) -> None:
@@ -179,7 +179,7 @@ def _items(payload):
 
 
 def test_postgres_real_auth_readiness_and_stock_concurrency():
-    process, base_url, cleanup = _start_backend()
+    process, base_url, cleanup, isolated_url = _start_backend()
     try:
         ready = requests.get(f"{base_url}/api/ready", timeout=5)
         assert ready.status_code == 200
@@ -286,6 +286,50 @@ def test_postgres_real_auth_readiness_and_stock_concurrency():
         )
         matched = next(item for item in products if item["id"] == product["id"])
         assert matched["stock_disponible"] == 0
+
+        # Check the REAL disposable PostgreSQL schema, not only API response
+        # models; a losing concurrent order must not leave orphan items,
+        # duplicate sales ledger entries or stale serial reservations.
+        engine = create_engine(isolated_url)
+        try:
+            with engine.connect() as conn:
+                order_rows = conn.execute(
+                    text("SELECT id FROM orders WHERE source_location_id = :location"),
+                    {"location": location["id"]},
+                ).scalars().all()
+                assert order_rows == [created["id"]]
+                assert conn.execute(
+                    text("SELECT COUNT(*) FROM order_items WHERE order_id = :order_id"),
+                    {"order_id": created["id"]},
+                ).scalar_one() == 1
+                assert conn.execute(
+                    text("SELECT COUNT(*) FROM order_items WHERE product_id = :product_id"),
+                    {"product_id": product["id"]},
+                ).scalar_one() == 1
+
+                balance = conn.execute(
+                    text("SELECT cantidad_disponible, cantidad_reservada FROM stock "
+                         "WHERE product_id = :product_id AND location_id = :location_id"),
+                    {"product_id": product["id"], "location_id": location["id"]},
+                ).one()
+                assert tuple(balance) == (0, 0)
+
+                serial = conn.execute(
+                    text("SELECT vendido, order_id, transfer_id FROM product_imeis "
+                         "WHERE imei = :imei"),
+                    {"imei": imei},
+                ).one()
+                assert tuple(serial) == (True, created["id"], None)
+
+                movements = conn.execute(
+                    text("SELECT cantidad FROM stock_history "
+                         "WHERE product_id = :product_id AND referencia_tipo = 'order' "
+                         "AND referencia_id = :order_id AND tipo_cambio = 'venta'"),
+                    {"product_id": product["id"], "order_id": created["id"]},
+                ).scalars().all()
+                assert movements == [-1], movements
+        finally:
+            engine.dispose()
     finally:
         _stop_backend(process)
         cleanup()
