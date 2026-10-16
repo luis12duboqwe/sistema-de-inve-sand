@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User
+from app.models import User, ProcessedMessage
 from app.routers import ai_intelligence as legacy_ai
 from app.sales_profile_lookup import find_sales_profile_by_slug
 from app.schemas import (
@@ -121,7 +121,31 @@ def handle_message_without_n8n_integrity(
         request,
         missing_detail="Sales Profile not found",
     )
-    return legacy_ai.handle_message_without_n8n(canonical, db, auth_context)
+    try:
+        result = legacy_ai.handle_message_without_n8n(canonical, db, auth_context)
+    except Exception:
+        # Se desconoce si una foto, orden u otro side-effect ya hizo commit.
+        # No repetir automáticamente: conservar reclamo para conciliación.
+        if canonical.message_id:
+            db.rollback()
+            record = db.query(ProcessedMessage).filter(
+                ProcessedMessage.message_id == canonical.message_id,
+                ProcessedMessage.delivery_status == "ai_processing",
+            ).first()
+            if record:
+                record.delivery_status = "ai_manual_recovery"
+                db.commit()
+        raise
+
+    if canonical.message_id and result.model != "duplicate-guard":
+        record = db.query(ProcessedMessage).filter(
+            ProcessedMessage.message_id == canonical.message_id,
+            ProcessedMessage.delivery_status == "ai_processing",
+        ).first()
+        if record:
+            record.delivery_status = "ai_processed"
+            db.commit()
+    return result
 
 
 __all__ = [

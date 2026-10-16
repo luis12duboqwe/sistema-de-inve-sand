@@ -816,6 +816,22 @@ def purge_product_for_admin(
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
+    # La purga física jamás puede reescribir la contabilidad histórica ni
+    # borrar devoluciones de otras líneas de una orden mixta. Exigir archivo/
+    # desactivación cuando exista cualquier vínculo con una venta.
+    has_sale_history = db.query(OrderItem.id).filter(
+        OrderItem.product_id == product_id
+    ).first() is not None
+    has_return_history = db.query(ReturnItem.id).filter(
+        ReturnItem.product_id == product_id
+    ).first() is not None
+    if has_sale_history or has_return_history:
+        db.rollback()  # libera locks del protocolo de purga
+        raise HTTPException(
+            status_code=409,
+            detail="El producto tiene ventas o devoluciones históricas. Desactívelo; no se permite purgar su historial financiero.",
+        )
+
     product_before = {
         "id": product.id,
         "sku": product.sku,
@@ -958,7 +974,14 @@ def super_admin_cancel_transfer(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser_audited),
 ):
-    transfer = db.query(StockTransfer).filter(StockTransfer.id == transfer_id).first()
+    # Coincidir con el protocolo canónico: bloquear la transferencia ANTES
+    # de inspeccionar su estado y ANTES de bloquear el stock compartido.
+    transfer = (
+        db.query(StockTransfer)
+        .filter(StockTransfer.id == transfer_id)
+        .with_for_update()
+        .first()
+    )
     if not transfer:
         raise HTTPException(status_code=404, detail="Transferencia no encontrada")
     if transfer.estado != "pendiente":

@@ -38,7 +38,7 @@ class AnalyticsEvent(Base):
     entity_type = Column(String(50), nullable=False)  # e.g., "photo_request", "order"
     entity_id = Column(Integer, nullable=False)
     value = Column(Integer, nullable=True)  # e.g., response_time_seconds
-    metadata = Column(JSON, nullable=True)  # e.g., {"product_name": "iPhone 15", "channel": "whatsapp"}
+    event_metadata = Column('metadata', JSON, nullable=True)  # e.g., {"product_name": "iPhone 15", "channel": "whatsapp"}
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
 
 
@@ -85,7 +85,7 @@ def log_analytics_event(
             entity_type=entity_type,
             entity_id=entity_id,
             value=value,
-            metadata=metadata
+            event_metadata=metadata
         )
         db.add(event)
         db.commit()

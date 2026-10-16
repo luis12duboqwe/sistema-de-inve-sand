@@ -15,6 +15,7 @@ interface HealthCheckDialogProps {
   isRunning: boolean
   onRunCheck: () => void
   onAutoFix: () => void
+  allowAutoFix?: boolean
 }
 
 const severityConfig = {
@@ -55,7 +56,8 @@ export function HealthCheckDialog({
   result,
   isRunning,
   onRunCheck,
-  onAutoFix
+  onAutoFix,
+  allowAutoFix = false
 }: HealthCheckDialogProps) {
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set())
 
@@ -106,7 +108,7 @@ export function HealthCheckDialog({
               )}
             </Button>
             
-            {hasAutoFixableIssues && (
+            {allowAutoFix && hasAutoFixableIssues && (
               <Button 
                 variant="outline" 
                 onClick={onAutoFix}

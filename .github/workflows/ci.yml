@@ -32,6 +32,14 @@ jobs:
         run: bash deploy/test-ops-healthcheck-timeout.sh
       - name: Test DR drill hardening
         run: bash deploy/test-dr-drill.sh
+      - name: Test audited operations and backup wiring
+        run: bash deploy/test-audit-ops.sh
+      - name: Test legacy utilities do not mutate business data
+        run: bash deploy/test-audit-legacy-utilities.sh
+      - name: Test safe isolated database restore
+        run: bash deploy/test-safe-restore.sh
+      - name: Test legacy reset and development quickstart
+        run: bash deploy/test-local-quickstart.sh
 
   test-frontend:
     runs-on: ubuntu-latest

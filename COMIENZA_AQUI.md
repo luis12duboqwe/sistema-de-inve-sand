@@ -6,8 +6,10 @@ Esta guía reemplaza el quickstart antiguo basado en configuración manual de Po
 
 ```bash
 npm ci --legacy-peer-deps
-pip install -r backend/requirements.txt
-pip install -r backend/requirements-dev.txt
+python3 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt
+backend/.venv/bin/pip install -r backend/requirements-dev.txt
+# Configurar backend/.env con PostgreSQL local antes de iniciar.
 ./start-all.sh
 ```
 

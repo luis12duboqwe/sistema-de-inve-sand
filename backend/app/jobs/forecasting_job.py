@@ -18,7 +18,7 @@ def _build_snapshot(days_history: int = 90):
     session = SessionLocal()
     try:
         forecasts = generate_sales_forecasts(session, days_history=days_history)
-        return summarize_forecasts(session, forecasts)
+        return forecasts, summarize_forecasts(session, forecasts)
     except Exception:  # pragma: no cover - errores se registran
         logger.exception("Error al crear snapshot de pronósticos")
         return None
@@ -31,10 +31,13 @@ def start_forecasting_job(app: FastAPI, days_history: int = 90) -> AsyncIOSchedu
     scheduler = AsyncIOScheduler()
 
     def task() -> None:
-        summary = _build_snapshot(days_history)
-        if summary:
+        snapshot = _build_snapshot(days_history)
+        if snapshot:
+            forecasts, summary = snapshot
             app.state.forecast_cache = {
                 "generated_at": datetime.now(timezone.utc),
+                "days_history": days_history,
+                "forecasts": forecasts,
                 "summary": summary,
             }
             logger.info(

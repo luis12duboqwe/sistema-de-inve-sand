@@ -16,7 +16,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -48,6 +48,8 @@ from app.schemas import (
 )
 from app.utils.audit import log_audit_event
 from app.utils.location_access import require_location_access
+from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 router = APIRouter(prefix="/api/multistore-control", tags=["multistore-control"])
@@ -130,6 +132,7 @@ def create_purchase_receipt_integrity(
     payload: PurchaseReceiptCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("purchases:manage")),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ):
     require_location_access(db, current_user, payload.location_id, "can_receive_purchase")
 
@@ -147,6 +150,20 @@ def create_purchase_receipt_integrity(
 
     if payload.supplier_id and not db.query(Supplier).filter(Supplier.id == payload.supplier_id).first():
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+
+    # Claim before duplicate-invoice detection: a completed request must replay
+    # the original receipt even if a network error hid its first response.
+    # The location lock and claim are part of the SAME transaction as stock.
+    claim = claim_business_request(
+        db,
+        key=idempotency_key if isinstance(idempotency_key, str) else None,
+        identity_id=int(current_user.id),
+        endpoint="POST /api/multistore-control/purchase-receipts",
+        payload=payload.model_dump(mode="json"),
+        require_key=prod_settings.is_production(),
+    )
+    if claim.replay is not None:
+        return PurchaseReceiptResponse.model_validate(claim.replay)
 
     invoice_number = _normalize_invoice_number(payload.invoice_number)
     if invoice_number:
@@ -274,9 +291,12 @@ def create_purchase_receipt_integrity(
             user=current_user,
             after_data=audit_payload,
         )
-        db.commit()
+        db.flush()
         db.refresh(receipt)
-        return _serialize_receipt(receipt)
+        serialized = _serialize_receipt(receipt)
+        save_business_response(claim, serialized.model_dump(mode="json"))
+        db.commit()
+        return serialized
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Conflicto de integridad al recibir la compra") from exc

@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, inspect, text
@@ -8,6 +9,7 @@ from migrate_sqlite_to_postgres import (
     _copy_table_rows,
     _required_target_columns_missing_from_source,
     _target_tables_with_rows,
+    _truncate_tables,
 )
 
 
@@ -126,3 +128,40 @@ def test_sqlite_source_backup_is_consistent_and_does_not_modify_source(tmp_path:
     finally:
         source_engine.dispose()
         backup_engine.dispose()
+
+
+def test_truncate_and_copy_failure_rolls_back_preexisting_postgres_data(db_session, tmp_path: Path):
+    """A failed replacement must not empty the customer's target database."""
+    table_name = f"audit_atomic_{uuid4().hex[:12]}"
+    target_engine = db_session.get_bind()
+    target_metadata = MetaData()
+    target_table = Table(
+        table_name, target_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("required_field", String(50), nullable=False),
+    )
+    target_metadata.create_all(target_engine)
+
+    source = create_engine(f"sqlite:///{tmp_path / 'legacy-replace.db'}")
+    source_metadata = MetaData()
+    source_table = Table(table_name, source_metadata, Column("id", Integer, primary_key=True))
+    source_metadata.create_all(source)
+    with source.begin() as conn:
+        conn.execute(source_table.insert().values(id=7))
+    with target_engine.begin() as conn:
+        conn.execute(target_table.insert().values(id=42, required_field="preservar"))
+
+    try:
+        with pytest.raises(RuntimeError, match="demasiado antigua"):
+            with target_engine.begin() as conn:
+                _truncate_tables(conn, [table_name])
+                _copy_table_rows(source, conn, target_table)
+
+        with target_engine.connect() as conn:
+            rows = conn.execute(
+                text(f'SELECT id, required_field FROM "{table_name}"')
+            ).all()
+        assert [tuple(row) for row in rows] == [(42, "preservar")]
+    finally:
+        target_metadata.drop_all(target_engine)
+        source.dispose()

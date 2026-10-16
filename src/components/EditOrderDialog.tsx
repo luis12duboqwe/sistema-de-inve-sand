@@ -24,6 +24,7 @@ import type { Bank, OrderWithItems, ProductWithStock, SalesProfile } from '@/lib
 import { validatePhoneNumber } from '@/lib/phoneValidator'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { apiClient } from '@/lib/apiClient'
+import { requiresSerialTracking } from '@/lib/serialPolicy'
 
 interface EditOrderDialogProps {
   open: boolean
@@ -132,7 +133,7 @@ export function EditOrderDialog({
           
           const pendingItemIndex = items.findIndex(i => 
             (!i.imeis || i.imeis.length < i.cantidad) && 
-            products.find(p => p.id === i.product_id)?.categoria === 'celular'
+            requiresSerialTracking(products.find(p => p.id === i.product_id))
           )
 
           if (pendingItemIndex >= 0) {
@@ -224,7 +225,7 @@ export function EditOrderDialog({
       for (const item of items) {
         if (item.product_id > 0 && !newAvailableIMEIs[item.product_id]) {
           const product = products.find(p => p.id === item.product_id)
-          if (product?.categoria === 'celular') {
+          if (requiresSerialTracking(product)) {
              try {
                // Fetch available IMEIs
                const imeis = await inventoryServiceInstance.getAvailableIMEIs(item.product_id, order.source_location_id)
@@ -386,7 +387,7 @@ export function EditOrderDialog({
       }
 
       // Validate IMEIs for serialized products
-      if (product.categoria === 'celular') {
+      if (requiresSerialTracking(product)) {
         if (!item.imeis || item.imeis.length !== item.cantidad) {
           toast.error(`Debes seleccionar ${item.cantidad} IMEIs para ${product.nombre}`)
           return
@@ -628,7 +629,7 @@ export function EditOrderDialog({
                   </div>
 
                   {/* IMEI Selector */}
-                  {product?.categoria === 'celular' && (
+                  {requiresSerialTracking(product) && (
                     <div className="w-full bg-muted/30 p-2 rounded border border-dashed">
                       <div className="flex justify-between items-center mb-2">
                         <Label className="text-xs font-medium">

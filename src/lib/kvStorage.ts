@@ -11,6 +11,7 @@
  * o una acción de UI haga que una instalación productiva escriba contra el modo local.
  */
 
+import { isSessionOnlyBusinessKey } from './sessionCachePolicy'
 import {
   isProductionApiForced,
   normalizeRuntimeWrite,
@@ -32,6 +33,10 @@ class LocalStorageKV implements SparkKV {
   async get<T>(key: string): Promise<T | undefined> {
     try {
       const fullKey = this.prefix + key
+      if (isSessionOnlyBusinessKey(key)) {
+        localStorage.removeItem(fullKey)
+        return undefined
+      }
       const item = localStorage.getItem(fullKey)
       const storedValue = item === null || item === 'undefined'
         ? undefined
@@ -47,6 +52,10 @@ class LocalStorageKV implements SparkKV {
   async set<T>(key: string, value: T): Promise<void> {
     try {
       const fullKey = this.prefix + key
+      if (isSessionOnlyBusinessKey(key)) {
+        localStorage.removeItem(fullKey)
+        return
+      }
       const valueToStore = normalizeRuntimeWrite(key, value)
       localStorage.setItem(fullKey, JSON.stringify(valueToStore))
     } catch (error) {

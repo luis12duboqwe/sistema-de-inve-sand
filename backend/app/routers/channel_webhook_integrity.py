@@ -13,6 +13,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.channel_audit import channel_metrics
 from app.config_production import prod_settings
 from app.database import get_db
 from app.models import ProcessedMessage, SalesProfile
@@ -77,6 +78,14 @@ def _claim_message(
             if existing is None:
                 return "duplicate"
 
+            # Global message_id uniqueness cannot isolate unrelated channels or
+            # customers. Never deliver a cached response to the wrong recipient.
+            if existing.channel != channel or existing.customer_phone != customer_phone:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Message ID collision across channel or recipient; manual reconciliation required",
+                )
+
             state = str(existing.delivery_status or "").strip().lower()
             if state == "pending_delivery" and existing.reply_text:
                 # Only a confirmed send failure is auto-retryable. An ambiguous
@@ -89,6 +98,9 @@ def _claim_message(
 
             db.rollback()
             return "duplicate"
+        except HTTPException:
+            db.rollback()
+            raise
         except Exception:
             db.rollback()
             logger.exception("Could not inspect existing webhook delivery claim")
@@ -281,6 +293,7 @@ def _prepare_incoming_event(
         customer_phone=event.customer_id,
         customer_name=event.customer_name,
         message_content=event.text,
+        channel_hint=event.channel,
         order_intent=None,
     )
     ai_result = legacy_channels.handle_message_without_n8n(ai_payload, db, None)
@@ -305,6 +318,8 @@ def _cached_delivery_context(
     ).first()
     if claim is None or not claim.reply_text:
         raise HTTPException(status_code=409, detail="No existe respuesta pendiente para reintentar")
+    if claim.channel != event.channel or claim.customer_phone != event.customer_id:
+        raise HTTPException(status_code=409, detail="El destinatario o canal no coincide con la respuesta retenida")
 
     profile = None
     if claim.sales_profile_id:
@@ -380,6 +395,8 @@ async def _handle_channel_webhook_integrity(
     failed: list[Dict[str, str]] = []
 
     for event in events:
+        # Count every provider-delivered event, including retries.
+        channel_metrics.increment_messages_received(channel)
         claim_state = _claim_message(
             request,
             db,
@@ -388,13 +405,16 @@ async def _handle_channel_webhook_integrity(
             customer_phone=event.customer_id,
         )
         if claim_state == "duplicate":
+            channel_metrics.increment_duplicates(channel)
             skipped_duplicates += 1
             continue
 
         if claim_state == "retry_delivery":
             try:
                 processed.append(await _retry_cached_delivery(event, request, db))
+                channel_metrics.increment_messages_sent(channel)
             except Exception as exc:
+                channel_metrics.increment_api_errors(channel)
                 logger.warning("Cached webhook delivery retry failed for %s: %s", channel, exc)
                 failed.append({"customer_id": event.customer_id, "error": str(getattr(exc, "detail", exc))})
             continue
@@ -424,8 +444,10 @@ async def _handle_channel_webhook_integrity(
                 message_id=event.external_message_id,
                 claim_state=claim_state,
             )
+            channel_metrics.increment_messages_sent(channel)
             processed.append(result)
         except Exception as exc:
+            channel_metrics.increment_api_errors(channel)
             logger.warning("Webhook %s message failed: %s", channel, exc)
             if reply_prepared:
                 _mark_delivery_failed(

@@ -60,6 +60,7 @@ const getStatusClassName = (record: ProductIMEI) => {
 
 export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAdminActions = false, locations = [], initialLocationId, onUpdated }: ProductIMEIRegistryDialogProps) {
   const [imeiRecords, setImeiRecords] = useState<ProductIMEI[]>([])
+  const [imeiLoadError, setImeiLoadError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [savingAdminAction, setSavingAdminAction] = useState(false)
   const [search, setSearch] = useState('')
@@ -79,11 +80,15 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
   useEffect(() => {
     const loadImeiRecords = async () => {
       setLoading(true)
+      setImeiLoadError(false)
+      setImeiRecords([])
       try {
         const records = await inventoryServiceInstance.getProductIMEIs(product.id)
         setImeiRecords(records)
       } catch (error) {
         console.error('Error loading product IMEI registry:', error)
+        setImeiLoadError(true)
+        toast.error('No fue posible verificar el registro de IMEIs')
       } finally {
         setLoading(false)
       }
@@ -268,6 +273,11 @@ export function ProductIMEIRegistryDialog({ open, onOpenChange, product, allowAd
           </DialogHeader>
 
           <div className="space-y-4">
+            {imeiLoadError && (
+              <p role="alert" className="rounded border border-destructive p-3 text-sm">
+                Error consultando el servidor. Los conteos y el registro de IMEIs no están verificados.
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-lg border p-3">
                 <div className="text-xs text-muted-foreground">Total de IMEIs</div>

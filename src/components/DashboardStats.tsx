@@ -1,4 +1,5 @@
 import { Card } from '@/components/ui/card'
+import { filterDashboardOrders, sumScopedRefunds } from '@/lib/dashboardScope'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -25,6 +26,7 @@ import { motion } from 'framer-motion'
 import { useMemo, useState, useEffect, useCallback, memo } from 'react'
 import { inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { isFinalSaleStatus } from '@/lib/orderStatus'
+import { accountingSaleDate } from '@/lib/reportUtils'
 
 const ALERT_STYLES: Record<InventoryAlert['alert_level'], { label: string; className: string }> = {
   out_of_stock: {
@@ -158,22 +160,45 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         return null
       })
 
+      const failedSections: string[] = []
+      const recordFailure = (section: string) => (error: unknown) => {
+        failedSections.push(section)
+        console.error(`Error consultando ${section} del dashboard:`, error)
+      }
       const [stats, report, alerts, salesByLocation, stockByLocation, returnsResult, insights] = await Promise.all([
-        inventoryServiceInstance.getDashboardStats().catch(() => null),
-        inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(() => null),
-        inventoryServiceInstance.getInventoryAlerts().catch(() => []),
-        inventoryServiceInstance.getSalesSummaryByLocation().catch(() => []),
-        inventoryServiceInstance.getStockSummaryByLocation(true).catch(() => []),
-        inventoryServiceInstance.getReturns().catch(() => []),
-        insightsPromise
+        inventoryServiceInstance.getDashboardStats().catch(error => {
+          recordFailure('indicadores')(error)
+          return null
+        }),
+        inventoryServiceInstance.getSalesReport({ top_limit: 5 }).catch(error => {
+          recordFailure('informe de ventas')(error)
+          return null
+        }),
+        inventoryServiceInstance.getInventoryAlerts().catch(error => {
+          recordFailure('alertas de inventario')(error)
+          return []
+        }),
+        inventoryServiceInstance.getSalesSummaryByLocation().catch(error => {
+          recordFailure('ventas por ubicación')(error)
+          return []
+        }),
+        inventoryServiceInstance.getStockSummaryByLocation(true).catch(error => {
+          recordFailure('stock por ubicación')(error)
+          return []
+        }),
+        inventoryServiceInstance.getReturns().catch(error => {
+          recordFailure('devoluciones')(error)
+          return []
+        }),
+        insightsPromise,
       ])
 
-      if (stats) {
-        setDashboardMetrics(stats)
-      }
-      if (report) {
-        setSalesReport(report)
-      }
+      // An empty backend result and an unavailable endpoint mean different things.
+      setDashboardMetrics(stats)
+      setSalesReport(report)
+      setApiError(failedSections.length
+        ? `No se pudieron verificar: ${failedSections.join(', ')}. Los datos visibles pueden ser parciales.`
+        : null)
       // Deduplicar alertas por product_id (el backend devuelve una por ubicación).
       // Conservamos el nivel más crítico y sumamos el stock de todas las ubicaciones.
       const ALERT_LEVEL_PRIORITY: Record<string, number> = { out_of_stock: 3, critical: 2, low: 1 }
@@ -204,7 +229,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
         setBusinessInsights(null)
         setInsightsSource(null)
       }
-      setLastUpdated(new Date().toISOString())
+      if (failedSections.length === 0) setLastUpdated(new Date().toISOString())
     } catch (error) {
       console.error('Error loading dashboard insights:', error)
       const message = error instanceof Error ? error.message : 'Error desconocido'
@@ -281,6 +306,30 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const activeProducts = products.filter(p => p.activo).length
   const totalProducts = products.length
 
+  // All chart widgets and refund calculations must share the SAME visible
+  // order scope. Service aggregates do not accept these UI filters.
+  const hasActiveChartFilters = chartsOnly && (
+    filterLocationId !== 'all' ||
+    filterCanalFilter !== 'all' ||
+    filterProfileId !== 'all' ||
+    Boolean(filterDateFrom) || Boolean(filterDateTo)
+  )
+  const scopedOrders = useMemo(() => filterDashboardOrders(orders, {
+    chartsOnly,
+    locationId: filterLocationId,
+    channel: filterCanalFilter,
+    profileId: filterProfileId,
+    dateFrom: filterDateFrom,
+    dateTo: filterDateTo,
+  }), [
+    orders, chartsOnly, filterLocationId, filterCanalFilter,
+    filterProfileId, filterDateFrom, filterDateTo,
+  ])
+  const scopedOrderIds = useMemo(
+    () => new Set(scopedOrders.map(order => order.id)),
+    [scopedOrders],
+  )
+
   const refundAmountByReturnId = useMemo(() => {
     const amountMap = new Map<number, number>()
 
@@ -306,12 +355,10 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   }, [returnsData, orders])
 
   const getRefundAmountInRange = useCallback((startDate: Date, endDate: Date) => {
-    return returnsData.reduce((sum, productReturn) => {
-      const returnDate = new Date(productReturn.created_at)
-      if (returnDate < startDate || returnDate > endDate) return sum
-      return sum + (refundAmountByReturnId.get(productReturn.id) || 0)
-    }, 0)
-  }, [returnsData, refundAmountByReturnId])
+    return sumScopedRefunds(
+      returnsData, scopedOrderIds, refundAmountByReturnId, startDate, endDate,
+    )
+  }, [returnsData, scopedOrderIds, refundAmountByReturnId])
 
   const pendingOrders = orders.filter(o => o.estado === 'pendiente').length
   const completedOrders = orders.filter(o => isFinalSaleStatus(o.estado)).length
@@ -335,12 +382,12 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
 
     const finalSaleOrders = orders.filter(o => isFinalSaleStatus(o.estado))
     const ordersToday = finalSaleOrders.filter(o => {
-      const createdAt = new Date(o.created_at)
+      const createdAt = accountingSaleDate(o)
       return createdAt >= startOfToday && createdAt <= endOfToday
     })
-    const ordersThisMonth = finalSaleOrders.filter(o => new Date(o.created_at) >= startOfMonth)
+    const ordersThisMonth = finalSaleOrders.filter(o => accountingSaleDate(o) >= startOfMonth)
     const ordersLastMonth = finalSaleOrders.filter(o => {
-      const createdAt = new Date(o.created_at)
+      const createdAt = accountingSaleDate(o)
       return createdAt >= startOfLastMonth && createdAt <= endOfLastMonth
     })
 
@@ -379,39 +426,14 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
   const outOfStockProducts = mergedDashboardStats.out_of_stock_count
   const inventoryValue = mergedDashboardStats.total_inventory_value
 
-  const filteredOrders = useMemo(() => {
-    if (!chartsOnly) return orders
-    let result = orders
-    if (filterLocationId !== 'all') {
-      const locId = parseInt(filterLocationId, 10)
-      result = result.filter(o => o.source_location_id === locId)
-    }
-    if (filterCanalFilter !== 'all') {
-      result = result.filter(o => o.canal === filterCanalFilter)
-    }
-    if (filterProfileId !== 'all') {
-      const profileId = parseInt(filterProfileId, 10)
-      result = result.filter(o => o.sales_profile_id === profileId)
-    }
-    if (filterDateFrom) {
-      const from = new Date(filterDateFrom)
-      from.setHours(0, 0, 0, 0)
-      result = result.filter(o => new Date(o.created_at) >= from)
-    }
-    if (filterDateTo) {
-      const to = new Date(filterDateTo)
-      to.setHours(23, 59, 59, 999)
-      result = result.filter(o => new Date(o.created_at) <= to)
-    }
-    return result
-  }, [chartsOnly, orders, filterLocationId, filterCanalFilter, filterProfileId, filterDateFrom, filterDateTo])
+  const filteredOrders = scopedOrders
 
   const chartOrders = chartsOnly ? filteredOrders : orders
 
   const last7Days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i)
     const dayOrders = chartOrders.filter(o => {
-      const orderDate = new Date(o.created_at)
+      const orderDate = accountingSaleDate(o)
       return isSameDay(orderDate, date)
     })
     const start = new Date(date)
@@ -468,7 +490,9 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       .slice(0, 5)
   }, [chartOrders])
 
-  const topProducts = serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts
+  const topProducts = hasActiveChartFilters
+    ? fallbackTopProducts
+    : (serviceTopProducts.length > 0 ? serviceTopProducts : fallbackTopProducts)
 
   const inventorySummaryMap = useMemo(() => {
     const map = new Map<number, StockSummaryByLocation>()
@@ -521,7 +545,9 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     }).filter(s => s.ordenes > 0)
   }, [locations, chartOrders])
 
-  const statsByLocation = serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation
+  const statsByLocation = hasActiveChartFilters
+    ? fallbackStatsByLocation
+    : (serviceStatsByLocation.length > 0 ? serviceStatsByLocation : fallbackStatsByLocation)
 
   // V2.0: Stats by sales profile
   const statsByProfile = useMemo(() => {
@@ -597,7 +623,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const yearStart = new Date(now.getFullYear(), 0, 1)
 
     const sumOrders = (startDate: Date) => {
-      const periodOrders = validOrders.filter(order => new Date(order.created_at) >= startDate)
+      const periodOrders = validOrders.filter(order => accountingSaleDate(order) >= startDate)
       const grossRevenue = periodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
       const refunds = getRefundAmountInRange(startDate, now)
       return {
@@ -614,7 +640,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     // Gráfica diaria: ingresos por hora (0-23)
     const hourlyData = Array.from({ length: 24 }, (_, h) => {
       const hourOrders = validOrders.filter(o => {
-        const d = new Date(o.created_at)
+        const d = accountingSaleDate(o)
         return isSameDay(d, now) && d.getHours() === h
       })
       const hourStart = new Date(now)
@@ -631,7 +657,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const weeklyChartData = Array.from({ length: 7 }, (_, i) => {
       const dayDate = new Date(weekStart)
       dayDate.setDate(dayDate.getDate() + i)
-      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayOrders = validOrders.filter(o => isSameDay(accountingSaleDate(o), dayDate))
       const dayStart = new Date(dayDate)
       dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(dayDate)
@@ -645,7 +671,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     const monthlyChartData = Array.from({ length: daysInMonth }, (_, i) => {
       const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1)
-      const dayOrders = validOrders.filter(o => isSameDay(new Date(o.created_at), dayDate))
+      const dayOrders = validOrders.filter(o => isSameDay(accountingSaleDate(o), dayDate))
       const dayStart = new Date(dayDate)
       dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(dayDate)
@@ -661,7 +687,7 @@ function DashboardStatsComponent({ products, orders, currentUser, onViewLowStock
       const mStart = new Date(now.getFullYear(), m, 1)
       const mEnd = new Date(now.getFullYear(), m + 1, 0, 23, 59, 59, 999)
       const mOrders = validOrders.filter(o => {
-        const d = new Date(o.created_at)
+        const d = accountingSaleDate(o)
         return d >= mStart && d <= mEnd
       })
       const gross = mOrders.reduce((sum, o) => sum + Number(o.total || 0), 0)

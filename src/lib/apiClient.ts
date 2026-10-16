@@ -1,3 +1,4 @@
+import { loadAllPages } from './pagination'
 import type { Bank, FinancingOption,
   Profile,
   ProductWithStock,
@@ -263,6 +264,10 @@ interface ApiOrderResponse {
   total: number
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
+  completed_at?: string | null
+  validada_at?: string | null
+  notes?: string
+  notas?: string
   items: {
     id: number
     product_id: number
@@ -286,11 +291,13 @@ interface ApiOrderResponse {
 }
 
 class ApiClient {
-  private token: string | null = localStorage.getItem('auth_token')
+  private token: string | null = sessionStorage.getItem('auth_token')
 
   setToken(token: string) {
     this.token = token
-    localStorage.setItem('auth_token', token)
+    sessionStorage.setItem('auth_token', token)
+    // Eliminar credenciales legacy compartidas entre pestañas.
+    localStorage.removeItem('auth_token')
   }
 
   getToken(): string | null {
@@ -299,6 +306,7 @@ class ApiClient {
 
   logout() {
     this.token = null
+    sessionStorage.removeItem('auth_token')
     localStorage.removeItem('auth_token')
   }
 
@@ -307,6 +315,8 @@ class ApiClient {
       ...apiOrder,
       customer_name: String(apiOrder.customer_name || ''),
       customer_phone: String(apiOrder.customer_phone || ''),
+      notes: apiOrder.notes ?? apiOrder.notas,
+      notas: apiOrder.notes ?? apiOrder.notas,
       items: (apiOrder.items || []).map(item => {
         const product = item.product
         const productMapped = product
@@ -341,8 +351,13 @@ class ApiClient {
     retries = 3
   ): Promise<T> {
     let lastError: Error | null = null
-    
-    for (let attempt = 0; attempt < retries; attempt++) {
+    // Hasta que las mutaciones tengan idempotencia transaccional en el backend,
+    // repetir un POST/PUT/PATCH/DELETE ante una respuesta perdida puede duplicar ventas.
+    const method = (options.method ?? 'GET').toUpperCase()
+    const safeToRetry = ['GET', 'HEAD', 'OPTIONS'].includes(method)
+    const maxAttempts = safeToRetry ? Math.max(1, retries) : 1
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const apiBaseUrl = await getApiUrl()
         const url = `${apiBaseUrl}${endpoint}`
@@ -394,7 +409,7 @@ class ApiClient {
         lastError = error instanceof Error ? error : new Error('Unknown error')
         
         // Si es un error de red (Failed to fetch), reintentamos
-        if (lastError.message.includes('Failed to fetch') && attempt < retries - 1) {
+        if (safeToRetry && lastError.message.includes('Failed to fetch') && attempt < maxAttempts - 1) {
           console.warn(`API request failed for ${endpoint} (attempt ${attempt + 1}/${retries}), retrying...`)
           // Espera progresiva: 500ms, 1000ms, 1500ms
           await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 500))
@@ -1184,8 +1199,9 @@ class ApiClient {
 
   async createOrder(request: CreateOrderRequest): Promise<OrderWithItems> {
     try {
+      const { idempotency_key, ...orderPayload } = request
       const sanitizedRequest = {
-        ...request,
+        ...orderPayload,
         customer_phone: String(request.customer_phone || '').trim()
       }
 
@@ -1199,6 +1215,7 @@ class ApiClient {
       
       const apiOrder = await this.request<ApiOrderResponse>('/orders', {
         method: 'POST',
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
         body: JSON.stringify(sanitizedRequest),
       })
 
@@ -1314,9 +1331,11 @@ class ApiClient {
   // V2.0: Stock Transfers between Locations
   async createStockTransfer(transfer: CreateStockTransferRequest): Promise<StockTransfer> {
     try {
+      const { idempotency_key, ...transferPayload } = transfer
       return this.request('/stock-transfers', {
         method: 'POST',
-        body: JSON.stringify(transfer)
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+        body: JSON.stringify(transferPayload)
       })
     } catch (error) {
       console.error('Error creating stock transfer:', error)
@@ -1328,31 +1347,29 @@ class ApiClient {
     product_id?: number
     from_location_id?: number
     to_location_id?: number
-    location_id?: number  // Buscar donde la ubicación es origen O destino
+    location_id?: number
     estado?: 'pendiente' | 'confirmada' | 'rechazada' | 'cancelada'
   }): Promise<StockTransfer[]> {
     try {
       const params = new URLSearchParams()
-      if (filters?.product_id) params.append('product_id', filters.product_id.toString())
-      if (filters?.location_id) params.append('location_id', filters.location_id.toString())
-      if (filters?.from_location_id) params.append('from_location_id', filters.from_location_id.toString())
-      if (filters?.to_location_id) params.append('to_location_id', filters.to_location_id.toString())
-      if (filters?.estado) params.append('estado', filters.estado)
-      
-      const queryString = params.toString()
-      const response: any = await this.request(`/stock-transfers${queryString ? '?' + queryString : ''}`)
-      
-      // Mapear respuesta paginada del backend
-      const items = response.items || response
-      
-      // Agregar helper product para facilitar uso en componentes
-      return items.map((t: any) => ({
+      if (filters?.product_id) params.set('product_id', String(filters.product_id))
+      if (filters?.location_id) params.set('location_id', String(filters.location_id))
+      if (filters?.from_location_id) params.set('from_location_id', String(filters.from_location_id))
+      if (filters?.to_location_id) params.set('to_location_id', String(filters.to_location_id))
+      if (filters?.estado) params.set('estado', filters.estado)
+
+      const transfers = await loadAllPages<StockTransfer>(async (page) => {
+        params.set('page', String(page))
+        params.set('per_page', '100')
+        return this.request(`/stock-transfers?${params.toString()}`)
+      })
+      return transfers.map((t: any) => ({
         ...t,
         product: t.product_nombre ? {
           id: t.product_id,
           nombre: t.product_nombre,
-          sku: t.product_sku
-        } : undefined
+          sku: t.product_sku,
+        } : undefined,
       }))
     } catch (error) {
       console.error('Error listing stock transfers:', error)
@@ -1441,9 +1458,11 @@ class ApiClient {
 
   async createReturn(returnData: CreateReturnRequest): Promise<Return> {
     try {
+      const { idempotency_key, ...businessPayload } = returnData
       return this.request<Return>('/returns', {
         method: 'POST',
-        body: JSON.stringify(returnData)
+        headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+        body: JSON.stringify(businessPayload)
       })
     } catch (error) {
       console.error('Error creating return:', error)
@@ -1762,7 +1781,7 @@ class ApiClient {
     const collected: import('./types').TrainingQueueItem[] = []
 
     try {
-      while (true) {
+      while (page <= 1000) {
         const params = new URLSearchParams()
         params.append('status', status)
         params.append('per_page', perPage.toString())
@@ -1770,22 +1789,29 @@ class ApiClient {
 
         const endpoint = `/ai/training-queue?${params.toString()}`
         const response = await this.request<PaginatedResponse<import('./types').TrainingQueueItem>>(endpoint)
-        const items = response.items || []
+        if (!Array.isArray(response.items)) {
+          throw new Error('Respuesta de cola de entrenamiento inválida')
+        }
+        const items = response.items
         collected.push(...items)
 
         const total = typeof response.total === 'number' ? response.total : collected.length
         const totalPages = response.pages ?? Math.max(1, Math.ceil(total / perPage))
-        if (items.length < perPage || page >= totalPages) {
+        if (page >= totalPages) {
           break
+        }
+        if (items.length === 0) {
+          throw new Error('Cola de entrenamiento incompleta: página vacía antes del final')
         }
 
         page += 1
       }
     } catch (error) {
       console.error('Error fetching training queue:', error)
-      return []
+      throw error
     }
 
+    if (page > 1000) throw new Error('La cola de entrenamiento excede 1000 páginas')
     return collected
   }
 
@@ -2291,9 +2317,11 @@ class ApiClient {
   }
 
   async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
+    const { idempotency_key, ...payload } = data
     return this.request<PurchaseReceipt>('/multistore-control/purchase-receipts', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers: idempotency_key ? { 'Idempotency-Key': idempotency_key } : undefined,
+      body: JSON.stringify(payload),
     })
   }
 

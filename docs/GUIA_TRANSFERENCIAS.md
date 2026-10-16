@@ -1,5 +1,8 @@
 # Transferencias de Stock Entre Perfiles
 
+> **ARCHIVO LEGACY (V1) — NO ES EL FLUJO ACTUAL DE SOFTMOBILE.**
+> Este documento describe traslados entre **perfiles**, una arquitectura reemplazada por traslados entre **ubicaciones físicas** (`from_location_id` / `to_location_id`) con confirmación de recepción e IMEIs. Los ejemplos JSON de esta página son históricos y **no** deben copiarse a la API actual. Para migraciones de una instalación existente usar [ACTUALIZAR_INSTALACION_EXISTENTE.md](ACTUALIZAR_INSTALACION_EXISTENTE.md).
+
 ## Descripción
 
 El sistema ahora permite transferir stock de productos entre diferentes perfiles de manera sencilla y rastreable. Esta funcionalidad es útil para:
@@ -153,41 +156,11 @@ GET /api/stock-transfers/{transfer_id}
 - `idx_transfer_to_profile`: Índice en `to_profile_id`
 - `idx_transfer_created`: Índice en `created_at`
 
-## Instalación y Migración
+## Instalación y Migración — procedimiento actual
 
-### 1. Ejecutar la Migración de Base de Datos
+El comando histórico `python3 migrate_stock_transfers.py` **no existe** en este repositorio. No inventar ese script, no borrar la base de datos y no ejecutar `init_db.py --with-data` sobre instalaciones reales. Seguir [la guía de actualización de instalaciones existentes](ACTUALIZAR_INSTALACION_EXISTENTE.md) después de respaldar la base PostgreSQL y validar el cambio en una base aislada.
 
-Desde el directorio `backend`:
-
-```bash
-python3 migrate_stock_transfers.py
-```
-
-Esto creará la tabla `stock_transfers` en la base de datos.
-
-### 2. Verificar la Instalación
-
-El script de migración mostrará:
-```
-Aplicando migración: Agregar tabla stock_transfers...
-✓ Tabla stock_transfers creada exitosamente
-
-✓ Migración completada con éxito
-Ahora puedes transferir stock entre perfiles usando el endpoint /api/stock-transfers
-```
-
-### 3. Reiniciar el Backend
-
-```bash
-cd backend
-./start.sh
-```
-
-O en Windows:
-```bash
-cd backend
-start.bat
-```
+La API vigente recibe un producto, ubicación de origen, ubicación de destino y cantidad. La solicitud inicia como pendiente; el stock y los IMEIs requieren confirmación posterior de recepción antes de representar equipos efectivamente trasladados. Ver `backend/app/routers/stock_transfers.py` para parámetros y permisos actuales.
 
 ## Flujo de Transferencia
 

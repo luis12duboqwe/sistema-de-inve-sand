@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Order, OrderItem, Product, Stock
 from app.schemas import ForecastingSummary, SalesForecast
+from app.utils.order_integrity import effective_sale_column
+from app.utils.order_currency import DEFAULT_HNL_PER_USD, is_usd_currency
 
 
 def _normalize_window(days_history: int) -> int:
@@ -94,15 +96,16 @@ def generate_sales_forecasts(
     if scoped_location_ids is not None:
         base_sales_query = base_sales_query.filter(Order.source_location_id.in_(scoped_location_ids))
 
+    sale_at = effective_sale_column(Order)
     recent_sales_rows_raw = (
-        base_sales_query.filter(Order.created_at >= recent_start)
+        base_sales_query.filter(sale_at >= recent_start)
         .group_by(OrderItem.product_id)
         .all()
     )
     older_sales_rows_raw = (
         base_sales_query.filter(
-            Order.created_at >= window_start,
-            Order.created_at < recent_start,
+            sale_at >= window_start,
+            sale_at < recent_start,
         )
         .group_by(OrderItem.product_id)
         .all()
@@ -200,11 +203,16 @@ def summarize_forecasts(db: Session, forecasts: List[SalesForecast]) -> Forecast
     product_ids = [forecast.product_id for forecast in forecasts]
 
     price_rows = (
-        db.query(Product.id, Product.precio)
+        db.query(Product.id, Product.precio, Product.moneda)
         .filter(Product.id.in_(product_ids))
         .all()
     )
-    price_map = {int(pid): Decimal(str(price or 0)) for pid, price in price_rows}
+    # Dashboard and orders report all monetary totals in HNL, regardless of
+    # whether a product is cataloged in USD.
+    price_map = {
+        int(pid): Decimal(str(price or 0)) * (DEFAULT_HNL_PER_USD if is_usd_currency(currency) else Decimal('1'))
+        for pid, price, currency in price_rows
+    }
 
     estimated_revenue_7 = Decimal(0)
     estimated_revenue_30 = Decimal(0)

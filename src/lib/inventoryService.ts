@@ -82,6 +82,13 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { validateLocalReturnRequest } from './localReturnIntegrity'
+import { assertLocalOrderDeletionAllowed } from './localOrderDeletionIntegrity'
+import { validateLocalOrderStatusChange } from './localOrderStatusIntegrity'
+import { assertLocalInventoryCountIsFresh } from './localInventoryCountIntegrity'
+import { validateLocalTransferRequest } from './localTransferIntegrity'
+import { validatedLocalFinancingRate, originalLocalSaleTotal } from './localFinancingIntegrity'
+import { validateLocalPurchaseReceipt } from './purchaseReceiptValidation'
 
 // Simple Async Lock to prevent race conditions in Local Mode
 class AsyncLock {
@@ -1558,11 +1565,11 @@ export class InventoryService {
         const banks = await this.getBanks(true)
         const bank = banks.find(b => b.id === bankId)
         
-        if (!bank) {
+        if (!bank || !bank.active) {
            throw new Error(`Banco con ID ${bankId} no encontrado o inactivo`)
         }
 
-        let rate = bank.normal_card_rate || 0.04 // Default fallback
+        let rate = validatedLocalFinancingRate(bank.normal_card_rate)
         const bankName = bank.name
 
         if (months > 0) {
@@ -1570,7 +1577,7 @@ export class InventoryService {
            if (!option) {
               throw new Error(`Opción de financiamiento de ${months} meses no encontrada para ${bank.name}`)
            }
-           rate = option.rate
+           rate = validatedLocalFinancingRate(option.rate)
         }
         
         const surcharge = amountToFinance * rate
@@ -1587,7 +1594,7 @@ export class InventoryService {
           rate: Number(rate.toFixed(4)),
           surcharge: Number(surcharge.toFixed(2)),
           monthly_payment: Number(monthlyPayment.toFixed(2)),
-          original_total: Number((total + tradeInTotal).toFixed(2)),
+          original_total: originalLocalSaleTotal(amountToFinance + downPayment, tradeInTotal),
           down_payment: downPayment,
           financed_amount: Number(amountToFinance.toFixed(2))
         })
@@ -1610,7 +1617,8 @@ export class InventoryService {
         financing_details: financingDetailsString,
         estado: 'pendiente',
         created_at: new Date().toISOString(),
-        notas: request.notas,
+        notes: request.notes ?? request.notas,
+        notas: request.notes ?? request.notas,
         updated_at: new Date().toISOString(),
         trade_ins: newTradeIns
       }
@@ -2019,6 +2027,12 @@ export class InventoryService {
     estado: Order['estado'],
     _validationCode?: string
   ): Promise<OrderWithItems> {
+    if (estado === 'cancelada') {
+      // The cancel workflow must reconcile reservations, serials and stock.
+      // Merely changing the state would leave the inventory allocated forever.
+      return this.cancelOrder(orderId)
+    }
+    const release = await inventoryLock.acquire()
     try {
       const [orders, orderItems, stock, imeis, imeiHistory, stockHistory] = await Promise.all([
         this.loadOrders(),
@@ -2035,6 +2049,7 @@ export class InventoryService {
       }
 
       const previousStatus = orders[orderIndex].estado
+      validateLocalOrderStatusChange(previousStatus, estado)
       const finalStatuses: Array<Order['estado']> = ['completada', 'validada']
       if (!finalStatuses.includes(previousStatus) && finalStatuses.includes(estado)) {
         const order = orders[orderIndex]
@@ -2103,6 +2118,13 @@ export class InventoryService {
         }
       }
 
+      const effectiveSaleTime = new Date().toISOString()
+      if (estado === 'completada' && !orders[orderIndex].completed_at) {
+        orders[orderIndex].completed_at = effectiveSaleTime
+      }
+      if (estado === 'validada' && !orders[orderIndex].validada_at) {
+        orders[orderIndex].validada_at = effectiveSaleTime
+      }
       orders[orderIndex].estado = estado
       await this.setOrders(orders)
       await this.setStock(stock)
@@ -2133,6 +2155,8 @@ export class InventoryService {
         throw error
       }
       throw new Error(`Failed to update order status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -3168,144 +3192,31 @@ export class InventoryService {
   async deleteOrder(orderId: number): Promise<void> {
     const release = await inventoryLock.acquire()
     try {
-      const [orders, orderItems, stock, productIMEIs, stockHistory] = await Promise.all([
-        this.loadOrders(),
-        this.getOrderItems(),
-        this.getStock(),
-        this.loadProductIMEIs(),
-        this.loadStockHistory()
+      const [orders, orderItems, imeis, histories] = await Promise.all([
+        this.loadOrders(), this.getOrderItems(), this.loadProductIMEIs(), this.loadStockHistory(),
       ])
+      const order = orders.find(row => row.id === orderId)
+      if (!order) throw new Error('Orden no encontrada')
 
-      const order = orders.find(o => o.id === orderId)
-      if (!order) {
-        throw new Error('Orden no encontrada')
-      }
-
-      const locationId = order.source_location_id
-      if (!locationId) {
-        throw new Error('Orden sin source_location_id; no se puede reponer stock por ubicación')
-      }
-
-      const itemsToRestore = orderItems.filter(item => item.order_id === orderId)
-      const updatedStock = [...stock]
-      const updatedIMEIs = [...productIMEIs]
-      const newStockHistory: StockHistory[] = []
-      const stockRestorations: Array<{
-        product_id: number
-        location_id: number
-        cantidad: number
-        stock_anterior: number
-        stock_nuevo: number
-      }> = []
-      const imeiEvents: Array<{
-        imei: string
-        product_id: number
-        location_id: number
-        type: 'released'
-        reference_id: number
-      }> = []
-      
-      for (const item of itemsToRestore) {
-        const stockItem = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
-        if (!stockItem) {
-          throw new Error(`No se encontró stock para el producto ${item.product_id} en la ubicación ${locationId} al eliminar la orden`)
-        }
-        
-        const stockAnterior = stockItem.cantidad_disponible
-        stockItem.cantidad_disponible += item.cantidad
-        
-        // Registrar en historial de stock (reversión)
-        newStockHistory.push({
-          id: Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id)) + 1,
-          product_id: item.product_id,
-          location_id: locationId,
-          tipo_cambio: 'devolucion',
-          cantidad: item.cantidad,
-          stock_anterior: stockAnterior,
-          stock_nuevo: stockItem.cantidad_disponible,
-          referencia_id: orderId,
-          referencia_tipo: 'manual_adjustment',
-          notas: `Reversión de orden #${orderId} eliminada`,
-          usuario: 'Sistema Local',
-          created_at: new Date().toISOString()
-        })
-
-        stockRestorations.push({
-          product_id: item.product_id,
-          location_id: locationId,
-          cantidad: item.cantidad,
-          stock_anterior: stockAnterior,
-          stock_nuevo: stockItem.cantidad_disponible
-        })
-        
-        // Liberar IMEIs vendidos en esta orden (marcar como no vendidos)
-        if (item.imeis && item.imeis.length > 0) {
-          for (const imeiStr of item.imeis) {
-            const imeiIndex = updatedIMEIs.findIndex(i => 
-              i.imei === imeiStr && 
-              i.product_id === item.product_id && 
-              i.vendido && 
-              i.order_id === orderId
-            )
-            if (imeiIndex !== -1) {
-              updatedIMEIs[imeiIndex] = {
-                ...updatedIMEIs[imeiIndex],
-                vendido: false,
-                order_id: undefined,
-                sold_at: undefined,
-              }
-              imeiEvents.push({
-                imei: updatedIMEIs[imeiIndex].imei,
-                product_id: updatedIMEIs[imeiIndex].product_id,
-                location_id: updatedIMEIs[imeiIndex].location_id!,
-                type: 'released',
-                reference_id: orderId
-              })
-            }
-          }
-        }
-      }
-
-      const updatedOrders = orders.filter(o => o.id !== orderId)
-      const updatedOrderItems = orderItems.filter(item => item.order_id !== orderId)
-
-      await Promise.all([
-        this.setOrders(updatedOrders),
-        this.setOrderItems(updatedOrderItems),
-        this.setStock(updatedStock),
-        this.setProductIMEIs(updatedIMEIs),
-        this.setStockHistory([...stockHistory, ...newStockHistory])
-      ])
-
+      // Physical deletion is permissible ONLY for an empty draft. Every sale,
+      // reservation, return and IMEI movement must remain auditable: use the
+      // cancellation process and retain the order for accounting purposes.
+      assertLocalOrderDeletionAllowed(
+        order, orderItems.filter(item => item.order_id === orderId),
+        imeis.filter(item => item.order_id === orderId),
+        histories.filter(history => history.referencia_id === orderId &&
+          ['order', 'order_finalized', 'order_cancelled', 'manual_adjustment'].includes(history.referencia_tipo || '')),
+      )
+      await this.setOrders(orders.filter(row => row.id !== orderId))
       await this.recordSyncEvent({
         entity: 'order',
         action: 'delete',
         entityId: orderId,
-        payload: {
-          order,
-          items: itemsToRestore,
-          stock_restored: stockRestorations,
-          imei_events: imeiEvents
-        }
+        payload: { order, items: [], stock_restored: [], imei_events: [] },
       })
-
-      if (imeiEvents.length > 0) {
-        await this.recordSyncEvent({
-          entity: 'imei',
-          action: 'update',
-          entityId: null,
-          payload: {
-            order_id: orderId,
-            events: imeiEvents
-          }
-        })
-      }
     } catch (error) {
       console.error('Error deleting order:', error)
-      if (error instanceof Error) {
-        throw error
-      }
-      throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw error instanceof Error ? error : new Error('No se pudo eliminar la orden')
     } finally {
       release()
     }
@@ -3828,7 +3739,11 @@ export class InventoryService {
   }
 
   async createStockTransfer(request: CreateStockTransferRequest): Promise<StockTransfer> {
+    // Serialize reserve/update in this tab to avoid two transfers consuming
+    // the same free stock. Production uses PostgreSQL locks, never local KV.
+    const release = await inventoryLock.acquire()
     try {
+      validateLocalTransferRequest(request)
       const [products, stock, locations, transfers] = await Promise.all([
         this.loadProducts(),
         this.getStock(),
@@ -3837,7 +3752,7 @@ export class InventoryService {
       ])
 
       const product = products.find(p => p.id === request.product_id)
-      if (!product) throw new Error(`Product ${request.product_id} not found`)
+      if (!product || !product.activo) throw new Error(`Product ${request.product_id} not found or inactive`)
 
       const fromLocation = locations.find(l => l.id === request.from_location_id)
       if (!fromLocation) throw new Error(`Source location ${request.from_location_id} not found`)
@@ -3985,6 +3900,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error creating stock transfer:', error)
       throw new Error(`Failed to create stock transfer: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -4809,9 +4726,13 @@ export class InventoryService {
   async createPurchaseReceipt(data: PurchaseReceiptInput): Promise<PurchaseReceipt> {
     const release = await inventoryLock.acquire()
     try {
-      const [receipts, stock, products, productImeis, imeiHistory, stockHistory] = await Promise.all([
-        this.loadPurchaseReceipts(), this.getStock(), this.loadProducts(), this.loadProductIMEIs(), this.loadIMEIHistory(), this.loadStockHistory()
+      const [receipts, stock, products, productImeis, imeiHistory, stockHistory, locations, suppliers] = await Promise.all([
+        this.loadPurchaseReceipts(), this.getStock(), this.loadProducts(), this.loadProductIMEIs(), this.loadIMEIHistory(), this.loadStockHistory(),
+        this.loadLocations(), this.loadSuppliers(),
       ])
+      // Validate the ENTIRE intake before mutating stock, prices or IMEI history.
+      // One rejected row must not partially apply earlier rows in the same batch.
+      validateLocalPurchaseReceipt(data, { products, locations, suppliers, existingImeis: productImeis })
       const now = new Date().toISOString()
       if (data.invoice_number && receipts.some(receipt =>
         receipt.location_id === data.location_id &&
@@ -4830,7 +4751,7 @@ export class InventoryService {
       const items = data.items.map((item, index) => {
         const product = products.find(candidate => candidate.id === item.product_id)
         if (!product) throw new Error(`Producto ${item.product_id} no encontrado`)
-        const imeis = item.imeis || []
+        const imeis = (item.imeis || []).map(imei => imei.trim())
         if (product.is_serialized && imeis.length !== item.quantity) throw new Error(`Producto ${product.nombre} requiere ${item.quantity} IMEI(s)`)
         if (imeis.some(imei => productImeis.some(existing => existing.imei === imei))) throw new Error(`Hay IMEIs duplicados en la recepción de ${product.nombre}`)
 
@@ -4928,6 +4849,9 @@ export class InventoryService {
       const count = counts.find(candidate => candidate.id === countId)
       if (!count) throw new Error('Conteo no encontrado')
       if (count.status !== 'draft') throw new Error('Solo se pueden aprobar conteos en borrador')
+      // Snapshot must match the CURRENT location stock and serial ownership.
+      // A sale/transfer since scanning requires a new physical count.
+      assertLocalInventoryCountIsFresh(count, stock, products, productImeis)
       let nextStockId = Math.max(0, ...stock.map(item => item.id)) + 1
       let nextHistoryId = Math.max(0, ...stockHistory.map(item => item.id)) + 1
       let nextImeiHistoryId = Math.max(0, ...imeiHistory.map(item => item.id)) + 1
@@ -5160,20 +5084,25 @@ export class InventoryService {
   }
 
   async createReturn(request: CreateReturnRequest): Promise<Return> {
+    const release = await inventoryLock.acquire()
     try {
-      const [returns, orders, stock, stockHistory, imeis, imeiHistory] = await Promise.all([
+      const [returns, orders, stock, stockHistory, imeis, imeiHistory, orderItems, products] = await Promise.all([
         this.loadReturns(),
         this.loadOrders(),
         this.getStock(),
         this.loadStockHistory(),
         this.loadProductIMEIs(),
-        this.loadIMEIHistory()
+        this.loadIMEIHistory(),
+        this.getOrderItems(),
+        this.loadProducts(),
       ])
 
       const order = orders.find(o => o.id === request.order_id)
       if (!order) {
         throw new Error(`Order ${request.order_id} not found`)
       }
+      // Reject duplicate refunds and invalid replacement IMEIs before any state mutation.
+      validateLocalReturnRequest(request, order, orderItems, returns, products, imeis, stock)
 
       const nextReturnId = Math.max(0, ...returns.map(r => r.id)) + 1
       const now = new Date().toISOString()
@@ -5279,6 +5208,11 @@ export class InventoryService {
               imeiRecord.vendido = false
               imeiRecord.order_id = undefined
               imeiRecord.sold_at = undefined
+              // Defective IMEIs are quarantined, never available for resale.
+              if (isDefective) {
+                imeiRecord.location_id = undefined
+                imeiRecord.acquisition_type = 'garantia_defectuoso'
+              }
 
               // Add IMEI History
               const nextIMEIHistoryId = Math.max(0, ...updatedIMEIHistory.map(h => h.id)) + 1
@@ -5397,6 +5331,8 @@ export class InventoryService {
     } catch (error) {
       console.error('Error creating return:', error)
       throw new Error(`Failed to create return: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      release()
     }
   }
 
@@ -7057,7 +6993,7 @@ export class InventoryService {
         id: nextId,
         name: bank.name || 'Nuevo Banco',
         active: bank.active ?? true,
-        normal_card_rate: bank.normal_card_rate || 0.04,
+        normal_card_rate: validatedLocalFinancingRate(bank.normal_card_rate ?? 0),
         financing_options: []
       }
 

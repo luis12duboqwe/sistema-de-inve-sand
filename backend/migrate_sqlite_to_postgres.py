@@ -29,7 +29,7 @@ import sys
 from typing import Iterable
 
 from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -122,14 +122,14 @@ def _target_tables_with_rows(target_engine: Engine, table_names: Iterable[str]) 
     return non_empty
 
 
-def _truncate_tables(target_engine: Engine, table_names: Iterable[str]) -> None:
+def _truncate_tables(target_connection: Connection, table_names: Iterable[str]) -> None:
+    """TRUNCATE must share the SAME transaction as INSERT/sequence adjustment."""
     ordered_names = ", ".join(f'"{name}"' for name in table_names)
     if not ordered_names:
         return
-    with target_engine.begin() as connection:
-        connection.execute(
-            text(f"TRUNCATE TABLE {ordered_names} RESTART IDENTITY CASCADE")
-        )
+    target_connection.execute(
+        text(f"TRUNCATE TABLE {ordered_names} RESTART IDENTITY CASCADE")
+    )
 
 
 def _required_target_columns_missing_from_source(source_table: Table, target_table: Table) -> list[str]:
@@ -187,35 +187,34 @@ def _copy_table_rows(
     return len(rows)
 
 
-def _reset_postgres_sequences(target_engine: Engine, tables: Iterable[Table]) -> None:
-    """Advance SERIAL/IDENTITY sequences after historical IDs were inserted."""
-    with target_engine.begin() as connection:
-        for table in tables:
-            pk_columns = list(table.primary_key.columns)
-            if len(pk_columns) != 1:
-                continue
+def _reset_postgres_sequences(connection: Connection, tables: Iterable[Table]) -> None:
+    """Adjust sequences within the migration transaction before commit."""
+    for table in tables:
+        pk_columns = list(table.primary_key.columns)
+        if len(pk_columns) != 1:
+            continue
 
-            column = pk_columns[0]
-            sequence_name = connection.execute(
-                text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
-                {"table_name": table.name, "column_name": column.name},
-            ).scalar_one_or_none()
-            if not sequence_name:
-                continue
+        column = pk_columns[0]
+        sequence_name = connection.execute(
+            text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+            {"table_name": table.name, "column_name": column.name},
+        ).scalar_one_or_none()
+        if not sequence_name:
+            continue
 
-            max_value = connection.execute(
-                select(func.max(column))
-            ).scalar_one_or_none()
-            if max_value is None:
-                connection.execute(
-                    text("SELECT setval(CAST(:seq AS regclass), 1, false)"),
-                    {"seq": sequence_name},
-                )
-            else:
-                connection.execute(
-                    text("SELECT setval(CAST(:seq AS regclass), :value, true)"),
-                    {"seq": sequence_name, "value": int(max_value)},
-                )
+        max_value = connection.execute(
+            select(func.max(column))
+        ).scalar_one_or_none()
+        if max_value is None:
+            connection.execute(
+                text("SELECT setval(CAST(:seq AS regclass), 1, false)"),
+                {"seq": sequence_name},
+            )
+        else:
+            connection.execute(
+                text("SELECT setval(CAST(:seq AS regclass), :value, true)"),
+                {"seq": sequence_name, "value": int(max_value)},
+            )
 
 
 def main() -> int:
@@ -251,9 +250,7 @@ def main() -> int:
         Base.metadata.create_all(bind=target_engine)
         matching_target_tables = [name for name in table_names if name in source_tables]
 
-        if args.truncate:
-            _truncate_tables(target_engine, reversed(matching_target_tables))
-        else:
+        if not args.truncate:
             non_empty = _target_tables_with_rows(target_engine, matching_target_tables)
             if non_empty:
                 print(
@@ -265,9 +262,23 @@ def main() -> int:
                 )
                 return 3
 
+        # Preflight SQLite compatibility BEFORE touching pre-existing PostgreSQL rows.
+        for table in sorted_tables:
+            if table.name not in source_tables:
+                continue
+            sqlite_table = Table(table.name, MetaData(), autoload_with=source_engine)
+            missing = _required_target_columns_missing_from_source(sqlite_table, table)
+            if missing:
+                raise RuntimeError(
+                    f"SQLite demasiado antiguo en {table.name}; columnas obligatorias ausentes: {', '.join(missing)}"
+                )
+
         total_rows = 0
         migrated_tables: list[Table] = []
         with target_engine.begin() as target_connection:
+            if args.truncate:
+                # PostgreSQL rolls TRUNCATE back if ANY subsequent INSERT/validation fails.
+                _truncate_tables(target_connection, reversed(matching_target_tables))
             for table in sorted_tables:
                 if table.name not in source_tables:
                     continue
@@ -277,7 +288,8 @@ def main() -> int:
                 migrated_tables.append(table)
                 print(f"{table.name}: {copied} filas migradas")
 
-        _reset_postgres_sequences(target_engine, migrated_tables)
+            # Data and sequence adjustment must succeed before publishing success.
+            _reset_postgres_sequences(target_connection, migrated_tables)
         print(
             f"Migración completada: {total_rows} filas copiadas a PostgreSQL. "
             "La fuente SQLite original no fue modificada."

@@ -1,33 +1,22 @@
+"""Safe read-only legacy user/role relationship aggregate (no usernames printed)."""
 import sqlite3
-import os
+from legacy_sqlite_diagnostics import open_legacy_snapshot
 
-def list_users():
-    db_path = 'backend/inventory.db'
-    if not os.path.exists(db_path):
-        print(f"Database not found at {db_path}")
-        return
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        query = """
-        SELECT u.id, u.username, u.is_superuser, r.name, r.is_system_role 
-        FROM users u 
-        LEFT JOIN roles r ON u.role_id = r.id
-        """
-        
-        cursor.execute(query)
-        results = cursor.fetchall()
-        
-        print(f"{'ID':<5} {'Username':<15} {'Superuser':<10} {'Role':<15} {'System Role'}")
-        print("-" * 60)
-        for row in results:
-            print(f"{row[0]:<5} {row[1]:<15} {row[2]:<10} {str(row[3]):<15} {row[4]}")
-            
-        conn.close()
-    except Exception as e:
-        print(f"Error: {e}")
+def main() -> int:
+    with open_legacy_snapshot("Check user role relationships in an offline SQLite snapshot") as conn:
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            orphaned = conn.execute(
+                "SELECT COUNT(*) FROM users u LEFT JOIN roles r ON u.role_id=r.id "
+                "WHERE u.role_id IS NOT NULL AND r.id IS NULL"
+            ).fetchone()[0]
+        except sqlite3.Error as exc:
+            print(f"Legacy user role schema FAILED: {exc}")
+            return 1
+    print(f"Legacy SQLite snapshot only: users={count}, missing_role_links={orphaned}")
+    return 1 if orphaned else 0
+
 
 if __name__ == "__main__":
-    list_users()
+    raise SystemExit(main())

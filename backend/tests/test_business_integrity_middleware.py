@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from _pytest.monkeypatch import MonkeyPatch
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token
+from app.auth import create_user_access_token
 from app.middleware import business_integrity
 from app.models import User
 
@@ -10,11 +10,10 @@ from .helpers import seed_location_and_sales_profile
 
 
 def _force_production_without_photo_service_token(monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        type(business_integrity.prod_settings),
-        "is_production",
-        lambda self: True,
-    )
+    # Patch the concrete settings instance referenced by both the middleware
+    # and the photo endpoint. Replacing its classmethod on the class proved
+    # unreliable when other tests updated the settings class.
+    monkeypatch.setattr(business_integrity.prod_settings, "is_production", lambda: True)
     monkeypatch.setattr(business_integrity.prod_settings, "N8N_AUTH_TOKEN", "")
 
 
@@ -25,6 +24,7 @@ def test_photo_create_rejects_bogus_bearer_when_service_token_missing(
 ) -> None:
     _, sales_profile = seed_location_and_sales_profile(db_session)
     _force_production_without_photo_service_token(monkeypatch)
+    assert business_integrity.prod_settings.is_production() is True
 
     response = client.post(
         "/api/photo-requests/create",
@@ -56,7 +56,7 @@ def test_photo_create_allows_verified_active_user_when_service_token_missing(
     db_session.commit()
 
     _force_production_without_photo_service_token(monkeypatch)
-    token = create_access_token({"sub": user.username})
+    token = create_user_access_token(user)
 
     response = client.post(
         "/api/photo-requests/create",

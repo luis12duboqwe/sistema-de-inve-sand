@@ -289,6 +289,7 @@ set_env ENABLE_DESTRUCTIVE_PURGE "$(resolve_value ENABLE_DESTRUCTIVE_PURGE false
 set_env ALLOWED_HOSTS "$ALLOWED_HOSTS_VALUE"
 set_env CORS_ORIGINS "$CORS_ORIGINS_VALUE"
 set_env VITE_API_BASE_URL "$(resolve_value VITE_API_BASE_URL /api)"
+set_env VITE_CATALOG_WHATSAPP_NUMBER "$(resolve_value VITE_CATALOG_WHATSAPP_NUMBER '')"
 set_env LOG_STRUCTURED "$(resolve_value LOG_STRUCTURED true)"
 set_env LOG_TO_FILES "$(resolve_value LOG_TO_FILES true)"
 set_env LOG_DIRECTORY "$(resolve_value LOG_DIRECTORY /app/logs)"

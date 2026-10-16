@@ -2,13 +2,18 @@ import type { OrderWithItems, ProductWithStock, AdvancedSearchFilters, ReportDat
 import { startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns'
 import { isFinalSaleStatus } from './orderStatus'
 
+/** Financial periods use the sale completion date, not when a draft was created. */
+export function accountingSaleDate(order: OrderWithItems): Date {
+  return new Date(order.completed_at || order.validada_at || order.created_at)
+}
+
 export function filterOrdersByAdvancedSearch(
   orders: OrderWithItems[],
   filters: AdvancedSearchFilters
 ): OrderWithItems[] {
   return orders.filter(order => {
     if (filters.dateRange) {
-      const orderDate = new Date(order.created_at)
+      const orderDate = isFinalSaleStatus(order.estado) ? accountingSaleDate(order) : new Date(order.created_at)
       const isInRange = isWithinInterval(orderDate, {
         start: filters.dateRange.from,
         end: filters.dateRange.to
@@ -61,7 +66,7 @@ export function generateMonthlyTrends(orders: OrderWithItems[], months: number =
     const monthEnd = endOfMonth(date)
 
     const monthOrders = orders.filter(order => {
-      const orderDate = new Date(order.created_at)
+      const orderDate = accountingSaleDate(order)
       return isWithinInterval(orderDate, { start: monthStart, end: monthEnd }) &&
              isFinalSaleStatus(order.estado)
     })
@@ -115,7 +120,11 @@ export function generateReportData(
 
   const monthlyTrends = generateMonthlyTrends(orders)
 
-  const totalCost = Array.from(productSales.values()).reduce((sum, item) => sum + item.cost, 0)
+  // Promotional gifts have zero sale price, but still reduce real gross profit.
+  // Use historical unit costs recorded on each order item, never the current catalogue.
+  const totalCost = completedOrders.reduce((sum, order) =>
+    sum + order.items.reduce((itemSum, item) =>
+      itemSum + item.cantidad * Number(item.costo_unitario ?? 0), 0), 0)
   const profitMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue) * 100 : 0
 
   return {

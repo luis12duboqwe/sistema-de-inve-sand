@@ -13,6 +13,7 @@ from app.auth import get_current_active_user, check_permission
 from app.utils.order_queries import resolve_sales_profile_for_query
 from app.utils.order_validators import validate_location_exists
 from app.utils.location_access import get_accessible_location_ids, require_location_access
+from app.utils.order_currency import DEFAULT_HNL_PER_USD
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -494,7 +495,13 @@ def get_stock_summary_by_location(
         Location.tipo,
         func.count(func.distinct(Stock.product_id)).label('total_productos'),
         func.sum(Stock.cantidad_disponible).label('total_unidades'),
-        func.sum(Stock.cantidad_disponible * Product.precio).label('valor_inventario')
+        func.sum(
+            Stock.cantidad_disponible * case(
+                (func.upper(func.trim(Product.moneda)).in_(["USD", "US$", "$"]),
+                 Product.precio * DEFAULT_HNL_PER_USD),
+                else_=Product.precio,
+            )
+        ).label('valor_inventario')
     ).join(
         Stock, Location.id == Stock.location_id
     ).join(

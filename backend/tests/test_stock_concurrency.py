@@ -83,6 +83,7 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         seed_session.close()
 
     barrier = threading.Barrier(2)
+    errors: list[Exception] = []
     results: Dict[str, List[str | int]] = {"order": [], "transfer": []}
 
     def order_worker():
@@ -101,7 +102,7 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
             session.add(order)
             session.flush()
             payload: List[SaleItemDict] = [_sale_item(product_id=product_id, cantidad=3)]
-            barrier.wait()
+            barrier.wait(timeout=10)
             batch = helper.prepare_sale_batch(
                 items_payload=payload,
                 location_id=loc_id,
@@ -119,6 +120,9 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         except HTTPException as exc:
             session.rollback()
             results["order"].append(exc.status_code)
+        except Exception as exc:
+            session.rollback()
+            errors.append(exc)
         finally:
             session.close()
 
@@ -126,7 +130,7 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         session: Session = SessionLocal()
         manager = StockManager(session)
         try:
-            barrier.wait()
+            barrier.wait(timeout=10)
             _, stock_locked, _ = manager.validate_and_lock_stock(
                 product_id=product_id,
                 location_id=loc_id,
@@ -147,18 +151,25 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         except StockValidationError:
             session.rollback()
             results["transfer"].append("validation_error")
+        except Exception as exc:
+            session.rollback()
+            errors.append(exc)
         finally:
             session.close()
 
-    t1 = threading.Thread(target=order_worker)
-    t2 = threading.Thread(target=transfer_worker)
+    # Daemon threads + bounded joins: a stuck worker cannot hang the entire CI
+    # indefinitely. Any unexpected exception is an explicit test failure.
+    t1 = threading.Thread(target=order_worker, daemon=True)
+    t2 = threading.Thread(target=transfer_worker, daemon=True)
     t1.start()
     t2.start()
-    t1.join()
-    t2.join()
-
-    assert not ("ok" in results["order"] and "ok" in results["transfer"])
-    assert "ok" in results["order"] or "ok" in results["transfer"]
+    t1.join(timeout=20)
+    t2.join(timeout=20)
+    assert not t1.is_alive() and not t2.is_alive(), "Concurrency worker timed out"
+    assert not errors, [repr(e) for e in errors]
+    assert len(results["order"]) == 1
+    assert len(results["transfer"]) == 1
+    assert ("ok" in results["order"]) != ("ok" in results["transfer"])
 
     check_session: Session = SessionLocal()
     try:
@@ -169,6 +180,10 @@ def test_transfer_reservation_blocks_concurrent_order(tmp_path: Path) -> None:
         assert disponible >= 0
         assert reservada >= 0
         assert reservada <= disponible
+        if "ok" in results["order"]:
+            assert disponible == 2 and reservada == 0
+        else:
+            assert disponible == 5 and reservada == 3
     finally:
         check_session.close()
         cleanup()

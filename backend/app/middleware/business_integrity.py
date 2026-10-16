@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.config_production import prod_settings
+from app.auth import validate_user_token_claims
 from app.database import SessionLocal
 from app.models import Product, StockHistory, User
 
@@ -46,11 +47,11 @@ def _has_active_bearer_user(request: Request) -> bool:
 
     with SessionLocal() as db:
         user = (
-            db.query(User.id)
+            db.query(User)
             .filter(User.username == str(username), User.is_active == True)
             .first()
         )
-    return user is not None
+        return bool(user and validate_user_token_claims(payload, user))
 
 
 class BusinessIntegrityMiddleware(BaseHTTPMiddleware):

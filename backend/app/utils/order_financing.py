@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional, Tuple
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any, Dict, Optional, Tuple, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -88,12 +88,66 @@ def _parse_persisted_months(value: Any) -> int:
     return int(parsed)
 
 
+def _compute_mixed_card_payment(
+    payment_breakdown: Sequence[Any],
+    total_before_surcharge: Decimal,
+    card_rate: Decimal,
+) -> tuple[Decimal, Decimal, Decimal] | None:
+    """Return (gross total, card base, surcharge) if a card splits with other methods.
+
+    The client sends gross card amount INCLUDING card-only surcharge; cash and
+    bank transfer are amounts actually collected. Never tax cash/transfer with
+    the card rate. Exact cent reconciliation is mandatory.
+    """
+    if not payment_breakdown:
+        return None
+
+    entries: list[tuple[str, Decimal]] = []
+    for item in payment_breakdown:
+        method = getattr(item, "method", None)
+        if isinstance(item, dict):
+            method = item.get("method")
+        method = str(getattr(method, "value", method) or "")
+        raw_amount = item.get("amount") if isinstance(item, dict) else getattr(item, "amount", None)
+        try:
+            amount = Decimal(str(raw_amount))
+        except (TypeError, InvalidOperation) as exc:
+            raise HTTPException(status_code=400, detail="Monto de pago mixto inválido") from exc
+        if not amount.is_finite() or amount <= 0:
+            raise HTTPException(status_code=400, detail="Monto de pago mixto inválido")
+        entries.append((method, amount))
+
+    card_amounts = [amount for method, amount in entries if method == "tarjeta"]
+    non_card_amounts = [amount for method, amount in entries if method != "tarjeta"]
+    if not card_amounts or not non_card_amounts:
+        return None
+    if len(card_amounts) != 1:
+        raise HTTPException(status_code=400, detail="Un pago mixto solo puede incluir un cargo de tarjeta")
+
+    non_card = sum(non_card_amounts, Decimal("0.00"))
+    card_base = total_before_surcharge - non_card
+    if card_base <= 0:
+        raise HTTPException(status_code=400, detail="La porción de tarjeta debe ser mayor que cero")
+
+    cents = Decimal("0.01")
+    surcharge = (card_base * card_rate).quantize(cents, rounding=ROUND_HALF_UP)
+    gross_card_expected = (card_base + surcharge).quantize(cents, rounding=ROUND_HALF_UP)
+    gross_card_actual = card_amounts[0].quantize(cents, rounding=ROUND_HALF_UP)
+    if gross_card_actual != gross_card_expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El cobro bruto de tarjeta debe ser {gross_card_expected:.2f}, no {gross_card_actual:.2f}",
+        )
+    return (total_before_surcharge + surcharge).quantize(cents), card_base, surcharge
+
+
 def compute_financing_from_payload(
     db: Session,
     financing_data: Optional[Dict[str, Any]],
     metodo_pago: str,
     total_after_tradeins: Decimal,
-    trade_in_total: Decimal
+    trade_in_total: Decimal,
+    payment_breakdown: Optional[Sequence[Any]] = None,
 ) -> Tuple[Decimal, Optional[str]]:
     """Calcula financiamiento a partir del payload de la orden.
 
@@ -102,7 +156,14 @@ def compute_financing_from_payload(
     if not financing_data:
         return total_after_tradeins, None
 
-    if metodo_pago not in FINANCING_METHODS:
+    has_mixed_card = bool(
+        payment_breakdown
+        and any(str(getattr(getattr(p, "method", None), "value", getattr(p, "method", ""))) == "tarjeta"
+                for p in payment_breakdown)
+        and any(str(getattr(getattr(p, "method", None), "value", getattr(p, "method", ""))) != "tarjeta"
+                for p in payment_breakdown)
+    )
+    if metodo_pago not in FINANCING_METHODS and not has_mixed_card:
         raise HTTPException(
             status_code=400,
             detail="Datos de financiamiento solo válidos para pago con Tarjeta o Financiamiento"
@@ -120,6 +181,32 @@ def compute_financing_from_payload(
         raise HTTPException(status_code=404, detail="Banco no encontrado")
     if not bank.active:
         raise HTTPException(status_code=400, detail="El banco seleccionado está inactivo para nuevas ventas")
+
+    if has_mixed_card:
+        if months != 0 or down_payment != 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Pagos mixtos con tarjeta normal no admiten plazos ni prima adicionales",
+            )
+        reconciled = _compute_mixed_card_payment(
+            payment_breakdown or [], total_after_tradeins, Decimal(str(bank.normal_card_rate)),
+        )
+        if reconciled is None:
+            raise HTTPException(status_code=400, detail="Desglose de tarjeta mixta inválido")
+        mixed_total, card_base, mixed_surcharge = reconciled
+        non_card = total_after_tradeins - card_base
+        return mixed_total, json.dumps({
+            "bank_id": bank_id,
+            "bank_name": bank.name,
+            "months": 0,
+            "rate": float(bank.normal_card_rate),
+            "surcharge": float(mixed_surcharge),
+            "monthly_payment": float(card_base + mixed_surcharge),
+            "original_total": float(total_after_tradeins + trade_in_total),
+            "down_payment": float(non_card),
+            "financed_amount": float(card_base),
+            "mixed_card_payment": True,
+        })
 
     amount_to_finance = total_after_tradeins - down_payment
 

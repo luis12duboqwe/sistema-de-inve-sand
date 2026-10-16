@@ -26,6 +26,11 @@ if [[ "$args" == *" ps "* ]]; then
   exit 0
 fi
 
+if [[ "$args" == *" exec -T backend "*"/api/metrics"* ]]; then
+  printf '{"metrics":"private"}\n'
+  exit 0
+fi
+
 if [[ "$args" == *" exec -T backup-offsite "* ]]; then
   # Simula una llamada remota que queda bloqueada por mucho más tiempo que el
   # presupuesto configurado del healthcheck.
@@ -56,6 +61,10 @@ chmod +x "$TMP_DIR/bin/docker"
 cat > "$TMP_DIR/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ " $* " == *"/api/metrics"* ]]; then
+  echo "Metricas no deben consultarse desde nginx" >&2
+  exit 50
+fi
 printf '{"ok":true}\n'
 EOF
 chmod +x "$TMP_DIR/bin/curl"

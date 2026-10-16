@@ -36,6 +36,7 @@ export interface ReturnItem {
 }
 
 export interface CreateReturnRequest {
+  idempotency_key?: string
   order_id: number
   reason?: string
   created_by?: string
@@ -125,6 +126,8 @@ export interface PurchaseReceiptItemInput {
 }
 
 export interface PurchaseReceiptInput {
+  /** Same idempotency key for retry of an uncertain response; not persisted. */
+  idempotency_key?: string
   supplier_id?: number
   location_id: number
   invoice_number?: string
@@ -554,6 +557,8 @@ export interface Order {
   financing_details?: string // JSON con datos de financiamiento (V2.1)
   estado: 'pendiente' | 'por_entregar' | 'completada' | 'validada' | 'cancelada'
   created_at: string
+  completed_at?: string | null
+  validada_at?: string | null
   notes?: string
   delivery_date?: string
   notas?: string
@@ -618,6 +623,8 @@ export interface OrderWithItems extends Order {
 }
 
 export interface CreateOrderRequest {
+  /** Stable across retries of the same draft, never reuse for another sale. */
+  idempotency_key?: string
   profile_slug?: string  // LEGACY V1 (opcional)
   sales_profile_slug?: string  // V2.0: Slug del perfil de venta
   source_location_id: number  // V2.0: ID de ubicación origen (obligatorio)
@@ -726,6 +733,7 @@ export interface StockTransfer {
 }
 
 export interface CreateStockTransferRequest {
+  idempotency_key?: string
   product_id: number
   from_location_id: number  // V2.0: ID de ubicación origen
   to_location_id: number  // V2.0: ID de ubicación destino

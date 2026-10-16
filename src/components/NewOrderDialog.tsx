@@ -140,6 +140,8 @@ export function NewOrderDialog({
   const [notas, setNotas] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const idempotencyKeyRef = useRef<string | null>(null)
+  const idempotencyPayloadRef = useRef<string | null>(null)
 
   // V2.1: Financing State
   const [banks, setBanks] = useState<Bank[]>([])
@@ -221,6 +223,8 @@ export function NewOrderDialog({
   useEffect(() => {
     if (!open) {
       resetForm()
+      idempotencyKeyRef.current = null
+      idempotencyPayloadRef.current = null
       setScanInput('')
     }
   }, [open])
@@ -602,7 +606,7 @@ export function NewOrderDialog({
       const cardBaseAmount = parseFlexibleNumber(cardPaymentAmount) ?? 0
       const bank = selectedBankId ? banks.find(b => b.id === selectedBankId) : undefined
       const cardRate = selectedBankId ? Number(bank?.normal_card_rate || 0) : 0
-      const cardSurcharge = cardBaseAmount * cardRate
+      const cardSurcharge = Math.round((cardBaseAmount * cardRate + Number.EPSILON) * 100) / 100
 
       // Base para financiamiento = (Productos - TradeIns - Prima)
       // La prima se resta ANTES de calcular el recargo, porque eso se paga en efectivo
@@ -808,9 +812,7 @@ export function NewOrderDialog({
       return
     }
 
-    setIsSubmitting(true)
-    try {
-      await onSubmit({
+    const orderRequest: CreateOrderRequest = {
         profile_slug: profiles[0]?.slug || undefined,
         sales_profile_slug: salesProfileSlug,
         source_location_id: sourceLocationId!,
@@ -829,21 +831,40 @@ export function NewOrderDialog({
           ? {
               bank_id: selectedBankId,
               months: selectedMonths || 0,
-              down_payment: parsedDownPayment || undefined
+              // En pagos mixtos los importes en efectivo/transferencia ya
+              // están contabilizados por separado; no duplicar la prima.
+              down_payment: hasPaymentBreakdown && paymentAmounts.tarjeta > 0
+                && (paymentAmounts.efectivo > 0 || paymentAmounts.transferencia > 0)
+                ? 0 : parsedDownPayment || undefined
             }
           : undefined
-      })
+      }
+    const fingerprint = JSON.stringify(orderRequest)
+    if (!idempotencyKeyRef.current || idempotencyPayloadRef.current !== fingerprint) {
+      idempotencyKeyRef.current = crypto.randomUUID()
+      idempotencyPayloadRef.current = fingerprint
+    }
+
+    setIsSubmitting(true)
+    try {
+      await onSubmit({ ...orderRequest, idempotency_key: idempotencyKeyRef.current })
 
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating order:', error)
+      // El servidor pudo haber registrado la venta antes de perder la respuesta.
+      // Conservar el borrador y la misma clave de idempotencia en el reintento.
+      toast.error('No se pudo confirmar la venta. Verifica el historial antes de reintentar; el formulario se conservó.')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={nextOpen => {
+      if (!nextOpen && isSubmitting) return
+      onOpenChange(nextOpen)
+    }}>
       <DialogContent className="flex h-[94vh] w-[96vw] max-w-5xl flex-col overflow-hidden p-0 sm:h-auto sm:max-h-[92vh]">
         <DialogHeader className="border-b bg-muted/20 px-5 py-4 sm:px-6">
           <DialogTitle className="text-xl">Nueva venta</DialogTitle>
@@ -1834,7 +1855,7 @@ export function NewOrderDialog({
         </div>
 
         <DialogFooter className="border-t bg-background px-5 py-4 sm:px-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
           {/* 🔒 Bug #9: Validar que ubicación esté seleccionada */}

@@ -10,7 +10,7 @@ from app.models import (
 )
 
 
-def test_super_admin_can_purge_product_and_related_records(client, db_session):
+def test_super_admin_rejects_purge_of_product_with_sale_history(client, db_session):
     location = Location(nombre="Tienda Test", tipo="tienda", activo=True)
     db_session.add(location)
     db_session.flush()
@@ -93,37 +93,31 @@ def test_super_admin_can_purge_product_and_related_records(client, db_session):
         json={"reason": "Eliminación de prueba para purga total"},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["deleted_counts"]["products"] == 1
-    assert payload["deleted_counts"]["imeis"] == 1
-    assert payload["deleted_counts"]["stock"] == 1
+    assert response.status_code == 409
+    assert "históricas" in response.json()["detail"]
 
     db_session.expire_all()
-    assert db_session.query(Product).filter(Product.id == product_id).count() == 0
-    assert (
-        db_session.query(ProductIMEI)
-        .filter(ProductIMEI.product_id == product_id)
-        .count()
-        == 0
+    assert db_session.get(Product, product_id) is not None
+    assert db_session.query(ProductIMEI).filter_by(product_id=product_id).count() == 1
+    assert db_session.query(Stock).filter_by(product_id=product_id).count() == 1
+    assert db_session.query(OrderItem).filter_by(product_id=product_id).count() == 1
+    assert db_session.query(StockTransfer).filter_by(product_id=product_id).count() == 1
+
+
+
+def test_super_admin_can_purge_unlinked_test_product(client, db_session):
+    from uuid import uuid4
+    suffix = uuid4().hex
+    product = Product(sku=f"PURGE-SAFE-{suffix}", nombre="Producto descartable",
+                      categoria="accesorio", marca="Test", modelo="Safe",
+                      condicion="nuevo", precio=100, activo=True)
+    db_session.add(product)
+    db_session.commit()
+    product_id = product.id
+    response = client.post(
+        f"/api/super-admin/products/{product_id}/purge",
+        json={"reason": "Borrado de fixture descartable sin ventas vinculadas"},
     )
-    assert db_session.query(Stock).filter(Stock.product_id == product_id).count() == 0
-    assert (
-        db_session.query(StockHistory)
-        .filter(StockHistory.product_id == product_id)
-        .count()
-        == 0
-    )
-    assert (
-        db_session.query(OrderItem)
-        .filter(OrderItem.product_id == product_id)
-        .count()
-        == 0
-    )
-    assert (
-        db_session.query(StockTransfer)
-        .filter(StockTransfer.product_id == product_id)
-        .count()
-        == 0
-    )
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(Product, product_id) is None

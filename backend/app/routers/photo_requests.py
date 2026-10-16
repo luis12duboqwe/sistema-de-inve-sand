@@ -40,6 +40,7 @@ from app.schemas.photos import (
     NotifyAgentPayload,
 )
 from app.auth import check_permission, get_current_user_optional
+from app.middleware.business_integrity import _has_active_bearer_user
 from app.config_production import prod_settings
 from app.utils.s3_storage import get_storage_manager
 from app.utils.websocket_manager import get_connection_manager
@@ -52,7 +53,10 @@ router = APIRouter(prefix="/api/photo-requests", tags=["Photo Requests"])
 UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "photo-requests"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-OPEN_PHOTO_REQUEST_STATUSES = ["pending", "claimed", "awaiting_upload", "in_progress"]
+OPEN_PHOTO_REQUEST_STATUSES = [
+    "pending", "claimed", "awaiting_upload", "in_progress",
+    "sending", "delivery_uncertain",
+]
 
 # Initialize storage manager (S3 or local)
 storage_manager = get_storage_manager()
@@ -60,9 +64,10 @@ ws_manager = get_connection_manager()
 
 
 def _valid_photo_request_service_token(request: Request) -> bool:
-    configured_token = getattr(prod_settings, "N8N_AUTH_TOKEN", "")
+    configured_token = (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip()
     if not configured_token:
-        return True
+        # No secret means there is no verifiable service identity.
+        return False
 
     presented_token = (
         request.headers.get("X-AI-Service-Token")
@@ -80,11 +85,37 @@ def require_photo_request_create_auth(
     request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> None:
-    if current_user and current_user.is_active:
-        return
+    # An explicitly supplied Bearer credential must NEVER be replaced with
+    # the optional dependency's synthetic/stale user. Apply the rule in every
+    # environment; this also catches misconfigured production environment flags.
+    authorization = (request.headers.get("Authorization") or "").strip()
+    bearer_presented = authorization.lower().startswith("bearer ")
+    verified_user = _has_active_bearer_user(request) if bearer_presented else False
+    if bearer_presented and not verified_user and not _valid_photo_request_service_token(request):
+        if not (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip():
+            raise HTTPException(status_code=503, detail="Photo request integration authentication not configured")
+        raise HTTPException(
+            status_code=401,
+            detail="Photo request integration authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    if _valid_photo_request_service_token(request):
-        return
+    # Verify signed JWT, immutable uid, password version AND active status.
+    if prod_settings.is_production():
+        if verified_user:
+            return
+        if not (getattr(prod_settings, "N8N_AUTH_TOKEN", "") or "").strip():
+            raise HTTPException(
+                status_code=503,
+                detail="Photo request integration authentication not configured",
+            )
+        if _valid_photo_request_service_token(request):
+            return
+    else:
+        if current_user and current_user.is_active:
+            return
+        if _valid_photo_request_service_token(request):
+            return
 
     raise HTTPException(
         status_code=401,
@@ -164,7 +195,7 @@ def create_photo_request_internal(
         db,
         new_request,
         sales_profile,
-        channel or "unknown",
+        new_request.origin_channel or channel or "unknown",
         customer_name,
     )
 
@@ -243,6 +274,11 @@ def _parse_profile_channels(profile: SalesProfile) -> List[str]:
 
 
 def _resolve_request_channel(request: PhotoRequest, sales_profile: SalesProfile) -> str:
+    # Persisted origin wins over mutable notes or the profile's default channel.
+    # A WhatsApp-first profile can also receive Instagram/Facebook messages.
+    explicit_channel = str(request.origin_channel or "").strip().lower()
+    if explicit_channel:
+        return "messenger" if explicit_channel == "facebook" else explicit_channel
     notes = (request.additional_notes or "").lower()
     for channel in ["whatsapp", "messenger", "instagram", "facebook"]:
         if f"channel:{channel}" in notes or f"canal:{channel}" in notes:
@@ -682,10 +718,27 @@ async def send_photos_to_customer(
     Da la ilusión de que el bot fue quien tomó las fotos,
     pero en realidad fue el agente.
     """
-    request = db.query(PhotoRequest).filter(PhotoRequest.id == photo_request_id).first()
-
+    request = (
+        db.query(PhotoRequest)
+        .filter(PhotoRequest.id == photo_request_id)
+        .with_for_update()
+        .first()
+    )
     if not request:
         raise HTTPException(status_code=404, detail="Photo request not found")
+    if request.status == "completed":
+        return {
+            "status": "already_delivered",
+            "message": "Solicitud ya enviada: no se repetirán mensajes",
+            "photo_request_id": photo_request_id,
+        }
+    if request.status in {"sending", "delivery_uncertain"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Envío previo en proceso o de resultado incierto; requiere conciliación manual antes de reintentar",
+        )
+    if request.status in {"declined", "failed"}:
+        raise HTTPException(status_code=409, detail="Solicitud cerrada; no se permite enviar fotos")
 
     # Obtener media items
     media_items = db.query(PhotoRequestMediaItem).filter(
@@ -706,6 +759,21 @@ async def send_photos_to_customer(
 
     channel = _resolve_request_channel(request, sales_profile)
     integration_config = _extract_channel_integration(sales_profile, channel)
+    if channel not in {"whatsapp", "messenger", "instagram", "facebook"}:
+        raise HTTPException(status_code=400, detail=f"Canal no soportado para envío de media: {channel}")
+    if channel == "whatsapp":
+        if not (integration_config.get("access_token") or getattr(prod_settings, "WHATSAPP_ACCESS_TOKEN", "")):
+            raise HTTPException(status_code=503, detail="Falta configurar credenciales de WhatsApp")
+        if not (integration_config.get("phone_number_id") or getattr(prod_settings, "WHATSAPP_PHONE_NUMBER_ID", "")):
+            raise HTTPException(status_code=503, detail="Falta configurar identificador del número de WhatsApp")
+    elif not (integration_config.get("page_access_token") or getattr(prod_settings, "META_PAGE_ACCESS_TOKEN", "")):
+        raise HTTPException(status_code=503, detail="Falta configurar credenciales de Meta")
+
+    # Commit an exclusive send claim BEFORE any provider call. If our response
+    # disappears or the provider times out, never automatically resend an
+    # already accepted photo. Humans can reconcile using provider message logs.
+    request.status = "sending"
+    db.commit()
 
     def _public_media_url(media_url: str) -> str:
         if media_url.startswith(("http://", "https://")):
@@ -826,10 +894,23 @@ async def send_photos_to_customer(
         }
 
     except HTTPException:
+        db.rollback()
+        request = db.query(PhotoRequest).filter(PhotoRequest.id == photo_request_id).first()
+        if request and request.status == "sending":
+            request.status = "delivery_uncertain"
+            db.commit()
         raise
     except Exception as e:
-        logger.error(f"Error sending photos: {e}")
-        raise HTTPException(status_code=500, detail="Error interno enviando fotos al cliente")
+        db.rollback()
+        request = db.query(PhotoRequest).filter(PhotoRequest.id == photo_request_id).first()
+        if request and request.status == "sending":
+            request.status = "delivery_uncertain"
+            db.commit()
+        logger.error("Error sending photos for request %s: %s", photo_request_id, type(e).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail="Entrega externa incierta. Compruebe Meta antes de un nuevo envío",
+        )
 
 
 __all__ = ["router"]

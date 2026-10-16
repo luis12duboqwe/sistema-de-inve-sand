@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
 from app.auth import check_permission
@@ -380,6 +380,7 @@ def create_return_serial_integrity(
     return_data: ReturnCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(check_permission("orders:edit")),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ):
     """Delegate to the canonical return transaction with serial-scope context."""
     _prelock_return_stock_rows(db, return_data)
@@ -389,6 +390,7 @@ def create_return_serial_integrity(
             return_data=return_data,
             db=db,
             current_user=current_user,
+            idempotency_key=idempotency_key,
         )
     finally:
         _return_user.reset(token)

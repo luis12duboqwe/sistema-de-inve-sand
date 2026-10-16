@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import { apiClient } from '@/lib/apiClient'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Location } from '@/lib/types'
+import { calculateDailyCloseBreakdown } from '@/lib/dailyCloseBreakdown'
 
 interface DailyCloseOrder {
   id: number
@@ -41,6 +42,7 @@ interface DailyCloseOrder {
   customer_phone: string
   canal: string
   metodo_pago: string
+  payment_breakdown?: { method: string; amount: number }[] | null
   total: number
   estado: string
   source_location_id?: number
@@ -68,6 +70,7 @@ const PAGO_LABELS: Record<string, string> = {
   transferencia: 'Transferencia',
   tarjeta: 'Tarjeta',
   financiamiento: 'Financiamiento',
+  sin_conciliar: 'No conciliado',
 }
 
 export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyCloseDialogProps) {
@@ -143,14 +146,7 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
   const averageTicket = pendingOrders.length > 0 ? totalPending / pendingOrders.length : 0
   const oldestPendingOrder = pendingOrders[0]
 
-  const paymentBreakdown = pendingOrders.reduce<Record<string, { count: number; total: number }>>((acc, order) => {
-    const key = order.metodo_pago
-    const current = acc[key] ?? { count: 0, total: 0 }
-    current.count += 1
-    current.total += order.total
-    acc[key] = current
-    return acc
-  }, {})
+  const paymentBreakdown = calculateDailyCloseBreakdown(pendingOrders)
 
   const handleValidate = async () => {
     if (!validationCode.trim()) {
@@ -323,7 +319,7 @@ export function DailyCloseDialog({ open, onOpenChange, onValidated }: DailyClose
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     {Object.entries(paymentBreakdown).map(([method, data]) => (
                       <span key={method} className="rounded-full border px-2 py-1">
-                        {PAGO_LABELS[method] ?? method}: {data.count} venta(s) · Lps {data.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
+                        {PAGO_LABELS[method] ?? method}: {data.count} componente(s) · Lps {data.total.toLocaleString('es-HN', { minimumFractionDigits: 2 })}
                       </span>
                     ))}
                   </div>

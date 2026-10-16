@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useKV } from '@/hooks/use-kv'
 import { getKV } from '@/lib/kvStorage'
+import { clearLegacyBusinessStorage } from '@/lib/sessionCachePolicy'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -74,10 +75,12 @@ import { filterOrdersByAdvancedSearch, generateReportData } from '@/lib/reportUt
 import { inventoryServiceFactory, inventoryServiceInstance } from '@/lib/inventoryServiceFactory'
 import { updateOrderStatusWithoutDailyClose } from '@/lib/orderStatusActions'
 import { buildMultiStoreViewModel, hasAppPermission } from '@/lib/appViewModel'
+import { isProductionBuild } from '@/lib/runtimePolicy'
 import { motion } from 'framer-motion'
 import PublicCatalog from '@/components/PublicCatalog'
 
 function MainApp() {
+  useEffect(() => { clearLegacyBusinessStorage() }, [])
   const [backendConnected, setBackendConnected] = useState(false)
   const { isInitialized, isLoading } = useInitializeData()
   const [products, setProducts] = useKV<ProductWithStock[]>('inventory-products', [])
@@ -154,7 +157,7 @@ function MainApp() {
 
   useEffect(() => {
     const token = apiClient.getToken()
-    const storedUser = localStorage.getItem('auth_user')
+    const storedUser = sessionStorage.getItem('auth_user')
     let cancelled = false
     
     // Only show login if using API mode
@@ -168,7 +171,7 @@ function MainApp() {
             .then((freshUser) => {
               if (cancelled) return
               setCurrentUser(freshUser)
-              localStorage.setItem('auth_user', JSON.stringify(freshUser))
+              sessionStorage.setItem('auth_user', JSON.stringify(freshUser))
             })
             .catch((error) => {
               if (cancelled) return
@@ -254,18 +257,31 @@ function MainApp() {
     }
   }, [useAPI, currentUser])
 
+  const clearBusinessSession = useCallback(() => {
+    setProducts([])
+    setOrders([])
+    setProfiles([])
+    setSalesProfiles([])
+    setLocations([])
+    setDataLoaded(false)
+    setSelectedProducts(new Set())
+    setSelectedOrders(new Set())
+  }, [setProducts, setOrders, setProfiles, setLocations])
+
   const handleLoginSuccess = (user: User, _token: string) => {
+    clearBusinessSession()
     setCurrentUser(user)
-    localStorage.setItem('auth_user', JSON.stringify(user))
+    sessionStorage.setItem('auth_user', JSON.stringify(user))
     setShowLoginDialog(false)
   }
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
+    clearBusinessSession()
     apiClient.logout()
-    localStorage.removeItem('auth_user')
+    sessionStorage.removeItem('auth_user')
     setCurrentUser(null)
     setShowLoginDialog(true)
-  }
+  }, [clearBusinessSession])
 
   // Listen for unauthorized events from apiClient
   useEffect(() => {
@@ -278,7 +294,7 @@ function MainApp() {
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized)
     }
-  }, [])
+  }, [handleLogout])
 
   const { result: healthCheckResult, isRunning: isHealthCheckRunning, runCheck, performAutoFix } = useHealthCheck(
     products ?? [],
@@ -378,10 +394,23 @@ function MainApp() {
   )
 
   useEffect(() => {
+    // No conservar el resultado de solicitudes iniciadas con otra identidad.
+    let cancelled = false
+    // Cada cambio de sesión/permisos limpia la información empresarial
+    // antes de iniciar las nuevas lecturas. No reutilizar caché entre cuentas.
+    if (useAPI) {
+      setProducts([])
+      setOrders([])
+      setProfiles([])
+      setSalesProfiles([])
+      setLocations([])
+      setDataLoaded(false)
+    }
+
     const loadData = async () => {
       if (!isInitialized) return
       if (useAPI && !currentUser) return
-      
+
       try {
         
         // AUTO-RESET: Limpiar datos locales una sola vez para asegurar limpieza
@@ -405,6 +434,7 @@ function MainApp() {
           (canViewSettings || canViewOrders || canCreateOrders) && currentService.getSalesProfiles ? currentService.getSalesProfiles() : Promise.resolve([]),
           (canViewSettings || canViewLocations || canCreateOrders || canAccessMultiStoreControl) && currentService.getLocations ? currentService.getLocations() : Promise.resolve([])
         ])
+        if (cancelled) return
         setProducts(loadedProducts)
         setOrders(loadedOrders)
         setProfiles(loadedProfiles)
@@ -412,13 +442,15 @@ function MainApp() {
         setLocations(loadedLocations)
         setDataLoaded(true)
       } catch (error) {
+        if (cancelled) return
         console.error('❌ Error loading data:', error)
         toast.error(`Error al cargar datos: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-        setDataLoaded(true)
+        setDataLoaded(false)
       }
     }
 
-    loadData()
+    void loadData()
+    return () => { cancelled = true }
   }, [isInitialized, useAPI, apiUrl, currentUser, canViewInventory, canViewOrders, canViewSettings, canCreateOrders, canViewLocations, canAccessMultiStoreControl, setProducts, setOrders, setProfiles, setSalesProfiles, setLocations])
 
   const handleBulkDeleteProducts = async () => {
@@ -2407,29 +2439,35 @@ function MainApp() {
         locations={locations.filter(l => l.activo)}
         products={(products ?? []).filter(p => p.activo && p.stock_disponible > 0)}
         onSubmit={async (newOrder) => {
+          // Rejection/uncertain response must propagate so UI retains the draft.
+          let created: OrderWithItems
           try {
-            const created = await service.createOrder(newOrder)
-            setOrders((current: OrderWithItems[]) => [created, ...(current ?? [])])
-            
-            const updatedProducts = await service.getProducts()
-            setProducts(updatedProducts)
-            
-            // Try to link order to AI interaction if phone number exists
-            if (newOrder.customer_phone) {
-              try {
-                await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
-              } catch (e) {
-                console.warn('⚠️ No se pudo vincular orden a interacción:', e)
-                // Don't fail the whole operation if linking fails
-              }
-            }
-            
-            toast.success('Orden creada exitosamente')
-            setShowNewOrderDialog(false)
+            created = await service.createOrder(newOrder)
           } catch (error) {
-            console.error('❌ Error al crear orden:', error)
-            toast.error(`Error al crear orden: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+            toast.error(`Venta no confirmada: ${error instanceof Error ? error.message : 'Error desconocido'}. Ante corte de conexión, revise historial antes de intentar de nuevo.`, { duration: 12000 })
+            throw error
           }
+
+          setOrders((current: OrderWithItems[]) => [
+            created,
+            ...(current ?? []).filter(item => item.id !== created.id),
+          ])
+          // An already committed sale is not failed just because a refresh fails.
+          try {
+            setProducts(await service.getProducts())
+          } catch (error) {
+            console.error('Fallo refrescando productos después de la venta:', error)
+            toast.warning('Venta registrada, inventario en pantalla desactualizado. Recargue para verificar.', { duration: 10000 })
+          }
+          if (newOrder.customer_phone) {
+            try {
+              await service.linkOrderToInteraction(newOrder.customer_phone, created.id)
+            } catch (error) {
+              console.warn('No se pudo enlazar orden a conversación IA:', error)
+            }
+          }
+          toast.success(`Venta #${created.id} registrada`)
+          setShowNewOrderDialog(false)
         }}
       />
 
@@ -2568,11 +2606,16 @@ function MainApp() {
         open={showHealthCheckDialog}
         onOpenChange={setShowHealthCheckDialog}
         result={healthCheckResult}
+        allowAutoFix={!isProductionBuild() && !useAPI}
         isRunning={isHealthCheckRunning}
         onRunCheck={async () => {
           await runCheck()
         }}
         onAutoFix={() => {
+          if (isProductionBuild() || useAPI) {
+            toast.error('La reparación automática de inventario sólo se permite en modo local de pruebas; use ajustes autorizados y auditados en el servidor.')
+            return
+          }
           const fixes = performAutoFix()
           if (fixes) {
             setProducts(fixes.products)

@@ -23,6 +23,14 @@ describe('apiClient pagination loops', () => {
     vi.restoreAllMocks()
   })
 
+  it('rejects training queue API failure instead of declaring an empty backlog', async () => {
+    const requestSpy = vi.spyOn(apiClient as any, 'request')
+      .mockRejectedValueOnce(new Error('503 from backend'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(apiClient.listTrainingQueue('pending')).rejects.toThrow('503 from backend')
+    expect(requestSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('listUsers paginates until reported pages are exhausted', async () => {
     const responses: PaginatedResponse<User>[] = [
       buildPaginatedResponse(createUsers(100, 1), { total: 250, page: 1, per_page: 100, pages: 3 }),

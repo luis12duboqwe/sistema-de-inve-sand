@@ -43,8 +43,10 @@ Requisitos:
 
 ```bash
 npm ci --legacy-peer-deps
-pip install -r backend/requirements.txt
-pip install -r backend/requirements-dev.txt
+python3 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt
+backend/.venv/bin/pip install -r backend/requirements-dev.txt
+# Crear backend/.env con DATABASE_URL apuntando a PostgreSQL LOCAL de desarrollo.
 ```
 
 Para usar los scripts existentes de desarrollo:

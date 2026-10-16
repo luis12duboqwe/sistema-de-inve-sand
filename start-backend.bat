@@ -4,7 +4,7 @@ REM Script de inicio rápido del backend para Windows - Sistema V2.0
 echo 🚀 Iniciando Backend (Sistema de Inventario Multi-Ubicación V2.0)...
 echo.
 
-cd backend
+cd /d "%~dp0backend"
 
 REM Verificar Python
 python --version >nul 2>&1
@@ -35,14 +35,9 @@ REM Instalar dependencias
 echo 📥 Verificando dependencias...
 pip install -q -r requirements.txt
 
-REM Inicializar base de datos si no existe
-if not exist "inventory.db" (
-    echo 🗄️  Inicializando base de datos con modelo V2.0...
-    python init_db.py --with-data
-    echo ✅ Base de datos inicializada con datos de ejemplo
-) else (
-    echo ✅ Base de datos encontrada
-)
+REM No ejecutar init_db.py --with-data en el arranque.
+REM La API administra migraciones y esquema bajo lock; el seeding de demo
+REM es una operacion manual exclusivamente para entornos descartables.
 
 REM Iniciar servidor
 echo.

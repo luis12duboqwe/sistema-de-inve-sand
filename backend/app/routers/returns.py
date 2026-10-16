@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Order, Return, ReturnItem, StockHistory, User
 from app.schemas import ReturnCreate, ReturnResponse, PaginatedResponse
-from typing import List
+from typing import List, Optional
 from types import SimpleNamespace
 import logging
 
@@ -11,6 +11,8 @@ from app.auth import check_permission
 from app.services.stock_transaction_helper import PreparedReturnItem, StockTransactionHelper
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.order_validators import validate_location_exists
+from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 logger = logging.getLogger(__name__)
@@ -96,7 +98,8 @@ def list_returns(
 def create_return(
     return_data: ReturnCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(check_permission("orders:edit"))
+    current_user: User = Depends(check_permission("orders:edit")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """Procesa únicamente cambios por garantía de una venta finalizada.
 
@@ -134,6 +137,20 @@ def create_return(
     source_location = validate_location_exists(db, order.source_location_id)
     require_location_access(db, current_user, source_location.id, "can_edit")
     _validate_serialized_return_quantities(order, return_data)
+
+    # The claim and inventory/warranty changes are committed together. If the
+    # response is lost after commit, an identical retry returns the original
+    # result rather than accepting another warranty exchange.
+    claim = claim_business_request(
+        db,
+        key=idempotency_key if isinstance(idempotency_key, str) else None,
+        identity_id=int(current_user.id),
+        endpoint="POST /api/returns",
+        payload=return_data.model_dump(mode="json"),
+        require_key=prod_settings.is_production(),
+    )
+    if claim.replay is not None:
+        return ReturnResponse.model_validate(claim.replay)
 
     user_name = getattr(current_user, "username", "sistema") if current_user else "sistema"
 
@@ -244,13 +261,15 @@ def create_return(
             )
 
     try:
+        db.flush()
+        result = ReturnResponse.model_validate(new_return)
+        save_business_response(claim, result.model_dump(mode="json"))
         db.commit()
-        db.refresh(new_return)
-        return new_return
+        return result
     except Exception:
         db.rollback()
         logger.exception("Error al procesar garantía de la orden %s", return_data.order_id)
         raise HTTPException(
             status_code=500,
-            detail="Error interno al procesar la garantía. Intente nuevamente o contacte al administrador."
+            detail="Error interno al procesar la garantía. Revise el estado antes de reintentar."
         )

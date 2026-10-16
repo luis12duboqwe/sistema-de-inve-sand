@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, X, Camera, PaperPlaneTilt } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Button } from './ui/button'
@@ -7,15 +7,19 @@ import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Badge } from './ui/badge'
 import { apiClient } from '@/lib/apiClient'
+import { uploadPhotosSequentially } from '@/lib/photoUploadBatch'
 import type { PhotoRequest } from '@/lib/types'
 
 export function PhotoRequestsDashboard() {
   const [pendingRequests, setPendingRequests] = useState<PhotoRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRequest, setSelectedRequest] = useState<PhotoRequest | null>(null)
+  const [activeDialogId, setActiveDialogId] = useState<number | null>(null)
+  const selectionEpochRef = useRef(0)
   const [mediaUrl, setMediaUrl] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const operationRef = useRef<number | null>(null)
 
   useEffect(() => {
     void loadPendingRequests()
@@ -40,52 +44,60 @@ export function PhotoRequestsDashboard() {
   }
 
   const handleOpenRequest = async (request: PhotoRequest) => {
+    if (operationRef.current !== null) return
+    const epoch = ++selectionEpochRef.current
+    setActiveDialogId(request.id)
+    setSelectedFiles([])
+    setMediaUrl('')
+    setSelectedRequest(request)
     try {
-      setSelectedRequest(request)
-      if (request.status === 'pending') {
-        await apiClient.claimPhotoRequest(request.id)
-      }
-      const updatedRequest = await apiClient.getPhotoRequest(request.id)
-      setSelectedRequest(updatedRequest)
+      if (request.status === 'pending') await apiClient.claimPhotoRequest(request.id)
+      const latest = await apiClient.getPhotoRequest(request.id)
+      if (selectionEpochRef.current !== epoch) return
+      setSelectedRequest(latest)
       await loadPendingRequests(false)
     } catch (error) {
+      if (selectionEpochRef.current !== epoch) return
       console.error(error)
-      toast.error('Error al reclamar la solicitud')
+      toast.error('No se pudo verificar la solicitud; consulte el historial antes de repetir')
     }
   }
 
   const handleUploadMedia = async (requestId: number) => {
+    if (operationRef.current !== null || selectedRequest?.id !== requestId || activeDialogId !== requestId) return
     if (!mediaUrl.trim() && selectedFiles.length === 0) {
       toast.error('Ingresa una URL o selecciona archivo(s)')
       return
     }
 
+    operationRef.current = requestId
     try {
       setUploading(true)
 
-      const uploadPromises: Promise<any>[] = []
-
-      if (selectedFiles.length > 0) {
-        for (const file of selectedFiles) {
-          uploadPromises.push(apiClient.uploadPhotoFile(requestId, file))
-        }
+      const tasks: Array<() => Promise<unknown>> = []
+      for (const file of selectedFiles) {
+        tasks.push(() => apiClient.uploadPhotoFile(requestId, file))
+      }
+      const urls = mediaUrl.split(',').map(u => u.trim()).filter(Boolean)
+      for (const url of urls) {
+        tasks.push(() => apiClient.uploadPhotoMedia(requestId, {
+          media_url: url,
+          media_type: 'photo',
+        }))
       }
 
-      if (mediaUrl.trim()) {
-        const urls = mediaUrl.split(',').map(u => u.trim()).filter(Boolean)
-        for (const url of urls) {
-          uploadPromises.push(apiClient.uploadPhotoMedia(requestId, {
-            media_url: url,
-            media_type: 'photo'
-          }))
-        }
-      }
-
-      await Promise.all(uploadPromises)
-
-      toast.success('Foto(s) cargada(s) exitosamente')
+      const uploaded = await uploadPhotosSequentially(tasks)
+      // Never replay uncertain uploads: one may have committed before a timeout.
       setMediaUrl('')
       setSelectedFiles([])
+      if (uploaded.failure) {
+        toast.error(
+          `Carga parcial o incierta: ${uploaded.confirmed} de ${tasks.length} confirmadas. Revise las fotos registradas antes de repetir.`,
+          { duration: 12000 },
+        )
+      } else {
+        toast.success('Foto(s) cargada(s) exitosamente')
+      }
 
       if (selectedRequest?.id === requestId) {
         const updatedRequest = await apiClient.getPhotoRequest(requestId)
@@ -94,14 +106,17 @@ export function PhotoRequestsDashboard() {
 
       await loadPendingRequests()
     } catch (error) {
-      toast.error('Error al cargar foto')
+      toast.error('Error al cargar foto; compruebe el historial antes de reenviar')
       console.error(error)
     } finally {
+      operationRef.current = null
       setUploading(false)
     }
   }
 
   const handleSendToCustomer = async (requestId: number) => {
+    if (operationRef.current !== null || selectedRequest?.id !== requestId || activeDialogId !== requestId) return
+    operationRef.current = requestId
     try {
       setUploading(true)
       await apiClient.sendPhotosToCustomer(requestId)
@@ -109,12 +124,14 @@ export function PhotoRequestsDashboard() {
       toast.success('Fotos enviadas al cliente')
       if (selectedRequest?.id === requestId) {
         setSelectedRequest(null)
+        setActiveDialogId(null)
       }
       await loadPendingRequests()
     } catch (error) {
       toast.error('Error al enviar fotos')
       console.error(error)
     } finally {
+      operationRef.current = null
       setUploading(false)
     }
   }
@@ -128,7 +145,10 @@ export function PhotoRequestsDashboard() {
       case 'awaiting_upload':
         return <Badge variant="outline">Esperando carga</Badge>
       case 'in_progress':
+      case 'sending':
         return <Badge variant="secondary">En progreso</Badge>
+      case 'delivery_uncertain':
+        return <Badge variant="destructive">Revisión manual de envío</Badge>
       case 'completed':
         return <Badge variant="secondary">Completado</Badge>
       default:
@@ -157,11 +177,21 @@ export function PhotoRequestsDashboard() {
         const activeRequest = selectedRequest?.id === request.id ? selectedRequest : request
 
         return (
-          <Dialog key={request.id}>
+          <Dialog key={request.id} open={activeDialogId === request.id} onOpenChange={open => {
+            if (operationRef.current !== null) return
+            if (open) {
+              void handleOpenRequest(request)
+            } else if (activeDialogId === request.id) {
+              selectionEpochRef.current += 1
+              setActiveDialogId(null)
+              setSelectedFiles([])
+              setMediaUrl('')
+              setSelectedRequest(null)
+            }
+          }}>
             <DialogTrigger asChild>
               <div
                 className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
-                onClick={() => { void handleOpenRequest(request) }}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -243,7 +273,7 @@ export function PhotoRequestsDashboard() {
                   </div>
                 )}
 
-                {activeRequest.status !== 'completed' && (
+                {!['completed', 'sending', 'delivery_uncertain', 'declined'].includes(activeRequest.status) && (
                   <div className="space-y-2">
                     <Label>Cargar foto</Label>
                     <div className="flex gap-2">
@@ -282,9 +312,10 @@ export function PhotoRequestsDashboard() {
                 )}
 
                 <div className="flex gap-2 pt-4 border-t">
-                  {activeRequest.status !== 'completed' && activeRequest.media_items && activeRequest.media_items.length > 0 && (
+                  {!['completed', 'sending', 'delivery_uncertain', 'declined'].includes(activeRequest.status) && activeRequest.media_items && activeRequest.media_items.length > 0 && (
                     <Button
-                      onClick={() => handleSendToCustomer(activeRequest.id)}
+                      onClick={() => { void handleSendToCustomer(activeRequest.id) }}
+                      disabled={uploading}
                       className="flex-1"
                       variant="default"
                     >
@@ -294,7 +325,10 @@ export function PhotoRequestsDashboard() {
                   )}
 
                   <Button
+                    disabled={uploading}
                     onClick={() => {
+                      if (operationRef.current !== null) return
+                      operationRef.current = activeRequest.id
                       void (async () => {
                         try {
                           setUploading(true)
@@ -308,6 +342,7 @@ export function PhotoRequestsDashboard() {
                           toast.error('Error al rechazar solicitud')
                           console.error(error)
                         } finally {
+                          operationRef.current = null
                           setUploading(false)
                         }
                       })()

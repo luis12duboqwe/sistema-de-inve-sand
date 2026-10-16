@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, get_password_hash
+from app.auth import create_user_access_token, get_password_hash
 from app.config import settings
 from app.database import get_db
 from app.models import Permission, Role, SystemConfig, User
@@ -129,8 +129,8 @@ def setup_initial_admin_integrity(
         raise
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": db_user.username},
+    access_token = create_user_access_token(
+        db_user,
         expires_delta=access_token_expires,
     )
     return {

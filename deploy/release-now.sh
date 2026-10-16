@@ -65,6 +65,7 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+ENV_FILE="$(realpath "$ENV_FILE")"
 APP_BUILD_SHA="$(resolve_release_sha)"
 export APP_BUILD_SHA
 
@@ -121,4 +122,4 @@ echo "  - backend image ID: $backend_image_id"
 echo "Siguiente verificación sugerida:"
 echo "  - curl -f http://127.0.0.1/api/health"
 echo "  - curl -f http://127.0.0.1/api/ready"
-echo "  - curl -f http://127.0.0.1/api/metrics"
+echo "  - métricas internas: docker compose exec -T backend curl -f http://127.0.0.1:8000/api/metrics"

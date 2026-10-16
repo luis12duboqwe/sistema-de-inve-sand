@@ -23,7 +23,7 @@ test('registers a multistore serialized receipt', async ({ page }) => {
   await page.getByLabel('Contraseña').fill(password)
   await page.getByRole('button', { name: 'Ingresar' }).click()
   await expect(page.getByText('E2E Admin', { exact: true })).toBeVisible({ timeout: 15000 })
-  const token = await page.evaluate(() => localStorage.getItem('auth_token'))
+  const token = await page.evaluate(() => sessionStorage.getItem('auth_token'))
   expect(token).toBeTruthy()
   const headers = { Authorization: `Bearer ${token}` }
 

@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Any, List, Optional, Tuple, cast
 from decimal import Decimal
@@ -41,6 +41,8 @@ from app.utils.stock_manager import StockManager, StockValidationError
 from app.utils.daily_close_code import get_daily_close_code_hash, verify_daily_close_code
 from app.utils.location_access import get_accessible_location_ids, require_location_access
 from app.utils.audit import log_audit_event
+from app.utils.business_idempotency import claim_business_request, save_business_response
+from app.config_production import prod_settings
 
 
 logger = logging.getLogger(__name__)
@@ -117,7 +119,19 @@ def _release_pending_order_reservations(db: Session, order: Order, user_identifi
         if not stock:
             continue
 
-        if stock.cantidad_reservada >= item.cantidad:
+        # Las órdenes creadas por OrderService ya descontaron stock al crear.
+        # Nunca liberar reservas agregadas de otros flujos en ese caso.
+        if _order_has_sale_history(db, order.id, item.product_id):
+            stock_manager.increase_stock(
+                product_id=item.product_id,
+                location_id=order.source_location_id,
+                quantity=item.cantidad,
+                operation_type="devolucion",
+                notes=f"{notes} (venta de esta orden previamente descontada)",
+                user_id=user_identifier,
+                create_if_missing=True,
+            )
+        elif stock.cantidad_reservada >= item.cantidad:
             stock_manager.release_reservation(
                 stock=stock,
                 quantity=item.cantidad,
@@ -127,16 +141,6 @@ def _release_pending_order_reservations(db: Session, order: Order, user_identifi
                 is_rejection=True,
                 tipo_cambio="venta_reserva_liberada",
                 referencia_tipo="order_cancelled",
-            )
-        elif _order_has_sale_history(db, order.id, item.product_id):
-            stock_manager.increase_stock(
-                product_id=item.product_id,
-                location_id=order.source_location_id,
-                quantity=item.cantidad,
-                operation_type="devolucion",
-                notes=f"{notes} (orden pendiente legacy con stock ya descontado)",
-                user_id=user_identifier,
-                create_if_missing=True,
             )
 
     _release_order_imei_reservations(db, order.id, user_identifier, notes)
@@ -155,6 +159,11 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
         if not stock:
             raise HTTPException(status_code=404, detail=f"No existe stock para el producto {item.product_id} en la ubicación de la orden")
 
+        # El historial propio demuestra que OrderService ya descontó este ítem.
+        # La reserva agregada podría pertenecer a un traslado u otra operación.
+        if _order_has_sale_history(db, order.id, item.product_id):
+            continue
+
         if stock.cantidad_reservada >= item.cantidad:
             stock_manager.release_reservation(
                 stock=stock,
@@ -172,7 +181,7 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
                 user_id=user_identifier,
                 order_id=order.id,
             )
-        elif not _order_has_sale_history(db, order.id, item.product_id):
+        else:
             raise HTTPException(
                 status_code=409,
                 detail=f"La orden #{order.id} no tiene reserva suficiente para el producto {item.product_id}",
@@ -194,8 +203,12 @@ def _finalize_order_stock(db: Session, order: Order, user_identifier: str) -> No
 def _serialize_product_for_order(product: Product, location_id: Optional[int] = None) -> dict:
     """Serializa un producto para incluirlo en la respuesta de una orden."""
     from app.routers.products import _serialize_product
-    response = _serialize_product(product)
-    
+    # A reader with access to la sede de origen de la orden no adquiere por
+    # ello acceso a stock/IMEIs del mismo producto en otras tiendas.
+    # Sin ubicación (órdenes legacy), no exponer stock global anidado.
+    allowed_locations = [location_id] if location_id is not None else []
+    response = _serialize_product(product, allowed_locations)
+
     # Adapt to structure expected without crashing
     payload = response.model_dump()
     return payload
@@ -260,6 +273,8 @@ def _serialize_order(order: Order) -> OrderResponse:
         notes=order.notes,
         delivery_date=order.delivery_date,
         created_at=order.created_at,
+        completed_at=order.completed_at,
+        validada_at=order.validada_at,
         items=items_response,
         trade_ins=trade_ins_response
     )
@@ -432,18 +447,43 @@ def search_orders(
 
 @router.post("", response_model=OrderResponse, status_code=201, dependencies=[Depends(check_permission("orders:create"))])
 def create_order(
-    order: OrderCreate, 
+    order: OrderCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(check_permission("orders:create"))
+    current_user: Optional[User] = Depends(check_permission("orders:create")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     """Crea una orden usando OrderService para centralizar la lógica V2.0."""
     if current_user and order.source_location_id:
         require_location_access(db, current_user, order.source_location_id, "can_edit")
     service = OrderService(db)
-    created_order = service.create_order(order, current_user=current_user)
-    log_audit_event(db, action="order.create", entity_type="order", entity_id=created_order.id, location_id=created_order.source_location_id, user=current_user, after_data=order.model_dump())
-    db.commit()
-    return _serialize_order(created_order)
+    try:
+        claim = claim_business_request(
+            db,
+            key=idempotency_key,
+            identity_id=int(current_user.id) if current_user else 0,
+            endpoint="POST /api/orders",
+            payload=order.model_dump(mode="json"),
+            require_key=prod_settings.is_production(),
+        )
+        if claim.replay is not None:
+            return OrderResponse.model_validate(claim.replay)
+        created_order = service.create_order(order, current_user=current_user, commit=False)
+        log_audit_event(
+            db, action="order.create", entity_type="order",
+            entity_id=created_order.id,
+            location_id=created_order.source_location_id,
+            user=current_user,
+            after_data=order.model_dump(),
+        )
+        # Stock, serialized IMEIs, order and audit share one durable commit.
+        db.flush()
+        result = _serialize_order(created_order)
+        save_business_response(claim, result.model_dump(mode="json"))
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.put("/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(check_permission("orders:edit"))])
@@ -609,7 +649,17 @@ def update_order(
                         Stock.product_id == item.product_id,
                         Stock.location_id == order.source_location_id,
                     ).with_for_update().first()
-                    if stock and stock.cantidad_reservada >= item.cantidad:
+                    if stock and _order_has_sale_history(db, order.id, item.product_id):
+                        stock_manager.increase_stock(
+                            product_id=item.product_id,
+                            location_id=order.source_location_id,
+                            quantity=item.cantidad,
+                            operation_type="devolucion",
+                            notes=f"Actualización de orden #{order.id} - Item previamente vendido restaurado",
+                            user_id=user_identifier,
+                            create_if_missing=True,
+                        )
+                    elif stock and stock.cantidad_reservada >= item.cantidad:
                         stock_manager.release_reservation(
                             stock=stock,
                             quantity=item.cantidad,
@@ -619,16 +669,6 @@ def update_order(
                             is_rejection=True,
                             tipo_cambio="venta_reserva_liberada",
                             referencia_tipo="order_update",
-                        )
-                    elif stock and _order_has_sale_history(db, order.id, item.product_id):
-                        stock_manager.increase_stock(
-                            product_id=item.product_id,
-                            location_id=order.source_location_id,
-                            quantity=item.cantidad,
-                            operation_type="devolucion",
-                            notes=f"Actualización de orden #{order.id} - Item legacy restaurado",
-                            user_id=user_identifier,
-                            create_if_missing=True
                         )
                 else:
                     # Legacy: Sin ubicación específica - Mantener lógica manual limitada

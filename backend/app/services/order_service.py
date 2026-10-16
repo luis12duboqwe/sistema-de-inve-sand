@@ -161,6 +161,7 @@ class OrderService:
         order: OrderCreate,
         *,
         current_user: Optional[User] = None,
+        commit: bool = True,
     ) -> Order:
         try:
             (
@@ -240,6 +241,7 @@ class OrderService:
                 metodo_pago=order.metodo_pago,
                 total_after_tradeins=order_totals.total_after_trade_ins,
                 trade_in_total=order_totals.trade_in_total,
+                payment_breakdown=order.payment_breakdown,
             )
 
             db_order = self._create_order_record(
@@ -281,7 +283,12 @@ class OrderService:
                 customer_phone=order.customer_phone,
             )
 
-            self.db.commit()
+            # API owns the final commit together with the audit event.
+            # Other service callers keep historical commit=True behaviour.
+            if commit:
+                self.db.commit()
+            else:
+                self.db.flush()
             self.db.refresh(db_order)
             for item in db_order.items:
                 self.db.refresh(item)

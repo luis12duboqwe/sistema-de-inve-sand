@@ -1,6 +1,19 @@
 import type { OrderWithItems, ProductWithStock, Profile } from './types'
 import { format } from 'date-fns'
 
+/** Escape untrusted business data before interpolating into printable HTML. */
+export function escapePrintHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => {
+    switch (char) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      default: return '&#39;'
+    }
+  })
+}
+
 export function generateOrderPDF(order: OrderWithItems, profile: Profile): void {
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
@@ -10,7 +23,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Orden #${order.id} - ${profile.name}</title>
+  <title>Orden #${order.id} - ${escapePrintHtml(profile.name)}</title>
   <style>
     * {
       margin: 0;
@@ -244,10 +257,10 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
 <body>
   <div class="header">
     <div class="company-info">
-      <h1>${profile.name}</h1>
-      ${profile.settings?.businessAddress ? `<p>${profile.settings.businessAddress}</p>` : ''}
-      ${profile.settings?.businessPhone ? `<p>Tel: ${profile.settings.businessPhone}</p>` : ''}
-      ${profile.settings?.businessEmail ? `<p>Email: ${profile.settings.businessEmail}</p>` : ''}
+      <h1>${escapePrintHtml(profile.name)}</h1>
+      ${profile.settings?.businessAddress ? `<p>${escapePrintHtml(profile.settings.businessAddress)}</p>` : ''}
+      ${profile.settings?.businessPhone ? `<p>Tel: ${escapePrintHtml(profile.settings.businessPhone)}</p>` : ''}
+      ${profile.settings?.businessEmail ? `<p>Email: ${escapePrintHtml(profile.settings.businessEmail)}</p>` : ''}
     </div>
     <div class="order-info">
       <div class="order-number">Orden #${order.id}</div>
@@ -263,11 +276,11 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
     <div class="customer-info">
       <div class="info-row">
         <span class="info-label">Nombre</span>
-        <span class="info-value">${order.customer_name}</span>
+        <span class="info-value">${escapePrintHtml(order.customer_name)}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Teléfono</span>
-        <span class="info-value">${order.customer_phone}</span>
+        <span class="info-value">${escapePrintHtml(order.customer_phone)}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Canal</span>
@@ -280,11 +293,11 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
       ${order.metodo_pago === 'transferencia' ? `
       <div class="info-row">
         <span class="info-label">Banco</span>
-        <span class="info-value">${order.transfer_bank_name || 'N/A'}</span>
+        <span class="info-value">${escapePrintHtml(order.transfer_bank_name || 'N/A')}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Referencia</span>
-        <span class="info-value">${order.transfer_reference || 'N/A'}</span>
+        <span class="info-value">${escapePrintHtml(order.transfer_reference || 'N/A')}</span>
       </div>
       ` : ''}
     </div>
@@ -305,10 +318,10 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
         ${order.items.map(item => `
           <tr>
             <td>
-              <div class="product-name">${item.product?.nombre || 'Producto'}</div>
+              <div class="product-name">${escapePrintHtml(item.product?.nombre || 'Producto')}</div>
               <div class="product-details">
-                ${item.product?.marca || ''} ${item.product?.modelo || ''} 
-                ${item.product?.capacidad || ''}
+                ${escapePrintHtml(item.product?.marca || '')} ${escapePrintHtml(item.product?.modelo || '')} 
+                ${escapePrintHtml(item.product?.capacidad || '')}
                 ${item.es_regalo_promocion ? '• <strong>REGALO/PROMOCIÓN</strong>' : ''}
               </div>
             </td>
@@ -336,13 +349,13 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
           ${order.trade_ins.map(trade => `
             <tr>
               <td>
-                <div class="product-name">${trade.marca} ${trade.modelo}</div>
+                <div class="product-name">${escapePrintHtml(trade.marca)} ${escapePrintHtml(trade.modelo)}</div>
                 <div class="product-details">
-                  ${trade.color || ''} ${trade.capacidad || ''}
-                  ${trade.imei ? `• IMEI: ${trade.imei}` : ''}
+                  ${escapePrintHtml(trade.color || '')} ${escapePrintHtml(trade.capacidad || '')}
+                  ${trade.imei ? `• IMEI: ${escapePrintHtml(trade.imei)}` : ''}
                 </div>
               </td>
-              <td style="text-align: center; text-transform: capitalize;">${trade.condicion}</td>
+              <td style="text-align: center; text-transform: capitalize;">${escapePrintHtml(trade.condicion)}</td>
               <td style="text-align: right; color: #dc2626;">- ${formatCurrency(trade.valor_estimado, 'HNL')}</td>
             </tr>
           `).join('')}
@@ -366,7 +379,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
           <div class="customer-info" style="background: #f9fafb; padding: 15px; border-radius: 8px;">
             <div class="info-row">
               <span class="info-label">Banco</span>
-              <span class="info-value">${details.bank_name || 'N/A'}</span>
+              <span class="info-value">${escapePrintHtml(details.bank_name || 'N/A')}</span>
             </div>
             <div class="info-row">
               <span class="info-label">Plazo</span>
@@ -400,7 +413,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
   ${order.notas ? `
     <div class="notes">
       <div class="notes-title">Notas</div>
-      <div class="notes-text">${order.notas}</div>
+      <div class="notes-text">${escapePrintHtml(order.notas)}</div>
     </div>
   ` : ''}
   
@@ -448,7 +461,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
 
           ${profile.settings?.autoCalculateTax && profile.settings?.taxRate ? `
             <div class="total-row">
-              <span>Impuesto (${profile.settings.taxRate}%)</span>
+              <span>Impuesto (${escapePrintHtml(profile.settings.taxRate)}%)</span>
               <span>${formatCurrency(order.total - (order.total / (1 + profile.settings.taxRate / 100)), 'HNL')}</span>
             </div>
           ` : ''}
@@ -464,7 +477,7 @@ export function generateOrderPDF(order: OrderWithItems, profile: Profile): void 
   
   <div class="footer">
     <p>Generado el ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
-    <p style="margin-top: 4px;">Sistema de Inventario - ${profile.name}</p>
+    <p style="margin-top: 4px;">Sistema de Inventario - ${escapePrintHtml(profile.name)}</p>
   </div>
   
   <script>
@@ -539,7 +552,7 @@ export function generateProductReportPDF(products: ProductWithStock[], profile: 
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Reporte de Productos - ${profile.name}</title>
+  <title>Reporte de Productos - ${escapePrintHtml(profile.name)}</title>
   <style>
     * {
       margin: 0;
@@ -643,7 +656,7 @@ export function generateProductReportPDF(products: ProductWithStock[], profile: 
 <body>
   <div class="header">
     <h1>Reporte de Inventario</h1>
-    <p class="subtitle">${profile.name} - ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
+    <p class="subtitle">${escapePrintHtml(profile.name)} - ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
   </div>
   
   <div class="stats">
@@ -676,10 +689,10 @@ export function generateProductReportPDF(products: ProductWithStock[], profile: 
     <tbody>
       ${products.map(p => `
         <tr class="${p.stock_disponible === 0 ? 'out-of-stock' : p.stock_disponible <= (profile.settings?.lowStockThreshold || 5) ? 'low-stock' : ''}">
-          <td>${p.sku}</td>
-          <td>${p.nombre}</td>
-          <td>${p.marca}</td>
-          <td>${p.modelo}</td>
+          <td>${escapePrintHtml(p.sku)}</td>
+          <td>${escapePrintHtml(p.nombre)}</td>
+          <td>${escapePrintHtml(p.marca)}</td>
+          <td>${escapePrintHtml(p.modelo)}</td>
           <td style="text-align: center;">${p.stock_disponible}</td>
           <td style="text-align: right;">${formatCurrency(p.precio, profile.settings?.currency || 'USD')}</td>
           <td style="text-align: right;">${formatCurrency(p.precio * p.stock_disponible, profile.settings?.currency || 'USD')}</td>
@@ -689,7 +702,7 @@ export function generateProductReportPDF(products: ProductWithStock[], profile: 
   </table>
   
   <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 12px;">
-    <p>Generado por Sistema de Inventario - ${profile.name}</p>
+    <p>Generado por Sistema de Inventario - ${escapePrintHtml(profile.name)}</p>
   </div>
   
   <script>

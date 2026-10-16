@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getKV } from '@/lib/kvStorage'
 import { normalizeRuntimeWrite, resolveRuntimeDefault } from '@/lib/runtimePolicy'
+import { isSessionOnlyBusinessKey } from '@/lib/sessionCachePolicy'
 
 /**
  * Tipo para la función de actualización que puede recibir un valor o una función
@@ -19,6 +20,7 @@ export function useKV<T>(
   key: string,
   defaultValue: T
 ): [T, (value: SetStateAction<T>) => void] {
+  const sessionOnly = isSessionOnlyBusinessKey(key)
   const runtimeDefault = resolveRuntimeDefault(key, defaultValue)
   const [value, setValue] = useState<T>(runtimeDefault)
   const [isInitialized, setIsInitialized] = useState(false)
@@ -29,6 +31,10 @@ export function useKV<T>(
   }, [value])
 
   useEffect(() => {
+    if (sessionOnly) {
+      setIsInitialized(true)
+      return
+    }
     const loadValue = async () => {
       try {
         const kv = getKV()
@@ -46,7 +52,7 @@ export function useKV<T>(
     }
 
     void loadValue()
-  }, [key])
+  }, [key, sessionOnly])
 
   const updateValue = useCallback(
     async (newValue: SetStateAction<T>) => {
@@ -56,8 +62,10 @@ export function useKV<T>(
           : newValue
         const valueToSet = normalizeRuntimeWrite(key, requestedValue)
 
-        const kv = getKV()
-        await kv.set(key, valueToSet)
+        if (!sessionOnly) {
+          const kv = getKV()
+          await kv.set(key, valueToSet)
+        }
         setValue(valueToSet)
         valueRef.current = valueToSet
       } catch (error) {
@@ -65,11 +73,11 @@ export function useKV<T>(
         throw error
       }
     },
-    [key]
+    [key, sessionOnly]
   )
 
   useEffect(() => {
-    if (!isInitialized) return
+    if (!isInitialized || sessionOnly) return
 
     const handleStorageChange = async (e: StorageEvent) => {
       if (e.key === `spark-kv-${key}`) {
@@ -89,7 +97,7 @@ export function useKV<T>(
 
     window.addEventListener('storage', handleStorageChange)
     return () => window.removeEventListener('storage', handleStorageChange)
-  }, [key, isInitialized])
+  }, [key, isInitialized, sessionOnly])
 
   return [value, updateValue]
 }

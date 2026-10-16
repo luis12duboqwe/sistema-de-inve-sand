@@ -18,7 +18,7 @@ from app.schemas import (
 )
 from app.auth import (
     authenticate_user,
-    create_access_token,
+    create_user_access_token,
     get_password_hash,
     get_current_active_user,
     check_permission,
@@ -283,8 +283,8 @@ def setup_initial_admin(user: UserCreate, db: Session = Depends(get_db)):
     
     # Login automatically
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": db_user.username}, expires_delta=access_token_expires
+    access_token = create_user_access_token(
+        db_user, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer", "user": db_user}
 
@@ -398,8 +398,8 @@ def login(
     user = ensure_superuser_has_role(db, user)
     
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+    access_token = create_user_access_token(
+        user, expires_delta=access_token_expires
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
