@@ -82,6 +82,7 @@ import { analyzePricing, analyzeInventory, analyzeCustomers } from './optimizati
 import { buildBusinessInsightRecommendations } from './businessInsightsFallback'
 import { syncJournal } from './syncJournal'
 import { isFinalSaleStatus } from './orderStatus'
+import { assertLocalOrderDeletionAllowed } from './localOrderDeletionIntegrity'
 import { validateLocalOrderStatusChange } from './localOrderStatusIntegrity'
 import { assertLocalInventoryCountIsFresh } from './localInventoryCountIntegrity'
 import { validateLocalTransferRequest } from './localTransferIntegrity'
@@ -3190,144 +3191,31 @@ export class InventoryService {
   async deleteOrder(orderId: number): Promise<void> {
     const release = await inventoryLock.acquire()
     try {
-      const [orders, orderItems, stock, productIMEIs, stockHistory] = await Promise.all([
-        this.loadOrders(),
-        this.getOrderItems(),
-        this.getStock(),
-        this.loadProductIMEIs(),
-        this.loadStockHistory()
+      const [orders, orderItems, imeis, histories] = await Promise.all([
+        this.loadOrders(), this.getOrderItems(), this.loadProductIMEIs(), this.loadStockHistory(),
       ])
+      const order = orders.find(row => row.id === orderId)
+      if (!order) throw new Error('Orden no encontrada')
 
-      const order = orders.find(o => o.id === orderId)
-      if (!order) {
-        throw new Error('Orden no encontrada')
-      }
-
-      const locationId = order.source_location_id
-      if (!locationId) {
-        throw new Error('Orden sin source_location_id; no se puede reponer stock por ubicación')
-      }
-
-      const itemsToRestore = orderItems.filter(item => item.order_id === orderId)
-      const updatedStock = [...stock]
-      const updatedIMEIs = [...productIMEIs]
-      const newStockHistory: StockHistory[] = []
-      const stockRestorations: Array<{
-        product_id: number
-        location_id: number
-        cantidad: number
-        stock_anterior: number
-        stock_nuevo: number
-      }> = []
-      const imeiEvents: Array<{
-        imei: string
-        product_id: number
-        location_id: number
-        type: 'released'
-        reference_id: number
-      }> = []
-      
-      for (const item of itemsToRestore) {
-        const stockItem = updatedStock.find(s => s.product_id === item.product_id && s.location_id === locationId)
-        if (!stockItem) {
-          throw new Error(`No se encontró stock para el producto ${item.product_id} en la ubicación ${locationId} al eliminar la orden`)
-        }
-        
-        const stockAnterior = stockItem.cantidad_disponible
-        stockItem.cantidad_disponible += item.cantidad
-        
-        // Registrar en historial de stock (reversión)
-        newStockHistory.push({
-          id: Math.max(0, ...stockHistory.map(h => h.id), ...newStockHistory.map(h => h.id)) + 1,
-          product_id: item.product_id,
-          location_id: locationId,
-          tipo_cambio: 'devolucion',
-          cantidad: item.cantidad,
-          stock_anterior: stockAnterior,
-          stock_nuevo: stockItem.cantidad_disponible,
-          referencia_id: orderId,
-          referencia_tipo: 'manual_adjustment',
-          notas: `Reversión de orden #${orderId} eliminada`,
-          usuario: 'Sistema Local',
-          created_at: new Date().toISOString()
-        })
-
-        stockRestorations.push({
-          product_id: item.product_id,
-          location_id: locationId,
-          cantidad: item.cantidad,
-          stock_anterior: stockAnterior,
-          stock_nuevo: stockItem.cantidad_disponible
-        })
-        
-        // Liberar IMEIs vendidos en esta orden (marcar como no vendidos)
-        if (item.imeis && item.imeis.length > 0) {
-          for (const imeiStr of item.imeis) {
-            const imeiIndex = updatedIMEIs.findIndex(i => 
-              i.imei === imeiStr && 
-              i.product_id === item.product_id && 
-              i.vendido && 
-              i.order_id === orderId
-            )
-            if (imeiIndex !== -1) {
-              updatedIMEIs[imeiIndex] = {
-                ...updatedIMEIs[imeiIndex],
-                vendido: false,
-                order_id: undefined,
-                sold_at: undefined,
-              }
-              imeiEvents.push({
-                imei: updatedIMEIs[imeiIndex].imei,
-                product_id: updatedIMEIs[imeiIndex].product_id,
-                location_id: updatedIMEIs[imeiIndex].location_id!,
-                type: 'released',
-                reference_id: orderId
-              })
-            }
-          }
-        }
-      }
-
-      const updatedOrders = orders.filter(o => o.id !== orderId)
-      const updatedOrderItems = orderItems.filter(item => item.order_id !== orderId)
-
-      await Promise.all([
-        this.setOrders(updatedOrders),
-        this.setOrderItems(updatedOrderItems),
-        this.setStock(updatedStock),
-        this.setProductIMEIs(updatedIMEIs),
-        this.setStockHistory([...stockHistory, ...newStockHistory])
-      ])
-
+      // Physical deletion is permissible ONLY for an empty draft. Every sale,
+      // reservation, return and IMEI movement must remain auditable: use the
+      // cancellation process and retain the order for accounting purposes.
+      assertLocalOrderDeletionAllowed(
+        order, orderItems.filter(item => item.order_id === orderId),
+        imeis.filter(item => item.order_id === orderId),
+        histories.filter(history => history.referencia_id === orderId &&
+          ['order', 'order_finalized', 'order_cancelled', 'manual_adjustment'].includes(history.referencia_tipo || '')),
+      )
+      await this.setOrders(orders.filter(row => row.id !== orderId))
       await this.recordSyncEvent({
         entity: 'order',
         action: 'delete',
         entityId: orderId,
-        payload: {
-          order,
-          items: itemsToRestore,
-          stock_restored: stockRestorations,
-          imei_events: imeiEvents
-        }
+        payload: { order, items: [], stock_restored: [], imei_events: [] },
       })
-
-      if (imeiEvents.length > 0) {
-        await this.recordSyncEvent({
-          entity: 'imei',
-          action: 'update',
-          entityId: null,
-          payload: {
-            order_id: orderId,
-            events: imeiEvents
-          }
-        })
-      }
     } catch (error) {
       console.error('Error deleting order:', error)
-      if (error instanceof Error) {
-        throw error
-      }
-      throw new Error(`Failed to delete order: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw error instanceof Error ? error : new Error('No se pudo eliminar la orden')
     } finally {
       release()
     }
