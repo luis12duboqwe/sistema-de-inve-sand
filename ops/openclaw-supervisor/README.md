@@ -11,6 +11,15 @@ Entorno: VPS srv1656045. Este módulo complementa, NO sustituye ni reconfigura, 
 - Comprueba contenedores Docker principales, estado de WAHA/Redis, memoria y disco.
 - Escribe un resumen y un JSON para OpenClaw. El agente crea su propia revisión diaria con propuestas sujetas a aprobación.
 
+## Director operativo multiarea (segunda etapa)
+- El director `director.py` lee únicamente el informe saneado del supervisor y agrega datos SQL de solo lectura. Valida que el informe sea reciente, alcance la cobertura completa y que el envío comercial esté bloqueado.
+- Produce `DIRECTOR.json` y `DIRECTOR.md`: tareas verificables para ventas, inventario, operaciones, finanzas, calidad, infraestructura, publicidad y desarrollo. Sin datos suficientes, marca la integración como bloqueada (no inventa métricas).
+- Su timer `softmobile-openclaw-director.timer` se ejecuta a :10 y :40 de cada hora; no envía mensajes ni hace modificaciones externas.
+- OpenClaw genera informes especializados: ventas a las 09:30 diario, operaciones a las 09:50 diario, calidad y código martes/jueves/sábado a las 10:15. Todos en `America/Tegucigalpa`, con `--tools read,write`, `--no-deliver`, sesiones aisladas y límite de ejecución.
+- Archivos: `SALES_REVIEW.md`, `OPERATIONS_REVIEW.md`, `ENGINEERING_REVIEW.md` en la misma carpeta de reportes.
+- Para pruebas: `python3 -m unittest discover -q -p 'test_*.py'`; para ejecución: `systemctl start softmobile-openclaw-director.service`.
+- Para detener al director: `systemctl disable --now softmobile-openclaw-director.timer`. Para detener las revisiones de IA, deshabilitar sus trabajos individualmente con OpenClaw cron; no afectan el supervisor.
+
 ## Ejecución en VPS
 - Código activo: /opt/openclaw-lab/supervisor/supervisor.py
 - Pruebas: /opt/openclaw-lab/supervisor/test_supervisor.py y test_followup_policy.py
