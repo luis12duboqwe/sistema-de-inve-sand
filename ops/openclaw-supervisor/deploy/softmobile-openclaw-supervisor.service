@@ -1,0 +1,20 @@
+[Unit]
+Description=SoftMobile OpenClaw supervisor (Chatwoot, QA and VPS; read-only)
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/supervisor.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/supervisor.py
+TimeoutStartSec=150
+MemoryMax=256M
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
