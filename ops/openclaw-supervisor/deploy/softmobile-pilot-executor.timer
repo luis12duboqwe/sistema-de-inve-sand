@@ -1,0 +1,11 @@
+[Unit]
+Description=Execute only internal SoftMobile prelaunch actions after director snapshot
+
+[Timer]
+OnCalendar=*-*-* *:12,42:00 UTC
+AccuracySec=20s
+Persistent=false
+Unit=softmobile-pilot-executor.service
+
+[Install]
+WantedBy=timers.target
