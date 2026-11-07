@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+from followup_policy import propose as propose_followups
 
 ROOT=Path("/opt/openclaw-lab")
 OUT=ROOT/"workspace/softmobile-supervisor"
@@ -61,6 +62,44 @@ puts 'SM_SUPERVISOR_JSON='+{account_id:2,inbox_id:2,total_conversations:total,
   coverage_complete:total==reviewed,queues:counts,redacted:true,public_messages_sent:0}.to_json
 """
 
+# A second fixed, read-only query extracts Boolean evidence only. Customer texts
+# are inspected inside Chatwoot for opt-out, never returned to this process.
+FOLLOWUP_RAILS=r"""
+require 'json'
+scope=Conversation.where(account_id:2,inbox_id:2)
+raise 'too many conversations' if scope.count>5000
+records=[]
+scope.find_each(batch_size:100) do |c|
+  next unless c.status=='open'
+  attrs=c.custom_attributes || {}
+  public_msgs=c.messages.where(private:false,message_type:[:incoming,:outgoing]).
+                       order(id: :desc).limit(100).to_a
+  outs=public_msgs.select{|m|m.message_type=='outgoing'}
+  ins=public_msgs.select{|m|m.message_type=='incoming'}
+  quote=outs.select{|m|m.content_attributes.is_a?(Hash) &&
+                     m.content_attributes['sm_quote'].to_s=='true'}.max_by(&:id)
+  next unless quote && quote.created_at>=7.days.ago
+  consent_id=attrs['sm_followup_consent_message_id'].to_i
+  consent=attrs['sm_followup_consent']==true &&
+          consent_id>0 && ins.any?{|m|m.id==consent_id}
+  optout=ins.any?{|m|m.content.to_s.match?(
+    /no (?:me )?(?:escrib|contact|avis)|no quiero seguimiento|dejame de escribir|déjame de escribir|no me vuelvas a escribir/i)}
+  human=attrs['sm_human_takeover']==true ||
+        c.label_list.include?('sm_pendiente_asesor')
+  agent_replied=outs.any?{|m|m.id>quote.id && m.sender_type=='User'}
+  incoming_other=ins.any?{|m|m.id>quote.id && m.id!=consent_id}
+  followed=attrs['sm_followup_quote_id'].to_i
+  records << {conversation_id:c.id,quote_id:quote.id,
+    minutes_since_quote:((Time.now.utc-quote.created_at)/60).round(1),
+    open:true,explicit_consent:consent,opted_out:optout,
+    human_takeover:human,human_replied_since_quote:agent_replied,
+    incoming_after_quote_other_than_consent:incoming_other,
+    followed_quote_id:followed>0 ? followed : nil}
+end
+puts 'SM_FOLLOWUP_JSON='+{account_id:2,inbox_id:2,redacted:true,
+   public_messages_sent:0,evidence:records}.to_json
+"""
+
 def shell(args, **kw):
     return subprocess.run(args,text=True,capture_output=True,check=False,**kw)
 
@@ -79,6 +118,25 @@ def chatwoot():
         raise ValueError("Chatwoot scope, coverage or privacy violation")
     data["status"]="ok"
     return data
+
+def scan_followups():
+    result=shell(["docker","exec","-i","softmobile-chatwoot-rails-1","sh","-lc",
+                  "RAILS_ENV=production bundle exec rails runner -"],
+                 input=FOLLOWUP_RAILS,timeout=100)
+    if result.returncode:
+        raise RuntimeError("Follow-up read-only query failed; details withheld")
+    raw=next((x[len("SM_FOLLOWUP_JSON="):] for x in result.stdout.splitlines()
+              if x.startswith("SM_FOLLOWUP_JSON=")),None)
+    if raw is None:
+        raise RuntimeError("No structured follow-up metadata")
+    data=json.loads(raw)
+    if (data.get("account_id")!=2 or data.get("inbox_id")!=2 or
+        data.get("redacted") is not True or data.get("public_messages_sent")!=0 or
+        type(data.get("evidence")) is not list):
+        raise RuntimeError("Follow-up scope/privacy guard rejected result")
+    if len(data["evidence"])>5000:
+        raise RuntimeError("Follow-up query exceeded data cap")
+    return data["evidence"]
 
 def lab():
     paths=sorted(LAB.glob("*-status.json"))
@@ -191,6 +249,10 @@ def markdown(r):
         "Actividad 24h: "+str(c.get("recent_24h","?"))+"; abiertas: "+str(c.get("open_conversations","?")),
         "Colas (IDs solamente): "+json.dumps(counts,ensure_ascii=False),
         "Propuestas sujetas a aprobación: "+str(len(r["proposed_actions"])),
+        "Seguimientos: "+json.dumps(r.get("followups",{}).get("by_status",{}),ensure_ascii=False)+
+        "; envíos automáticos elegibles=0 (solo propuestas).",
+        "Habilitación de envío comercial: "+str(r.get("release_gates",{}).get("public_messaging_ready",False))+
+        "; bloqueos: "+json.dumps(r.get("release_gates",{}).get("blockers",[]),ensure_ascii=False),
         "Inventario: "+str(r.get("inventory",{}).get("available_units","?"))+
         " unidades disponibles; "+str(r.get("inventory",{}).get("out_of_stock_active_products","?"))+
         " productos activos sin stock; "+str(r.get("inventory",{}).get("orders_pending","?"))+
@@ -200,7 +262,7 @@ def markdown(r):
         "Pruebas locales: "+str(q.get("tests","?"))+"; correctas: "+str(q.get("all_local_tests_passed","?"))+
         "; revisión independiente convergente: "+str(q.get("independent_convergence","?")),
         "VPS: contenedores activos="+str(h.get("all_containers_running","?"))+
-        "; WhatsApp WAHA activo="+str(h.get("whatsapp_online","?"))+
+        "; WAHA de pruebas activo="+str(h.get("whatsapp_online","?"))+
         "; disco libre="+str(h.get("disk_free_percent","?"))+
         "%; RAM disponible="+str(h.get("memory_available_percent","?"))+"%",
         "Alertas: "+("; ".join(r["alerts"]) if r["alerts"] else "ninguna"),
@@ -239,11 +301,35 @@ def collect():
     try:
         r["health"]=health()
         if not r["health"]["all_containers_running"]:r["alerts"].append("Contenedor principal caído")
-        if not r["health"]["whatsapp_online"]:r["alerts"].append("WhatsApp WAHA o su Redis detenido; no se reinicia automáticamente")
+        if not r["health"]["whatsapp_online"]:r["alerts"].append("WAHA del entorno piloto detenido; comprobar necesidad antes de activar, no se reinicia automáticamente")
         if r["health"]["disk_free_percent"]<15:r["alerts"].append("Disco libre bajo")
         if r["health"]["memory_available_percent"]<10:r["alerts"].append("RAM libre baja")
     except (OSError,ValueError,subprocess.TimeoutExpired):
         r["health"]={"available":False};r["alerts"].append("Monitoreo VPS falló")
+    if r["chatwoot"].get("status")=="ok":
+        try:
+            is_online=r.get("health",{}).get("whatsapp_online") is True
+            r["followups"]=propose_followups(scan_followups(),is_online)
+            if r["followups"]["by_status"].get("ready_for_manual_review",0)>0:
+                r["alerts"].append("Hay seguimientos con consentimiento para revisión humana (NO se envían)")
+        except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as err:
+            r["followups"]={"status":"unavailable","public_messages_sent":0}
+            r["alerts"].append("Seguimientos: "+str(err)[:100])
+    else:
+        r["followups"]={"status":"unavailable","public_messages_sent":0}
+    # Fail closed: this module never releases public messaging, even if all
+    # technical gates look healthy. Human approval/deployment is a separate act.
+    gates={
+        "pilot_transport_online":r.get("health",{}).get("whatsapp_online") is True,
+        "chatwoot_coverage_complete":r.get("chatwoot",{}).get("coverage_complete") is True,
+        "local_qa_passed":r.get("quality",{}).get("all_local_tests_passed") is True,
+        "independent_qa_converged":r.get("quality",{}).get("independent_convergence") is True,
+        "commercial_actions_enabled":Path("/etc/softmobile/commercial-actions-enabled").exists(),
+        "explicit_authorization_to_go_live":False,
+    }
+    blockers=[name for name,passed in gates.items() if not passed]
+    r["release_gates"]={**gates,"blockers":blockers,
+                        "public_messaging_ready":False,"public_messages_sent":0}
     return r
 
 def main():
