@@ -18,7 +18,10 @@ Entorno: VPS srv1656045. Este módulo complementa, NO sustituye ni reconfigura, 
 - OpenClaw genera informes especializados: ventas a las 09:30 diario, operaciones a las 09:50 diario, calidad y código martes/jueves/sábado a las 10:15. Todos en `America/Tegucigalpa`, con `--tools read,write`, `--no-deliver`, sesiones aisladas y límite de ejecución.
 - Archivos: `SALES_REVIEW.md`, `OPERATIONS_REVIEW.md`, `ENGINEERING_REVIEW.md` en la misma carpeta de reportes.
 - Para pruebas: `python3 -m unittest discover -q -p 'test_*.py'`; para ejecución: `systemctl start softmobile-openclaw-director.service`.
-- Para detener al director: `systemctl disable --now softmobile-openclaw-director.timer`. Para detener las revisiones de IA, deshabilitar sus trabajos individualmente con OpenClaw cron; no afectan el supervisor.
+- El director integra solo los **agregados anonimizados** de la revisión sintética cuando existe `issue-triage-report.json` y un `offline-issue-replay-report.json` reciente, con 0 llamadas API, 0 mensajes públicos y 0 promociones. Los 250 casos son conversaciones ficticias y las señales no prueban errores comerciales reales.
+- Se reactivó `softmobile-issue-triage.timer` (cada 30 minutos) y `softmobile-offline-issue-replay.timer` (cada hora, override `90-softmobile-hourly-safety.conf`): replay en Ruby desechable sin red, 200 MB por contenedor, sin despliegues.
+- La conectividad de Meta Ads desde el VPS sigue sin fuente utilizable. La cuenta externa de analytics puede aparecer autenticada pero los conectores requieren suscripción/plan para retornar datos; no declarar campañas optimizadas ni gastos verificados.
+- Para detener al director: `systemctl disable --now softmobile-openclaw-director.timer`. Para detener el QA adicional: `systemctl disable --now softmobile-issue-triage.timer softmobile-offline-issue-replay.timer`. Para detener las revisiones de IA, deshabilitar sus trabajos individualmente con OpenClaw cron; no afectan el supervisor.
 
 ## Ejecución en VPS
 - Código activo: /opt/openclaw-lab/supervisor/supervisor.py
