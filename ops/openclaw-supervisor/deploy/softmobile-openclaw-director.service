@@ -1,0 +1,21 @@
+[Unit]
+Description=SoftMobile OpenClaw multi-domain director (proposals only)
+After=docker.service softmobile-openclaw-supervisor.service
+Requires=docker.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/director.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/director.py
+TimeoutStartSec=60
+MemoryMax=128M
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
