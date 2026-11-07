@@ -94,10 +94,40 @@ def task(id,area,priority,title,action,evidence=None,status="review",owner="huma
             "status":status,"owner":owner,"requires_approval":True,
             "automatic_external_actions":0}
 
-def plan(data,metrics=None):
+def synthetic_qa_snapshot():
+    """Read summaries of isolated, entirely fictional QA; never raw dialogues."""
+    folder=Path("/opt/softmobile-waha-test/laboratorio-ia/quality")
+    try:
+        triage=json.loads((folder/"issue-triage-report.json").read_text())
+        replay=json.loads((folder/"offline-issue-replay-report.json").read_text())
+        t=datetime.fromisoformat(replay["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-t).total_seconds()
+        if not 0<=age<=86400*2:
+            return {"available":False,"reason":"stale"}
+        if (replay.get("environment")!="NO_NETWORK_SYNTHETIC_ONLY" or
+            replay.get("api_calls")!=0 or replay.get("public_messages_sent")!=0 or
+            replay.get("real_inventory_changed") is not False or
+            replay.get("no_auto_promotion") is not True):
+            return {"available":False,"reason":"safety_guard"}
+        if type(triage.get("total_records")) is not int or type(replay.get("replayed")) is not int:
+            return {"available":False,"reason":"invalid_counts"}
+        outcomes=replay.get("outcomes")
+        if not isinstance(outcomes,dict) or any(
+            type(v) is not int or v<0 for v in outcomes.values()):
+            return {"available":False,"reason":"invalid_outcomes"}
+        if sum(outcomes.values())!=replay["replayed"]:
+            return {"available":False,"reason":"inconsistent_outcomes"}
+        return {"available":True,"synthetic_issues":triage["total_records"],
+            "replayed":replay["replayed"],"outcomes":outcomes,
+            "synthetic_only":True,"auto_promotion":False}
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def plan(data,metrics=None,qa=None):
     """Pure orchestration: no input is modified and no external API is called."""
     verify_snapshot(data)
     metrics=metrics or {}
+    qa=qa or {}
     chat=data["chatwoot"]
     q=chat.get("queues") or {}
     fw=data.get("followups") or {}
@@ -163,6 +193,11 @@ def plan(data,metrics=None):
             "QA sin convergencia independiente",
             "Repetir simulación, evaluación independiente y regresión antes de habilitar ventas públicas.",
             {"local_tests":quality.get("tests"),"local_passed":quality.get("all_local_tests_passed")}))
+    if qa.get("available") is True and qa.get("replayed",0)>0:
+        tasks.append(task("calidad_replay_aislado","calidad","alta",
+            "Incidencias sintéticas reproducidas en laboratorio aislado",
+            "Priorizar investigación y correcciones en rama; los indicadores son hipótesis, no defectos reales demostrados.",
+            {"synthetic_replayed":qa["replayed"],"outcomes":qa["outcomes"]}))
     if not health.get("whatsapp_online"):
         tasks.append(task("infraestructura_waha_piloto","infraestructura","media",
             "WAHA de pruebas detenido",
@@ -194,6 +229,7 @@ def plan(data,metrics=None):
                       "review":sum(t["status"]=="review" for t in tasks),
                       "blocked":sum(t["status"]=="blocked" for t in tasks)},
             "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS},
+            "synthetic_qa":qa if qa.get("available") is True else {"available":False},
             "verified_finance":{"completed_orders":metrics.get("orders_completed"),
                                 "daily_closes":metrics.get("daily_closes"),
                                 "profit_verified":False}}
@@ -207,6 +243,8 @@ def markdown(out):
       " | Bloqueadas por integración/seguridad: "+str(out["counts"]["blocked"]),
       "Mensajes a clientes: 0; compras: 0; campañas modificadas: 0; despliegues: 0.",
       "Ganancia confirmada: no verificable con los registros actuales.",
+      "QA aislado: "+str(out.get("synthetic_qa",{}).get("replayed","sin dato"))+
+      " conversaciones ficticias; resultados no prueban defectos reales.",
       "", "## Cola por especialidad"]
     for t in out["tasks"]:
         rows.append("- ["+t["priority"]+" / "+t["status"]+"] "+
@@ -227,7 +265,8 @@ def main():
         metrics=db_snapshot()
     except (OSError,ValueError,Reject,subprocess.TimeoutExpired):
         metrics={"read_only_data_available":False}
-    out=plan(data,metrics)
+    qa=synthetic_qa_snapshot()
+    out=plan(data,metrics,qa)
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
