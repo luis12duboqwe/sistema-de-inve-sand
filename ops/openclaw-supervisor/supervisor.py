@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 
@@ -111,6 +112,56 @@ def health():
             "disk_free_percent":round(100*disk.free/disk.total,1),
             "memory_available_percent":round(100*mem.get("MemAvailable",0)/max(mem.get("MemTotal",1),1),1)}
 
+INVENTORY_SQL=r"""
+BEGIN TRANSACTION READ ONLY;
+SELECT 'SM_INV_JSON=' || json_build_object(
+'products_total',(SELECT count(*) FROM products),
+'active_products',(SELECT count(*) FROM products WHERE activo=true),
+'available_units',(SELECT coalesce(sum(cantidad_disponible),0) FROM stock),
+'reserved_units',(SELECT coalesce(sum(cantidad_reservada),0) FROM stock),
+'out_of_stock_active_products',(SELECT count(*) FROM products p WHERE p.activo=true
+   AND NOT EXISTS(SELECT 1 FROM stock s WHERE s.product_id=p.id AND s.cantidad_disponible>0)),
+'orders_total',(SELECT count(*) FROM orders),
+'orders_pending',(SELECT count(*) FROM orders WHERE estado='pendiente'),
+'orders_with_completed_at',(SELECT count(*) FROM orders WHERE completed_at IS NOT NULL)
+)::text;
+COMMIT;
+"""
+
+def inventory():
+    result=shell(["runuser","-u","postgres","--","psql","-X","-At",
+                  "-v","ON_ERROR_STOP=1","-d","inventory_db"],
+                 input=INVENTORY_SQL,timeout=20)
+    if result.returncode:raise RuntimeError("Inventory read-only aggregation unavailable")
+    value=next((x[len("SM_INV_JSON="):] for x in result.stdout.splitlines()
+                if x.startswith("SM_INV_JSON=")),None)
+    if value is None:raise RuntimeError("Inventory aggregates missing")
+    data=json.loads(value)
+    required=("products_total","active_products","available_units","reserved_units",
+              "out_of_stock_active_products","orders_total","orders_pending",
+              "orders_with_completed_at")
+    if not all(type(data.get(k)) is int and data[k]>=0 for k in required):
+        raise RuntimeError("Inventory data invalid")
+    return {"status":"ok","source":"inventory_db","read_only":True,**data}
+
+def photos():
+    path="file:/opt/softmobile-waha-test/staff-bridge/requests.sqlite3?mode=ro"
+    pending=[]
+    statuses={}
+    with sqlite3.connect(path,uri=True,timeout=3) as db:
+        db.execute("PRAGMA query_only=ON")
+        for row_id,status,created in db.execute("SELECT id,status,created_at FROM requests"):
+            statuses[str(status)]=statuses.get(str(status),0)+1
+            if status in ("pending","assigned","answer_pending_review","ready_for_review"):
+                try:
+                    ago=(datetime.now(timezone.utc)-
+                         datetime.fromisoformat(created.replace("Z","+00:00"))).total_seconds()
+                except (ValueError,TypeError,AttributeError):
+                    ago=0
+                if ago>7200:pending.append(int(row_id))
+    return {"status":"ok","source":"staff-bridge SQLite (read-only)",
+            "status_counts":statuses,"older_than_2h_pending_review_ids":sorted(pending)}
+
 def proposals(data):
     descriptions={"unanswered":"Responder consulta sin respuesta",
         "recoverable":"Revisar oportunidad de venta",
@@ -140,6 +191,12 @@ def markdown(r):
         "Actividad 24h: "+str(c.get("recent_24h","?"))+"; abiertas: "+str(c.get("open_conversations","?")),
         "Colas (IDs solamente): "+json.dumps(counts,ensure_ascii=False),
         "Propuestas sujetas a aprobación: "+str(len(r["proposed_actions"])),
+        "Inventario: "+str(r.get("inventory",{}).get("available_units","?"))+
+        " unidades disponibles; "+str(r.get("inventory",{}).get("out_of_stock_active_products","?"))+
+        " productos activos sin stock; "+str(r.get("inventory",{}).get("orders_pending","?"))+
+        " registros de orden pendientes (no equivalen a entregas pendientes).",
+        "Fotografías: solicitudes por estado "+json.dumps(r.get("photos",{}).get("status_counts",{}),ensure_ascii=False)+
+        "; revisión de más de 2h "+str(r.get("photos",{}).get("older_than_2h_pending_review_ids",[])),
         "Pruebas locales: "+str(q.get("tests","?"))+"; correctas: "+str(q.get("all_local_tests_passed","?"))+
         "; revisión independiente convergente: "+str(q.get("independent_convergence","?")),
         "VPS: contenedores activos="+str(h.get("all_containers_running","?"))+
@@ -161,6 +218,18 @@ def collect():
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as err:
         r["chatwoot"]={"status":"unavailable","coverage_complete":False}
         r["alerts"].append("Chatwoot: "+str(err)[:100])
+    try:
+        r["inventory"]=inventory()
+        if r["inventory"]["orders_total"]>0 and r["inventory"]["orders_total"]==r["inventory"]["orders_pending"]:
+            r["alerts"].append("Todas las órdenes están marcadas pendientes: comprobar si son pruebas o datos sin cerrar")
+    except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as err:
+        r["inventory"]={"status":"unavailable"};r["alerts"].append("Inventario: "+str(err)[:100])
+    try:
+        r["photos"]=photos()
+        if r["photos"]["older_than_2h_pending_review_ids"]:
+            r["alerts"].append("Solicitudes de fotos antiguas sin revisar; verificar si son pruebas")
+    except (OSError,ValueError,sqlite3.Error) as err:
+        r["photos"]={"status":"unavailable"};r["alerts"].append("Fotografías: "+str(err)[:100])
     try:
         r["quality"]=lab()
         if not r["quality"].get("all_local_tests_passed"):
