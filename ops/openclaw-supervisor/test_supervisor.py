@@ -58,6 +58,8 @@ class SupervisorTests(unittest.TestCase):
     def test_chatwoot_failure_yields_alert_not_send(self):
         with patch.object(s,"chatwoot",side_effect=RuntimeError("offline")), \
              patch.object(s,"lab",return_value={"all_local_tests_passed":True}), \
+             patch.object(s,"inventory",return_value={"orders_total":0,"orders_pending":0}), \
+             patch.object(s,"photos",return_value={"older_than_2h_pending_review_ids":[]}), \
              patch.object(s,"health",return_value={"all_containers_running":True,
                     "whatsapp_online":True,"disk_free_percent":75,"memory_available_percent":50}):
             result=s.collect()
@@ -76,6 +78,38 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn("9/9",report)
         self.assertIn("SOLO LECTURA",report)
         self.assertNotIn("5555-1234",report)
+
+    def test_inventory_sql_is_read_only(self):
+        self.assertIn("BEGIN TRANSACTION READ ONLY;",s.INVENTORY_SQL)
+        self.assertNotIn("UPDATE orders",s.INVENTORY_SQL)
+        self.assertNotIn("DELETE FROM",s.INVENTORY_SQL)
+
+    def test_inventory_snapshot_only_aggregates(self):
+        values={"products_total":203,"active_products":203,
+            "available_units":106,"reserved_units":0,
+            "out_of_stock_active_products":135,"orders_total":458,
+            "orders_pending":458,"orders_with_completed_at":0}
+        class Output:
+            returncode=0
+            stdout="BEGIN\nSM_INV_JSON="+json.dumps(values)+"\nCOMMIT"
+        with patch.object(s,"shell",return_value=Output()):
+            got=s.inventory()
+        self.assertTrue(got["read_only"])
+        self.assertEqual(got["available_units"],106)
+        self.assertNotIn("imei",got)
+        self.assertNotIn("customer_phone",got)
+
+    def test_stopped_whatsapp_causes_alert_without_restart(self):
+        with patch.object(s,"chatwoot",return_value=self.sample()), \
+             patch.object(s,"lab",return_value={"all_local_tests_passed":True}), \
+             patch.object(s,"inventory",return_value={"orders_total":0,"orders_pending":0}), \
+             patch.object(s,"photos",return_value={"older_than_2h_pending_review_ids":[]}), \
+             patch.object(s,"health",return_value={"all_containers_running":True,
+                     "whatsapp_online":False,"disk_free_percent":75,"memory_available_percent":50}):
+            r=s.collect()
+        self.assertIn("WhatsApp WAHA", " ".join(r["alerts"]))
+        self.assertEqual(r["public_messages_sent"],0)
+        self.assertFalse(r["production_changed"])
 
     def test_atomic_report_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
