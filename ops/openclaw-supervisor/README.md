@@ -5,6 +5,7 @@ Entorno: VPS srv1656045. Este módulo complementa, NO sustituye ni reconfigura, 
 ## Funciones implementadas
 - Audita todas las conversaciones del buzón 2 de la cuenta 2 (hasta 5,000 para limitar carga). No extrae nombres, teléfonos ni contenido de mensajes.
 - Detecta consultas sin responder y propuestas de seguimiento, con consentimiento separado. NO envía mensajes.
+- Lee agregados de inventario_db (productos, existencias, órdenes) y la cola de solicitudes de fotografías en modo solo lectura.
 - Lee las pruebas locales del laboratorio y distingue resultado local de auditoría independiente.
 - Comprueba contenedores Docker principales, estado de WAHA/Redis, memoria y disco.
 - Escribe un resumen y un JSON para OpenClaw. El agente crea su propia revisión diaria con propuestas sujetas a aprobación.
@@ -25,6 +26,8 @@ Revisión: systemctl status softmobile-openclaw-supervisor.service
 Desactivar supervisión si es necesario: systemctl disable --now softmobile-openclaw-supervisor.timer
 
 Estado observado 2026-11-07: 9/9 conversaciones evaluadas, 1 pendiente, ninguna nueva en 24h.
+Inventario DB: 106 unidades disponibles, 135 productos activos sin stock, 458 registros de órdenes con estado pendiente (no verificar como ventas reales).
+Fotos (cola de pruebas): 4 completadas, 1 cancelada, 1 pendiente de revisión.
 Laboratorio: 492 pruebas locales aprobadas, sin confirmación de convergencia independiente.
 WAHA y Redis del stack WhatsApp estaban detenidos. NO se reiniciaron.
 
@@ -37,4 +40,4 @@ WAHA y Redis del stack WhatsApp estaban detenidos. NO se reiniciaron.
 - Mantener la aprobación humana para propuestas y cambios de infraestructura.
 
 ## Pendientes no implementados
-Recuperación real de ventas, seguimiento comercial consentido masivo, sincronización con inventario, anuncios Meta, finanzas, reparaciones y remediación automática de errores requieren integración y pruebas adicionales. No confundir esta primera versión con un sistema autónomo comercial completo.
+Recuperación real de ventas, seguimiento comercial consentido masivo, sincronización transaccional de inventario con Chatwoot, anuncios Meta, finanzas reales, reparaciones y remediación automática de errores requieren integración y pruebas adicionales. No confundir esta primera versión con un sistema autónomo comercial completo.
