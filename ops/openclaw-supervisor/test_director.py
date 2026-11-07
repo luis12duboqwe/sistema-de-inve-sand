@@ -44,6 +44,26 @@ class DirectorTests(unittest.TestCase):
         t=next(t for t in res["tasks"] if t["id"]=="inventario_sin_stock")
         self.assertEqual(t["evidence"]["active_products_without_stock"],135)
         self.assertIn("no comprar",t["next_action"])
+    def test_fictional_sales_conversion_is_not_real_sale(self):
+        conversion={"available":True,"scenarios":72,"passed":72,"failed":0,
+                    "synthetic_only":True}
+        res=d.plan(snapshot(),metrics(),conversion=conversion)
+        item=next(t for t in res["tasks"] if t["id"]=="ventas_simulaciones")
+        self.assertEqual(item["evidence"]["scenarios"],72)
+        self.assertTrue(item["requires_approval"])
+        self.assertEqual(item["automatic_external_actions"],0)
+        self.assertFalse(res["verified_finance"]["profit_verified"])
+
+    def test_conversion_failure_is_high_priority(self):
+        conversion={"available":True,"scenarios":72,"passed":71,"failed":1}
+        res=d.plan(snapshot(),metrics(),conversion=conversion)
+        item=next(t for t in res["tasks"] if t["id"]=="ventas_simulaciones")
+        self.assertEqual(item["priority"],"alta")
+
+    def test_missing_sales_simulations_not_invented(self):
+        res=d.plan(snapshot(),metrics(),conversion={"available":False})
+        self.assertNotIn("ventas_simulaciones",{t["id"] for t in res["tasks"]})
+
     def test_synthetic_replay_stays_advisory(self):
         qa={"available":True,"synthetic_issues":250,"replayed":250,
             "outcomes":{"previous_flags_reproduced":202,"ai_only_still_unverified":38,
