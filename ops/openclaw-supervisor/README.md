@@ -23,6 +23,13 @@ Entorno: VPS srv1656045. Este módulo complementa, NO sustituye ni reconfigura, 
 - La conectividad de Meta Ads desde el VPS sigue sin fuente utilizable. La cuenta externa de analytics puede aparecer autenticada pero los conectores requieren suscripción/plan para retornar datos; no declarar campañas optimizadas ni gastos verificados.
 - Para detener al director: `systemctl disable --now softmobile-openclaw-director.timer`. Para detener el QA adicional: `systemctl disable --now softmobile-issue-triage.timer softmobile-offline-issue-replay.timer`. Para detener las revisiones de IA, deshabilitar sus trabajos individualmente con OpenClaw cron; no afectan el supervisor.
 
+## Preparación de propuestas de código
+- `patch_proposer_capped.py` limita el generador existente de parches IA a **4 llamadas Groq por día** incluso si la configuración global de desarrollo es ilimitada.
+- La unidad tiene override `95-softmobile-proposal-budget.conf`: mismo candado de concurrencia, máximo de 384 MB y 150 segundos.
+- Pruebas: 4 del presupuesto + 17 originales del generador y su validador aprobadas.
+- La ejecución manual del 7 nov devolvió `trusted_source_drift`: la estructura Ruby actual ya no coincide con el ancla exacta esperada. No se aplicaron cambios, no se generó un nuevo parche y **no se habilitó su timer** hasta revisar ese desfase.
+- El generador solo puede preparar parches en archivos privados para revisión humana; nunca desplegar ni modificar conversaciones de clientes.
+
 ## Ejecución en VPS
 - Código activo: /opt/openclaw-lab/supervisor/supervisor.py
 - Pruebas: /opt/openclaw-lab/supervisor/test_supervisor.py y test_followup_policy.py
