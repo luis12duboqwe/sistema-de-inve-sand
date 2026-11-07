@@ -107,9 +107,23 @@ class SupervisorTests(unittest.TestCase):
              patch.object(s,"health",return_value={"all_containers_running":True,
                      "whatsapp_online":False,"disk_free_percent":75,"memory_available_percent":50}):
             r=s.collect()
-        self.assertIn("WhatsApp WAHA", " ".join(r["alerts"]))
+        self.assertIn("WAHA del entorno piloto", " ".join(r["alerts"]))
         self.assertEqual(r["public_messages_sent"],0)
         self.assertFalse(r["production_changed"])
+
+    def test_release_gate_fails_closed_even_with_healthy_metrics(self):
+        with patch.object(s,"chatwoot",return_value=self.sample()), \
+             patch.object(s,"scan_followups",return_value=[]), \
+             patch.object(s,"lab",return_value={"all_local_tests_passed":True,
+                     "independent_convergence":True}), \
+             patch.object(s,"inventory",return_value={"orders_total":0,"orders_pending":0}), \
+             patch.object(s,"photos",return_value={"older_than_2h_pending_review_ids":[]}), \
+             patch.object(s,"health",return_value={"all_containers_running":True,
+                     "whatsapp_online":True,"disk_free_percent":75,"memory_available_percent":50}):
+            result=s.collect()
+        self.assertFalse(result["release_gates"]["public_messaging_ready"])
+        self.assertFalse(result["release_gates"]["explicit_authorization_to_go_live"])
+        self.assertEqual(result["followups"]["public_messages_sent"],0)
 
     def test_atomic_report_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
