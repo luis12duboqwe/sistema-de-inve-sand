@@ -44,6 +44,21 @@ class DirectorTests(unittest.TestCase):
         t=next(t for t in res["tasks"] if t["id"]=="inventario_sin_stock")
         self.assertEqual(t["evidence"]["active_products_without_stock"],135)
         self.assertIn("no comprar",t["next_action"])
+    def test_synthetic_replay_stays_advisory(self):
+        qa={"available":True,"synthetic_issues":250,"replayed":250,
+            "outcomes":{"previous_flags_reproduced":202,"ai_only_still_unverified":38,
+                        "previous_flags_no_longer_present":10}}
+        res=d.plan(snapshot(),metrics(),qa)
+        t=next(t for t in res["tasks"] if t["id"]=="calidad_replay_aislado")
+        self.assertEqual(t["evidence"]["synthetic_replayed"],250)
+        self.assertEqual(t["automatic_external_actions"],0)
+        self.assertIn("hipótesis",t["next_action"])
+        self.assertTrue(res["synthetic_qa"]["available"])
+
+    def test_synthetic_qa_bad_inputs_do_not_claim_results(self):
+        out=d.plan(snapshot(),metrics(),{"available":False,"reason":"stale"})
+        self.assertNotIn("calidad_replay_aislado",{t["id"] for t in out["tasks"]})
+
     def test_zero_completed_not_profits(self):
         res=d.plan(snapshot(),metrics())
         self.assertFalse(res["verified_finance"]["profit_verified"])
