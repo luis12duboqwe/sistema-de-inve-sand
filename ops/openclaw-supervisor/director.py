@@ -123,11 +123,47 @@ def synthetic_qa_snapshot():
     except (OSError,ValueError,TypeError,KeyError,AttributeError):
         return {"available":False,"reason":"unavailable"}
 
-def plan(data,metrics=None,qa=None):
+def sales_simulation_snapshot():
+    """Only synthetic sales funnel totals, never buyer dialogue text or mocks."""
+    path=Path("/opt/softmobile-waha-test/laboratorio-ia/quality/sales-conversion-training-report.json")
+    try:
+        report=json.loads(path.read_text())
+        at=datetime.fromisoformat(report["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-at).total_seconds()
+        if not 0<=age<=86400:
+            return {"available":False,"reason":"stale"}
+        if (report.get("environment")!="OFFLINE_TRAINING_ONLY" or
+            report.get("public_messages_sent")!=0 or
+            report.get("real_orders")!=0 or
+            report.get("real_inventory_modified") is not False):
+            return {"available":False,"reason":"safety_guard"}
+        cases=report.get("scenarios")
+        passed=report.get("passed")
+        failed=report.get("failed")
+        if (any(type(x) is not int for x in (cases,passed,failed)) or
+            not 0<cases<=1000 or not 0<=passed<=cases or failed!=cases-passed):
+            return {"available":False,"reason":"invalid_counts"}
+        families=report.get("by_family")
+        if not isinstance(families,dict) or not families:
+            return {"available":False,"reason":"invalid_families"}
+        if any(not isinstance(k,str) or not isinstance(v,dict) or
+               type(v.get("passed")) is not int or type(v.get("tested")) is not int
+               or not 0<=v["passed"]<=v["tested"] for k,v in families.items()):
+            return {"available":False,"reason":"invalid_family_totals"}
+        if sum(v["tested"] for v in families.values())!=cases:
+            return {"available":False,"reason":"inconsistent_families"}
+        return {"available":True,"scenarios":cases,"passed":passed,
+                "failed":failed,"by_family":families,"synthetic_only":True,
+                "real_checkouts":0,"public_messages_sent":0}
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def plan(data,metrics=None,qa=None,conversion=None):
     """Pure orchestration: no input is modified and no external API is called."""
     verify_snapshot(data)
     metrics=metrics or {}
     qa=qa or {}
+    conversion=conversion or {}
     chat=data["chatwoot"]
     q=chat.get("queues") or {}
     fw=data.get("followups") or {}
@@ -147,6 +183,14 @@ def plan(data,metrics=None,qa=None):
             "Oportunidades de seguimiento de cotizaciones",
             "Verificar autorización, respuesta humana y canal antes de cualquier contacto.",
             {"cases":fw["cases"]}))
+    if conversion.get("available") is True:
+        failures=conversion["failed"]
+        tasks.append(task("ventas_simulaciones","ventas",
+            "alta" if failures else "media",
+            "Simulaciones de compra y cierre con inventario ficticio",
+            "Investigar regresiones antes de liberar WhatsApp; resultados ficticios nunca autorizan un lanzamiento.",
+            {"scenarios":conversion["scenarios"],"passed":conversion["passed"],
+             "failed":failures,"synthetic_only":True}))
     if not ready.get("public_messaging_ready",False):
         tasks.append(task("ventas_despliegue","ventas","alta",
             "Vendedor y seguimiento público no liberados",
@@ -230,6 +274,7 @@ def plan(data,metrics=None,qa=None):
                       "blocked":sum(t["status"]=="blocked" for t in tasks)},
             "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS},
             "synthetic_qa":qa if qa.get("available") is True else {"available":False},
+            "synthetic_sales":conversion if conversion.get("available") is True else {"available":False},
             "verified_finance":{"completed_orders":metrics.get("orders_completed"),
                                 "daily_closes":metrics.get("daily_closes"),
                                 "profit_verified":False}}
@@ -245,6 +290,9 @@ def markdown(out):
       "Ganancia confirmada: no verificable con los registros actuales.",
       "QA aislado: "+str(out.get("synthetic_qa",{}).get("replayed","sin dato"))+
       " conversaciones ficticias; resultados no prueban defectos reales.",
+      "Embudo comercial ficticio: "+str(out.get("synthetic_sales",{}).get("passed","?"))+
+      "/"+str(out.get("synthetic_sales",{}).get("scenarios","?"))+
+      " simulaciones; no hay ventas reales confirmadas.",
       "", "## Cola por especialidad"]
     for t in out["tasks"]:
         rows.append("- ["+t["priority"]+" / "+t["status"]+"] "+
@@ -266,7 +314,8 @@ def main():
     except (OSError,ValueError,Reject,subprocess.TimeoutExpired):
         metrics={"read_only_data_available":False}
     qa=synthetic_qa_snapshot()
-    out=plan(data,metrics,qa)
+    conversion=sales_simulation_snapshot()
+    out=plan(data,metrics,qa,conversion)
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
