@@ -5,6 +5,7 @@ import os
 import uuid
 from fastapi import APIRouter,Depends,HTTPException,Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.auth import get_current_superuser
 from app.database import get_db
 from app.models.location import Location
@@ -36,15 +37,35 @@ def case_or_404(db:Session,repair_id:int,lock=False):
 def create_repair(payload:CreateRepairCase,
                   db:Session=Depends(get_db),
                   actor=Depends(get_current_superuser)):
+    existing=db.query(RepairCase).filter(
+        RepairCase.intake_key==payload.intake_key).first()
+    def same_request(row):
+        return (row.location_id==payload.location_id and
+                row.device_model==payload.device_model and
+                row.issue_category==payload.issue_category)
+    if existing:
+        if not same_request(existing):
+            raise HTTPException(409,"Intake key already used for a different request")
+        return existing
     loc=db.query(Location).filter(Location.id==payload.location_id,
                                   Location.activo.is_(True)).first()
     if loc is None:raise HTTPException(422,"Active location required")
     ref="RPR-"+uuid.uuid4().hex[:14].upper()
-    case=RepairCase(external_reference=ref,location_id=payload.location_id,
+    case=RepairCase(external_reference=ref,intake_key=payload.intake_key,
+                    location_id=payload.location_id,
                     device_model=payload.device_model,
                     issue_category=payload.issue_category,
                     status="received",revision=0,quote_approved=False,qa_passed=False)
-    db.add(case);db.commit();db.refresh(case)
+    try:
+        db.add(case);db.commit();db.refresh(case)
+    except IntegrityError:
+        db.rollback()
+        # Concurrent duplicate of same key: only replay an identical request.
+        existing=db.query(RepairCase).filter(
+            RepairCase.intake_key==payload.intake_key).first()
+        if existing and same_request(existing):
+            return existing
+        raise HTTPException(409,"Intake conflict; check existing orders")
     return case
 
 @router.get("",response_model=list[RepairCaseView])
