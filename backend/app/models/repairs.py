@@ -8,6 +8,7 @@ class RepairCase(Base):
     __tablename__="repair_cases"
     id=Column(Integer,primary_key=True)
     external_reference=Column(String(64),unique=True,nullable=False,index=True)
+    intake_key=Column(String(64),unique=True,nullable=False,index=True)
     location_id=Column(Integer,ForeignKey("locations.id",ondelete="RESTRICT"),
                        nullable=False,index=True)
     device_model=Column(String(100),nullable=False)
