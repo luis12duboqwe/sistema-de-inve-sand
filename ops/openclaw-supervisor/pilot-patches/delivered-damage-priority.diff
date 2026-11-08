@@ -1,0 +1,20 @@
+--- a/sales-bot-v2.rb
++++ b/sales-bot-v2.rb
+@@ -250,12 +250,17 @@
+     # scoped only to the approved pilot and never authorizes transactions.
+     def critical_buyer_intent(t)
+       # Security, existing-customer complaints and payment checks always precede
+       # sales offers; a mixed message must never bypass these escalations.
+       return :payment_safety if t.match?(/\b(cvv|pin de tarjeta|codigo otp|clave otp|codigo de verificacion|clave bancaria|numero completo de tarjeta|foto de mi tarjeta|datos de mi tarjeta)\b/) ||
+         (t.match?(/\b(tarjeta|credito|debito)\b/) && t.gsub(/\D/, '').match?(/\A\d{13,19}\z/))
++      # A delivered order with physical damage is a complaint, not tracking.
++      # Keep payment safety and explicit cancellation at higher priority.
++      return :complaint if t.match?(/\b(?:mi pedido|mi paquete|el pedido|el paquete|la caja|lo que recibi)\b/) &&
++        t.match?(/\b(?:llego|recibi|vino|entregaron|recibido)\b/) &&
++        t.match?(/\b(?:roto|rota|danado|danada|quebrado|quebrada|golpeado|golpeada|defecto|no funciona|no sirve)\b/)
+       return :complaint if t.match?(/\b(compre|comprado|me vendieron|mi compra|lo recibi|me entregaron|el equipo que compre|despues de comprarlo)\b/) &&
+         t.match?(/\b(no funciona|no sirve|se dano|se arruino|no enciende|reportado|icloud|bloqueado|defecto|falla|salio malo|me estafaron|se quebr[o|a])\b/)
+       return :payment_verification if t.match?(/\b(?:comprobante.{0,35}pago|confirmar (?:mi|el|un) pago|verificar (?:mi|el) pago|ya abone)\b/)
+       return :payment_verification if t.match?(/\b(ya pague|ya transferi|ya deposite|pago realizado|adjunto comprobante|verificar el pago|confirma si llego|confirmas si llego)\b/)
+       # Availability at a named pickup branch is still a stock request,
+       # not a request for the shop address.
