@@ -70,6 +70,7 @@ import type { Bank, FinancingOption,
   SuperAdminUserSummary
 } from './types'
 import type { SalesForecast } from './aiForecasting'
+import type { RepairCase, CreateRepairCase, RepairTransitionInput, RepairAssignmentInput } from './repairs'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
@@ -883,6 +884,29 @@ class ApiClient {
     return this.request<ProductIMEI>(`/imeis/admin/${imeiId}/correct`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    })
+  }
+
+  // Admin-only repair intake; backend off until verified migration and approval.
+  async getRepairCases(): Promise<RepairCase[]> {
+    return this.request<RepairCase[]>('/repairs?limit=100')
+  }
+
+  async createRepairCase(data: CreateRepairCase): Promise<RepairCase> {
+    return this.request<RepairCase>('/repairs', {
+      method: 'POST', body: JSON.stringify(data),
+    })
+  }
+
+  async transitionRepairCase(repairId: number, data: RepairTransitionInput): Promise<RepairCase> {
+    return this.request<RepairCase>('/repairs/' + repairId + '/transition', {
+      method: 'POST', body: JSON.stringify(data),
+    })
+  }
+
+  async assignRepairTechnician(repairId: number, data: RepairAssignmentInput): Promise<RepairCase> {
+    return this.request<RepairCase>('/repairs/' + repairId + '/assign', {
+      method: 'POST', body: JSON.stringify(data),
     })
   }
 
