@@ -1,0 +1,22 @@
+[Unit]
+Description=SoftMobile anonymous financial reconciliation and margin risk audit (read-only)
+After=softmobile-pilot-executor.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/finance_audit.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/finance_audit.py
+TimeoutStartSec=40
+MemoryMax=128M
+UMask=0077
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
