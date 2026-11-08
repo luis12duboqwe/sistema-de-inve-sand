@@ -221,9 +221,56 @@ def send_internal_review(role):
     except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
         return False
 
+def attach_finance_summary(root,director,operator):
+    """Convert independently verified aggregate-only finance audit to internal work."""
+    p=root/"FINANCE_AUDIT.json"
+    if not p.is_file():
+        return director,operator
+    financial=json.loads(p.read_text())
+    expected=director["source_utc"]
+    if (financial.get("schema_version")!=1 or
+        financial.get("mode")!="finance_read_only_audit" or
+        financial.get("source_utc")!=expected or
+        financial.get("read_only") is not True or
+        financial.get("raw_customer_records")!=0 or
+        financial.get("customer_data_extracted") is not False or
+        financial.get("payments_initiated")!=0 or
+        financial.get("inventory_modified") is not False or
+        financial.get("public_messages_sent")!=0 or
+        financial.get("revenue_verified") is not False or
+        financial.get("profit_verified") is not False):
+        raise Reject("finance aggregator is unsafe/stale")
+    records=financial.get("flags")
+    if not isinstance(records,list) or len(records)>50:
+        raise Reject("finance audit flags invalid")
+    for item in records:
+        if (not isinstance(item,dict) or
+            not isinstance(item.get("code"),str) or len(item["code"])>90 or
+            item.get("severity") not in ("CRITICAL","REVIEW") or
+            type(item.get("count")) is not int or item["count"]<1):
+            raise Reject("invalid financial flag")
+    codes=sorted({(x["code"],x["severity"],x["count"]) for x in records})
+    counts=financial.get("counts") or {}
+    if (type(counts.get("orders_completed")) is not int or
+        type(counts.get("approved_closes")) is not int or
+        counts["orders_completed"]<0 or counts["approved_closes"]<0):
+        raise Reject("missing finance evidence")
+    priority="alta" if any(x["severity"]=="CRITICAL" for x in records) else "media"
+    task={"id":"finanzas_auditoria","area":"finanzas","priority":priority,
+          "evidence":{"flags":codes,"completed_orders":counts["orders_completed"],
+                      "approved_closes":counts["approved_closes"]}}
+    info={"id":"finanzas_auditoria","priority":priority,
+          "state":"awaiting_human" if records else "checked_needs_review",
+          "details":{"flag_count":len(records),
+                     "orders_completed":counts["orders_completed"],
+                     "approved_closes":counts["approved_closes"]}}
+    return ({**director,"tasks":[*director["tasks"],task]},
+            {**operator,"finanzas_auditoria":info})
+
 def run(root=OUT,dispatch=False,now=None):
     now=now or now_utc()
     director,operator=validate_inputs(root)
+    director,operator=attach_finance_summary(root,director,operator)
     # Atomic ledger transaction; no message contents, names or phone numbers.
     path=root/"events.sqlite3"
     with sqlite3.connect(path,timeout=8) as db:
