@@ -70,8 +70,6 @@ import type { Bank, FinancingOption,
   SuperAdminUserSummary
 } from './types'
 import type { SalesForecast } from './aiForecasting'
-import type { RepairCase, CreateRepairCase, RepairTransitionInput, RepairAssignmentInput } from './repairs'
-import type { RepairCase, CreateRepairCase, RepairTransitionInput, RepairAssignmentInput } from './repairs'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
@@ -885,29 +883,6 @@ class ApiClient {
     return this.request<ProductIMEI>(`/imeis/admin/${imeiId}/correct`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    })
-  }
-
-  // Admin-only repair intake; backend off until verified migration and approval.
-  async getRepairCases(): Promise<RepairCase[]> {
-    return this.request<RepairCase[]>('/repairs?limit=100')
-  }
-
-  async createRepairCase(data: CreateRepairCase): Promise<RepairCase> {
-    return this.request<RepairCase>('/repairs', {
-      method: 'POST', body: JSON.stringify(data),
-    })
-  }
-
-  async transitionRepairCase(repairId: number, data: RepairTransitionInput): Promise<RepairCase> {
-    return this.request<RepairCase>('/repairs/' + repairId + '/transition', {
-      method: 'POST', body: JSON.stringify(data),
-    })
-  }
-
-  async assignRepairTechnician(repairId: number, data: RepairAssignmentInput): Promise<RepairCase> {
-    return this.request<RepairCase>('/repairs/' + repairId + '/assign', {
-      method: 'POST', body: JSON.stringify(data),
     })
   }
 
@@ -2378,31 +2353,7 @@ class ApiClient {
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return this.request<AuditLogEntry[]>(`/multistore-control/audit-logs${suffix}`)
   }
-  // Admin-only repair intake. Backend route exists only when explicitly enabled.
-  async getRepairCases(): Promise<RepairCase[]> {
-    return this.request<RepairCase[]>('/repairs?limit=100')
-  }
 
-  async createRepairCase(input: CreateRepairCase): Promise<RepairCase> {
-    return this.request<RepairCase>('/repairs', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
-  }
-
-  async transitionRepairCase(id: number, input: RepairTransitionInput): Promise<RepairCase> {
-    return this.request<RepairCase>(`/repairs/${id}/transition`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
-  }
-
-  async assignRepairTechnician(id: number, input: RepairAssignmentInput): Promise<RepairCase> {
-    return this.request<RepairCase>(`/repairs/${id}/assign`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
-  }
 }
 
 export const apiClient = new ApiClient()
