@@ -9,7 +9,7 @@ from sqlalchemy.engine import Engine
 
 REQUIRED = {
     "repair_cases":{
-        "id","external_reference","location_id","device_model","issue_category",
+        "id","external_reference","intake_key","location_id","device_model","issue_category",
         "status","technician_id","quote_amount","approval_reference_digest",
         "quote_approved","approved_by_user_id","parts_available","qa_passed",
         "revision","created_at","updated_at"
