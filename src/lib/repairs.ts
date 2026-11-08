@@ -22,6 +22,7 @@ export interface RepairCase {
 }
 
 export interface CreateRepairCase {
+  intake_key: string
   location_id: number
   device_model: string
   issue_category: RepairIssue
