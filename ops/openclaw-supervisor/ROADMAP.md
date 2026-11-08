@@ -81,7 +81,7 @@ Una tarea bloqueada se considera completada solo con evidencia independiente de 
 - Evidencia de Meta Ads vía Metricool, importada manualmente sin secretos y con advertencia de datos no suficientes para ROI; ninguna campaña editada.
 - Control `patch_source_compat.py` revisa dos veces al día el SHA del Ruby piloto sin llamadas API ni despliegues.
 - Agentes de OpenClaw reorientados para consultar reportes saneados de finanzas, reparaciones, publicidad y código, concentrándose en las áreas no WhatsApp.
-- Estado de QA local después de estas mejoras: **179 pruebas unitarias aprobadas**; cero mensajes públicos. El certificado diferencia *non_whatsapp_readiness = 5/10* del lanzamiento comercial *5/15*.
+- Estado de QA local después de estas mejoras: **180 pruebas unitarias aprobadas**; cero mensajes públicos. El certificado diferencia *non_whatsapp_readiness = 5/10* del lanzamiento comercial *5/15*.
 
 **No terminado, requiere fuente y/o validación:**
 - Conciliación bancaria/caja real: 458 órdenes pendientes y 0 cierres; 173 diferencias por pago (96 tarjeta, 57 financiamiento, 14 transferencia, 6 efectivo) son alertas de conciliación, no errores ni pérdidas confirmadas.
@@ -92,3 +92,18 @@ Una tarea bloqueada se considera completada solo con evidencia independiente de 
 - WhatsApp, consentimiento y salida pública: **al final**, únicamente tras completar áreas anteriores y solicitar autorización explícita.
 
 La autorización pública es independiente de cualquier resultado de laboratorio; nunca se concederá automáticamente.
+
+
+### Subfase de reparaciones — API funcional en borrador, integración real pendiente
+- En PR #156 se añadieron modelo, esquemas, motor de transiciones, API administrativa, bandera `SOFTMOBILE_REPAIRS_ENABLED` desactivada por defecto y **16/16 tests HTTP** con SQLite de memoria. No se modificó el FastAPI activo ni sus tablas.
+- Migración `backend/migrations/repairs_schema_prelaunch.sql` sometida a prueba de DDL en Postgres 16 efímero sin red (tablas, índices, restricciones, una orden y un evento de prueba). **No se aplicó en el servidor de inventario**.
+- Pendientes de cierre: permisos de técnico por sucursal y supervisión de acceso, integración real de repuestos y costes, UI operativa, validación documental de aprobación del cliente, migración y respaldo, pruebas E2E con Postgres en entorno aislado, decisión de habilitación.
+- Cierre de los trabajos internos actuales: 180 pruebas de OpenClaw aprobadas + 16 tests HTTP del borrador. Auditoría financiera distingue 20 discrepancias no tarjeta/financiamiento a revisar y 153 que podrían deberse a cargos/financiamiento; confirmar origen contable antes de cambios.
+
+### Reparaciones: UI + API + DDL endurecidos en PR #156 (7 nov HN)
+- La pantalla de taller está preparada tras bandera UI independiente `VITE_SOFTMOBILE_REPAIRS_ENABLED=true` y acceso superadministrador. Compilación TypeScript y paquete Vite terminados en copia aislada; ningún archivo frontend servido en producción ha cambiado.
+- El backend preparado está detrás de `SOFTMOBILE_REPAIRS_ENABLED=true` y además verifica la existencia previa de tablas y columnas antes de cargar modelos; no ejecuta DDL automáticamente por el flag.
+- El registro de orden requiere `intake_key` único para impedir duplicados por reintentos. La asignación exige técnico activo autorizado para la sucursal del caso.
+- **20 tests HTTP aprobados** sobre SQLite de memoria; **PostgreSQL 16 aislado sin red** con migración y ciclo HTTP end-to-end (8 eventos) también aprobado.
+- **Solo código en PR, no en producción.** El indicador de 5/10 no WhatsApp **no cambia**, porque faltan integración de taller real, finanzas conciliadas, datos de ads verificados y QA convergente.
+- Siguientes pasos: revisión de permisos/perfil por empleado, consentimiento verificable, repuestos/consumos y costos, diseño del módulo para operación de taller, auditoría del PR y aprobación explícita para migración en ambiente aislado/producción.
