@@ -324,8 +324,19 @@ app.include_router(super_admin.router)
 # Importing here only after opt-in also keeps metadata/migrations untouched
 # while the feature has not passed production review.
 if os.getenv("SOFTMOBILE_REPAIRS_ENABLED", "false").strip().lower() == "true":
-    from app.routers import repairs as repair_intake
-    app.include_router(repair_intake.router)
+    # Validate manually applied schema BEFORE importing ORM models. Otherwise
+    # the normal init_db() could silently create the new tables at startup.
+    from sqlalchemy.exc import SQLAlchemyError
+    from app.database import engine as inventory_engine
+    from app.services.repair_schema_guard import require_preinstalled_repair_schema
+
+    try:
+        require_preinstalled_repair_schema(inventory_engine)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.error("Repair intake remains disabled: schema not approved (%s)", type(exc).__name__)
+    else:
+        from app.routers import repairs as repair_intake
+        app.include_router(repair_intake.router)
 
 
 @app.get("/")
