@@ -164,6 +164,35 @@ def report(sup,director,op,ev,now=None,finance=None,repairs=None):
          "requires_explicit_manual_release_process":True}
     return out
 
+def sales_scope_report(out,director):
+    """Exclude explicitly paused repairs from active commercial readiness.
+
+    WhatsApp public release remains blocked, but its work is deferred.
+    The historical broad report() is retained for offline compatibility.
+    """
+    if (director.get("scope")!="sales_only" or
+        out.get("public_release_permitted") is not False or
+        out.get("public_messages_sent")!=0):
+        raise Reject("sales certification scope invalid")
+    sales_checks={k:v for k,v in out["checks"].items()
+                  if k!="repair_workflow_connected"}
+    offline={k:v for k,v in out["non_whatsapp_readiness"].items()
+             if k not in ("repair_domain_synthetic_qa_passed",
+                          "real_repair_workflow_connected")}
+    return {**out,"scope":"sales_only",
+        "excluded_modules":["repairs","employee_analytics"],
+        "checks":sales_checks,
+        "passed_count":sum(v is True for v in sales_checks.values()),
+        "check_count":len(sales_checks),
+        "blocked_full_autonomy":[b for b in out["blocked_full_autonomy"]
+                                  if b!="repair_workflow_connected"],
+        "non_whatsapp_readiness":offline,
+        "non_whatsapp_passed":sum(v is True for v in offline.values()),
+        "non_whatsapp_total":len(offline),
+        "non_whatsapp_blockers":[k for k,v in offline.items() if v is not True],
+        "public_release_permitted":False,
+        "public_messages_sent":0}
+
 def markdown(r):
     rows=["# SoftMobile — Certificación de prelanzamiento",
           "UTC: "+r["at"],"Evidencia: "+r["source_utc"],
@@ -192,12 +221,11 @@ def main():
     try:
         sup,director,op,ev=validated_inputs()
         finance=json.loads((OUT/"FINANCE_AUDIT.json").read_text())
-        repairs=json.loads((OUT/"REPAIRS_LAB.json").read_text())
-        for item in (finance,repairs):
-            if (item.get("source_utc")!=director["source_utc"] or
-                item.get("public_messages_sent")!=0):
-                raise Reject("mismatched optional workstreams")
-        out=report(sup,director,op,ev,finance=finance,repairs=repairs)
+        if (finance.get("source_utc")!=director["source_utc"] or
+            finance.get("public_messages_sent")!=0):
+            raise Reject("mismatched finance workstream")
+        out=sales_scope_report(
+            report(sup,director,op,ev,finance=finance),director)
     except (Reject,ValueError,TypeError,KeyError,OSError) as exc:
         print("certification_rejected:"+type(exc).__name__)
         return 2
