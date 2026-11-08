@@ -204,6 +204,44 @@ class EventRouterTests(unittest.TestCase):
         self.assertFalse(e.send_internal_review("unknown"))
         self.assertFalse(e.send_internal_review(""))
 
+    def test_finance_aggregate_emits_internal_event_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            sup,d,op=fixtures()
+            prepare(root,sup,d,op)
+            finance={"schema_version":1,"mode":"finance_read_only_audit",
+              "source_utc":d["source_utc"],"read_only":True,
+              "raw_customer_records":0,"customer_data_extracted":False,
+              "payments_initiated":0,"inventory_modified":False,
+              "public_messages_sent":0,"revenue_verified":False,
+              "profit_verified":False,
+              "flags":[{"code":"order_total_item_mismatch","severity":"REVIEW","count":173}],
+              "counts":{"orders_completed":0,"approved_closes":0}}
+            (root/"FINANCE_AUDIT.json").write_text(json.dumps(finance))
+            first=e.run(root)
+            self.assertEqual(first["queued"],2)
+            self.assertEqual([x["task_id"] for x in first["events"]],
+                             ["finanzas_auditoria","ventas_respuestas"])
+            self.assertEqual(first["work_queue"][0]["role"],"ventas")
+            self.assertEqual(len(e.run(root)["events"]),0)
+            self.assertEqual(first["external_commercial_actions"],0)
+            finance["flags"][0]["count"]=174
+            (root/"FINANCE_AUDIT.json").write_text(json.dumps(finance))
+            changed=e.run(root)
+            self.assertEqual([x["task_id"] for x in changed["events"]],
+                             ["finanzas_auditoria"])
+            self.assertEqual(changed["events"][0]["event"],"changed")
+    def test_stale_finance_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            sup,d,op=fixtures()
+            prepare(root,sup,d,op)
+            (root/"FINANCE_AUDIT.json").write_text(json.dumps(
+              {"schema_version":1,"mode":"finance_read_only_audit",
+               "source_utc":"2026-01-01T00:00:00+00:00"}))
+            with self.assertRaises(Reject):
+                e.run(root)
+
     def test_json_is_roundtrippable(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
