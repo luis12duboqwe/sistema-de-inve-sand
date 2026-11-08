@@ -91,7 +91,7 @@ COUNTS=("orders","orders_validated","orders_completed","orders_validated_without
 ISSUES={
   "orphan_order_items":"CRITICAL","orders_completed_without_validation":"CRITICAL",
   "stock_negative_rows":"CRITICAL","transfer_overreceived":"CRITICAL",
-  "order_total_item_mismatch":"REVIEW","duplicate_transfer_references":"REVIEW",
+  "duplicate_transfer_references":"REVIEW",
   "orders_without_items":"REVIEW","bad_order_quantities":"REVIEW",
   "negative_item_prices":"REVIEW","close_discrepancies":"REVIEW",
   "transfers_confirmed_zero_received":"REVIEW",
@@ -138,6 +138,12 @@ def analyze(data,at=None,source_utc=None):
     counts={k:data[k] for k in COUNTS}
     issue_list=[{"code":k,"severity":severity,"count":data[k]}
                 for k,severity in ISSUES.items() if data[k]>0]
+    non_card=sum(v for k,v in data["mismatch_by_payment"].items()
+                 if k not in ("tarjeta","financiamiento"))
+    card_fin=data["mismatch_by_payment"].get("tarjeta",0)+data["mismatch_by_payment"].get("financiamiento",0)
+    if non_card:
+        issue_list.append({"code":"non_card_order_total_mismatch",
+                           "severity":"REVIEW","count":non_card})
     financial_ready=(data["orders_completed"]>0 and
         data["approved_closes"]>0 and
         data["orders_completed_without_validation"]==0 and
@@ -154,6 +160,8 @@ def analyze(data,at=None,source_utc=None):
       "orders_by_state":data["orders_by_state"],
       "mismatch_by_payment":data["mismatch_by_payment"],
       "card_and_financing_mismatches_may_include_fees":True,
+      "possible_fee_or_finance_adjustments":card_fin,
+      "non_card_order_total_differences":non_card,
       "flags":issue_list,"flag_count":len(issue_list),
       "has_completed_orders":data["orders_completed"]>0,
       "has_approved_daily_close":data["approved_closes"]>0,
@@ -177,6 +185,10 @@ def markdown(d):
         "Los totales de tarjeta y financiamiento pueden incluir recargos/comisiones.",
         "Diferencias por método (no equivalen a errores contables): "+
          json.dumps(d["mismatch_by_payment"],ensure_ascii=False,sort_keys=True),
+        "Para revisión de efectivo/transferencia/otros: "+
+          str(d["non_card_order_total_differences"])+
+          ". Tarjeta/financiamiento potencialmente con recargos: "+
+          str(d["possible_fee_or_finance_adjustments"])+".",
         "","## Anomalías agregadas; requieren conciliación"]
     lines+=["- "+x["severity"]+" / "+x["code"]+": "+str(x["count"])
             for x in d["flags"]] or ["- Sin anomalías en los conteos analizados; no prueba conciliación."]
