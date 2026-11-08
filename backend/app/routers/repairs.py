@@ -93,7 +93,11 @@ def transition(repair_id:int,payload:RepairTransitionRequest,
         case=case_or_404(db,repair_id,lock=True)
         already=db.query(RepairEvent).filter(RepairEvent.event_key==payload.event_key).first()
         if already:
-            if already.case_id==case.id and already.next_status==payload.next_status:
+            if (already.case_id==case.id and
+                already.event_type=="status_change" and
+                already.next_status==payload.next_status and
+                already.revision==case.revision and
+                case.status==payload.next_status):
                 return case
             raise HTTPException(409,"Event key already used for a different operation")
         if case.revision!=payload.expected_revision:
@@ -130,6 +134,7 @@ def assign_technician(repair_id:int,payload:RepairAssignmentRequest,
         old=db.query(RepairEvent).filter(RepairEvent.event_key==payload.event_key).first()
         if old:
             if (old.case_id==case.id and old.event_type=="assignment" and
+                old.revision==case.revision and
                 case.technician_id==payload.technician_id):
                 return case
             raise HTTPException(409,"Event key already used")
