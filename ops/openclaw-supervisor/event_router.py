@@ -267,6 +267,15 @@ def attach_finance_summary(root,director,operator):
     return ({**director,"tasks":[*director["tasks"],task]},
             {**operator,"finanzas_auditoria":info})
 
+def sales_focused_changes(director,delta,work):
+    """Retain historical ledger but never expose out-of-scope work as active."""
+    if director.get("scope")!="sales_only":
+        return delta,work
+    active={t["id"] for t in director["tasks"]}
+    active.add("finanzas_auditoria")  # sale margin/close checks only
+    return ([ev for ev in delta if ev.get("task_id") in active],
+            [item for item in work if item.get("task_id") in active])
+
 def run(root=OUT,dispatch=False,now=None):
     now=now or now_utc()
     director,operator=validate_inputs(root)
@@ -278,6 +287,7 @@ def run(root=OUT,dispatch=False,now=None):
         db_setup(db)
         delta=changes(db,director,operator,now)
         work=queue(db)
+        delta,work=sales_focused_changes(director,delta,work)
         roles=dispatch_roles(db,delta,now) if dispatch else []
         for idx,role in enumerate(roles):
             db.execute("INSERT INTO dispatch(day,issued,status) VALUES(?,?,?)",
