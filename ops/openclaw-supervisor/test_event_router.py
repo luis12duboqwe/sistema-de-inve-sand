@@ -242,6 +242,36 @@ class EventRouterTests(unittest.TestCase):
             with self.assertRaises(Reject):
                 e.run(root)
 
+    def test_sales_focus_hides_paused_repair_history(self):
+        director={"scope":"sales_only","tasks":[{"id":"ventas_simulaciones"}]}
+        delta=[{"task_id":"operaciones_reparaciones","event":"not_observed"},
+               {"task_id":"ventas_simulaciones","event":"detected"}]
+        work=[{"task_id":"operaciones_reparaciones"},
+              {"task_id":"ventas_simulaciones"},
+              {"task_id":"finanzas_auditoria"}]
+        events,queue=e.sales_focused_changes(director,delta,work)
+        self.assertEqual([x["task_id"] for x in events],["ventas_simulaciones"])
+        self.assertEqual([x["task_id"] for x in queue],
+                         ["ventas_simulaciones","finanzas_auditoria"])
+    def test_sales_focus_old_ledger_does_not_get_executed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            sup,d,op=fixtures()
+            prepare(root,sup,d,op)
+            e.run(root)
+            d["scope"]="sales_only"
+            d["tasks"][0]["id"]="ventas_simulaciones"
+            d["tasks"][0]["evidence"]={"scenarios":72,"passed":72,
+                                          "failed":0,"synthetic_only":True}
+            op["tasks"][0].update({"id":"ventas_simulaciones","state":"checked_needs_review",
+                                   "details":{"verified_real_sales":0}})
+            prepare(root,sup,d,op)
+            result=e.run(root)
+            self.assertEqual([x["task_id"] for x in result["work_queue"]],
+                             ["ventas_simulaciones"])
+            self.assertNotIn("ventas_respuestas",
+                             [x["task_id"] for x in result["events"]])
+
     def test_json_is_roundtrippable(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
