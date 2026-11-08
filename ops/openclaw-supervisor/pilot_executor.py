@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-from director import Reject, verify_snapshot
+from director import Reject, verify_snapshot, SALES_TASK_IDS
 from supervisor import OUT, save
 
 STORE=OUT/"operator.sqlite3"
@@ -75,9 +75,12 @@ def load_inputs(out=OUT,now=None):
     tasks=director.get("tasks")
     if not isinstance(tasks,list) or len(tasks)>MAX_TASKS:
         raise Reject("unsafe task list")
+    if director.get("scope") not in (None,"sales_only"):
+        raise Reject("unknown operating scope")
     seen=set()
     for task in tasks:
         if (not isinstance(task,dict) or task.get("id") not in ALLOWED or
+            (director.get("scope")=="sales_only" and task.get("id") not in SALES_TASK_IDS) or
             task.get("id") in seen or
             task.get("status") not in ("review","blocked") or
             task.get("requires_approval") is not True or
