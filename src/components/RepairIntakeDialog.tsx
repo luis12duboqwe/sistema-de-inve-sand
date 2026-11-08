@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -34,6 +34,7 @@ export function RepairIntakeDialog({ open, onOpenChange, locations }: Props) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [device, setDevice] = useState('')
+  const pendingIntakeKey = useRef<string | null>(null)
   const [location, setLocation] = useState('')
   const [issue, setIssue] = useState<RepairIssue>('screen')
   const [next, setNext] = useState<RepairStatus | ''>('')
@@ -70,14 +71,18 @@ export function RepairIntakeDialog({ open, onOpenChange, locations }: Props) {
       toast.error('Indicá modelo y sucursal')
       return
     }
+    const requestKey = pendingIntakeKey.current ?? key()
+    pendingIntakeKey.current = requestKey
     setBusy(true)
     try {
       const data = await apiClient.createRepairCase({
+        intake_key: requestKey,
         location_id: Number(location), device_model: device.trim(), issue_category: issue
       })
       await refresh()
       setSelected(data.id)
       setDevice('')
+      pendingIntakeKey.current = null
       toast.success('Orden registrada')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo registrar la orden')
@@ -141,11 +146,11 @@ export function RepairIntakeDialog({ open, onOpenChange, locations }: Props) {
           <div className="space-y-1">
             <Label htmlFor="repair-model">Modelo</Label>
             <Input id="repair-model" value={device} maxLength={100}
-              onChange={e => setDevice(e.target.value)} placeholder="Ej. iPhone 14 Pro"/>
+              onChange={e => { setDevice(e.target.value); pendingIntakeKey.current = null }} placeholder="Ej. iPhone 14 Pro"/>
           </div>
           <div className="space-y-1">
             <Label>Sucursal</Label>
-            <Select value={location} onValueChange={setLocation}>
+            <Select value={location} onValueChange={v => { setLocation(v); pendingIntakeKey.current = null }}>
               <SelectTrigger><SelectValue placeholder="Elegir" /></SelectTrigger>
               <SelectContent>
                 {locations.filter(l => l.activo).map(l => <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>)}
@@ -154,7 +159,7 @@ export function RepairIntakeDialog({ open, onOpenChange, locations }: Props) {
           </div>
           <div className="space-y-1">
             <Label>Falla</Label>
-            <Select value={issue} onValueChange={x => setIssue(x as RepairIssue)}>
+            <Select value={issue} onValueChange={x => { setIssue(x as RepairIssue); pendingIntakeKey.current = null }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {Object.entries(repairIssueNames).map(([k, name]) =>
