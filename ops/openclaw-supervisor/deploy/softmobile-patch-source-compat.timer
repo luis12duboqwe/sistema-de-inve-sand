@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify SoftMobile Ruby source gate twice daily without external API
+
+[Timer]
+OnCalendar=*-*-* 06,18:00:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-patch-source-compat.service
+
+[Install]
+WantedBy=timers.target
