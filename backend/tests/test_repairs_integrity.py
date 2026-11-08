@@ -72,7 +72,8 @@ class RepairsAPITests(unittest.TestCase):
         self.engine.dispose()
     def create(self):
         res=self.client.post("/api/repairs",json={
-            "location_id":1,"device_model":"Samsung S23 Ultra","issue_category":"screen"})
+            "location_id":1,"device_model":"Samsung S23 Ultra","issue_category":"screen",
+            "intake_key":"test-intake-00000001"})
         self.assertEqual(res.status_code,201,res.text)
         return res.json()
     def transition(self,case,status,rev,event,**kw):
@@ -94,12 +95,26 @@ class RepairsAPITests(unittest.TestCase):
     def test_disabled_by_default(self):
         with patch.dict(os.environ,{"SOFTMOBILE_REPAIRS_ENABLED":"false"}):
             r=self.client.post("/api/repairs",json={
-                "location_id":1,"device_model":"iPhone 14 Pro","issue_category":"battery"})
+                "location_id":1,"device_model":"iPhone 14 Pro","issue_category":"battery",
+                "intake_key":"test-intake-00000002"})
         self.assertEqual(r.status_code,503)
     def test_no_auth_is_forbidden(self):
         self.app.dependency_overrides.clear()
         r=self.client.get("/api/repairs")
         self.assertIn(r.status_code,(401,403))
+    def test_idempotent_intake_prevents_duplicate_orders(self):
+        original=self.create()
+        duplicate=self.client.post("/api/repairs",json={
+            "location_id":1,"device_model":"Samsung S23 Ultra",
+            "issue_category":"screen","intake_key":"test-intake-00000001"})
+        self.assertEqual(duplicate.status_code,201)
+        self.assertEqual(duplicate.json()["id"],original["id"])
+        self.assertEqual(self.client.get("/api/repairs/overview").json()["records"],1)
+        changed=self.client.post("/api/repairs",json={
+            "location_id":1,"device_model":"iPhone 14",
+            "issue_category":"screen","intake_key":"test-intake-00000001"})
+        self.assertEqual(changed.status_code,409)
+
     def test_create_and_anonymous_reference(self):
         case=self.create()
         self.assertEqual(case["status"],"received")
@@ -111,11 +126,13 @@ class RepairsAPITests(unittest.TestCase):
     def test_phone_and_imei_fields_are_rejected(self):
         for extra in ("customer_phone","imei","bank_account"):
             body={"location_id":1,"device_model":"iPhone 14 Pro",
-                  "issue_category":"screen",extra:"secret"}
+                  "issue_category":"screen","intake_key":"test-intake-00000003",
+                  extra:"secret"}
             self.assertEqual(self.client.post("/api/repairs",json=body).status_code,422)
     def test_only_active_locations(self):
         r=self.client.post("/api/repairs",json={
-            "location_id":999,"device_model":"iPhone 14 Pro","issue_category":"screen"})
+            "location_id":999,"device_model":"iPhone 14 Pro","issue_category":"screen",
+            "intake_key":"test-intake-00000004"})
         self.assertEqual(r.status_code,422)
     def test_full_manual_approval_and_qa(self):
         case=self.create()
