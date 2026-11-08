@@ -1,0 +1,22 @@
+[Unit]
+Description=SoftMobile repair lifecycle offline training and integration probe
+After=softmobile-finance-audit.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/repair_lab_runner.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/repair_lab_runner.py
+TimeoutStartSec=35
+MemoryMax=128M
+UMask=0077
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
