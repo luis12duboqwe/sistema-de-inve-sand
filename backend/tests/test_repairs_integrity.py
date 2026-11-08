@@ -25,6 +25,7 @@ for package,relative in (
     package.__path__.insert(0,str(ROOT/"app"/relative))
 from app.models.location import Location
 from app.models.rbac import User,Role
+from app.models.control import UserLocationAccess
 from app.models.repairs import RepairCase,RepairEvent
 from app.routers.repairs import router
 from app.services.repair_schema_guard import require_preinstalled_repair_schema
@@ -41,7 +42,7 @@ class RepairsAPITests(unittest.TestCase):
                                   poolclass=StaticPool)
         Base.metadata.create_all(self.engine,tables=[
             Role.__table__,Location.__table__,User.__table__,
-            RepairCase.__table__,RepairEvent.__table__])
+            UserLocationAccess.__table__,RepairCase.__table__,RepairEvent.__table__])
         Session=sessionmaker(bind=self.engine)
         with Session() as db:
             db.add(Role(id=1,name="Repair test admin",is_system_role=False))
@@ -53,6 +54,7 @@ class RepairsAPITests(unittest.TestCase):
                         role_id=2,is_active=True,is_superuser=False))
             db.add(Location(id=1,nombre="Taller prueba",nombre_normalized="taller prueba",
                     nombre_key_hash="x"*64,tipo="Taller",activo=True))
+            db.add(UserLocationAccess(user_id=2,location_id=1,can_view=True,can_edit=True))
             db.commit()
         self.app=FastAPI()
         self.app.include_router(router)
@@ -190,6 +192,18 @@ class RepairsAPITests(unittest.TestCase):
                  "event_key":"event-repair-assign-02"}
         res=self.client.post(f"/api/repairs/{case['id']}/assign",json=payload)
         self.assertEqual(res.status_code,422)
+    def test_assignment_without_location_permission_rejected(self):
+        case=self.create()
+        Session=sessionmaker(bind=self.engine)
+        with Session() as db:
+            db.query(UserLocationAccess).filter(
+                UserLocationAccess.user_id==2).delete()
+            db.commit()
+        result=self.client.post(f"/api/repairs/{case['id']}/assign",json={
+            "expected_revision":0,"technician_id":2,"event_key":"event-repair-assign-04"})
+        self.assertEqual(result.status_code,422)
+        self.assertIsNone(self.client.get(f"/api/repairs/{case['id']}").json()["technician_id"])
+
     def test_assignment_cannot_use_stale_revision(self):
         case=self.create()
         payload={"expected_revision":5,"technician_id":2,
