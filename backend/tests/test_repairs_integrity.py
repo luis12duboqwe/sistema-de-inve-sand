@@ -139,6 +139,14 @@ class RepairsAPITests(unittest.TestCase):
         self.assertEqual(len(self.client.get(f"/api/repairs/{x['id']}/events").json()),1)
         r=self.transition(x,"cancelled",1,"event-repair-1002")
         self.assertEqual(r.status_code,409)
+    def test_old_replay_after_newer_event_is_conflict(self):
+        case=self.create()
+        x=self.transition(case,"diagnosing",0,"event-repair-3001").json()
+        y=self.transition(x,"awaiting_approval",1,
+                          "event-repair-3002",quote_amount="650").json()
+        old=self.transition(y,"diagnosing",0,"event-repair-3001")
+        self.assertEqual(old.status_code,409)
+        self.assertEqual(len(self.client.get(f"/api/repairs/{case['id']}/events").json()),2)
     def test_cannot_skip_qa(self):
         case=self.create()
         r=self.transition(case,"ready",0,"event-repair-1234",qa_passed=True)
