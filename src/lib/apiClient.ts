@@ -2353,7 +2353,6 @@ class ApiClient {
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return this.request<AuditLogEntry[]>(`/multistore-control/audit-logs${suffix}`)
   }
-
 }
 
 export const apiClient = new ApiClient()
