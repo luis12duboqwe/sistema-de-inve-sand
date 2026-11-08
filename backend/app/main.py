@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import os
 from pathlib import Path
 import re
 from time import perf_counter
@@ -319,6 +320,12 @@ app.include_router(analytics.router)
 app.include_router(daily_close.router)
 app.include_router(multistore_control.router)
 app.include_router(super_admin.router)
+# Separate non-WhatsApp repair intake. Disabled unless explicitly enabled.
+# Importing here only after opt-in also keeps metadata/migrations untouched
+# while the feature has not passed production review.
+if os.getenv("SOFTMOBILE_REPAIRS_ENABLED", "false").strip().lower() == "true":
+    from app.routers import repairs as repair_intake
+    app.include_router(repair_intake.router)
 
 
 @app.get("/")
