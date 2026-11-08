@@ -92,3 +92,27 @@ La ejecución de seguimiento comercial está bloqueada por compuertas de salida.
 
 ## Pendientes no implementados
 Recuperación real de ventas, seguimiento comercial consentido masivo, sincronización transaccional de inventario con Chatwoot, anuncios Meta, finanzas reales, reparaciones y remediación automática de errores requieren integración y pruebas adicionales. No confundir esta primera versión con un sistema autónomo comercial completo.
+
+
+## Estado de trabajo SIN WhatsApp — actualización 7 nov 2026 HN / 8 nov UTC
+El usuario decidió dejar WhatsApp para la última fase. **No tocar WAHA, ni la salida pública, ni pagos, anuncios o compras.** Las automatizaciones internas siguen en marcha.
+
+### Cadena systemd actual
+`softmobile-openclaw-supervisor.service` → `softmobile-openclaw-director.service` → `softmobile-pilot-executor.service` → **`softmobile-finance-audit.service`** → **`softmobile-repair-workflow-lab.service`** → `softmobile-event-router.service` → `softmobile-release-gate.service`. La cadena se ejecuta por `OnSuccess` de cada etapa y comienza desde el timer del supervisor cada media hora. Si falla una etapa, no se dispara la siguiente. El router añade `finanzas_auditoria` a la cola de tareas y solo expone datos agregados.
+
+### Auditoría financiera
+`finance_audit.py` usa PostgreSQL `BEGIN TRANSACTION READ ONLY`, sin nombres, teléfonos, comprobantes ni referencias bancarias. Informe `FINANCE_AUDIT.json`/MD. **458 órdenes pendientes, cero completadas, cero cierres diarios**; no se puede afirmar ingresos o utilidad. Se detectaron **173 diferencias entre total y suma de líneas:** 96 tarjeta, 57 financiamiento, 14 transferencia y 6 efectivo. Estas cifras NO son pérdidas probadas: tarjeta/financiamiento pueden incluir recargos. También hay **3 productos activos con precio bajo costo**, pendientes de revisar promociones y datos. Nunca cerrar órdenes ni modificar pagos automáticamente.
+
+### Reparaciones
+`repair_workflow.py` implementa **únicamente el dominio ficticio** de recepción, diagnóstico, presupuesto, aprobación humana, repuestos, reparación, QA y entrega; bloquea transiciones inseguras, repetidos y costos inválidos. Se completaron **60/60 casos sintéticos**. `repair_lab_runner.py` verificó que en el backend/DB examinados no hay router, modelo ni tablas de reparaciones: **cero reparaciones reales conectadas**. Reporte `REPAIRS_LAB.json`/MD. Falta desarrollar integración protegida con permisos, técnicos, trabajos, historial y UI. Nunca avisar a clientes sin integración y autorización.
+
+### Publicidad
+Conector de Metricool para marca SoftMobile accesible desde ChatGPT: el período 08 oct–07 nov reportó **31 filas diarias con métricas en cero y 0 filas de campañas**. Importación manual a `METRICOOL_SOURCE.json`, y revisión por `marketing_analytics.py` → `MARKETING_AUDIT.json`/MD. Esto **no demuestra** ausencia de campañas ni gasto. Moneda y conversiones reales no verificadas; sin refresco automático en el VPS. No atribuir ingresos o recomendar cambiar presupuestos.
+
+### Código y calidad
+`patch_source_compat.py` verifica la versión Ruby de piloto por SHA de fuente revisado: `1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1`. Detecta la nueva ancla segura de contexto, **sin Groq, sin ejecutar parches, sin despliegues**; timer dos veces al día. Un generador antiguo todavía tiene `trusted_source_drift` y su timer de propuestas está apagado. Los 250 issues del laboratorio son ficticios, no defectos reales certificados. Faltan validación independiente y revisión de candidato para despliegues.
+
+### Certificado y pruebas
+La certificación ya tiene apartado **non_whatsapp_readiness: 5 de 10**, separado de las condiciones de salida comercial (todavía **5 de 15**). Los 5 pendientes no WhatsApp son: convergencia QA independiente, conciliación real de ingresos, reparaciones integradas, fuente de campañas fiable, pipeline autónomo de código completo. **179 pruebas unitarias del supervisor aprobadas**. No se hicieron envíos públicos, pagos, pedidos, campañas ni reinicios WhatsApp. Código respaldado en PR #156 en borrador.
+
+**Para detener módulos**: `systemctl disable --now softmobile-patch-source-compat.timer`; para detener toda la cadena detener `softmobile-openclaw-supervisor.timer` y revisar cuidadosamente los overrides `OnSuccess` (no modificar el entorno público). Cada archivo de salida permanece restringido a `/opt/openclaw-lab/workspace/softmobile-supervisor`.
