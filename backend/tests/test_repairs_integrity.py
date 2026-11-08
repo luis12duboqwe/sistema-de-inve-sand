@@ -27,6 +27,7 @@ from app.models.location import Location
 from app.models.rbac import User,Role
 from app.models.repairs import RepairCase,RepairEvent
 from app.routers.repairs import router
+from app.services.repair_schema_guard import require_preinstalled_repair_schema
 from app.auth import get_current_superuser
 
 class Actor:
@@ -75,6 +76,19 @@ class RepairsAPITests(unittest.TestCase):
     def transition(self,case,status,rev,event,**kw):
         return self.client.post(f"/api/repairs/{case['id']}/transition",
            json={"next_status":status,"expected_revision":rev,"event_key":event,**kw})
+    def test_schema_guard_fails_if_migration_absent(self):
+        engine=create_engine("sqlite://",poolclass=StaticPool)
+        try:
+            with self.assertRaisesRegex(RuntimeError,"Repair schema missing"):
+                require_preinstalled_repair_schema(engine)
+        finally:
+            engine.dispose()
+
+    def test_schema_guard_accepts_preexisting_tables(self):
+        # The shape check must never execute DDL.
+        with patch.object(Base.metadata,"create_all",side_effect=AssertionError("DDL forbidden")):
+            require_preinstalled_repair_schema(self.engine)
+
     def test_disabled_by_default(self):
         with patch.dict(os.environ,{"SOFTMOBILE_REPAIRS_ENABLED":"false"}):
             r=self.client.post("/api/repairs",json={
