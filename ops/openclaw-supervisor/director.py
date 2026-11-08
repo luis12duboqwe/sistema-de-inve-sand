@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import argparse
+import hashlib
 import json
 import subprocess
 
@@ -137,6 +138,12 @@ def sales_simulation_snapshot():
             report.get("real_orders")!=0 or
             report.get("real_inventory_modified") is not False):
             return {"available":False,"reason":"safety_guard"}
+        # Never claim simulations passed for a different Ruby bot version.
+        live=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
+        sha=hashlib.sha256(live.read_bytes()).hexdigest()
+        if (report.get("is_live_source") is not True or
+            report.get("scored_source_sha256")!=sha):
+            return {"available":False,"reason":"source_drift"}
         cases=report.get("scenarios")
         passed=report.get("passed")
         failed=report.get("failed")
