@@ -1,5 +1,8 @@
 """Offline regression tests for the eight-domain SoftMobile director."""
 import json
+import hashlib
+import tempfile
+from pathlib import Path
 import unittest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
@@ -59,6 +62,28 @@ class DirectorTests(unittest.TestCase):
         res=d.plan(snapshot(),metrics(),conversion=conversion)
         item=next(t for t in res["tasks"] if t["id"]=="ventas_simulaciones")
         self.assertEqual(item["priority"],"alta")
+
+    def test_sales_simulation_source_hash_is_required(self):
+        with tempfile.TemporaryDirectory() as folder:
+            bot=Path(folder)/"bot.rb"
+            bot.write_text("pilot ruby content")
+            result_path=Path(folder)/"report.json"
+            report={
+                "at":datetime.now(timezone.utc).isoformat(),
+                "environment":"OFFLINE_TRAINING_ONLY",
+                "public_messages_sent":0,"real_orders":0,
+                "real_inventory_modified":False,"is_live_source":True,
+                "scored_source_sha256":"incorrect-old-source-hash",
+                "scenarios":72,"passed":72,"failed":0,
+                "by_family":{"purchase":{"passed":72,"tested":72}}
+            }
+            result_path.write_text(json.dumps(report))
+            fake=lambda value:result_path if str(value).endswith("sales-conversion-training-report.json") else bot
+            with patch.object(d,"Path",side_effect=fake):
+                self.assertEqual(d.sales_simulation_snapshot()["reason"],"source_drift")
+                report["scored_source_sha256"]=hashlib.sha256(bot.read_bytes()).hexdigest()
+                result_path.write_text(json.dumps(report))
+                self.assertTrue(d.sales_simulation_snapshot()["available"])
 
     def test_missing_sales_simulations_not_invented(self):
         res=d.plan(snapshot(),metrics(),conversion={"available":False})
