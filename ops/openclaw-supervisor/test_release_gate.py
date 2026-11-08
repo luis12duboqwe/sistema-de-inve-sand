@@ -94,6 +94,30 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("BLOQUEADO",md)
         self.assertNotIn("ACTIVAR AUTOMÁTICAMENTE",md)
         self.assertIn("Lanzamiento",md)
+    def test_offline_workstreams_require_source_match(self):
+        sup,d,op,ev=inputs()
+        sup["inventory"]={"status":"ok","read_only":True}
+        finance={"source_utc":d["source_utc"],"mode":"finance_read_only_audit",
+                 "read_only":True,"customer_data_extracted":False,
+                 "payments_initiated":0,"profit_verified":False,"revenue_verified":False}
+        repair={"source_utc":d["source_utc"],
+                "mode":"repair_simulation_and_source_probe",
+                "offline_domain_cases":60,"offline_domain_passed":60,
+                "real_repair_cases_processed":0,"public_messages_sent":0,
+                "repair_workflow_connected":False}
+        out=r.report(sup,d,op,ev,finance=finance,repairs=repair)
+        self.assertTrue(out["non_whatsapp_readiness"]["finance_audit_available"])
+        self.assertTrue(out["non_whatsapp_readiness"]["repair_domain_synthetic_qa_passed"])
+        self.assertFalse(out["non_whatsapp_readiness"]["real_repair_workflow_connected"])
+        self.assertFalse(out["public_release_permitted"])
+        finance["source_utc"]="stale"
+        out=r.report(sup,d,op,ev,finance=finance,repairs=repair)
+        self.assertFalse(out["non_whatsapp_readiness"]["finance_audit_available"])
+    def test_no_inferred_ads_or_code_approval(self):
+        obj=r.report(*inputs())
+        self.assertFalse(obj["non_whatsapp_readiness"]["advertising_data_source_connected"])
+        self.assertFalse(obj["non_whatsapp_readiness"]["autonomous_code_review_source_gate"])
+        self.assertTrue(obj["whatsapp_deferred_until_final_phase"])
     def test_always_boolean_false_public_release(self):
         obj=r.report(*inputs())
         self.assertIs(obj["public_release_permitted"],False)
