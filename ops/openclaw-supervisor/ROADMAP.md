@@ -70,3 +70,25 @@ Una tarea bloqueada se considera completada solo con evidencia independiente de 
 - `director.py` valida ahora que `scored_source_sha256` de los ensayos corresponda al archivo Ruby activo, evitando indicar un 72/72 antiguo tras una modificación.
 - El parche antiguo en seguimiento aún necesita rebase validado: su test se **omite** ante SHA incorrecto, mientras que el comportamiento de seguridad del código activo se prueba siempre de forma independiente.
 - La certificación sigue bloqueando el lanzamiento por la falta de transporte WhatsApp real probado, convergencia independiente, consentimiento verificable, autorización comercial y aprobación del propietario.
+
+
+## Última actualización: prioridad NO WhatsApp (noviembre 7 HN)
+**Foco:** WhatsApp se desplaza a fase final; no modificar WAHA, campañas, pagos ni contactos reales.
+
+**Hecho y probado en el VPS:**
+- Auditoría de inventario/finanzas `finance_audit.py` por SQL de solo lectura con discrepancias agregadas y clasificación por método de pago. Se incorpora a la cadena `OnSuccess` después del ejecutor.
+- Motor de reparaciones `repair_workflow.py` con transiciones de estado auditables e idempotentes y presupuesto/QA con aprobación humana, 60/60 escenarios totalmente ficticios. `repair_lab_runner.py` detecta que las tablas y API reales aún faltan. Cero casos reales creados.
+- Evidencia de Meta Ads vía Metricool, importada manualmente sin secretos y con advertencia de datos no suficientes para ROI; ninguna campaña editada.
+- Control `patch_source_compat.py` revisa dos veces al día el SHA del Ruby piloto sin llamadas API ni despliegues.
+- Agentes de OpenClaw reorientados para consultar reportes saneados de finanzas, reparaciones, publicidad y código, concentrándose en las áreas no WhatsApp.
+- Estado de QA local después de estas mejoras: **179 pruebas unitarias aprobadas**; cero mensajes públicos. El certificado diferencia *non_whatsapp_readiness = 5/10* del lanzamiento comercial *5/15*.
+
+**No terminado, requiere fuente y/o validación:**
+- Conciliación bancaria/caja real: 458 órdenes pendientes y 0 cierres; 173 diferencias por pago (96 tarjeta, 57 financiamiento, 14 transferencia, 6 efectivo) son alertas de conciliación, no errores ni pérdidas confirmadas.
+- Reparaciones reales: desarrollar módulos de backend, permisos por técnico y sucursal, orden y trazabilidad de piezas, interfaz y pruebas de aceptación; actualmente solo existe flujo aislado.
+- Ads: comprobar datos reales y fuente de campañas con métricas de atribución; el conector no devolvió filas de campaña y no tiene sincronización automática al VPS.
+- QA independiente: 250 replays hipotéticos no prueban convergencia; conservar el bloqueo.
+- Programador autónomo: source guard de SHA listo, pero el generador antiguo de propuestas sigue sin ejecutarse debido al source drift; se necesita adaptación y pruebas independientes antes de activarlo.
+- WhatsApp, consentimiento y salida pública: **al final**, únicamente tras completar áreas anteriores y solicitar autorización explícita.
+
+La autorización pública es independiente de cualquier resultado de laboratorio; nunca se concederá automáticamente.
