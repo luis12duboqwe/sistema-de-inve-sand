@@ -118,6 +118,23 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(obj["non_whatsapp_readiness"]["advertising_data_source_connected"])
         self.assertFalse(obj["non_whatsapp_readiness"]["autonomous_code_review_source_gate"])
         self.assertTrue(obj["whatsapp_deferred_until_final_phase"])
+    def test_sales_certificate_excludes_paused_repairs(self):
+        sup,d,op,ev=inputs()
+        d["scope"]="sales_only"
+        obj=r.sales_scope_report(r.report(sup,d,op,ev),d)
+        self.assertEqual(obj["scope"],"sales_only")
+        self.assertNotIn("repair_workflow_connected",obj["checks"])
+        self.assertNotIn("real_repair_workflow_connected",obj["non_whatsapp_readiness"])
+        self.assertNotIn("repair_domain_synthetic_qa_passed",obj["non_whatsapp_readiness"])
+        self.assertNotIn("repair_workflow_connected",obj["blocked_full_autonomy"])
+        self.assertEqual(obj["non_whatsapp_total"],8)
+        self.assertEqual(obj["public_messages_sent"],0)
+        self.assertFalse(obj["public_release_permitted"])
+    def test_sales_certificate_rejects_missing_focus(self):
+        sup,d,op,ev=inputs()
+        with self.assertRaises(r.Reject):
+            r.sales_scope_report(r.report(sup,d,op,ev),d)
+
     def test_always_boolean_false_public_release(self):
         obj=r.report(*inputs())
         self.assertIs(obj["public_release_permitted"],False)
