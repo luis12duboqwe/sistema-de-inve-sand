@@ -56,3 +56,9 @@ Supervisor, director y ejecutor activos; 14 tareas/8 áreas, 86 pruebas locales,
 
 ### Criterio de cierre restante
 Una tarea bloqueada se considera completada solo con evidencia independiente de integración en el entorno autorizado. El usuario aún tiene que aprobar la puesta en producción después de comprobar transporte real, WhatsApp, QA y políticas comerciales; por tanto no podemos afirmar que todas las seis fases están terminadas.
+
+### Auditoría adicional del vendedor (8 nov UTC)
+- Pruebas unitarias de los módulos `sales_ai_agent`, `lead_handoff`, `sales_pipeline_conversion`, `chatwoot_ai_bridge` y `sales_ai_photo_adapter`: **60/60 aprobadas**, usando mocks y sin mensajes reales.
+- `test_followup_policy_priority.py` añade una prueba que **no puede completarse**: el generador de una propuesta antigua rechaza el hash SHA del código Ruby actual, deliberadamente. La prueba agregada queda **60/61, con 1 error de source drift**. No cambiar a ciegas BASE_SHA ni deshabilitar este control.
+- Las tres prioridades `security`, `complaint`, `cancel_interest` **sí coincidieron** con las intenciones esperadas al ejecutar el motor Ruby vigente en un contenedor desechable sin red, de forma separada al generador antiguo.
+- Estos datos no acreditan éxito real de Chatwoot/WAHA ni invalidan el bloqueo de lanzamiento. Para la fase 4 es necesario revisar/rebasar la propuesta antigua, ejecutar regresión contra el Ruby vigente y demostrar convergencia independiente.
