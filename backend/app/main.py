@@ -319,6 +319,8 @@ app.include_router(analytics.router)
 app.include_router(daily_close.router)
 app.include_router(multistore_control.router)
 app.include_router(super_admin.router)
+
+
 @app.get("/")
 def read_root():
     return {
