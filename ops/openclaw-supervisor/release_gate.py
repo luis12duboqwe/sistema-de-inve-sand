@@ -96,10 +96,52 @@ def checks(sup,director,op,ev):
     }
     return gates
 
-def report(sup,director,op,ev,now=None):
+def offline_status(sup,director,op,ev,finance=None,repairs=None):
+    finance=finance or {}
+    repairs=repairs or {}
+    src=director["source_utc"]
+    finance_verified=(
+        finance.get("source_utc")==src and
+        finance.get("mode")=="finance_read_only_audit" and
+        finance.get("read_only") is True and
+        finance.get("customer_data_extracted") is False and
+        finance.get("payments_initiated")==0 and
+        finance.get("revenue_verified") is False and
+        finance.get("profit_verified") is False)
+    repairs_lab=(
+        repairs.get("source_utc")==src and
+        repairs.get("mode")=="repair_simulation_and_source_probe" and
+        repairs.get("offline_domain_cases")==60 and
+        repairs.get("offline_domain_passed")==60 and
+        repairs.get("real_repair_cases_processed")==0 and
+        repairs.get("public_messages_sent")==0 and
+        repairs.get("repair_workflow_connected") is False)
+    quality=sup.get("quality") or {}
+    sales=director.get("synthetic_sales") or {}
+    inventory=sup.get("inventory") or {}
+    return {
+       "orchestration_and_internal_execution":(
+          op.get("failures")==0 and ev.get("external_commercial_actions")==0),
+       "inventory_read_only_available":(
+          inventory.get("status")=="ok" and inventory.get("read_only") is True),
+       "sales_simulation_proof_for_current_source":(
+          sales.get("available") is True and
+          type(sales.get("scenarios")) is int and sales["scenarios"]>=72 and
+          sales.get("failed")==0),
+       "finance_audit_available":finance_verified,
+       "repair_domain_synthetic_qa_passed":repairs_lab,
+       "independent_quality_converged":quality.get("independent_convergence") is True,
+       "real_financial_reconciliation":False,
+       "real_repair_workflow_connected":False,
+       "advertising_data_source_connected":False,
+       "autonomous_code_review_source_gate":False,
+    }
+
+def report(sup,director,op,ev,now=None,finance=None,repairs=None):
     gates=checks(sup,director,op,ev)
     sales=[k for k in SALES_BLOCKERS if gates[k] is not True]
     full=[k for k in FULL_AUTONOMY_BLOCKERS if gates[k] is not True]
+    offline=offline_status(sup,director,op,ev,finance,repairs)
     out={"schema_version":1,"mode":"prelaunch_audit_only",
          "at":now or datetime.now(timezone.utc).isoformat(),
          "source_utc":director["source_utc"],
@@ -108,6 +150,11 @@ def report(sup,director,op,ev,now=None):
          "check_count":len(gates),
          "blocked_sales_launch":sales,
          "blocked_full_autonomy":full,
+         "non_whatsapp_readiness":offline,
+         "non_whatsapp_passed":sum(v is True for v in offline.values()),
+         "non_whatsapp_total":len(offline),
+         "non_whatsapp_blockers":[k for k,v in offline.items() if v is not True],
+         "whatsapp_deferred_until_final_phase":True,
          # Always fail-closed; even all technical checks true require an
          # independent operator-approved rollout outside this program.
          "public_release_permitted":False,
@@ -126,6 +173,10 @@ def markdown(r):
           "","## Comprobaciones"]
     for k,v in r["checks"].items():
         rows.append("- "+("[OK]" if v else "[PENDIENTE]")+" "+k)
+    rows.append("\n## Trabajo SIN WhatsApp: "+str(r["non_whatsapp_passed"])+"/"+str(r["non_whatsapp_total"]))
+    for k,v in r["non_whatsapp_readiness"].items():
+        rows.append("- "+("[OK]" if v else "[PENDIENTE]")+" "+k)
+    rows.append("\nWhatsApp se deja para la última fase.")
     rows.append("\n## Bloqueos para el lanzamiento comercial")
     for k in r["blocked_sales_launch"]:
         rows.append("- "+k)
@@ -140,10 +191,16 @@ def markdown(r):
 def main():
     try:
         sup,director,op,ev=validated_inputs()
+        finance=json.loads((OUT/"FINANCE_AUDIT.json").read_text())
+        repairs=json.loads((OUT/"REPAIRS_LAB.json").read_text())
+        for item in (finance,repairs):
+            if (item.get("source_utc")!=director["source_utc"] or
+                item.get("public_messages_sent")!=0):
+                raise Reject("mismatched optional workstreams")
+        out=report(sup,director,op,ev,finance=finance,repairs=repairs)
     except (Reject,ValueError,TypeError,KeyError,OSError) as exc:
         print("certification_rejected:"+type(exc).__name__)
         return 2
-    out=report(sup,director,op,ev)
     save(OUT/"CERTIFICATION.json",json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"CERTIFICATION.md",markdown(out))
     print(json.dumps({"result":"blocked_prelaunch","checks_passed":out["passed_count"],
