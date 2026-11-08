@@ -11,6 +11,7 @@ Issue=Literal["screen","battery","charging","software","camera",
               "water_damage","micro_soldering","other"]
 class CreateRepairCase(BaseModel):
     model_config=ConfigDict(extra="forbid",str_strip_whitespace=True)
+    intake_key:str=Field(min_length=12,max_length=64,pattern=r"^[a-z0-9-]{12,64}$")
     location_id:int=Field(gt=0)
     device_model:str=Field(min_length=3,max_length=100,pattern=r"^[\w .+\-/()]{3,100}$")
     issue_category:Issue
