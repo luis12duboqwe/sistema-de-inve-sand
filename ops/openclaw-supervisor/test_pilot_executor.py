@@ -42,6 +42,28 @@ class PilotExecutorTests(unittest.TestCase):
         (root/"latest.json").write_text(json.dumps(sup))
         (root/"DIRECTOR.json").write_text(json.dumps(director))
 
+    def test_sales_scope_cannot_reenable_repair_or_whatsapp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            sup,director=data()
+            director["scope"]="sales_only"
+            director["tasks"]=[{**director["tasks"][0],"id":"operaciones_reparaciones"}]
+            director["specialists"]={"ventas":1}
+            self.put(root,sup,director)
+            with self.assertRaises(p.Reject):p.load_inputs(root)
+            director["tasks"]=[{**director["tasks"][0],"id":"infraestructura_waha_piloto"}]
+            self.put(root,sup,director)
+            with self.assertRaises(p.Reject):p.load_inputs(root)
+    def test_sales_scope_valid_internal_sales(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            sup,director=data()
+            director["scope"]="sales_only"
+            director["tasks"]=[{**director["tasks"][0],"id":"ventas_simulaciones"}]
+            director["specialists"]={"ventas":1}
+            self.put(root,sup,director)
+            p.load_inputs(root)
+
     def test_safe_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
