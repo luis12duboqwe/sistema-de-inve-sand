@@ -9,6 +9,7 @@ from app.auth import get_current_superuser
 from app.database import get_db
 from app.models.location import Location
 from app.models.rbac import User
+from app.utils.location_access import user_has_location_access
 from app.models.repairs import RepairCase,RepairEvent
 from app.schemas.repairs import (CreateRepairCase,RepairCaseView,
                                   RepairTransitionRequest,RepairEventView,
@@ -147,6 +148,8 @@ def assign_technician(repair_id:int,payload:RepairAssignmentRequest,
         role_name=(tech.role.name.strip().lower() if tech and tech.role else "")
         if role_name not in {"tecnico","técnico","technician"}:
             raise HTTPException(422,"Active technician role required")
+        if not user_has_location_access(db,tech,case.location_id,"can_edit"):
+            raise HTTPException(422,"Technician lacks edit access to case location")
         case.technician_id=tech.id
         case.revision+=1
         db.add(RepairEvent(case_id=case.id,event_key=payload.event_key,
