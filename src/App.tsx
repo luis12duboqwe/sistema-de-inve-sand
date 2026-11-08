@@ -57,7 +57,6 @@ import { SuperAdminControlPanelDialog } from '@/components/SuperAdminControlPane
 import { LoginPage } from '@/components/LoginPage'
 import { PendingTradeInsDialog } from '@/components/PendingTradeInsDialog'
 import { PhotoRequestsDashboardDialog } from '@/components/PhotoRequestsDashboardDialog'
-import { RepairIntakeDialog } from '@/components/RepairIntakeDialog'
 import { apiClient } from '@/lib/apiClient'
 import { initializeDefaultData, clearAllData } from '@/lib/dataInitializer'
 import { SyncSettingsDialog } from '@/components/SyncSettingsDialog'
@@ -138,7 +137,6 @@ function MainApp() {
   const [showSuperAdminPanel, setShowSuperAdminPanel] = useState(false)
   const [showPendingTradeIns, setShowPendingTradeIns] = useState(false)
   const [showPhotoRequestsDialog, setShowPhotoRequestsDialog] = useState(false)
-  const [showRepairIntakeDialog, setShowRepairIntakeDialog] = useState(false)
   const [photoRequestPendingCount, setPhotoRequestPendingCount] = useState(0)
   const [showReturnsListDialog, setShowReturnsListDialog] = useState(false)
   const [showWarrantyCheck, setShowWarrantyCheck] = useState(false)
@@ -1016,9 +1014,6 @@ function MainApp() {
                   {(canManageUsers || (useAPI && currentUser?.is_superuser === true)) && <DropdownMenuSeparator />}
                   {canManageUsers && <DropdownMenuItem onSelect={() => setShowManageUsersDialog(true)}><ShieldCheck size={18} />Gestionar usuarios</DropdownMenuItem>}
                   {useAPI && currentUser?.is_superuser === true && <DropdownMenuItem onSelect={() => setShowSuperAdminPanel(true)}><Wrench size={18} />Panel Super Admin</DropdownMenuItem>}
-                  {import.meta.env.VITE_SOFTMOBILE_REPAIRS_ENABLED === 'true' && useAPI && currentUser?.is_superuser === true && (
-                    <DropdownMenuItem onSelect={() => setShowRepairIntakeDialog(true)}><Wrench size={18} />Reparaciones (piloto)</DropdownMenuItem>
-                  )}
                   {canValidateDailyClose && useAPI && <DropdownMenuItem onSelect={() => setShowDailyCloseDialog(true)}><CheckCircle size={18} />Cierre del día</DropdownMenuItem>}
                   {canAccessMultiStoreControl && <DropdownMenuItem onSelect={() => setShowMultiStoreControl(true)}><Database size={18} />Control multitienda</DropdownMenuItem>}
                 </DropdownMenuContent>
@@ -2760,10 +2755,6 @@ function MainApp() {
         open={showPendingTradeIns}
         onOpenChange={setShowPendingTradeIns}
       />
-
-      {import.meta.env.VITE_SOFTMOBILE_REPAIRS_ENABLED === 'true' && useAPI && currentUser?.is_superuser === true && (
-        <RepairIntakeDialog open={showRepairIntakeDialog} onOpenChange={setShowRepairIntakeDialog} locations={locations ?? []} />
-      )}
 
       <PhotoRequestsDashboardDialog
         open={showPhotoRequestsDialog}
