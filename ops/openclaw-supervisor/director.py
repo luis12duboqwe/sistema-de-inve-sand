@@ -20,6 +20,16 @@ MAX_AGE_SECONDS = 5400
 DIRECTOR_FILE = "DIRECTOR.json"
 AREAS = ("ventas", "inventario", "operaciones", "finanzas",
          "calidad", "infraestructura", "publicidad", "desarrollo")
+# Only the sales funnel and its internal safeguards are in scope.
+# Repair workflows, staff productivity, WAHA transport and public deployment
+# remain deferred. These IDs are exact and never authorize external actions.
+SALES_TASK_IDS=frozenset((
+    "ventas_simulaciones","ventas_seguimiento","inventario_sin_stock",
+    "finanzas_no_conciliadas","operaciones_fotos","calidad_convergencia",
+    "calidad_replay_aislado","publicidad_sin_fuente","desarrollo_pr",
+    "infraestructura_recursos"
+))
+
 SQL = r"""
 BEGIN TRANSACTION READ ONLY;
 SELECT 'SM_DIRECTOR_DB=' || json_build_object(
@@ -286,9 +296,32 @@ def plan(data,metrics=None,qa=None,conversion=None):
                                 "daily_closes":metrics.get("daily_closes"),
                                 "profit_verified":False}}
 
+def sales_focus(out):
+    """Restrict the live director to commercial tasks; retain zero external actions.
+
+    Historical general-purpose plan() remains available for offline tests only.
+    Nothing queued about repairs, employees, WAHA transport or public launch.
+    """
+    if (out.get("mode")!="proposals_only" or
+        out.get("public_messages_sent")!=0 or
+        out.get("production_changed") is not False):
+        raise Reject("unsafe focus source")
+    tasks=[t for t in out["tasks"] if t["id"] in SALES_TASK_IDS]
+    if not all(t.get("requires_approval") is True and
+               t.get("automatic_external_actions")==0 for t in tasks):
+        raise Reject("unsafe sales tasks")
+    return {**out,"scope":"sales_only","deferred_features":[
+        "repairs","employee_analytics","whatsapp_transport","public_release"],
+        "tasks":tasks,
+        "counts":{"all":len(tasks),
+                  "review":sum(t["status"]=="review" for t in tasks),
+                  "blocked":sum(t["status"]=="blocked" for t in tasks)},
+        "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
+
 def markdown(out):
-    rows=["# OpenClaw — Director de operaciones SoftMobile",
-      "Modo de solo lectura. Todas las acciones son PROPUESTAS sujetas a aprobación.",
+    rows=["# OpenClaw — Director de ventas SoftMobile",
+      "Modo de solo lectura. Solo ventas y soporte comercial (sin reparaciones ni WhatsApp).",
+      "Todas las acciones son PROPUESTAS sujetas a aprobación.",
       "Fuente UTC: "+out["source_utc"],
       "Tareas: "+str(out["counts"]["all"])+
       " | Para revisión: "+str(out["counts"]["review"])+
@@ -322,7 +355,7 @@ def main():
         metrics={"read_only_data_available":False}
     qa=synthetic_qa_snapshot()
     conversion=sales_simulation_snapshot()
-    out=plan(data,metrics,qa,conversion)
+    out=sales_focus(plan(data,metrics,qa,conversion))
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
