@@ -36,6 +36,25 @@ class DirectorTests(unittest.TestCase):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(set(res["specialists"]),set(d.AREAS))
         self.assertTrue(all(res["specialists"][k]>0 for k in d.AREAS))
+    def test_sales_only_scope_excludes_paused_modules(self):
+        out=d.sales_focus(d.plan(snapshot(),metrics()))
+        ids={t["id"] for t in out["tasks"]}
+        self.assertEqual(out["scope"],"sales_only")
+        self.assertIn("inventario_sin_stock",ids)
+        self.assertIn("finanzas_no_conciliadas",ids)
+        self.assertIn("calidad_convergencia",ids)
+        self.assertIn("publicidad_sin_fuente",ids)
+        for deferred in ("operaciones_reparaciones","operaciones_empleados",
+                         "infraestructura_waha_piloto","ventas_despliegue",
+                         "ventas_respuestas","inventario_transferencias"):
+            self.assertNotIn(deferred,ids)
+        self.assertEqual(sum(out["specialists"].values()),len(ids))
+        self.assertFalse(out["production_changed"])
+    def test_sales_only_rejects_unsafe_result(self):
+        old=d.plan(snapshot(),metrics())
+        old["public_messages_sent"]=1
+        with self.assertRaises(d.Reject):d.sales_focus(old)
+
     def test_never_sends(self):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(res["public_messages_sent"],0)
