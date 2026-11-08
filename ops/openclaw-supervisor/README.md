@@ -44,6 +44,14 @@ Entorno: VPS srv1656045. Este módulo complementa, NO sustituye ni reconfigura, 
 - Para desactivar la nueva ruta reactiva: quitar los overrides `90-softmobile-on-success-*.conf`, `90-on-success-release-gate.conf` y ejecutar `systemctl daemon-reload`. No borrar informes ni historiales; programaciones del supervisor y otros laboratorios pueden mantenerse.
 - Plan de fases y criterios de aceptación: `ROADMAP.md`. Fases comerciales reales, reparaciones y Meta Ads **NO** están terminadas y requieren datos, pruebas/consentimiento y autorizaciones que todavía no constan en el VPS.
 
+## Corrección aislada del vendedor piloto: reclamo por pedido dañado
+- Un caso realista en un ensayo ficticio mostró que **«Mi pedido llegó roto, ¿lo dejan en la puerta?»** se clasificaba erróneamente como `tracking`, porque el detector temprano de reclamos no reconocía `mi pedido` + `llegó` + `roto`. El flujo correcto es `complaint` con traspaso a humano, sin prometer cambios/devoluciones.
+- `stage_damage_priority.py` creó un parche mínimo (solo tres condiciones tras el detector de credenciales), exigió que coincidiera el ancla exacta y mantuvo `PILOT_CONVERSATION_ID=3`, `INBOX_ID=2` y `AUTO_REPLY_LIMIT=1`.
+- Antes de instalarlo se verificó Ruby syntax, 72/72 recorridos comerciales (sin promesas inventadas), 3/3 prioridades críticas, 117/117 regresiones Ruby y 250 incidencias ficticias sin indicadores nuevos respecto al baseline.
+- Se incorporó SOLO al archivo Ruby del piloto `/opt/softmobile-waha-test/sales-bot-v2.rb` tras revisar SHA, consentimiento y guardas de publicación. SHA instalado `1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1`. Backup de reversión: `/opt/softmobile-waha-test/quality-backups/sales-bot-v2.rb.before-damage-priority-20261108T011016Z.bak`.
+- Regresión después de instalar: 118/118 pruebas del supervisor, 62 pruebas del laboratorio sin fallos (1 skip porque una propuesta anterior está vinculada a otro hash), 72/72 simulaciones con SHA del código actual. No se modificó la activación de mensajes públicos.
+- El generador de *nuevas propuestas automáticas* sigue detenido por `trusted_source_drift` de su otra ancla; esta corrección específica no supone aprobar ese generador ni cerrar QA independiente. El PR documenta el diff exacto. El bot no está listo para clientes reales hasta completar los demás bloqueos.
+
 ## Preparación de propuestas de código
 - `patch_proposer_capped.py` limita el generador existente de parches IA a **4 llamadas Groq por día** incluso si la configuración global de desarrollo es ilimitada.
 - La unidad tiene override `95-softmobile-proposal-budget.conf`: mismo candado de concurrencia, máximo de 384 MB y 150 segundos.
