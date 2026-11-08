@@ -29,7 +29,9 @@ class FinancialAuditTests(unittest.TestCase):
         out=f.analyze(sample())
         self.assertEqual(out["flag_count"],2)
         self.assertEqual({x["code"]:x["count"] for x in out["flags"]},
-            {"order_total_item_mismatch":173,"products_price_below_cost":3})
+            {"non_card_order_total_mismatch":20,"products_price_below_cost":3})
+        self.assertEqual(out["possible_fee_or_finance_adjustments"],153)
+        self.assertEqual(out["non_card_order_total_differences"],20)
     def test_require_validated_completed_and_approved(self):
         row=sample();row.update({"orders_completed":3,"approved_closes":1,
                                    "daily_closes":1,"orders_validated":3,
@@ -40,6 +42,13 @@ class FinancialAuditTests(unittest.TestCase):
         self.assertTrue(out["financial_reconciliation_prerequisites"])
         self.assertFalse(out["profit_verified"])
         self.assertFalse(out["revenue_verified"])
+    def test_card_mismatches_not_directly_labeled_errors(self):
+        item=sample()
+        item["mismatch_by_payment"]={"tarjeta":173}
+        r=f.analyze(item)
+        self.assertEqual(r["possible_fee_or_finance_adjustments"],173)
+        self.assertEqual(r["non_card_order_total_differences"],0)
+        self.assertEqual(r["flag_count"],1)
     def test_orphan_records_flagged_critical(self):
         row=sample();row["orphan_order_items"]=2
         out=f.analyze(row)
