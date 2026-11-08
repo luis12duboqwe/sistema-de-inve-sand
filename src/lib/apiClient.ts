@@ -71,6 +71,7 @@ import type { Bank, FinancingOption,
 } from './types'
 import type { SalesForecast } from './aiForecasting'
 import type { RepairCase, CreateRepairCase, RepairTransitionInput, RepairAssignmentInput } from './repairs'
+import type { RepairCase, CreateRepairCase, RepairTransitionInput, RepairAssignmentInput } from './repairs'
 import { getKV } from './kvStorage'
 
 const DEFAULT_API_URL = 'http://localhost:8000/api'
@@ -2376,6 +2377,31 @@ class ApiClient {
     })
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return this.request<AuditLogEntry[]>(`/multistore-control/audit-logs${suffix}`)
+  }
+  // Admin-only repair intake. Backend route exists only when explicitly enabled.
+  async getRepairCases(): Promise<RepairCase[]> {
+    return this.request<RepairCase[]>('/repairs?limit=100')
+  }
+
+  async createRepairCase(input: CreateRepairCase): Promise<RepairCase> {
+    return this.request<RepairCase>('/repairs', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+
+  async transitionRepairCase(id: number, input: RepairTransitionInput): Promise<RepairCase> {
+    return this.request<RepairCase>(`/repairs/${id}/transition`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+
+  async assignRepairTechnician(id: number, input: RepairAssignmentInput): Promise<RepairCase> {
+    return this.request<RepairCase>(`/repairs/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
   }
 }
 
