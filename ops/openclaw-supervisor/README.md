@@ -41,3 +41,20 @@ Las unidades existentes para reparaciones no están en la cadena automática y l
 
 ### QA independiente por frases nuevas — 8 nov 2026
 Se ampliaron los casos fijos con **18 reexpresiones nuevas** de negociación, reservas y envíos. Ruby activo **6/18**; candidata inicial **8/18**; candidata generalizada **18/18**, manteniendo **72/72** en ambos grupos originales. Se detectó y corrigió el sobreajuste antes de recomendar integrar el cambio. 21 tests comerciales unitarios y 192 del supervisor siguen aprobados. Se conserva la versión activa sin cambios, y `SALES_CANDIDATE_QA.json` identifica a la candidata como **no desplegada**. Todavía falta validación independiente en otras condiciones y con el vendedor IA antes de autorizar uso público.
+
+
+## 8 noviembre 2026 — ejecutor de correcciones comerciales en automático
+
+### Lo que cambió en el VPS
+- Se creó **`sales_autofix_loop.py`**, un ciclo autónomo y programado de **búsqueda, revisión de fuente SHA, creación de variante, simulación, detección de errores, selección de una regla correctiva autorizada, reintento y staging privado**. No se instala ni reemplaza el Ruby comercial.
+- Unidad `softmobile-sales-autofix-lab.service` con timer activo cada **seis horas**. Las llamadas al motor Ruby se realizan en Docker efímero `--network none`, solo lectura y con recursos limitados. El reporte `quality/autonomous-sales/latest.json` es auditable.
+- `sales_rotating_challenges.py` alterna **seis pruebas adicionales por día**, separadas del conjunto inicial de 72 y las 18 reformulaciones. Se validó ambos días de rotación y el bloqueo seguro si ninguna regla sirve.
+- Una ejecución automática demostrada: intento 1 **4/6** en preguntas rotativas, con fallas de apartados; el algoritmo eligió `reserve_synonyms` de su lista revisada, construyó otro candidato y repitió. Intento 2 **6/6**, más **72/72** de calidad conversacional, **18/18** reformulaciones, **72/72** del checkout ficticio y **21 tests**. **0 comunicaciones, 0 pagos, 0 cambios a inventario o Ruby público**.
+- Se añadieron **24 pruebas** del ejecutor y la interfaz de generación de preguntas Groq, incluyendo límite de cuota, fuente pinneada, fallo cerrado y reintentos. El supervisor general pasó **195/195** pruebas.
+- `sales_ai_challenges.py` está programado **1 solicitud Groq/día como máximo** para generar únicamente preguntas ficticias, no código. La primera llamada devolvió `ai_challenge_provider_or_schema_blocked`; la cuota quedó reservada y los reintentos quedaron bloqueados por ese día. **Esta fuente de generación IA todavía no está validada**, por lo que el sistema se apoya en las preguntas rotativas locales.
+- El director OpenClaw incluye `autonomous_sales` en `DIRECTOR.json` y emite la tarea `ventas_autofix_review` con estado `awaiting_qa` en el ejecutor. La certificación de trabajo no WhatsApp alcanza **5 de 10 requisitos**, conservando `public_release_permitted=false`.
+
+### Límite de autonomía actual
+**Está operativo el ciclo completo de corrección automática dentro de reglas revisadas y aisladas.** Aún **no** es un programador genérico de IA capaz de cambiar arbitrariamente cualquier archivo ni de fusionar o desplegar código. No hace pruebas con clientes reales y no confirma ventas ni retorno real. El generador viejo `softmobile-patch-proposer.timer` sigue **deshabilitado** (desalineado con el Ruby actual). Los cambios creados esperan revisión de seguridad independiente y aprobación del propietario.
+
+Las reparaciones están archivadas; WhatsApp, envíos reales, cobros, descuentos reales, campañas y despliegues permanecen fuera de alcance.
