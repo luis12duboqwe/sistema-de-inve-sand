@@ -138,6 +138,12 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
           director["seller_reply_quality"].get("scenarios")==72 and
           director["seller_reply_quality"].get("passed")==72 and
           director["seller_reply_quality"].get("failed")==0),
+       "autonomous_sales_review_candidate_staged":(
+          director.get("autonomous_sales",{}).get("available") is True and
+          director["autonomous_sales"].get("candidate_dialogues_passed")==72 and
+          director["autonomous_sales"].get("candidate_rotating_passed")==6 and
+          director["autonomous_sales"].get("candidate_deployed") is False and
+          director["autonomous_sales"].get("manual_review_required") is True),
        "finance_audit_available":finance_verified,
        "repair_domain_synthetic_qa_passed":repairs_lab,
        "independent_quality_converged":quality.get("independent_convergence") is True,
