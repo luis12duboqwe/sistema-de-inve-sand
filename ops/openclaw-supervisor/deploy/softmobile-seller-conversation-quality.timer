@@ -1,0 +1,11 @@
+[Unit]
+Description=SoftMobile sales reply quality every four hours offline
+
+[Timer]
+OnCalendar=*-*-* 00,04,08,12,16,20:32:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-seller-conversation-quality.service
+
+[Install]
+WantedBy=timers.target
