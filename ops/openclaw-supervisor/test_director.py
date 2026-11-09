@@ -55,6 +55,23 @@ class DirectorTests(unittest.TestCase):
         old["public_messages_sent"]=1
         with self.assertRaises(d.Reject):d.sales_focus(old)
 
+    def test_seller_quality_evidence_creates_priority_sales_task(self):
+        data={"available":True,"scenarios":72,"passed":36,"failed":36,
+              "by_family":{k:{"tested":12,"passed":6} for k in
+                           ("purchase","financing","negotiation","reservation","shipping","accessories")},
+              "ruby_source_sha256":"a"*64,"synthetic_only":True,"real_sales":0}
+        result=d.sales_focus(d.plan(snapshot(),metrics(),seller_quality=data))
+        t=next(x for x in result["tasks"] if x["id"]=="ventas_calidad_conversacional")
+        self.assertEqual(t["area"],"ventas")
+        self.assertEqual(t["priority"],"alta")
+        self.assertEqual(t["evidence"]["failed"],36)
+        self.assertEqual(t["automatic_external_actions"],0)
+        self.assertEqual(result["seller_reply_quality"]["passed"],36)
+    def test_missing_seller_quality_not_invented(self):
+        result=d.sales_focus(d.plan(snapshot(),metrics(),seller_quality={"available":False}))
+        self.assertNotIn("ventas_calidad_conversacional",
+                         {x["id"] for x in result["tasks"]})
+
     def test_never_sends(self):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(res["public_messages_sent"],0)
