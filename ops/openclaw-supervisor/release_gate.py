@@ -7,7 +7,9 @@ message, campaign, stock, file outside workspace, or production mutation.
 """
 from __future__ import annotations
 from datetime import datetime,timezone
+from hashlib import sha256
 import json
+import sys
 from pathlib import Path
 
 from pilot_executor import load_inputs, Reject
@@ -50,7 +52,75 @@ def validated_inputs(root=OUT):
         raise Reject("unsafe certification context")
     return sup,director,op,ev
 
-def checks(sup,director,op,ev):
+def independent_source_proof():
+    """Verify the actual offline proposal guard against the CURRENT Ruby source.
+
+    Not a deployment permission: the known SHA and the exact Ruby anchor must
+    match, and the patch recipe parser must identify only that unique anchor.
+    """
+    try:
+        import patch_source_compat as compat
+        bot=compat.BOT
+        if bot.is_symlink() or not bot.is_file():
+            return {"validated":False}
+        source=bot.read_text(encoding="utf-8")
+        if not compat.compatible(source):
+            return {"validated":False}
+        sys.path.insert(0,"/opt/softmobile-waha-test/laboratorio-ia")
+        import patch_proposer as proposer
+        proposer.COLOR_ANCHOR=compat.SAFETY_ANCHOR
+        _,method,_=proposer.method_area(source)
+        if method.count(compat.SAFETY_ANCHOR)!=1:
+            return {"validated":False}
+        return {"validated":True,"live_sha256":sha256(source.encode()).hexdigest(),
+                "safe_scope":"proposal-only","deployment_permitted":False}
+    except (OSError,ValueError,RuntimeError,TypeError,KeyError,UnicodeError):
+        return {"validated":False}
+
+
+def approved_internal_pilot_proof():
+    """Only OFFLINE candidate QA, never evidence of public or live Ruby quality."""
+    try:
+        import approve_sales_pilot as approval
+        from pathlib import Path
+        root=approval.DIR
+        if root.is_symlink() or approval.DEST.is_symlink() or approval.MANIFEST.is_symlink():
+            return {"validated":False}
+        manifest=json.loads(approval.MANIFEST.read_text())
+        qa=json.loads((root/"approved-pilot-qa.json").read_text())
+        stamp=datetime.fromisoformat(qa["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-stamp).total_seconds()
+        if not 0<=age<=9*3600:
+            return {"validated":False}
+        if (manifest.get("approved_for")!="offline_internal_pilot_only" or
+            manifest.get("status")!="approved_candidate_bundle_staged" or
+            manifest.get("owner_authorized_internal_pilot") is not True or
+            manifest.get("live_source_modified") is not False or
+            manifest.get("public_channel_enabled") is not False or
+            qa.get("mode")!="APPROVED_SALES_PILOT_OFFLINE_REGRESSION" or
+            qa.get("status")!="passed_internal_pilot_qa" or
+            qa.get("public_release_permitted") is not False or
+            qa.get("public_messages_sent")!=0 or
+            qa.get("production_modified") is not False or
+            qa.get("deep_dialogues")!=10 or qa.get("deep_turns")!=150 or
+            qa.get("deep_criteria_passed")!=32 or qa.get("heldout_new_passed")!=13 or
+            qa.get("extra_independent_passed")!=22 or
+            qa.get("commercial_dialogues_passed")!=72 or
+            qa.get("unit_tests_passed",0)<68 or
+            manifest.get("candidate_sha256")!=approval.SHA or
+            qa.get("candidate_sha256")!=approval.SHA or
+            manifest.get("source_sha256")!=approval.BASE_SHA or
+            sha256(approval.DEST.read_bytes()).hexdigest()!=approval.SHA or
+            sha256(approval.LIVE.read_bytes()).hexdigest()!=approval.BASE_SHA):
+            return {"validated":False}
+        return {"validated":True,"candidate_sha256":approval.SHA,
+                "live_source_sha256":approval.BASE_SHA,"source":"approved_internal_pilot",
+                "public_release_permitted":False}
+    except (OSError,ValueError,RuntimeError,TypeError,KeyError,UnicodeError,AttributeError):
+        return {"validated":False}
+
+
+def checks(sup,director,op,ev,source_proof=None):
     release=sup.get("release_gates") or {}
     quality=sup.get("quality") or {}
     health=sup.get("health") or {}
@@ -59,6 +129,13 @@ def checks(sup,director,op,ev):
     seller=director.get("seller_reply_quality") or {}
     fin=director.get("verified_finance") or {}
     ids={t.get("id"):t for t in director.get("tasks",[])}
+    proof=source_proof or {}
+    source_gate_ok=(
+        proof.get("validated") is True and
+        proof.get("safe_scope")=="proposal-only" and
+        proof.get("deployment_permitted") is False and
+        proof.get("live_sha256")==seller.get("ruby_source_sha256") and
+        seller.get("available") is True)
     gates={
         "snapshot_consistent":True,
         "internal_test_actions_safe":(
@@ -97,11 +174,11 @@ def checks(sup,director,op,ev):
         # Absence of an alert is NOT positive evidence of integration.
         "repair_workflow_connected":False,
         "meta_ads_data_connected":False,
-        "technical_patch_proposal_gate_healthy":False
+        "technical_patch_proposal_gate_healthy":source_gate_ok
     }
     return gates
 
-def offline_status(sup,director,op,ev,finance=None,repairs=None):
+def offline_status(sup,director,op,ev,finance=None,repairs=None,source_proof=None,approved_pilot=None):
     finance=finance or {}
     repairs=repairs or {}
     src=director["source_utc"]
@@ -121,6 +198,21 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
         repairs.get("real_repair_cases_processed")==0 and
         repairs.get("public_messages_sent")==0 and
         repairs.get("repair_workflow_connected") is False)
+    proof=source_proof or {}
+    approved=approved_pilot or {}
+    original_seller=director.get("seller_reply_quality") or {}
+    source_gate_ok=(
+        proof.get("validated") is True and
+        proof.get("safe_scope")=="proposal-only" and
+        proof.get("deployment_permitted") is False and
+        original_seller.get("available") is True and
+        proof.get("live_sha256")==original_seller.get("ruby_source_sha256"))
+    approved_deep_ok=(
+        approved.get("validated") is True and
+        approved.get("source")=="approved_internal_pilot" and
+        approved.get("public_release_permitted") is False and
+        approved.get("live_source_sha256")==original_seller.get("ruby_source_sha256") and
+        original_seller.get("available") is True)
     quality=sup.get("quality") or {}
     sales=director.get("synthetic_sales") or {}
     inventory=sup.get("inventory") or {}
@@ -138,7 +230,7 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
           director["seller_reply_quality"].get("scenarios")==72 and
           director["seller_reply_quality"].get("passed")==72 and
           director["seller_reply_quality"].get("failed")==0),
-       "deep_sales_15_turn_conversations_passed":(
+       "deep_sales_15_turn_conversations_passed":approved_deep_ok or (
           director.get("deep_sales_quality",{}).get("available") is True and
           director["deep_sales_quality"].get("buyer_dialogues")==10 and
           director["deep_sales_quality"].get("buyer_messages")==150 and
@@ -164,14 +256,14 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
        "real_financial_reconciliation":False,
        "real_repair_workflow_connected":False,
        "advertising_data_source_connected":False,
-       "autonomous_code_review_source_gate":False,
+       "autonomous_code_review_source_gate":source_gate_ok,
     }
 
-def report(sup,director,op,ev,now=None,finance=None,repairs=None):
-    gates=checks(sup,director,op,ev)
+def report(sup,director,op,ev,now=None,finance=None,repairs=None,source_proof=None,approved_pilot=None):
+    gates=checks(sup,director,op,ev,source_proof=source_proof)
     sales=[k for k in SALES_BLOCKERS if gates[k] is not True]
     full=[k for k in FULL_AUTONOMY_BLOCKERS if gates[k] is not True]
-    offline=offline_status(sup,director,op,ev,finance,repairs)
+    offline=offline_status(sup,director,op,ev,finance,repairs,source_proof=source_proof,approved_pilot=approved_pilot)
     out={"schema_version":1,"mode":"prelaunch_audit_only",
          "at":now or datetime.now(timezone.utc).isoformat(),
          "source_utc":director["source_utc"],
@@ -184,6 +276,10 @@ def report(sup,director,op,ev,now=None,finance=None,repairs=None):
          "non_whatsapp_passed":sum(v is True for v in offline.values()),
          "non_whatsapp_total":len(offline),
          "non_whatsapp_blockers":[k for k,v in offline.items() if v is not True],
+         "offline_internal_pilot_candidate_verified":(approved_pilot or {}).get("validated") is True,
+         "offline_internal_pilot_candidate_sha256":(approved_pilot or {}).get("candidate_sha256")
+           if (approved_pilot or {}).get("validated") is True else None,
+         "active_ruby_quality_distinct_from_offline_candidate":True,
          "whatsapp_deferred_until_final_phase":True,
          # Always fail-closed; even all technical checks true require an
          # independent operator-approved rollout outside this program.
@@ -254,8 +350,11 @@ def main():
         if (finance.get("source_utc")!=director["source_utc"] or
             finance.get("public_messages_sent")!=0):
             raise Reject("mismatched finance workstream")
+        source_proof=independent_source_proof()
+        approved_proof=approved_internal_pilot_proof()
         out=sales_scope_report(
-            report(sup,director,op,ev,finance=finance),director)
+            report(sup,director,op,ev,finance=finance,
+                   source_proof=source_proof,approved_pilot=approved_proof),director)
     except (Reject,ValueError,TypeError,KeyError,OSError) as exc:
         print("certification_rejected:"+type(exc).__name__)
         return 2
