@@ -11,7 +11,7 @@ from hashlib import sha256
 import json,os,subprocess,sys,tempfile
 from pathlib import Path
 
-LIVE=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
+LIVE=Path("/opt/softmobile-waha-test/frozen-sales-baseline/sales-bot-v2-1336f52fdf4d8e44.rb")
 BASE_SHA="1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1"
 SHA="a4ca83e5d83244eb8552c67ad55d291eb601440b9c94c4bd614cd7d28365c06d"
 SRC=Path("/opt/openclaw-lab/workspace/lab-runs/replica-skill/candidates/deep-review-a4ca83e5d83244eb.rb")
