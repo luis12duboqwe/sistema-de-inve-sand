@@ -139,6 +139,7 @@ class PilotExecutorTests(unittest.TestCase):
                           "candidate_sha256":"b"*64,
                           "dialogues_passed":72,
                           "rotating_passed":6,
+                          "adversarial_passed":11,
                           "unit_tests_passed":21,
                           "candidate_deployed":False,
                           "public_messages_sent":0,
