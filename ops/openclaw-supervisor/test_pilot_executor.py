@@ -132,6 +132,24 @@ class PilotExecutorTests(unittest.TestCase):
         state,detail=p.safe_action(director["tasks"][1],sup,{})
         self.assertEqual(state,"blocked")
 
+    def test_catalog_quality_never_changes_prices_or_stock(self):
+        sup,director=data()
+        task={**director["tasks"][0],"id":"ventas_catalogo_calidad",
+             "evidence":{"active_products":189,
+                         "stocked_active_products":54,
+                         "stocked_fully_specified":53,
+                         "active_without_stock":135,
+                         "active_price_below_cost":3,
+                         "public_quote_authorized":False,
+                         "fresh_partner_quote_available":False}}
+        state,info=p.safe_action(task,sup,{})
+        self.assertEqual(state,"awaiting_human")
+        self.assertFalse(info["public_quote_authorized"])
+        self.assertEqual(info["pricing_below_cost_requires_review"],3)
+        task["evidence"]["public_quote_authorized"]=True
+        with self.assertRaises(p.Reject):
+            p.safe_action(task,sup,{})
+
     def test_autonomous_fix_review_never_deploys(self):
         sup,director=data()
         task={**director["tasks"][0],"id":"ventas_autofix_review",
