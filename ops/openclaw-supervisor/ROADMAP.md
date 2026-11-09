@@ -39,3 +39,10 @@ No reiniciar WAHA, no habilitar servicio público, no enviar contactos, no alter
 - **Monitoreo instalado:** evaluación offline del Ruby actual cada 4 horas, reporte saneado en DIRECTOR/SALES_CANDIDATE_QA y tarea prioritaria `ventas_calidad_conversacional`; 192 regresiones del supervisor aprobadas.
 - **Nuevo marcador comercial:** 4/9 requisitos de prelanzamiento. El candidato es una hipótesis probada con casos sintéticos, no una versión productiva ni aprobación real.
 - **Siguiente paso técnico antes de plantear cambios públicos:** auditoría independiente de respuestas generadas y pruebas con otros giros conversacionales, cotizaciones de stock/precio verificado, integración segura con IA y salida pública solo después de nueva autorización. No tocar reparaciones ni WAHA.
+
+
+### Nuevo hito de pruebas sin producción — 8 nov
+- El conjunto original de 72 casos no bastaba para confiar en la mejora: en 18 frases inéditas la primera candidata solo superó 8.
+- Se corrigieron reglas de negociación en lenguaje natural, reservas para días de la semana y plazos/costos de envío con destino previamente indicado.
+- Última candidata: **72/72 escenarios iniciales + 18/18 nuevos + 72/72 regresiones heredadas**, y **21 pruebas unitarias** aprobadas; no son ventas ni mensajes reales.
+- Pendiente: evaluación independiente fuera de los conjuntos conocidos, prueba de integración con IA real de manera aislada y revisión de código del PR; no autorizar despliegue ni WhatsApp.
