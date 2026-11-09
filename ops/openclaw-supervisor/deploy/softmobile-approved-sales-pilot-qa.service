@@ -1,0 +1,24 @@
+[Unit]
+Description=SoftMobile approved sales pilot: offline integrity and conversations QA (no public messages)
+After=docker.service softmobile-replica-cycle.service
+Requires=docker.service
+ConditionPathExists=/opt/softmobile-waha-test/approved-sales-pilot/approval.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/approved_sales_pilot_qa.py
+TimeoutStartSec=210
+MemoryMax=384M
+CPUQuota=65%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/softmobile-waha-test/approved-sales-pilot
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
