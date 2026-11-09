@@ -56,6 +56,7 @@ def checks(sup,director,op,ev):
     health=sup.get("health") or {}
     chatwoot=sup.get("chatwoot") or {}
     synthetic=director.get("synthetic_sales") or {}
+    seller=director.get("seller_reply_quality") or {}
     fin=director.get("verified_finance") or {}
     ids={t.get("id"):t for t in director.get("tasks",[])}
     gates={
@@ -74,6 +75,10 @@ def checks(sup,director,op,ev):
             synthetic.get("scenarios")>=72 and
             synthetic.get("failed")==0 and
             synthetic.get("passed")==synthetic.get("scenarios")),
+        "real_ruby_reply_quality_passed":(
+            seller.get("available") is True and
+            seller.get("scenarios")==72 and
+            seller.get("passed")==72 and seller.get("failed")==0),
         "pilot_transport_verified":(
             release.get("pilot_transport_online") is True and
             health.get("whatsapp_online") is True),
@@ -128,6 +133,11 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
           sales.get("available") is True and
           type(sales.get("scenarios")) is int and sales["scenarios"]>=72 and
           sales.get("failed")==0),
+       "ruby_sales_conversation_quality_passed":(
+          director.get("seller_reply_quality",{}).get("available") is True and
+          director["seller_reply_quality"].get("scenarios")==72 and
+          director["seller_reply_quality"].get("passed")==72 and
+          director["seller_reply_quality"].get("failed")==0),
        "finance_audit_available":finance_verified,
        "repair_domain_synthetic_qa_passed":repairs_lab,
        "independent_quality_converged":quality.get("independent_convergence") is True,
