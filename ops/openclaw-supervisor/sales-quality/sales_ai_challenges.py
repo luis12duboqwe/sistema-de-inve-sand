@@ -131,5 +131,15 @@ def run(call=api.api_json,secret=None,now=None):
           "api_calls_reserved":1,"public_messages_sent":0}
 
 if __name__=="__main__":
- try:print(json.dumps(run(),ensure_ascii=False))
- except BlockingIOError:print(json.dumps({"status":"challenge_generation_busy"}))
+ try:
+  result=run()
+ except BlockingIOError:
+  result={"status":"challenge_generation_busy","api_calls_reserved":0}
+ OUT.mkdir(parents=True,exist_ok=True,mode=0o700)
+ _atomic_json(OUT/"ai-status.json",{
+   "at":datetime.now(timezone.utc).isoformat(),
+   "status":result["status"],
+   "api_calls_reserved_this_attempt":result.get("api_calls_reserved",0),
+   "real_customers_contacted":0,"patches_deployed":0})
+ print(json.dumps(result,ensure_ascii=False))
+ sys.exit(2 if result["status"]=="ai_challenge_provider_or_schema_blocked" else 0)
