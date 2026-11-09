@@ -37,3 +37,14 @@ systemctl status softmobile-openclaw-lab.timer softmobile-openclaw-lab.service -
 ```
 
 Desactivar solo el temporizador de auditoría de OpenClaw sin detener otras aplicaciones: `systemctl disable --now softmobile-openclaw-lab.timer`. No habilitar servicios públicos para comprobar el laboratorio.
+
+## Evidencia posterior a ejecución real (9 nov 2026, 14:10 UTC)
+
+- Servicio `softmobile-openclaw-lab.service`: **resultado success, exit 0**.
+- Ciclo `20261109T140406Z`: tres turnos del revisor; ronda 1 reparó `journey_memory.py` en la copia; rondas 2 y 3 sin cambios de implementación, con revisión independiente declarada. Resultado `two_clean_independent_reviews`.
+- **499/499 pruebas offline aprobadas**, incluidas 47/47 comerciales, en el alcance evaluado. El recuento incluye nuevas pruebas; no es una evaluación de clientes reales.
+- `converged_tested_scope=true`, `ready_for_manual_review=true`, `production_changed=false`.
+- Candidato para revisión: `/opt/openclaw-lab/results/lab-cycles/20261109T140406Z-proposal.patch`. No se aplicó. SHA de fuente activa `journey_memory.py` se mantuvo igual.
+- Presupuesto: 3 de 6 llamadas de este ciclo autónomo consumidas en el día UTC. Los otros servicios/API no están contados aquí.
+- Supervisor actualizado: certificación de lanzamiento pasó de **4/15 a 6/15** requisitos, con `public_release_permitted=false`. La evaluación del vendedor Ruby real, los datos externos, permisos y WhatsApp siguen pendientes.
+- Servicios automáticos de promoción/instalación públicos siguen **deshabilitados**. PR de GitHub sigue como borrador para revisión.
