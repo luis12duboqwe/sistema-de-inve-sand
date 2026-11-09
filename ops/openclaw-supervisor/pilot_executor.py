@@ -205,7 +205,8 @@ def safe_action(task,sup,cache):
             evidence.get("rotating_passed")!=6 or
             evidence.get("adversarial_passed")!=11 or
             type(evidence.get("unit_tests_passed")) is not int or
-            evidence["unit_tests_passed"]<21 or
+            evidence["unit_tests_passed"]<68 or
+            evidence.get("reference_only_agent_firewall_verified") is not True or
             evidence.get("candidate_deployed") is not False or
             evidence.get("public_messages_sent")!=0 or
             evidence.get("requires_human_review") is not True or
@@ -220,6 +221,7 @@ def safe_action(task,sup,cache):
             "rotating_challenges_passed":6,
             "adversarial_cases_passed":11,
             "unit_tests_passed":evidence["unit_tests_passed"],
+            "reference_only_agent_firewall_verified":True,
             "code_deployed":False,"public_messages_sent":0,
             "review_required":True}
     if tid=="ventas_calidad_conversacional":
