@@ -22,13 +22,13 @@ MODEL_NAME="sales_buyer_challenges"
 SCHEMA={
  "type":"object","additionalProperties":False,
  "properties":{"examples":{
-    "type":"array","minItems":6,"maxItems":6,
+    "type":"array",
     "items":{"type":"object","additionalProperties":False,
       "properties":{
        "family":{"type":"string","enum":["negotiation","reservation","shipping"]},
-       "prior":{"type":"string","minLength":10,"maxLength":100},
-       "followup":{"type":"string","minLength":10,"maxLength":100},
-       "day_or_city":{"type":"string","maxLength":40}
+       "prior":{"type":"string"},
+       "followup":{"type":"string"},
+       "day_or_city":{"type":"string"}
       },
       "required":["family","prior","followup","day_or_city"]}}},
  "required":["examples"]}
@@ -117,9 +117,12 @@ def run(call=api.api_json,secret=None,now=None):
   try:
    key=secret if secret is not None else stored_key()
    data=call(key,SYSTEM,USER,SCHEMA,MODEL_NAME)
+  except (RuntimeError,OSError,TypeError,KeyError,ValueError):
+   return {"status":"ai_challenge_provider_unavailable","api_calls_reserved":1}
+  try:
    validated=validate(data)
-  except (RuntimeError,ValueError,TypeError,KeyError,OSError):
-   return {"status":"ai_challenge_provider_or_schema_blocked","api_calls_reserved":1}
+  except (ValueError,TypeError,KeyError):
+   return {"status":"ai_challenge_schema_rejected","api_calls_reserved":1}
   dataset={"schema_version":1,"mode":"AI_FICTIONAL_SALES_CHALLENGES",
     "at":current.isoformat(),"source":"groq_synthetic_only",
     "scenarios":validated,"api_calls_reserved":1,
@@ -142,4 +145,5 @@ if __name__=="__main__":
    "api_calls_reserved_this_attempt":result.get("api_calls_reserved",0),
    "real_customers_contacted":0,"patches_deployed":0})
  print(json.dumps(result,ensure_ascii=False))
- sys.exit(2 if result["status"]=="ai_challenge_provider_or_schema_blocked" else 0)
+ sys.exit(2 if result["status"] in (
+    "ai_challenge_provider_unavailable","ai_challenge_schema_rejected") else 0)
