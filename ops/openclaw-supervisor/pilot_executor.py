@@ -29,7 +29,7 @@ MAX_AGE=5400
 ALLOWED={
     "ventas_respuestas", "ventas_seguimiento", "ventas_despliegue",
     "ventas_simulaciones","ventas_calidad_conversacional","ventas_autofix_review",
-    "ventas_catalogo_calidad",
+    "ventas_catalogo_calidad","ventas_dialogos_profundos",
     "finanzas_no_conciliadas", "inventario_sin_stock",
     "inventario_transferencias", "operaciones_fotos",
     "operaciones_reparaciones", "operaciones_empleados",
@@ -177,6 +177,22 @@ def safe_action(task,sup,cache):
         return ("checked_needs_review" if failed==0 else "needs_attention"),{
             "synthetic_sales_scenarios":total,"passed":passed,"failed":failed,
             "verified_real_sales":0}
+    if tid=="ventas_dialogos_profundos":
+        e=task.get("evidence") or {}
+        expected=("scenarios","buyer_messages","checks","passed","failed")
+        if (not isinstance(e,dict) or
+            any(type(e.get(k)) is not int for k in expected) or
+            e["scenarios"]!=10 or e["buyer_messages"]!=150 or e["checks"]!=32 or
+            not 0<=e["passed"]<=32 or e["failed"]!=32-e["passed"] or
+            e.get("synthetic_only") is not True or
+            e.get("candidate_deployed") is not False or
+            e.get("public_messages_sent")!=0):
+            raise Reject("unsafe deep seller quality evidence")
+        return "awaiting_qa",{
+          "buyer_dialogues":10,"buyer_messages":150,
+          "quality_checks":32,"checks_passed":e["passed"],
+          "checks_failed":e["failed"],"real_sales":0,
+          "public_messages_sent":0,"deploy_authorized":False}
     if tid=="ventas_catalogo_calidad":
         v=task.get("evidence") or {}
         required=("active_products","stocked_active_products",
