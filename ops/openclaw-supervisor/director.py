@@ -257,7 +257,9 @@ def autonomous_sales_snapshot():
             qa.get("dialogue_passed")!=72 or qa.get("holdout_passed")!=18 or
             qa.get("legacy_checkout_passed")!=72 or
             type(qa.get("unit_tests_passed")) is not int or qa["unit_tests_passed"]<21 or
-            qa.get("generated_challenges",{}).get("passed")!=6):
+            qa.get("generated_challenges",{}).get("passed")!=6 or
+            qa.get("adversarial_cases",{}).get("passed")!=11 or
+            qa.get("adversarial_cases",{}).get("tested")!=11):
             return {"available":False,"reason":"QA_not_complete"}
         file=Path(item["candidate_file"])
         if (file.is_symlink() or file.parent!=base/"candidates" or
@@ -269,6 +271,7 @@ def autonomous_sales_snapshot():
             "source_sha256":sha,"candidate_dialogues_passed":72,
             "candidate_holdouts_passed":18,"candidate_rotating_passed":6,
             "candidate_synthetic_checkout_passed":72,
+            "candidate_adversarial_passed":11,
             "candidate_unit_tests_passed":qa["unit_tests_passed"],
             "autonomous_failure_corrected":(
                 data.get("auto_corrected_ever") is True or len(result)>1),
@@ -292,6 +295,7 @@ def attach_autonomous_sales(out,autofix):
        "source_sha256":autofix["source_sha256"],
        "dialogues_passed":autofix["candidate_dialogues_passed"],
        "rotating_passed":autofix["candidate_rotating_passed"],
+       "adversarial_passed":autofix["candidate_adversarial_passed"],
        "unit_tests_passed":autofix["candidate_unit_tests_passed"],
        "candidate_deployed":False,"public_messages_sent":0,
        "requires_human_review":True})
