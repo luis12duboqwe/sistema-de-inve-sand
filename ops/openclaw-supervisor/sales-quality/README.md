@@ -48,3 +48,11 @@ Se creó `sales_heldout_challenges.py` como una segunda batería de **18 formula
 Este resultado no equivale a una prueba estadística completa ni a conversaciones reales. No se ha activado el bot, ni enviado mensajes, cobrado, reservado o alterado inventario. `SALES_CANDIDATE_QA.json` es la evidencia interna que consumen los especialistas de OpenClaw; el candidato conserva `deployment_authorized=false`.
 
 La versión real continúa **36/72 y 6/18** hasta que se autorice una sustitución después de QA independiente.
+
+
+## Automatización del propio laboratorio (8 nov 2026)
+Además de los resultados anteriores, hay un ejecutor `sales_autofix_loop.py` que **no requiere que ChatGPT esté abierto**: se inicia por systemd cada seis horas. Usa únicamente parches y términos comerciales revisados, fuente Ruby fijada por SHA y Docker efímero sin red. Evalúa 72 conversaciones, 18 reformulaciones y 6 giros rotativos nuevos; si falla un caso, escoge una receta segura según la familia del error, vuelve a generar y repetir todas las pruebas, con límite de 4 iteraciones. Todo candidato queda solo como parche de revisión.
+
+**Ejecución comprobada:** 4/6 pruebas rotativas en el primer intento, 6/6 en el segundo, junto a 72/72, 18/18, 72/72 y 21 unitarios. Reportes disponibles en `autonomous-sales-latest.json` y `autonomous-reviewed-candidate.patch` del PR.
+
+Se configuró un generador Groq de *datos de prueba* con tope de una solicitud al día; su primera solicitud no generó un lote válido, por lo que **no debe presentarse como generación autónoma de parches IA verificada**. El laboratorio rotativo funciona sin ese proveedor. La autonomía está circunscrita a recetas validadas, nunca a despliegue arbitrario, actualizaciones públicas o clientes reales.
