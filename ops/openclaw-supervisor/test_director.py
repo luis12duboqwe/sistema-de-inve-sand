@@ -79,7 +79,8 @@ class DirectorTests(unittest.TestCase):
               "candidate_dialogues_passed":72,
               "candidate_rotating_passed":6,
               "candidate_adversarial_passed":11,
-              "candidate_unit_tests_passed":21}
+              "candidate_unit_tests_passed":68,
+              "reference_only_agent_firewall_verified":True}
         result=d.attach_autonomous_sales(out,demo)
         self.assertEqual(result["scope"],"sales_only")
         self.assertEqual(result["counts"]["all"],out["counts"]["all"]+1)
