@@ -26,6 +26,7 @@ AREAS = ("ventas", "inventario", "operaciones", "finanzas",
 SALES_TASK_IDS=frozenset((
     "ventas_simulaciones","ventas_seguimiento","ventas_calidad_conversacional",
     "ventas_autofix_review","ventas_catalogo_calidad",
+    "ventas_dialogos_profundos",
     "inventario_sin_stock",
     "finanzas_no_conciliadas","operaciones_fotos","calidad_convergencia",
     "calidad_replay_aislado","publicidad_sin_fuente","desarrollo_pr",
@@ -377,6 +378,76 @@ def attach_sales_catalog(out,catalog):
                 "blocked":sum(t["status"]=="blocked" for t in tasks)},
       "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
 
+def deep_sales_snapshot():
+    """Only synthetic, source-matched full-journey results (not public QA)."""
+    path=OUT/"DEEP_SALES_QA.json"
+    try:
+        info=json.loads(path.read_text())
+        observed=datetime.fromisoformat(info["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-observed).total_seconds()
+        live=hashlib.sha256(Path("/opt/softmobile-waha-test/sales-bot-v2.rb").read_bytes()).hexdigest()
+        autofix=autonomous_sales_snapshot()
+        if (not 0<=age<=8*3600 or info.get("schema_version")!=1 or
+            info.get("mode")!="deep_sales_synthetic_independent_gate" or
+            info.get("scope")!="sales_only" or
+            info.get("current_ruby_sha256")!=live or
+            autofix.get("available") is not True or
+            info.get("candidate_sha256")!=autofix.get("candidate_sha256") or
+            info.get("buyer_dialogues")!=10 or
+            info.get("buyer_turns_each")!=15 or
+            info.get("buyer_messages")!=150 or
+            info.get("quality_checks")!=32 or
+            info.get("public_messages_sent")!=0 or
+            info.get("production_changed") is not False or
+            info.get("candidate_deployed") is not False or
+            info.get("public_release_permitted") is not False or
+            info.get("customer_data_used") is not False or
+            info.get("real_sales_verified")!=0):
+            return {"available":False,"reason":"stale_unsafe_or_source_drift"}
+        passed=info.get("candidate_passed")
+        failed=info.get("candidate_failed")
+        base=info.get("live_ruby_passed")
+        probes=info.get("failed_probes")
+        if (any(type(v) is not int or v<0 for v in (passed,failed,base)) or
+            passed+failed!=32 or base>32 or not isinstance(probes,list) or
+            len(probes)!=failed or len(probes)>32 or
+            any(not isinstance(x,dict) or
+                not all(isinstance(x.get(k),str) for k in ("case","check")) or
+                type(x.get("turn")) is not int for x in probes) or
+            info.get("candidate_fully_approved") is not (passed==32)):
+            return {"available":False,"reason":"invalid_counts"}
+        return {"available":True,"baseline_passed":base,
+                "candidate_passed":passed,"failed":failed,"tested":32,
+                "buyer_dialogues":10,"buyer_messages":150,
+                "independent_full_qa_converged":passed==32,
+                "candidate_sha256":info["candidate_sha256"],
+                "public_messages_sent":0,"synthetic_only":True}
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def attach_deep_sales(out,quality):
+    if out.get("scope")!="sales_only":
+        raise Reject("deep qa must be sales scoped")
+    out={**out,"deep_sales_quality":quality}
+    if quality.get("available") is not True:
+        return out
+    t=task("ventas_dialogos_profundos","ventas",
+        "alta" if quality["failed"] else "media",
+        "Probar conversaciones completas de 15 turnos y corregir pérdida de contexto",
+        "Investigar fallas verificadas de memoria, cancelación, cotización y pagos. No liberar candidato hasta superar QA independiente.",
+        {"scenarios":quality["buyer_dialogues"],
+         "buyer_messages":quality["buyer_messages"],
+         "checks":quality["tested"],
+         "passed":quality["candidate_passed"],
+         "failed":quality["failed"],"synthetic_only":True,
+         "candidate_deployed":False,"public_messages_sent":0})
+    tasks=[*out["tasks"],t]
+    return {**out,"tasks":tasks,
+      "counts":{"all":len(tasks),
+                "review":sum(t["status"]=="review" for t in tasks),
+                "blocked":sum(t["status"]=="blocked" for t in tasks)},
+      "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
+
 def plan(data,metrics=None,qa=None,conversion=None,seller_quality=None):
     """Pure orchestration: no input is modified and no external API is called."""
     verify_snapshot(data)
@@ -576,11 +647,13 @@ def main():
     qa=synthetic_qa_snapshot()
     conversion=sales_simulation_snapshot()
     seller=seller_quality_snapshot()
-    out=attach_sales_catalog(
-        attach_autonomous_sales(
-            sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller)),
-            autonomous_sales_snapshot()),
-        sales_catalog_snapshot())
+    out=attach_deep_sales(
+        attach_sales_catalog(
+            attach_autonomous_sales(
+                sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller)),
+                autonomous_sales_snapshot()),
+            sales_catalog_snapshot()),
+        deep_sales_snapshot())
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
