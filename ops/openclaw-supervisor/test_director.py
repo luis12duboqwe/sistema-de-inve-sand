@@ -72,6 +72,25 @@ class DirectorTests(unittest.TestCase):
         self.assertNotIn("ventas_calidad_conversacional",
                          {x["id"] for x in result["tasks"]})
 
+    def test_autonomous_sales_review_adds_only_internal_task(self):
+        out=d.sales_focus(d.plan(snapshot(),metrics()))
+        demo={"available":True,"candidate_sha256":"b"*64,
+              "source_sha256":"a"*64,
+              "candidate_dialogues_passed":72,
+              "candidate_rotating_passed":6,
+              "candidate_unit_tests_passed":21}
+        result=d.attach_autonomous_sales(out,demo)
+        self.assertEqual(result["scope"],"sales_only")
+        self.assertEqual(result["counts"]["all"],out["counts"]["all"]+1)
+        task=next(t for t in result["tasks"] if t["id"]=="ventas_autofix_review")
+        self.assertTrue(task["requires_approval"])
+        self.assertEqual(task["automatic_external_actions"],0)
+        self.assertFalse(task["evidence"]["candidate_deployed"])
+    def test_autonomous_sales_missing_does_not_invent_task(self):
+        out=d.sales_focus(d.plan(snapshot(),metrics()))
+        result=d.attach_autonomous_sales(out,{"available":False})
+        self.assertEqual(result["counts"]["all"],out["counts"]["all"])
+
     def test_never_sends(self):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(res["public_messages_sent"],0)
