@@ -7,6 +7,7 @@ is accepted only if the full deep, existing and independent suites pass.
 from __future__ import annotations
 import difflib, hashlib, json
 from pathlib import Path
+from replica_cycle import write_atomic
 
 BASE=Path("/opt/openclaw-lab/workspace/lab-runs/replica-skill")
 PARENT=BASE/"candidates/review-367912aab2611f22.rb"
@@ -104,9 +105,13 @@ def build():
         LIVE.read_text().splitlines(True),source.splitlines(True),
         fromfile="a/sales-bot-v2.rb",tofile="b/sales-bot-v2.rb"))
     if not patch or len(patch)>45000: raise ValueError("diff too long")
-    output.write_text(source)
-    diff.write_text(patch)
-    output.chmod(0o600);diff.chmod(0o600)
+    if sha(LIVE.read_bytes())!=LIVE_SHA:
+        raise ValueError("active source changed during staging")
+    # Atomic rename replaces any stale path without following existing symlinks.
+    write_atomic(output,source)
+    write_atomic(diff,patch)
+    if sha(output.read_bytes())!=digest or output.is_symlink() or diff.is_symlink():
+        raise ValueError("staged source integrity failed")
     return {"mode":"offline_candidate_only","parent_sha256":PARENT_SHA,
             "source_sha256":LIVE_SHA,"candidate_sha256":digest,
             "candidate_file":str(output),"patch_file":str(diff),
