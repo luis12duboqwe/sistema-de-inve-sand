@@ -13,6 +13,7 @@ WorkingDirectory=/opt/openclaw-lab/supervisor
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/replica_cycle.py
 ExecStartPost=/usr/bin/python3 /opt/openclaw-lab/supervisor/replica_improvement_cycle.py
+ExecStartPost=/usr/bin/python3 /opt/openclaw-lab/supervisor/replica_deep_cycle.py
 TimeoutStartSec=240
 MemoryMax=384M
 CPUQuota=65%
