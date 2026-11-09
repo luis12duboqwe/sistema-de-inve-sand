@@ -270,7 +270,8 @@ def autonomous_sales_snapshot():
             "candidate_holdouts_passed":18,"candidate_rotating_passed":6,
             "candidate_synthetic_checkout_passed":72,
             "candidate_unit_tests_passed":qa["unit_tests_passed"],
-            "autonomous_failure_corrected":len(result)>1,
+            "autonomous_failure_corrected":(
+                data.get("auto_corrected_ever") is True or len(result)>1),
             "challenge_source":data["challenge_source"],
             "real_sales":0,"public_messages_sent":0,
             "candidate_deployed":False,"manual_review_required":True}
