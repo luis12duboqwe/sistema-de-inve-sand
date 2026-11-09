@@ -12,6 +12,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -27,7 +28,7 @@ MAX_TASKS=40
 MAX_AGE=5400
 ALLOWED={
     "ventas_respuestas", "ventas_seguimiento", "ventas_despliegue",
-    "ventas_simulaciones","ventas_calidad_conversacional",
+    "ventas_simulaciones","ventas_calidad_conversacional","ventas_autofix_review",
     "finanzas_no_conciliadas", "inventario_sin_stock",
     "inventario_transferencias", "operaciones_fotos",
     "operaciones_reparaciones", "operaciones_empleados",
@@ -175,6 +176,28 @@ def safe_action(task,sup,cache):
         return ("checked_needs_review" if failed==0 else "needs_attention"),{
             "synthetic_sales_scenarios":total,"passed":passed,"failed":failed,
             "verified_real_sales":0}
+    if tid=="ventas_autofix_review":
+        evidence=task.get("evidence") or {}
+        if (not isinstance(evidence,dict) or
+            evidence.get("dialogues_passed")!=72 or
+            evidence.get("rotating_passed")!=6 or
+            type(evidence.get("unit_tests_passed")) is not int or
+            evidence["unit_tests_passed"]<21 or
+            evidence.get("candidate_deployed") is not False or
+            evidence.get("public_messages_sent")!=0 or
+            evidence.get("requires_human_review") is not True or
+            any(not isinstance(evidence.get(k),str) or
+                not re.fullmatch(r"[0-9a-f]{64}",evidence[k])
+                for k in ("source_sha256","candidate_sha256"))):
+            raise Reject("unsafe automated sales candidate review")
+        return "awaiting_qa",{
+            "candidate_sha256":evidence["candidate_sha256"],
+            "source_sha256":evidence["source_sha256"],
+            "verified_synthetic_reply_cases":72,
+            "rotating_challenges_passed":6,
+            "unit_tests_passed":evidence["unit_tests_passed"],
+            "code_deployed":False,"public_messages_sent":0,
+            "review_required":True}
     if tid=="ventas_calidad_conversacional":
         evidence=task.get("evidence") or {}
         tested,passed,failed=(evidence.get(k) for k in ("scenarios","passed","failed"))
