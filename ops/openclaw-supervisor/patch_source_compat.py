@@ -14,7 +14,7 @@ import sys
 from supervisor import OUT,save
 
 BOT=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
-KNOWN_SHA="1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1"
+KNOWN_SHA="2c4d6d274402daa34f44f7e669efe9aaf7bc2d01574f5b53505779fb8592c885"
 SAFETY_ANCHOR=("        choices=color_options(variant_str)\n"
                "        if choices.any?\n"
                "          data[:color_options]=choices\n")
