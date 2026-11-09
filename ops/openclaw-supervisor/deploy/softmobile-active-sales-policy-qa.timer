@@ -1,0 +1,9 @@
+[Unit]
+Description=Regular offline QA of SoftMobile active seller (never sends messages)
+[Timer]
+OnCalendar=*-*-* 02,08,14,20:20:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-active-sales-policy-qa.service
+[Install]
+WantedBy=timers.target
