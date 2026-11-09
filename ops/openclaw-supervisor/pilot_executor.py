@@ -29,6 +29,7 @@ MAX_AGE=5400
 ALLOWED={
     "ventas_respuestas", "ventas_seguimiento", "ventas_despliegue",
     "ventas_simulaciones","ventas_calidad_conversacional","ventas_autofix_review",
+    "ventas_catalogo_calidad",
     "finanzas_no_conciliadas", "inventario_sin_stock",
     "inventario_transferencias", "operaciones_fotos",
     "operaciones_reparaciones", "operaciones_empleados",
@@ -176,6 +177,27 @@ def safe_action(task,sup,cache):
         return ("checked_needs_review" if failed==0 else "needs_attention"),{
             "synthetic_sales_scenarios":total,"passed":passed,"failed":failed,
             "verified_real_sales":0}
+    if tid=="ventas_catalogo_calidad":
+        v=task.get("evidence") or {}
+        required=("active_products","stocked_active_products",
+                  "stocked_fully_specified","active_without_stock",
+                  "active_price_below_cost")
+        if (not isinstance(v,dict) or
+            any(type(v.get(k)) is not int or v[k]<0 for k in required) or
+            v["active_products"]<v["stocked_active_products"] or
+            v["stocked_active_products"]<v["stocked_fully_specified"] or
+            v["active_without_stock"]!=v["active_products"]-v["stocked_active_products"] or
+            v.get("public_quote_authorized") is not False or
+            v.get("fresh_partner_quote_available") is not False):
+            raise Reject("unsafe catalog quality proposal")
+        return "awaiting_human",{
+           "active_products":v["active_products"],
+           "stocked":v["stocked_active_products"],
+           "fully_specified":v["stocked_fully_specified"],
+           "pricing_below_cost_requires_review":v["active_price_below_cost"],
+           "public_quote_authorized":False,
+           "fresh_partner_quote_available":False,
+           "customer_messages_sent":0}
     if tid=="ventas_autofix_review":
         evidence=task.get("evidence") or {}
         if (not isinstance(evidence,dict) or
