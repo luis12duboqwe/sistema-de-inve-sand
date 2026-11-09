@@ -158,7 +158,8 @@ class PilotExecutorTests(unittest.TestCase):
                           "dialogues_passed":72,
                           "rotating_passed":6,
                           "adversarial_passed":11,
-                          "unit_tests_passed":21,
+                          "unit_tests_passed":68,
+                          "reference_only_agent_firewall_verified":True,
                           "candidate_deployed":False,
                           "public_messages_sent":0,
                           "requires_human_review":True}}
