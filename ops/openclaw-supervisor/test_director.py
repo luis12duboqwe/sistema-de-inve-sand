@@ -92,6 +92,24 @@ class DirectorTests(unittest.TestCase):
         result=d.attach_autonomous_sales(out,{"available":False})
         self.assertEqual(result["counts"]["all"],out["counts"]["all"])
 
+    def test_sales_catalog_proposal_stays_internal(self):
+        out=d.sales_focus(d.plan(snapshot(),metrics()))
+        sample={"available":True,"active_products":189,
+                "stocked_active_products":54,"stocked_fully_specified":53,
+                "active_price_below_cost":3,"active_without_stock":135,
+                "fresh_partner_quote_available":False}
+        result=d.attach_sales_catalog(out,sample)
+        task=next(t for t in result["tasks"] if t["id"]=="ventas_catalogo_calidad")
+        self.assertEqual(task["area"],"ventas")
+        self.assertEqual(task["evidence"]["active_price_below_cost"],3)
+        self.assertFalse(task["evidence"]["public_quote_authorized"])
+        self.assertEqual(task["automatic_external_actions"],0)
+        self.assertEqual(result["counts"]["all"],out["counts"]["all"]+1)
+    def test_sales_catalog_missing_does_not_imply_quote(self):
+        out=d.sales_focus(d.plan(snapshot(),metrics()))
+        result=d.attach_sales_catalog(out,{"available":False})
+        self.assertEqual(result["counts"]["all"],out["counts"]["all"])
+
     def test_never_sends(self):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(res["public_messages_sent"],0)
