@@ -16,7 +16,7 @@ import tempfile
 BASE = Path("/opt/softmobile-waha-test")
 LAB = BASE / "laboratorio-ia"
 INPUT = LAB / "quality/autonomous-sales/latest.json"
-SOURCE = BASE / "sales-bot-v2.rb"
+SOURCE = BASE / "frozen-sales-baseline/sales-bot-v2-1336f52fdf4d8e44.rb"
 EXPECTED_SOURCE_SHA = "1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1"
 CERT = Path("/opt/openclaw-lab/workspace/softmobile-supervisor/CERTIFICATION.json")
 ROOT = Path("/opt/openclaw-lab/workspace/lab-runs/replica-skill")
