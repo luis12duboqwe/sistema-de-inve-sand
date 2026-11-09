@@ -19,6 +19,8 @@ QA=Path("/opt/softmobile-waha-test/approved-sales-pilot/approved-pilot-qa.json")
 LIVE=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
 
 OWNERS={
+    "independent_qa_converged":(
+        "engineering", "Refresh source-bound independent code review against the current active seller, and verify two clean reviews without trusting historical frozen-suite results"),
     "real_ruby_reply_quality_passed":(
         "engineering", "Migrate SHA-pinned Ruby automation and promote reviewed code "
         "through reversible, private test release; repeat real Ruby QA"),
