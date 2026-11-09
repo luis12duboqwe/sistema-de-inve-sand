@@ -37,3 +37,7 @@ Las unidades existentes para reparaciones no están en la cadena automática y l
 - `softmobile-seller-conversation-quality.timer` ejecuta el análisis de respuestas del Ruby ACTUAL cada 4 horas, sin red hacia clientes. El director emite `ventas_calidad_conversacional` como una tarea `awaiting_qa`, sin detener las etapas por defectos comerciales ya conocidos.
 - **192 pruebas del supervisor aprobadas**. `CERTIFICATION.json.scope=sales_only` informa **4/9** condiciones satisfechas; nueva condición: aprobación de calidad del vendedor Ruby vigente, actualmente bloqueada.
 - Para detalles técnicos y comparación, ver `sales-quality/README.md` y `sales-quality/sales-bot-v2-reply-candidate.patch`. La IA actual sigue sin recibir este cambio; WhatsApp sigue aplazado. La mejora del candidato no autoriza despliegue sin revisión humana independiente.
+
+
+### QA independiente por frases nuevas — 8 nov 2026
+Se ampliaron los casos fijos con **18 reexpresiones nuevas** de negociación, reservas y envíos. Ruby activo **6/18**; candidata inicial **8/18**; candidata generalizada **18/18**, manteniendo **72/72** en ambos grupos originales. Se detectó y corrigió el sobreajuste antes de recomendar integrar el cambio. 21 tests comerciales unitarios y 192 del supervisor siguen aprobados. Se conserva la versión activa sin cambios, y `SALES_CANDIDATE_QA.json` identifica a la candidata como **no desplegada**. Todavía falta validación independiente en otras condiciones y con el vendedor IA antes de autorizar uso público.
