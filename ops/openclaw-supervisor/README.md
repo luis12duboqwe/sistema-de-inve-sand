@@ -78,3 +78,16 @@ Se añadió `sales_catalog_audit.py` con consultas PostgreSQL `BEGIN TRANSACTION
 **Inventario ERP agregado observado:** 189 productos activos, 54 con stock positivo en ubicaciones activas, 53 con modelo/color/capacidad/precio HNL completos, 135 activos sin stock, 1 unidad con stock sin todos los datos necesarios para cotizar y 3 productos activos cuyo precio registrado está por debajo del costo. **Estos números no autorizan cotizar**: el ERP no demuestra vigencia de precios ni stock real de los aliados. Las tres diferencias requieren revisar promociones, costos y condiciones; no son pérdidas confirmadas.
 
 El director OpenClaw incluye `sales_catalog` en `DIRECTOR.json`, crea `ventas_catalogo_calidad` para revisión humana y el ejecutor lo procesa sin modificar productos, precios ni pagos. Última cadena verificada: **11 tareas comerciales**, cero fallas, cero mensajes públicos, certificado **5/10** (sin WhatsApp), lanzamiento bloqueado. **207 pruebas unitarias del supervisor**, más **56 del laboratorio comercial**.
+
+
+## 8 nov 2026 (Honduras) — corrección del agente IA, además del motor Ruby
+Se detectó que `sales_ai_agent.py`, al usar el catálogo **reference_only** de modelos y GB, invocaba `approved_commerce.approved_reply` después de validar la respuesta del LLM y, por tanto, podía sobreescribir la respuesta segura con precios de un catálogo histórico, porcentajes de financiamiento, descuentos, promesas de regalos, garantías, apartados o mensajes de transferencia sin evidencia.
+
+### Corrección ejecutada en el laboratorio
+- Se creó `reference_commerce_safe` para someter **también la ruta comercial aprobada** al validador de hechos. Rechaza cifras y tarifas financieras sin fuente real vigente, supuestas garantías y regalos, falsa aprobación, promesas de mensajes/fotos enviados y promesas de intervención humana no ejecutadas.
+- Se integró el control en la ruta normal del agente IA y su ruta de **caída del proveedor** (`reference_fallback`). Ante una respuesta no verificable, usa un texto de vendedor natural que conserva variante y pide solo lo necesario; no da cifras ni afirma haber enviado algo.
+- Se añadieron **11 pruebas nuevas** `test_reference_commerce_firewall.py`, y se ajustó un test antiguo para verificar continuidad comercial sin exigir expresiones robóticas. **38 pruebas específicas del agente y la referencia** aprobadas.
+- La autocorrección de ventas ejecuta ahora también esas 38 pruebas cada seis horas: **68 tests dentro del candidato**. Batería total focalizada del laboratorio: **94 pruebas aprobadas**. Supervisor OpenClaw: **207 aprobadas**.
+- Tras ejecutar la cadena completa, `DIRECTOR.autonomous_sales.reference_only_agent_firewall_verified=true`, tarea `ventas_autofix_review` en `awaiting_qa`; certificado **6/11** requisitos sin WhatsApp, `public_release_permitted=false`. **0 clientes contactados, 0 cambios reales, bot público intacto**.
+
+La verificación incluye llamadas falsas al LLM; no demuestra todavía calidad con un proveedor IA real, ni permiso para usar el catálogo como precio/stock confirmado. El antiguo `approved_commerce.py` permanece sin cambios: **la mitigación se aplica únicamente al agente IA de laboratorio**. Mantener revisión independiente antes de integrar o desplegar.
