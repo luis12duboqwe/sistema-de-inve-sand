@@ -56,3 +56,9 @@ Además de los resultados anteriores, hay un ejecutor `sales_autofix_loop.py` qu
 **Ejecución comprobada:** 4/6 pruebas rotativas en el primer intento, 6/6 en el segundo, junto a 72/72, 18/18, 72/72 y 21 unitarios. Reportes disponibles en `autonomous-sales-latest.json` y `autonomous-reviewed-candidate.patch` del PR.
 
 Se configuró un generador Groq de *datos de prueba* con tope de una solicitud al día; su primera solicitud no generó un lote válido, por lo que **no debe presentarse como generación autónoma de parches IA verificada**. El laboratorio rotativo funciona sin ese proveedor. La autonomía está circunscrita a recetas validadas, nunca a despliegue arbitrario, actualizaciones públicas o clientes reales.
+
+
+### Continuidad automática entre ejecuciones (9 nov UTC)
+Se añadió persistencia verificable del mejor candidato: el servicio consulta `quality/autonomous-sales/latest.json`, comprueba que el candidato sigue vinculado al SHA actual del vendedor, lee únicamente su archivo privado y valida la firma SHA y los límites del parche. Si todo coincide, **reanuda desde el último candidato**, en vez de comenzar cada seis horas con la misma corrección. Las reglas ya aplicadas no vuelven a aplicarse. Un archivo manipulado bloquea la ejecución.
+
+Prueba: ciclo inicial 2 intentos, de 4/6 a 6/6; en un nuevo ciclo el servicio **reanudó el mismo candidato, lo revalidó en un intento, mantuvo `auto_corrected_ever=true` y guardó historial** en `quality/autonomous-sales/history.json`. **25 pruebas unitarias específicas** de controles de autonomía (incluido esquema Groq) aprobadas; **195** del supervisor. La fuente Ruby pública conserva su SHA. `DIRECTOR.autonomous_sales.autonomous_failure_corrected` queda en true y el certificado sigue en **5/10** con `public_release_permitted=false`.
