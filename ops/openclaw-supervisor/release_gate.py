@@ -138,6 +138,12 @@ def offline_status(sup,director,op,ev,finance=None,repairs=None):
           director["seller_reply_quality"].get("scenarios")==72 and
           director["seller_reply_quality"].get("passed")==72 and
           director["seller_reply_quality"].get("failed")==0),
+       "reference_only_ai_commercial_firewall_passed":(
+          director.get("autonomous_sales",{}).get("available") is True and
+          director["autonomous_sales"].get("reference_only_agent_firewall_verified") is True and
+          type(director["autonomous_sales"].get("candidate_unit_tests_passed")) is int and
+          director["autonomous_sales"]["candidate_unit_tests_passed"]>=68 and
+          director["autonomous_sales"].get("candidate_deployed") is False),
        "autonomous_sales_review_candidate_staged":(
           director.get("autonomous_sales",{}).get("available") is True and
           director["autonomous_sales"].get("candidate_dialogues_passed")==72 and
