@@ -25,6 +25,7 @@ AREAS = ("ventas", "inventario", "operaciones", "finanzas",
 # remain deferred. These IDs are exact and never authorize external actions.
 SALES_TASK_IDS=frozenset((
     "ventas_simulaciones","ventas_seguimiento","ventas_calidad_conversacional",
+    "ventas_autofix_review",
     "inventario_sin_stock",
     "finanzas_no_conciliadas","operaciones_fotos","calidad_convergencia",
     "calidad_replay_aislado","publicidad_sin_fuente","desarrollo_pr",
@@ -218,6 +219,87 @@ def seller_quality_snapshot():
                 "ruby_source_sha256":sha}
     except (OSError,ValueError,KeyError,TypeError,AttributeError):
         return {"available":False,"reason":"unavailable"}
+
+def autonomous_sales_snapshot():
+    """Only proven candidate metadata, no source code or customer data."""
+    base=Path("/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales")
+    try:
+        data=json.loads((base/"latest.json").read_text())
+        at=datetime.fromisoformat(data["completed_at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-at).total_seconds()
+        if not 0<=age<=86400:
+            return {"available":False,"reason":"stale"}
+        sha=hashlib.sha256(Path("/opt/softmobile-waha-test/sales-bot-v2.rb").read_bytes()).hexdigest()
+        if (data.get("environment")!="OFFLINE_AUTONOMOUS_SALES" or
+            data.get("scope")!="sales_only" or
+            data.get("source_sha256")!=sha or
+            data.get("source_pinned") is not True or
+            data.get("candidate_deployed") is not False or
+            data.get("candidate_integrated") is not False or
+            data.get("deployment_authorized") is not False or
+            data.get("public_messages_sent")!=0 or
+            data.get("real_sales")!=0 or
+            data.get("payments_initiated")!=0 or
+            data.get("real_inventory_modified") is not False):
+            return {"available":False,"reason":"unsafe_or_source_drift"}
+        item=data.get("winning_candidate") or {}
+        result=data.get("evaluations") or []
+        if (data.get("status")!="qa_passed_review_required" or
+            data.get("candidate_staged") is not True or
+            not isinstance(result,list) or not 1<=len(result)<=3 or
+            item.get("auto_deploy") is not False or
+            type(data.get("challenge_count")) is not int or
+            data["challenge_count"]!=6 or
+            data.get("challenge_qa_passed") is not True):
+            return {"available":False,"reason":"candidate_unverified"}
+        qa=result[-1]
+        if (qa.get("status")!="qa_passed_review_required" or
+            qa.get("dialogue_passed")!=72 or qa.get("holdout_passed")!=18 or
+            qa.get("legacy_checkout_passed")!=72 or
+            type(qa.get("unit_tests_passed")) is not int or qa["unit_tests_passed"]<21 or
+            qa.get("generated_challenges",{}).get("passed")!=6):
+            return {"available":False,"reason":"QA_not_complete"}
+        file=Path(item["candidate_file"])
+        if (file.is_symlink() or file.parent!=base/"candidates" or
+            not file.is_file() or
+            hashlib.sha256(file.read_bytes()).hexdigest()!=item["sha256"]):
+            return {"available":False,"reason":"untrusted_patch_artifact"}
+        return {"available":True,"status":"qa_passed_review_required",
+            "iterations":len(result),"candidate_sha256":item["sha256"],
+            "source_sha256":sha,"candidate_dialogues_passed":72,
+            "candidate_holdouts_passed":18,"candidate_rotating_passed":6,
+            "candidate_synthetic_checkout_passed":72,
+            "candidate_unit_tests_passed":qa["unit_tests_passed"],
+            "autonomous_failure_corrected":len(result)>1,
+            "challenge_source":data["challenge_source"],
+            "real_sales":0,"public_messages_sent":0,
+            "candidate_deployed":False,"manual_review_required":True}
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def attach_autonomous_sales(out,autofix):
+    """New active internal sales review task; never changes production."""
+    if out.get("scope")!="sales_only":
+        raise Reject("autofix review must be sales scoped")
+    out={**out,"autonomous_sales":autofix}
+    if autofix.get("available") is not True:
+        return out
+    item=task("ventas_autofix_review","ventas","alta",
+      "Candidato del vendedor automejorado en laboratorio y pendiente de revisión",
+      "Revisar parche, pruebas independientes y autorización antes de cualquier integración.",
+      {"candidate_sha256":autofix["candidate_sha256"],
+       "source_sha256":autofix["source_sha256"],
+       "dialogues_passed":autofix["candidate_dialogues_passed"],
+       "rotating_passed":autofix["candidate_rotating_passed"],
+       "unit_tests_passed":autofix["candidate_unit_tests_passed"],
+       "candidate_deployed":False,"public_messages_sent":0,
+       "requires_human_review":True})
+    tasks=[*out["tasks"],item]
+    return {**out,"tasks":tasks,
+      "counts":{"all":len(tasks),
+          "review":sum(t["status"]=="review" for t in tasks),
+          "blocked":sum(t["status"]=="blocked" for t in tasks)},
+      "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
 
 def plan(data,metrics=None,qa=None,conversion=None,seller_quality=None):
     """Pure orchestration: no input is modified and no external API is called."""
@@ -418,7 +500,9 @@ def main():
     qa=synthetic_qa_snapshot()
     conversion=sales_simulation_snapshot()
     seller=seller_quality_snapshot()
-    out=sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller))
+    out=attach_autonomous_sales(
+        sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller)),
+        autonomous_sales_snapshot())
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
