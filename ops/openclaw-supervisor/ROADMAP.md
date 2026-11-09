@@ -53,3 +53,12 @@ No reiniciar WAHA, no habilitar servicio público, no enviar contactos, no alter
 **Conexión OpenClaw completada:** director, ejecutor, cola y certificador conocen `ventas_autofix_review`; 195/195 pruebas internas aprobadas; 5/10 condiciones del área sin WhatsApp.
 **En prueba, NO terminado:** generación Groq de seis preguntas adversariales nuevas, con cuota independiente de 1/día. El primer intento falló o no cumplió esquema y no se integró; reintentos del mismo día deshabilitados por presupuesto.
 **No autorizado:** aplicar los parches al vendedor activo, fusionar la rama, desplegar, habilitar clientes o WhatsApp. Antes de lanzamiento: revisión independiente del candidato y seguridad, pruebas con datos autorizados de inventario/precios y experiencia real del agente, sin operaciones externas hasta autorización.
+
+
+### Progreso en pruebas nuevas y fallos críticos de conversación
+- **Completado en laboratorio:** 11 pruebas adversariales de continuidad comercial, con respuestas Ruby verificadas en Docker sin red; activo **5/11**, candidato **11/11**. Fallaban apartados de viernes/miércoles, tarifas y plazo de envío, cancelación y aprobación de crédito.
+- **Completado:** corrección y selección autónoma de una regla revisada, vuelta a comprobar en pruebas independientes, persistencia de versiones por SHA, historial de reintentos y decisión final de `awaiting_qa` en OpenClaw.
+- **Completado:** guardas contra reutilizar candidata obsoleta después de editar reglas de ventas.
+- **Verificado:** servicio y cadena de OpenClaw sin errores, 56 tests del laboratorio y 195 del supervisor.
+- **Pendiente por evidencia:** validación real del generador Groq de preguntas. Se simplificó el esquema estricto manteniendo todas las restricciones de seguridad en el validador local, pero no hay ejecución válida del proveedor aún. Hasta entonces se usa el banco rotativo local. No gastar más API el mismo día.
+- **No ejecutar todavía:** despliegue, mensajes a clientes, WAHA, reparaciones, descuentos, pedidos o inventario real.
