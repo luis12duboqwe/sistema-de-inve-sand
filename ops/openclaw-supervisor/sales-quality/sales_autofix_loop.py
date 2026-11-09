@@ -199,12 +199,14 @@ def legacy_regression(candidate):
 def unit_regression():
  r=subprocess.run(["/usr/bin/python3","-m","unittest","-q",
       "test_sales_conversation_quality","test_conversion_training_lab",
-      "test_sales_adversarial_quality"],
+      "test_sales_adversarial_quality",
+      "test_sales_ai_agent","test_reference_inventory",
+      "test_reference_commerce_firewall"],
       cwd=ROOT,text=True,capture_output=True,check=False,timeout=170,
       env={"PATH":"/usr/local/bin:/usr/bin:/bin","HOME":"/tmp",
            "PYTHONDONTWRITEBYTECODE":"1"})
  n=re.search(r"Ran (\d+) tests? in",r.stderr)
- if r.returncode or not n or int(n.group(1))<21:
+ if r.returncode or not n or int(n.group(1))<68:
   raise ValueError("independent unit regression failure")
  return int(n.group(1))
 def private_write(path,content):
@@ -308,6 +310,7 @@ def one_cycle():
    if passed:
     record["legacy_checkout_passed"]=legacy_regression(candidate)
     record["unit_tests_passed"]=unit_regression()
+    record["reference_only_agent_firewall_verified"]=True
     if sha(SOURCE.read_text())!=sha(original):
      raise ValueError("source changed while testing")
     state["winning_candidate"]=stage(original,candidate)
