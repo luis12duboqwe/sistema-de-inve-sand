@@ -68,3 +68,9 @@ No reiniciar WAHA, no habilitar servicio público, no enviar contactos, no alter
 El auditor comercial de inventario quedó instalado, probado y calendarizado. Detectó 189 activos, 54 con stock en ubicaciones activas, 53 con campos mínimos completos, 135 sin stock y tres posibles anomalías donde precio es inferior a costo. Se conectó al director y cola `ventas_catalogo_calidad`, con estado `awaiting_human` y ningún cambio externo. El sistema de vendedores **no recibe permisos para citar automáticamente esos precios** hasta confirmar frescura de stock, precio, política de margen y relación con el inventario del aliado.
 
 Supervisión repetible validada: 207 tests, 11 tareas comerciales, 0 fallas, 0 mensajes públicos, auditor de catálogo activo cada cuatro horas. El bot público sigue en su fuente original y el candidato comercial se mantiene para QA aislada.
+
+
+## Capa conversacional IA protegida — prueba terminada en laboratorio
+**Problema solucionado en el agente de prueba:** la ruta `approved_commerce` evitaba las validaciones del borrador LLM y podía mostrar precios históricos del catálogo de referencia como actuales. Se añadió un cortafuegos común para el camino normal y la recuperación ante fallo del proveedor. Conserva modelo/GB/color, bloquea precios/tasas/regalos/garantías sin autorización y evita afirmar envíos de fotos o traspasos humanos inexistentes.
+
+**Ejecución verificada:** 38 pruebas específicas de agente IA y catálogo de referencia, 94 pruebas comerciales focalizadas, 207 del supervisor. El autocorrector de cada seis horas ahora incluye 68 regresiones en su puerta de revisión y OpenClaw certifica la nueva protección. Certificado comercial **6/11**; sigue bloqueado el público. **Siguiente trabajo pendiente:** fuente vigente de stock/precio y revisión de integración completa con proveedor IA real antes de WhatsApp.
