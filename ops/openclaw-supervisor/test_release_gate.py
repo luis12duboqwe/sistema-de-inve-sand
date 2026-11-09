@@ -139,6 +139,68 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(r.Reject):
             r.sales_scope_report(r.report(sup,d,op,ev),d)
 
+    def test_source_gate_is_proof_not_default(self):
+        sup,d,op,ev=inputs()
+        d["seller_reply_quality"]={"available":True,"scenarios":72,
+                                  "passed":36,"failed":36,
+                                  "ruby_source_sha256":"known-hash"}
+        proof={"validated":True,"safe_scope":"proposal-only",
+               "deployment_permitted":False,"live_sha256":"known-hash"}
+        result=r.report(sup,d,op,ev,source_proof=proof)
+        self.assertTrue(result["checks"]["technical_patch_proposal_gate_healthy"])
+        self.assertTrue(result["non_whatsapp_readiness"]["autonomous_code_review_source_gate"])
+        self.assertFalse(result["checks"]["real_ruby_reply_quality_passed"])
+        self.assertFalse(result["public_release_permitted"])
+
+    def test_source_gate_blocks_hash_mismatch(self):
+        sup,d,op,ev=inputs()
+        d["seller_reply_quality"]={"available":True,"ruby_source_sha256":"live"}
+        bad={"validated":True,"safe_scope":"proposal-only",
+             "deployment_permitted":False,"live_sha256":"another"}
+        result=r.report(sup,d,op,ev,source_proof=bad)
+        self.assertFalse(result["checks"]["technical_patch_proposal_gate_healthy"])
+        self.assertFalse(result["non_whatsapp_readiness"]["autonomous_code_review_source_gate"])
+
+    def test_source_gate_blocks_deploy_enabled(self):
+        sup,d,op,ev=inputs()
+        d["seller_reply_quality"]={"available":True,"ruby_source_sha256":"live"}
+        bad={"validated":True,"safe_scope":"proposal-only",
+             "deployment_permitted":True,"live_sha256":"live"}
+        self.assertFalse(r.report(sup,d,op,ev,source_proof=bad)
+                         ["checks"]["technical_patch_proposal_gate_healthy"])
+
+    def test_offline_approved_pilot_never_substitutes_live_qa(self):
+        sup,d,op,ev=inputs()
+        d["seller_reply_quality"]={"available":True,"scenarios":72,
+                                  "passed":36,"failed":36,
+                                  "ruby_source_sha256":"live-sha"}
+        candidate={"validated":True,"source":"approved_internal_pilot",
+                   "live_source_sha256":"live-sha",
+                   "candidate_sha256":"candidate-sha",
+                   "public_release_permitted":False}
+        result=r.report(sup,d,op,ev,approved_pilot=candidate)
+        self.assertTrue(result["non_whatsapp_readiness"]["deep_sales_15_turn_conversations_passed"])
+        self.assertFalse(result["checks"]["real_ruby_reply_quality_passed"])
+        self.assertEqual(result["offline_internal_pilot_candidate_sha256"],"candidate-sha")
+        self.assertFalse(result["public_release_permitted"])
+
+    def test_unverified_approved_pilot_does_not_pass(self):
+        sup,d,op,ev=inputs()
+        d["seller_reply_quality"]={"available":True,"ruby_source_sha256":"live"}
+        forged={"validated":True,"source":"approved_internal_pilot",
+                "live_source_sha256":"stale",
+                "public_release_permitted":False}
+        result=r.report(sup,d,op,ev,approved_pilot=forged)
+        self.assertFalse(result["non_whatsapp_readiness"]["deep_sales_15_turn_conversations_passed"])
+
+    def test_source_proof_rejects_untrusted_different_ruby(self):
+        import patch_source_compat
+        with tempfile.TemporaryDirectory() as temp:
+            altered=Path(temp)/"untrusted.rb"
+            altered.write_text("puts 'different Ruby'\n")
+            with patch.object(patch_source_compat,"BOT",altered):
+                self.assertFalse(r.independent_source_proof()["validated"])
+
     def test_always_boolean_false_public_release(self):
         obj=r.report(*inputs())
         self.assertIs(obj["public_release_permitted"],False)
