@@ -18,7 +18,7 @@ OUT=ROOT/"quality"/"autonomous-sales"
 LOCK=ROOT/"quality"/"autonomous-sales.lock"
 REPORT=OUT/"latest.json"
 SOURCE=builder.BOT
-MAX_ITERATIONS=3
+MAX_ITERATIONS=4
 # These are reviewed deterministic alternative recipes, NOT arbitrary model code.
 RECIPES=[
  ("reserve_synonyms",
@@ -121,6 +121,27 @@ def check_generated(source,tasks):
          "tested":len(checked),"failed_ids":[x["id"] for x in checked if not x["passed"]]}
  return report,report["passed"]==len(checked)
 
+def choose_reviewed_recipe(result,challenges,available):
+ """Select ONLY a pre-reviewed transformation from observed failure family."""
+ known={x[0] for x in available}
+ failures=set()
+ for grouping in ("dialogue_by_family","holdout_by_family"):
+  for family,count in (result.get(grouping) or {}).items():
+   if (type(count.get("tested")) is int and
+       type(count.get("passed")) is int and
+       count["passed"]<count["tested"]):
+    failures.add(family)
+ ids=set((result.get("generated_challenges") or {}).get("failed_ids",[]))
+ failures.update(row["family"] for row in challenges if row["id"] in ids)
+ choices={"reservation":"reserve_synonyms",
+          "shipping":"shipping_eta_synonyms",
+          "negotiation":"negotiation_synonyms"}
+ for family in ("reservation","shipping","negotiation"):
+  recipe=choices[family]
+  if family in failures and recipe in known:
+   return next(row for row in available if row[0]==recipe)
+ return available[0] if available else None
+
 def check_ruby(original,candidate,generated=None):
  guard(original,candidate)
  a=dialogue.run(source=candidate)
@@ -212,6 +233,7 @@ def one_cycle():
   original_challenge,_=check_generated(original,generated)
   state["baseline_challenge"]=original_challenge
  candidate=builder.make(original)
+ remaining=list(RECIPES)
  for i in range(MAX_ITERATIONS):
   record={"attempt":i+1,"candidate_sha256":sha(candidate),
           "status":"rejected"}
@@ -238,10 +260,17 @@ def one_cycle():
   except (RuntimeError,ValueError,TypeError,KeyError,subprocess.TimeoutExpired) as e:
    record["status"]="rejected_"+type(e).__name__
   state["evaluations"].append(record)
-  if i<len(RECIPES):
-   try:candidate=bounded_next(candidate,RECIPES[i])
-   except ValueError:
-    state["status"]="recipe_drift_blocked";break
+  if record["status"].startswith("rejected_"):
+   state["status"]="qa_error_blocked"
+   break
+  chosen=choose_reviewed_recipe(record,generated,remaining)
+  if chosen is None:
+   state["status"]="no_more_safe_recipes"
+   break
+  remaining.remove(chosen)
+  try:candidate=bounded_next(candidate,chosen)
+  except ValueError:
+   state["status"]="recipe_drift_blocked";break
  return state
 def run():
  OUT.mkdir(parents=True,exist_ok=True,mode=0o700)
