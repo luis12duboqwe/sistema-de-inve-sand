@@ -27,7 +27,7 @@ MAX_TASKS=40
 MAX_AGE=5400
 ALLOWED={
     "ventas_respuestas", "ventas_seguimiento", "ventas_despliegue",
-    "ventas_simulaciones",
+    "ventas_simulaciones","ventas_calidad_conversacional",
     "finanzas_no_conciliadas", "inventario_sin_stock",
     "inventario_transferencias", "operaciones_fotos",
     "operaciones_reparaciones", "operaciones_empleados",
@@ -175,6 +175,20 @@ def safe_action(task,sup,cache):
         return ("checked_needs_review" if failed==0 else "needs_attention"),{
             "synthetic_sales_scenarios":total,"passed":passed,"failed":failed,
             "verified_real_sales":0}
+    if tid=="ventas_calidad_conversacional":
+        evidence=task.get("evidence") or {}
+        tested,passed,failed=(evidence.get(k) for k in ("scenarios","passed","failed"))
+        if (any(type(x) is not int for x in (tested,passed,failed)) or
+            tested!=72 or not 0<=passed<=tested or failed!=tested-passed or
+            evidence.get("synthetic_only") is not True or
+            evidence.get("verified_real_sales")!=0 or
+            not isinstance(evidence.get("ruby_source_sha256"),str) or
+            len(evidence["ruby_source_sha256"])!=64):
+            raise Reject("invalid reply-quality evidence")
+        return ("awaiting_qa" if failed else "checked_needs_review"),{
+          "buyer_reply_scenarios":tested,"passed":passed,"failed":failed,
+          "real_sales_verified":0,
+          "quality_gate":"synthetic_sales_dialogues_only"}
     if tid=="ventas_respuestas":
         ids=task["evidence"].get("conversation_ids",[])
         if not isinstance(ids,list) or any(type(x) is not int or x<1 for x in ids):
