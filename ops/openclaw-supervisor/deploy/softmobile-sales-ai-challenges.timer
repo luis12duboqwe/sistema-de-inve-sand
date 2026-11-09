@@ -1,0 +1,11 @@
+[Unit]
+Description=One daily Groq request at most for fresh fictional SoftMobile buyer challenges
+
+[Timer]
+OnCalendar=*-*-* 01:04:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-sales-ai-challenges.service
+
+[Install]
+WantedBy=timers.target
