@@ -25,7 +25,7 @@ AREAS = ("ventas", "inventario", "operaciones", "finanzas",
 # remain deferred. These IDs are exact and never authorize external actions.
 SALES_TASK_IDS=frozenset((
     "ventas_simulaciones","ventas_seguimiento","ventas_calidad_conversacional",
-    "ventas_autofix_review",
+    "ventas_autofix_review","ventas_catalogo_calidad",
     "inventario_sin_stock",
     "finanzas_no_conciliadas","operaciones_fotos","calidad_convergencia",
     "calidad_replay_aislado","publicidad_sin_fuente","desarrollo_pr",
@@ -306,6 +306,73 @@ def attach_autonomous_sales(out,autofix):
           "blocked":sum(t["status"]=="blocked" for t in tasks)},
       "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
 
+def sales_catalog_snapshot():
+    """Sanitized counts only; ERP record is never authoritative live quote."""
+    path=OUT/"CATALOG_AUDIT.json"
+    try:
+        data=json.loads(path.read_text())
+        stamp=datetime.fromisoformat(data["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-stamp).total_seconds()
+        if not 0<=age<=7*3600:
+            return {"available":False,"reason":"stale"}
+        if (data.get("scope")!="sales_only" or
+            data.get("mode")!="read_only_sales_catalog_aggregate" or
+            data.get("source")!="ERP_database_internal_only" or
+            data.get("public_messages_sent")!=0 or
+            data.get("payments_initiated")!=0 or
+            data.get("inventory_updated") is not False or
+            data.get("customer_data_extracted") is not False or
+            data.get("raw_price_or_cost_extracted") is not False or
+            data.get("sku_or_serial_extracted") is not False or
+            data.get("outbound_customer_quote_authorized") is not False or
+            data.get("stock_freshness_verified") is not False or
+            data.get("price_freshness_verified") is not False):
+            return {"available":False,"reason":"unsafe"}
+        c=data["counts"]
+        wanted=("active_products","stocked_active_products",
+          "stocked_fully_specified","active_price_below_cost",
+          "active_without_stock","stocked_missing_required_quote_fields")
+        if (any(type(c.get(k)) is not int or c[k]<0 for k in wanted) or
+            c["stocked_active_products"]>c["active_products"] or
+            c["stocked_fully_specified"]>c["stocked_active_products"] or
+            c["active_without_stock"]!=c["active_products"]-c["stocked_active_products"] or
+            c["stocked_missing_required_quote_fields"]!=
+              c["stocked_active_products"]-c["stocked_fully_specified"]):
+            return {"available":False,"reason":"invalid_aggregates"}
+        return {"available":True,"active_products":c["active_products"],
+          "stocked_active_products":c["stocked_active_products"],
+          "stocked_fully_specified":c["stocked_fully_specified"],
+          "active_price_below_cost":c["active_price_below_cost"],
+          "active_without_stock":c["active_without_stock"],
+          "stocked_missing_required_quote_fields":
+              c["stocked_missing_required_quote_fields"],
+          "public_quote_authorized":False,"fresh_partner_quote_available":False}
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def attach_sales_catalog(out,catalog):
+    if out.get("scope")!="sales_only":
+        raise Reject("catalog requires sales-only director")
+    out={**out,"sales_catalog":catalog}
+    if catalog.get("available") is not True:
+        return out
+    item=task("ventas_catalogo_calidad","ventas","alta",
+        "Revisar precios, calidad de catálogo y existencias sin prometer ventas",
+        "Conciliar inventario por unidad y aliado; comprobar precio vigente y márgenes antes de cotizar. No alterar stock o precios automáticamente.",
+        {"active_products":catalog["active_products"],
+         "stocked_active_products":catalog["stocked_active_products"],
+         "stocked_fully_specified":catalog["stocked_fully_specified"],
+         "active_without_stock":catalog["active_without_stock"],
+         "active_price_below_cost":catalog["active_price_below_cost"],
+         "public_quote_authorized":False,
+         "fresh_partner_quote_available":False})
+    tasks=[*out["tasks"],item]
+    return {**out,"tasks":tasks,
+      "counts":{"all":len(tasks),
+                "review":sum(t["status"]=="review" for t in tasks),
+                "blocked":sum(t["status"]=="blocked" for t in tasks)},
+      "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS}}
+
 def plan(data,metrics=None,qa=None,conversion=None,seller_quality=None):
     """Pure orchestration: no input is modified and no external API is called."""
     verify_snapshot(data)
@@ -505,9 +572,11 @@ def main():
     qa=synthetic_qa_snapshot()
     conversion=sales_simulation_snapshot()
     seller=seller_quality_snapshot()
-    out=attach_autonomous_sales(
-        sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller)),
-        autonomous_sales_snapshot())
+    out=attach_sales_catalog(
+        attach_autonomous_sales(
+            sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller)),
+            autonomous_sales_snapshot()),
+        sales_catalog_snapshot())
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
