@@ -57,6 +57,29 @@ class AutoSalesLoopTests(unittest.TestCase):
         self.assertEqual(a.choose_reviewed_recipe(evidence,fixtures,only)[0],
                          "negotiation_synonyms")
 
+    def test_resume_previous_reviewed_candidate_only_if_sha_valid(self):
+        candidate=a.bounded_next(self.candidate,a.RECIPES[0])
+        with tempfile.TemporaryDirectory() as dirname:
+            root=Path(dirname)
+            paths=root/"candidates"
+            paths.mkdir()
+            location=paths/"candidate.rb"
+            patchfile=paths/"candidate.patch"
+            location.write_text(candidate)
+            patchfile.write_text("review diff")
+            metadata={"status":"qa_passed_review_required",
+                      "source_sha256":a.sha(self.source),
+                      "candidate_deployed":False,"public_messages_sent":0,
+                      "winning_candidate":{
+                        "candidate_file":str(location),"patch_file":str(patchfile),
+                        "sha256":a.sha(candidate),"auto_deploy":False}}
+            (root/"latest.json").write_text(json.dumps(metadata))
+            with (patch.object(a,"OUT",root),
+                  patch.object(a,"REPORT",root/"latest.json")):
+                self.assertEqual(a.previous_reviewed_candidate(self.source),candidate)
+                location.write_text(candidate+"unreviewed")
+                with self.assertRaises(ValueError):
+                    a.previous_reviewed_candidate(self.source)
     def test_no_client_actions_reported(self):
         r=a.initial()
         for k in ("candidate_deployed","candidate_integrated",
@@ -74,6 +97,7 @@ class AutoSalesLoopTests(unittest.TestCase):
         complete={"dialogue_passed":72,"dialogue_total":72,
                   "holdout_passed":18,"holdout_total":18}
         with (patch.object(a.dialogue,"run",return_value=baseline),
+              patch.object(a,"previous_reviewed_candidate",return_value=None),
               patch.object(a,"verified_generated_challenges",return_value=[]),
               patch.object(a.rotating,"tasks",return_value=[]),
               patch.object(a,"check_ruby",
@@ -92,6 +116,7 @@ class AutoSalesLoopTests(unittest.TestCase):
         baseline={"candidate":False,"source_sha256":builder.FROZEN_SHA,
                   "scenarios":72,"passed":36,"public_messages_sent":0}
         with (patch.object(a.dialogue,"run",return_value=baseline),
+              patch.object(a,"previous_reviewed_candidate",return_value=None),
               patch.object(a,"verified_generated_challenges",return_value=[]),
               patch.object(a.rotating,"tasks",return_value=[]),
               patch.object(a,"check_ruby",
