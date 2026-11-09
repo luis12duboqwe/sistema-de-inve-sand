@@ -256,7 +256,8 @@ def autonomous_sales_snapshot():
         if (qa.get("status")!="qa_passed_review_required" or
             qa.get("dialogue_passed")!=72 or qa.get("holdout_passed")!=18 or
             qa.get("legacy_checkout_passed")!=72 or
-            type(qa.get("unit_tests_passed")) is not int or qa["unit_tests_passed"]<21 or
+            type(qa.get("unit_tests_passed")) is not int or qa["unit_tests_passed"]<68 or
+            qa.get("reference_only_agent_firewall_verified") is not True or
             qa.get("generated_challenges",{}).get("passed")!=6 or
             qa.get("adversarial_cases",{}).get("passed")!=11 or
             qa.get("adversarial_cases",{}).get("tested")!=11):
@@ -273,6 +274,7 @@ def autonomous_sales_snapshot():
             "candidate_synthetic_checkout_passed":72,
             "candidate_adversarial_passed":11,
             "candidate_unit_tests_passed":qa["unit_tests_passed"],
+            "reference_only_agent_firewall_verified":True,
             "autonomous_failure_corrected":(
                 data.get("auto_corrected_ever") is True or len(result)>1),
             "challenge_source":data["challenge_source"],
@@ -297,6 +299,8 @@ def attach_autonomous_sales(out,autofix):
        "rotating_passed":autofix["candidate_rotating_passed"],
        "adversarial_passed":autofix["candidate_adversarial_passed"],
        "unit_tests_passed":autofix["candidate_unit_tests_passed"],
+       "reference_only_agent_firewall_verified":
+         autofix["reference_only_agent_firewall_verified"],
        "candidate_deployed":False,"public_messages_sent":0,
        "requires_human_review":True})
     tasks=[*out["tasks"],item]
