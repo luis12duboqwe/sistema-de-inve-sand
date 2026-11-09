@@ -70,3 +70,9 @@ El archivo `sales_adversarial_quality.py` evalúa otras **11 conversaciones comp
 En el flujo autónomo, `sales_autofix_loop.py` ahora exige 11/11 adicionales antes de marcar la revisión como apta para QA. Sigue fallando de forma segura si los datos, el origen SHA o el banco de pruebas no son válidos. Tras la última ejecución autónoma, la candidata superó 72+18+6+11 y 72 regresiones antiguas, así como **30 pruebas unitarias de la candidata**. **No son ventas reales.** La cadena del supervisor pasó **195 pruebas**, su certificación continúa **5/10** y ningún bot público se modificó.
 
 Para Groq se simplificó el JSON Schema del proveedor, pero el validador local mantiene longitud, seguridad, distribución y datos ficticios. El proveedor no ha producido todavía las seis conversaciones válidas en vivo; el banco local sigue siendo el respaldo probado.
+
+
+## Validación de catálogo para vender sin inventar precios
+La ejecución `sales_catalog_audit.py` resume solo números del ERP (fuente interna, no atribución al aliado): 189 productos activos, 54 con existencias positivas en sucursales activas, 53 con precio y combinación modelo/color/capacidad registrada y tres entradas con precio inferior a costo. Revisión automática cada cuatro horas; reporte `catalog-audit-aggregate-snapshot.json`, sin detalles de productos, códigos, precios individuales, cuentas o clientes.
+
+El agente **no puede** convertir este registro en una promesa de unidad o cotización real. Falta validar cuándo se actualizó el precio/stock y de qué aliado proviene; estas comprobaciones solo habilitan revisión de calidad de datos. Los nuevos controles de catalogación pasan 9 pruebas; el supervisor completo alcanza 207.
