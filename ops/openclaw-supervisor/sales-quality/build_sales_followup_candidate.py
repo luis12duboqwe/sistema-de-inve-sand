@@ -21,6 +21,59 @@ META=HERE/"quality"/"sales-bot-v2-reply-candidate.json"
 ADDITIONS=r'''
       # SALES_ONLY_FOLLOWUPS_CANDIDATE_BEGIN
       # Store no customer data and never commit a reservation, discount or price.
+      # Deep-journey safety: a damaged delivered order is NOT a new repair sale.
+      if t.match?(/\b(?:compre|comprado|pedido|me llego|recibi|venia)\b.{0,90}\b(?:quebrada|quebrado|golpeado|golpeada|roto|rota|danado|danada)\b/) ||
+         t.match?(/\b(?:foto del dano|evidencia del dano|devolver el dinero|devolvieron el pago)\b/)
+        return {reply:"Si el equipo llegó dañado, lo importante es revisar el reclamo de esa compra, no ofrecerte otra venta. Conservá fotos y comprobante; la solución y cualquier reembolso requieren verificación.",
+          note:"RECLAMO DE ENTREGA: atención humana prioritaria; no derivar a reparaciones ni confirmar reembolso.",
+          needs_human:true,intent: :complaint,tag:'deep_damaged_delivery'}
+      end
+      # Do not treat opt-out or no follow-up requests as new sales leads.
+      if t.match?(/\b(?:no quiero comprar otro|no me ofrezcas|no quiero mas anuncios|no quiero seguimiento|no quiero mas ofertas|no me escribas|no me contactes|no quiero que me escribas|no me vas a escribir)\b/)
+        return {reply:"Entendido, no querés nuevas ofertas ni seguimiento. Esa preferencia debe quedar registrada en la conversación para que se respete; no voy a proponerte más equipos aquí.",
+          note:"OPOSICIÓN A CONTACTO: detener ofertas y marcar solicitud para que el operador configure no-contacto. No afirmar que ya fue guardada.",
+          needs_human:true,intent: :cancel_interest,tag:'deep_no_followup'}
+      end
+      # Status of an earlier hold or refund can never be inferred from chat.
+      if t.match?(/\b(?:ya quedo reservad[oa]|ya esta reservado|ya cancelaste|ya cancelaron todo|ya me devolvieron|ya se hizo el reembolso|ya mandaste la cotizacion|ya esta todo aprobado)\b/)
+        return {reply:"Todavía no puedo confirmar ese estado: necesito comprobarlo en el registro correspondiente. No voy a decirte que quedó reservado, cancelado, pagado o enviado sin evidencia.",
+          note:"ESTADO DE OPERACIÓN: verificar evidencia de reserva, cobro, cancelación, cotización o reembolso. No declarar ejecución.",
+          needs_human:true,intent: :order_change,tag:'deep_status_unverified'}
+      end
+      # A bank-account image is not a phone photo; never fabricate bank details.
+      if t.match?(/\b(?:imagen|foto|fotos)\b/) && t.match?(/\b(?:cuentas|datos bancarios|cuenta bancaria|bancos)\b/)
+        return {reply:"La imagen de cuentas bancarias todavía debe verificarse con información oficial. No te pediré claves ni confirmaré pagos con una captura.",
+          note:"CUENTAS DE COBRO: confirmar imagen y datos bancarios autorizados en canal seguro; no inventar.",
+          needs_human:true,intent: :payments,tag:'deep_bank_image_unverified'}
+      end
+      # Direct request for a person must not imply a real transfer happened.
+      if t.match?(/\b(?:hablar con una persona|atencion humana|hablar con alguien|necesito un humano)\b/)
+        return {reply:"Claro. Tu solicitud de atención personal necesita una transferencia real para que alguien la atienda; todavía no puedo confirmarte que ya se haya realizado.",
+          note:"ATENCIÓN PERSONAL: transferencia pendiente; no afirmar que se notificó a un empleado.",
+          needs_human:true,intent: :human,tag:'deep_human_pending'}
+      end
+      # Financing approval requires an independent bank result.
+      if t.match?(/\b(?:me aprueban el credito|credito automaticamente|banco me rechaza|me aprueba el banco|aprobacion automatica)\b/)
+        return {reply:"La aprobación del crédito depende del banco y todavía no está confirmada. Primero hay que verificar plazo, requisitos y monto con información oficial.",
+          note:"CRÉDITO: no confirmar aprobación, cuota ni tasa sin respuesta bancaria.",
+          needs_human:true,intent: :finance,tag:'deep_credit_approval_unknown'}
+      end
+      # Answer photo questions safely while the photo bridge is deferred.
+      if t.match?(/\b(?:foto|fotos|fotografia|fotografias|imagen|imagenes)\b/) &&
+         !t.match?(/\b(?:reembolso|dano|danado|reclamo|queja|pantalla quebrada)\b/)
+        descriptor=[device || 'equipo',cap && "de #{cap}",col && "en #{col.downcase}"].compact.join(' ')
+        return {reply:"Las fotos reales del #{descriptor} aún no están confirmadas. Para mostrarte esa unidad exacta, primero deben verificarse las imágenes; no se han enviado desde esta consulta.",
+          note:"FOTOS PENDIENTES: no usar genéricas ni afirmar envío, código o atención de encargado inexistentes.",
+          needs_human:true,intent: :photos,tag:'deep_photos_unverified'}
+      end
+      # Shipping timeframe must not become an unverified handset price.
+      if device && place && delivery_mode!='Retiro' &&
+         t.match?(/\b(?:entonces cuanto tardaria|cuanto tardaria|cuanto demora|en cuantos dias|cuantos dias|en cuanto tiempo)\b/) &&
+         !t.match?(/\b(?:mi pedido|mi envio|guia|rastreo|ya pague)\b/)
+        return {reply:"Para entregar el #{device} en #{place}, todavía debo comprobar el plazo de transporte y disponibilidad. No tengo una fecha confirmada.",
+          note:"ENVÍO: destino anterior conservado, plazo pendiente. No dar fechas inventadas.",
+          needs_human:true,intent: :shipping,tag:'deep_shipping_time'}
+      end
       # Explicit cancellation wins, including colloquial three-word changes of mind.
       if t.match?(/\b(?:mejor ya no quiero|ya no lo quiero|no voy a comprar|no sigo con la compra|cancelo(?: la compra)?|cancelame la compra)\b/) &&
          !t.match?(/\b(?:cancelo la reserva de otro|cancelo otra compra)\b/)
