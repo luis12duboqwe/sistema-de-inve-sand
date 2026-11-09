@@ -62,3 +62,11 @@ Las reparaciones están archivadas; WhatsApp, envíos reales, cobros, descuentos
 
 ### Estado persistente de automejora del vendedor
 Desde la segunda ejecución el agente conserva y revalida el mejor candidato SHA-pinneado en vez de reescribir el mismo parche cada seis horas. Los resultados pasan a un historial acotado de 120 ciclos sin datos de clientes. Verificación: ejecución reanudada con **1 intento**, 72/72+18/18+6/6+72/72 y 21 regresiones unitarias, 0 despliegues; `auto_corrected_ever=true`. El director verifica el SHA del artefacto, mantiene la tarea `ventas_autofix_review` pendiente de QA y conserva el indicador **5/10**. El proveedor externo Groq aún no consiguió generar un lote de pruebas válido; el banco local diario continúa funcionando sin él.
+
+
+### 8 de noviembre, Honduras — refuerzo adversarial de ventas
+Se ejecutaron **11 conversaciones nuevas de compra** fuera de las 72+18+6: el Ruby activo superó **5/11**; la candidata **11/11**. Se corrigieron reservas coloquiales («apartármelo para el viernes»), reconocimiento de cancelación del interés, costo y ETA de envío con ciudad previamente indicada y respuesta a supuestas aprobaciones bancarias sin verificarlas.
+
+Estas pruebas forman ahora una **condición obligatoria del ejecutor autónomo**: ningún parche llega a `qa_passed_review_required` sin **72/72 + 18/18 + 6/6 + 11/11**, las 72 regresiones de checkout ficticio y las pruebas unitarias. Se incorporó un identificador de revisión de reglas para que al cambiar la lógica **no se reutilice un candidato anterior solo por tener un buen resultado en una versión vieja**.
+
+La ejecución actual del ejecutor programado pasó tras detectar fallas de reserva en el primer intento y elegir una corrección acotada para aprobar en el segundo. Luego reanudó su candidato con una segunda ejecución de comprobación, sin tocar el bot activo. **56 pruebas del laboratorio y 195 del supervisor** aprobadas, 0 mensajes, 0 cambios de inventario, 0 ingresos reales verificados, 0 despliegues. Certificado comercial **5/10**, público bloqueado.
