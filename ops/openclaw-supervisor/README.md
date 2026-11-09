@@ -70,3 +70,11 @@ Se ejecutaron **11 conversaciones nuevas de compra** fuera de las 72+18+6: el Ru
 Estas pruebas forman ahora una **condición obligatoria del ejecutor autónomo**: ningún parche llega a `qa_passed_review_required` sin **72/72 + 18/18 + 6/6 + 11/11**, las 72 regresiones de checkout ficticio y las pruebas unitarias. Se incorporó un identificador de revisión de reglas para que al cambiar la lógica **no se reutilice un candidato anterior solo por tener un buen resultado en una versión vieja**.
 
 La ejecución actual del ejecutor programado pasó tras detectar fallas de reserva en el primer intento y elegir una corrección acotada para aprobar en el segundo. Luego reanudó su candidato con una segunda ejecución de comprobación, sin tocar el bot activo. **56 pruebas del laboratorio y 195 del supervisor** aprobadas, 0 mensajes, 0 cambios de inventario, 0 ingresos reales verificados, 0 despliegues. Certificado comercial **5/10**, público bloqueado.
+
+
+### 8 nov 2026 — Catálogo auditado exclusivamente para ventas
+Se añadió `sales_catalog_audit.py` con consultas PostgreSQL `BEGIN TRANSACTION READ ONLY`, sin extraer nombres/SKU/IMEI, precio unitario, datos personales ni registros de clientes. El servicio `softmobile-sales-catalog-audit.timer` se ejecuta cada 4 horas en el VPS con red externa bloqueada.
+
+**Inventario ERP agregado observado:** 189 productos activos, 54 con stock positivo en ubicaciones activas, 53 con modelo/color/capacidad/precio HNL completos, 135 activos sin stock, 1 unidad con stock sin todos los datos necesarios para cotizar y 3 productos activos cuyo precio registrado está por debajo del costo. **Estos números no autorizan cotizar**: el ERP no demuestra vigencia de precios ni stock real de los aliados. Las tres diferencias requieren revisar promociones, costos y condiciones; no son pérdidas confirmadas.
+
+El director OpenClaw incluye `sales_catalog` en `DIRECTOR.json`, crea `ventas_catalogo_calidad` para revisión humana y el ejecutor lo procesa sin modificar productos, precios ni pagos. Última cadena verificada: **11 tareas comerciales**, cero fallas, cero mensajes públicos, certificado **5/10** (sin WhatsApp), lanzamiento bloqueado. **207 pruebas unitarias del supervisor**, más **56 del laboratorio comercial**.
