@@ -150,6 +150,20 @@ class PilotExecutorTests(unittest.TestCase):
         with self.assertRaises(p.Reject):
             p.safe_action(task,sup,{})
 
+    def test_deep_dialogue_qa_never_authorizes_public(self):
+        sup,director=data()
+        item={**director["tasks"][0],"id":"ventas_dialogos_profundos",
+          "evidence":{"scenarios":10,"buyer_messages":150,
+              "checks":32,"passed":21,"failed":11,
+              "synthetic_only":True,"candidate_deployed":False,
+              "public_messages_sent":0}}
+        status,details=p.safe_action(item,sup,{})
+        self.assertEqual(status,"awaiting_qa")
+        self.assertEqual(details["checks_failed"],11)
+        self.assertFalse(details["deploy_authorized"])
+        item["evidence"]["candidate_deployed"]=True
+        with self.assertRaises(p.Reject):p.safe_action(item,sup,{})
+
     def test_autonomous_fix_review_never_deploys(self):
         sup,director=data()
         task={**director["tasks"][0],"id":"ventas_autofix_review",
