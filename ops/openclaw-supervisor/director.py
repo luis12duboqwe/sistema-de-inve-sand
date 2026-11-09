@@ -24,7 +24,8 @@ AREAS = ("ventas", "inventario", "operaciones", "finanzas",
 # Repair workflows, staff productivity, WAHA transport and public deployment
 # remain deferred. These IDs are exact and never authorize external actions.
 SALES_TASK_IDS=frozenset((
-    "ventas_simulaciones","ventas_seguimiento","inventario_sin_stock",
+    "ventas_simulaciones","ventas_seguimiento","ventas_calidad_conversacional",
+    "inventario_sin_stock",
     "finanzas_no_conciliadas","operaciones_fotos","calidad_convergencia",
     "calidad_replay_aislado","publicidad_sin_fuente","desarrollo_pr",
     "infraestructura_recursos"
@@ -175,12 +176,56 @@ def sales_simulation_snapshot():
     except (OSError,ValueError,TypeError,KeyError,AttributeError):
         return {"available":False,"reason":"unavailable"}
 
-def plan(data,metrics=None,qa=None,conversion=None):
+def seller_quality_snapshot():
+    """Independent, actual Ruby reply scoring vs deterministic buyer expectations.
+
+    Reports only counts from the fully fictional and network-disabled sales lab.
+    The older simulated-checkout success rate cannot replace this result.
+    """
+    path=Path("/opt/softmobile-waha-test/laboratorio-ia/quality/seller-conversation-baseline.json")
+    try:
+        report=json.loads(path.read_text())
+        at=datetime.fromisoformat(report["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-at).total_seconds()
+        if not 0<=age<=86400:
+            return {"available":False,"reason":"stale"}
+        sha=hashlib.sha256(
+            Path("/opt/softmobile-waha-test/sales-bot-v2.rb").read_bytes()).hexdigest()
+        if (report.get("environment")!="OFFLINE_RUBY_SELLER_QA_ONLY" or
+            report.get("candidate") is not False or
+            report.get("source_sha256")!=sha or
+            report.get("public_messages_sent")!=0 or
+            report.get("real_sales")!=0 or
+            report.get("api_calls")!=0 or
+            report.get("production_modified") is not False or
+            report.get("inventory_modified") is not False or
+            report.get("auto_deploy_permitted") is not False):
+            return {"available":False,"reason":"safety_guard_or_source_drift"}
+        tested,passed,failed=(report.get(k) for k in ("scenarios","passed","failed"))
+        families=report.get("by_family")
+        if (any(type(x) is not int for x in (tested,passed,failed)) or
+            tested!=72 or not 0<=passed<=tested or failed!=tested-passed or
+            not isinstance(families,dict) or len(families)!=6 or
+            any(type(v.get("tested")) is not int or
+                type(v.get("passed")) is not int or
+                v["tested"]!=12 or not 0<=v["passed"]<=v["tested"]
+                for v in families.values()) or
+            sum(v["passed"] for v in families.values())!=passed):
+            return {"available":False,"reason":"invalid_counts"}
+        return {"available":True,"scenarios":tested,"passed":passed,
+                "failed":failed,"by_family":families,
+                "synthetic_only":True,"real_sales":0,
+                "ruby_source_sha256":sha}
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        return {"available":False,"reason":"unavailable"}
+
+def plan(data,metrics=None,qa=None,conversion=None,seller_quality=None):
     """Pure orchestration: no input is modified and no external API is called."""
     verify_snapshot(data)
     metrics=metrics or {}
     qa=qa or {}
     conversion=conversion or {}
+    seller_quality=seller_quality or {}
     chat=data["chatwoot"]
     q=chat.get("queues") or {}
     fw=data.get("followups") or {}
@@ -208,6 +253,18 @@ def plan(data,metrics=None,qa=None,conversion=None):
             "Investigar regresiones antes de liberar WhatsApp; resultados ficticios nunca autorizan un lanzamiento.",
             {"scenarios":conversion["scenarios"],"passed":conversion["passed"],
              "failed":failures,"synthetic_only":True}))
+    if seller_quality.get("available") is True:
+        total=seller_quality["scenarios"]
+        failed=seller_quality["failed"]
+        passed=seller_quality["passed"]
+        tasks.append(task("ventas_calidad_conversacional","ventas",
+            "alta" if failed else "media",
+            "Respuestas comerciales del vendedor Ruby verificadas en conversaciones completas",
+            "Revisar y comparar en rama las respuestas sobre objeciones, reservas, envío y cierres. Un checkout sintético no demuestra atención ni ventas reales.",
+            {"scenarios":total,"passed":passed,"failed":failed,
+             "by_family":seller_quality["by_family"],
+             "ruby_source_sha256":seller_quality["ruby_source_sha256"],
+             "synthetic_only":True,"verified_real_sales":0}))
     if not ready.get("public_messaging_ready",False):
         tasks.append(task("ventas_despliegue","ventas","alta",
             "Vendedor y seguimiento público no liberados",
@@ -292,6 +349,7 @@ def plan(data,metrics=None,qa=None,conversion=None):
             "specialists":{a:sum(t["area"]==a for t in tasks) for a in AREAS},
             "synthetic_qa":qa if qa.get("available") is True else {"available":False},
             "synthetic_sales":conversion if conversion.get("available") is True else {"available":False},
+            "seller_reply_quality":seller_quality if seller_quality.get("available") is True else {"available":False},
             "verified_finance":{"completed_orders":metrics.get("orders_completed"),
                                 "daily_closes":metrics.get("daily_closes"),
                                 "profit_verified":False}}
@@ -333,6 +391,10 @@ def markdown(out):
       "Embudo comercial ficticio: "+str(out.get("synthetic_sales",{}).get("passed","?"))+
       "/"+str(out.get("synthetic_sales",{}).get("scenarios","?"))+
       " simulaciones; no hay ventas reales confirmadas.",
+      "Calidad conversacional del Ruby actual: "+
+      str(out.get("seller_reply_quality",{}).get("passed","?"))+"/"+
+      str(out.get("seller_reply_quality",{}).get("scenarios","?"))+
+      " escenarios. No equivale a cierre de ventas reales.",
       "", "## Cola por especialidad"]
     for t in out["tasks"]:
         rows.append("- ["+t["priority"]+" / "+t["status"]+"] "+
@@ -355,7 +417,8 @@ def main():
         metrics={"read_only_data_available":False}
     qa=synthetic_qa_snapshot()
     conversion=sales_simulation_snapshot()
-    out=sales_focus(plan(data,metrics,qa,conversion))
+    seller=seller_quality_snapshot()
+    out=sales_focus(plan(data,metrics,qa,conversion,seller_quality=seller))
     save(OUT/DIRECTOR_FILE,json.dumps(out,ensure_ascii=False,indent=2)+"\n")
     save(OUT/"DIRECTOR.md",markdown(out))
     print(json.dumps({"tasks":out["counts"],"specialists":out["specialists"],
