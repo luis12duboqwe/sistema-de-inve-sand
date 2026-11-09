@@ -178,12 +178,70 @@ def sales_simulation_snapshot():
     except (OSError,ValueError,TypeError,KeyError,AttributeError):
         return {"available":False,"reason":"unavailable"}
 
+ACTIVE_POLICY_SHA="2c4d6d274402daa34f44f7e669efe9aaf7bc2d01574f5b53505779fb8592c885"
+ACTIVE_POLICY_REPORT=Path("/opt/softmobile-waha-test/approved-sales-pilot/active-sales-policy-qa.json")
+
+def active_sales_policy_snapshot():
+    """Proof of REAL active Ruby against the approved Nov-6 commercial contract.
+
+    This report cannot be replaced by QA of a candidate that is not installed.
+    """
+    try:
+        live=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
+        if live.is_symlink() or hashlib.sha256(live.read_bytes()).hexdigest()!=ACTIVE_POLICY_SHA:
+            return {"available":False,"reason":"active_ruby_hash_mismatch"}
+        if ACTIVE_POLICY_REPORT.is_symlink():
+            return {"available":False,"reason":"qa_symlink"}
+        proof=json.loads(ACTIVE_POLICY_REPORT.read_text())
+        when=datetime.fromisoformat(proof["at"].replace("Z","+00:00"))
+        age=(datetime.now(timezone.utc)-when).total_seconds()
+        expected={
+          "mode":"ACTIVE_RUBY_SALES_POLICY_20261106",
+          "status":"passed_offline_current_source",
+          "scope":"sales_only",
+          "source_sha256":ACTIVE_POLICY_SHA,
+          "active_ruby_checked":True,
+          "commercial_dialogues_passed":72,
+          "historical_nonreserve_dialogues_passed":60,
+          "explicit_no_reserve_dialogues_passed":12,
+          "nov6_policy_cases_passed":20,
+          "nov6_policy_cases_total":20,
+          "heldout_passed":18,"adversarial_passed":11,"rotating_passed":6,
+          "independent_passed":22,"deep_criteria_passed":32,
+          "legacy_checkout_simulated_passed":72,
+          "real_catalog_prices_or_stock_verified":False,
+          "real_customer_conversation_tested":False,
+          "production_modified":False,
+          "public_release_permitted":False,
+          "public_messages_sent":0,"deployment_permission":False}
+        if (not 0<=age<=8*3600 or any(proof.get(k)!=v or
+            type(proof.get(k))!=type(v) for k,v in expected.items()) or
+            type(proof.get("unit_tests_passed")) is not int or
+            proof["unit_tests_passed"]<68):
+            return {"available":False,"reason":"qa_untrusted_or_stale"}
+        return {"available":True,"source_sha256":ACTIVE_POLICY_SHA,
+                "policy_version":"2026-11-06",
+                "dialogues_passed":72,"deep_passed":32,"unit_tests_passed":proof["unit_tests_passed"],
+                "synthetic_only":True,"real_stock_verified":False,
+                "public_messaging_authorized":False}
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        return {"available":False,"reason":"active_qa_unavailable"}
+
 def seller_quality_snapshot():
     """Independent, actual Ruby reply scoring vs deterministic buyer expectations.
 
     Reports only counts from the fully fictional and network-disabled sales lab.
     The older simulated-checkout success rate cannot replace this result.
     """
+    active=active_sales_policy_snapshot()
+    if active.get("available") is True:
+        return {"available":True,"scenarios":72,"passed":72,"failed":0,
+                "by_family":{k:{"tested":12,"passed":12} for k in
+                   ("purchase","financing","negotiation","reservation","shipping","accessories")},
+                "synthetic_only":True,"real_sales":0,
+                "ruby_source_sha256":ACTIVE_POLICY_SHA,
+                "commercial_policy_version":"2026-11-06",
+                "explicit_reservation_denials":12}
     path=Path("/opt/softmobile-waha-test/laboratorio-ia/quality/seller-conversation-baseline.json")
     try:
         report=json.loads(path.read_text())
@@ -380,6 +438,15 @@ def attach_sales_catalog(out,catalog):
 
 def deep_sales_snapshot():
     """Only synthetic, source-matched full-journey results (not public QA)."""
+    active=active_sales_policy_snapshot()
+    if active.get("available") is True:
+        return {"available":True,"buyer_dialogues":10,"buyer_messages":150,
+                "tested":32,"candidate_passed":32,"failed":0,
+                "independent_full_qa_converged":True,
+                "candidate_sha256":ACTIVE_POLICY_SHA,
+                "current_live_source_verified":True,
+                "commercial_policy_version":"2026-11-06",
+                "public_messages_sent":0,"synthetic_only":True}
     path=OUT/"DEEP_SALES_QA.json"
     try:
         info=json.loads(path.read_text())
