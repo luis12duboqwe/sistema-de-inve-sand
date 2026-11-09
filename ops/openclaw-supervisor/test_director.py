@@ -111,6 +111,23 @@ class DirectorTests(unittest.TestCase):
         result=d.attach_sales_catalog(out,{"available":False})
         self.assertEqual(result["counts"]["all"],out["counts"]["all"])
 
+    def test_deep_sales_qa_adds_blocking_review(self):
+        base=d.sales_focus(d.plan(snapshot(),metrics()))
+        report={"available":True,"candidate_passed":21,
+                "failed":11,"tested":32,"buyer_dialogues":10,
+                "buyer_messages":150}
+        out=d.attach_deep_sales(base,report)
+        t=next(x for x in out["tasks"] if x["id"]=="ventas_dialogos_profundos")
+        self.assertEqual(t["priority"],"alta")
+        self.assertEqual(t["evidence"]["failed"],11)
+        self.assertFalse(t["evidence"]["candidate_deployed"])
+        self.assertEqual(t["automatic_external_actions"],0)
+        self.assertEqual(out["counts"]["all"],base["counts"]["all"]+1)
+    def test_deep_sales_missing_does_not_invent_completion(self):
+        base=d.sales_focus(d.plan(snapshot(),metrics()))
+        out=d.attach_deep_sales(base,{"available":False})
+        self.assertEqual(out["counts"]["all"],base["counts"]["all"])
+
     def test_never_sends(self):
         res=d.plan(snapshot(),metrics())
         self.assertEqual(res["public_messages_sent"],0)
