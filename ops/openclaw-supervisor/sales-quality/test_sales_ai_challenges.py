@@ -23,6 +23,17 @@ class AIChallengeTests(unittest.TestCase):
     "followup":"¿Cuál sería el costo para recibirlo?","day_or_city":"tegucigalpa"}]}
  def test_six_schema_valid(self):
   self.assertEqual(len(s.validate(self.example())),6)
+ def test_provider_schema_simple_validation_stays_local(self):
+  schema=json.dumps(s.SCHEMA)
+  self.assertNotIn("minItems",schema)
+  self.assertNotIn("maxItems",schema)
+  self.assertNotIn("minLength",schema)
+  self.assertNotIn("maxLength",schema)
+  self.assertEqual(set(s.SCHEMA["required"]),{"examples"})
+  self.assertFalse(s.SCHEMA["additionalProperties"])
+  x=self.example()
+  x["examples"].pop()
+  with self.assertRaises(ValueError):s.validate(x)
  def test_invalid_pii_rejected(self):
   x=self.example();x["examples"][0]["followup"]="Pagar al 50412345678 y aceptar"
   with self.assertRaises(ValueError):s.validate(x)
@@ -61,7 +72,7 @@ class AIChallengeTests(unittest.TestCase):
          patch.object(s,"LOCK",root/"ai.lock")):
     r=s.run(call=lambda *args: {"examples":[]},secret="fake",
             now=datetime(2026,11,8,tzinfo=timezone.utc))
-    self.assertEqual(r["status"],"ai_challenge_provider_or_schema_blocked")
+    self.assertEqual(r["status"],"ai_challenge_schema_rejected")
     self.assertFalse((root/"ai-challenges.json").exists())
     self.assertEqual(json.loads((root/"ai-budget.json").read_text())["calls_reserved"],1)
  def test_generated_fixtures_loaded_only_if_approved(self):
