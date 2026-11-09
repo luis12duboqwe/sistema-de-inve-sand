@@ -1,0 +1,23 @@
+[Unit]
+Description=SoftMobile post-certification blocker inventory (read-only, no public actions)
+After=softmobile-release-gate.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/certification_blockers.py
+ConditionPathExists=/opt/openclaw-lab/workspace/softmobile-supervisor/CERTIFICATION.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/certification_blockers.py
+TimeoutStartSec=20
+MemoryMax=96M
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

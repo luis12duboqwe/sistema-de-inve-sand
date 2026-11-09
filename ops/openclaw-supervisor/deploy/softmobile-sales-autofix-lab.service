@@ -1,0 +1,24 @@
+[Unit]
+Description=SoftMobile autonomous isolated sales candidate generate-test-review (no deployment)
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/softmobile-waha-test/laboratorio-ia/sales_autofix_loop.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/softmobile-waha-test/laboratorio-ia
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/softmobile-waha-test/laboratorio-ia/sales_autofix_loop.py --run
+TimeoutStartSec=260
+MemoryMax=384M
+CPUQuota=70%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/softmobile-waha-test/laboratorio-ia/quality
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

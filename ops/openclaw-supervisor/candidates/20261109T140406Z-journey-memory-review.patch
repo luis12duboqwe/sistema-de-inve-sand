@@ -1,0 +1,60 @@
+--- a/laboratorio-ia/journey_memory.py
++++ b/laboratorio-ia/journey_memory.py
+@@ -27,11 +27,18 @@
+   clean=safe_previous(raw)
+   if not clean:continue
+   txt=clean.lower()
+-  pref=expected_selection(clean)
+   # "No quiero negro, mejor azul" contains an explicit new choice.
+   # A rejected color alone must clear the previously selected color.
+   affirmative=[m for m in PREFER.finditer(txt)
+       if not txt[max(0,m.start()-3):m.start()].endswith("no ")]
++  # Rejected variants before an affirmative clause belong to the rejected
++  # product, even when that clause omits its own color or capacity.
++  selection_text=clean[affirmative[-1].start():] if NEGATE.search(txt) and affirmative else clean
++  if affirmative:
++   later_negation=NEGATE.search(txt,affirmative[-1].end())
++   if later_negation:
++    selection_text=clean[affirmative[-1].start():later_negation.start()]
++  pref=expected_selection(selection_text)
+   is_comparison=bool(COMPARE.search(txt)) and not bool(affirmative)
+   has_negation=bool(NEGATE.search(txt))
+   # Model mentions in a rejection are not selections. With an affirmative
+@@ -75,7 +82,9 @@
+    state.pop("color_options",None)
+   has_capacity=bool(STORAGE.search(txt))
+   has_color=bool(ONE_COLOR.search(txt))
+-  if len(named)>1 or (is_comparison and named and state.get("model") not in named):
++  if (len(named)>1 or (is_comparison and named and state.get("model") not in named)
++      or (has_negation and not affirmative and named and
++          state.get("model") not in named)):
+    # Variants in a multi-model turn are not an unambiguous selection.
+    # Pure comparisons retain prior context; explicit alternatives clear it.
+    # A different phone's variants cannot fill missing fields on this phone.
+@@ -99,6 +108,26 @@
+      state["storage_gb"]=pref["storage_gb"]
+     if pref["color"] is not None and (not is_comparison or "color_options" not in state):
+      state["color_options"]=pref["color"]
++  # A rejection after the last positive choice overrides that choice.
++  if affirmative:
++   tail=txt[affirmative[-1].end():]
++   later=NEGATE.search(tail)
++   if later:
++    rejected_text=tail[later.end():]
++    rejected_models=[]
++    for rx,label in MODELS:
++     for match in rx.finditer(rejected_text):
++      rejected_models.append(label+(" " if label=="iPhone" else "")+
++       match.group(1)+(" "+match.group(2).title() if match.group(2) else ""))
++    if state.get("model") in rejected_models or (not state.get("model") and rejected_models):
++     state.pop("model",None)
++     state.pop("storage_gb",None)
++     state.pop("color_options",None)
++    elif not rejected_models:
++     if state.get("storage_gb") in {int(x) for x in STORAGE.findall(rejected_text)}:
++      state.pop("storage_gb",None)
++     if state.get("color_options") in {COLOR_MAP[x.lower()] for x in ONE_COLOR.findall(rejected_text)}:
++      state.pop("color_options",None)
+   cities=[(txt.rfind(s),v) for s,v in CITY.items()
+      if re.search(r"\b"+re.escape(s)+r"\b",txt)]
+   if cities:state["city"]=max(cities)[1]

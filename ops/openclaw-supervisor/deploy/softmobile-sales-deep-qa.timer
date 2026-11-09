@@ -1,0 +1,11 @@
+[Unit]
+Description=Audit full fictional sales conversations every six hours after autofix
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:58:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-sales-deep-qa.service
+
+[Install]
+WantedBy=timers.target

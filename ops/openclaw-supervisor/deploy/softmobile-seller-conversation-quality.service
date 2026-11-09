@@ -1,0 +1,20 @@
+[Unit]
+Description=SoftMobile real Ruby reply quality on synthetic sales conversations, no messages
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/softmobile-waha-test/laboratorio-ia/sales_conversation_quality.py
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/softmobile-waha-test/laboratorio-ia
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 sales_conversation_quality.py --output quality/seller-conversation-baseline.json
+UMask=0077
+TimeoutStartSec=130
+MemoryMax=128M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/softmobile-waha-test/laboratorio-ia/quality

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Replica Skill sales QA after bounded autofix every six hours
+
+[Timer]
+OnCalendar=*-*-* 01,07,13,19:14:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-replica-cycle.service
+
+[Install]
+WantedBy=timers.target

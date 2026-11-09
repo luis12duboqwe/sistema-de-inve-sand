@@ -1,0 +1,11 @@
+[Unit]
+Description=Bounded autonomous sales candidate search and full offline QA every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:46:00 UTC
+AccuracySec=1min
+Persistent=false
+Unit=softmobile-sales-autofix-lab.service
+
+[Install]
+WantedBy=timers.target

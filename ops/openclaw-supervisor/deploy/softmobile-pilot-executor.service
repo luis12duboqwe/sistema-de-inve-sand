@@ -1,0 +1,28 @@
+[Unit]
+Description=SoftMobile internal prelaunch action executor (no public writes)
+After=docker.service softmobile-openclaw-director.service
+Requires=docker.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/pilot_executor.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/pilot_executor.py
+TimeoutStartSec=65
+MemoryMax=192M
+UMask=0077
+# Needs CAP_SETUID to switch to local postgres peer-auth for SELECT-only reads.
+# Filesystem and network isolation remain enforced.
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

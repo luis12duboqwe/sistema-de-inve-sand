@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "at": "2026-11-09T04:09:30.360379+00:00",
+  "mode": "deep_sales_synthetic_independent_gate",
+  "scope": "sales_only",
+  "current_ruby_sha256": "1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1",
+  "candidate_sha256": "6fe7a1cd7278dd31303d414e95d5089a4797bf591e0ab58a3b56af6bdeefec94",
+  "buyer_dialogues": 10,
+  "buyer_turns_each": 15,
+  "buyer_messages": 150,
+  "quality_checks": 32,
+  "live_ruby_passed": 3,
+  "candidate_passed": 21,
+  "candidate_failed": 11,
+  "failed_probes": [
+    {
+      "case": "shipping-journey",
+      "turn": 7,
+      "check": "delivery_city_is_remembered"
+    },
+    {
+      "case": "shipping-journey",
+      "turn": 15,
+      "check": "cancellation_shipping_question_addressed"
+    },
+    {
+      "case": "financing-journey",
+      "turn": 6,
+      "check": "promerica_finance_terms_addressed"
+    },
+    {
+      "case": "variant-change-journey",
+      "turn": 4,
+      "check": "short_model_reversion_recognized"
+    },
+    {
+      "case": "variant-change-journey",
+      "turn": 15,
+      "check": "purchase_proceeding_not_generic_city"
+    },
+    {
+      "case": "followup-sales-journey",
+      "turn": 12,
+      "check": "reservation_for_tomorrow_addressed"
+    },
+    {
+      "case": "followup-sales-journey",
+      "turn": 15,
+      "check": "quote_sent_unconfirmed_not_ignored"
+    },
+    {
+      "case": "payments-security-journey",
+      "turn": 5,
+      "check": "payment_status_not_auto_confirmed"
+    },
+    {
+      "case": "payments-security-journey",
+      "turn": 12,
+      "check": "temporary_bank_code_safeguard"
+    },
+    {
+      "case": "low-context-stress-journey",
+      "turn": 12,
+      "check": "ready_buyer_next_step"
+    },
+    {
+      "case": "cancel-negotiation-journey",
+      "turn": 10,
+      "check": "after_cancel_no_more_reservation_sales"
+    }
+  ],
+  "candidate_fully_approved": false,
+  "status": "deep_qa_failures_block_launch",
+  "customer_data_used": false,
+  "real_sales_verified": 0,
+  "public_messages_sent": 0,
+  "production_changed": false,
+  "candidate_deployed": false,
+  "public_release_permitted": false
+}

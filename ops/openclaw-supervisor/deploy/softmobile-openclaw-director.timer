@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SoftMobile director after read-only supervisor snapshots
+
+[Timer]
+OnCalendar=*:10,40
+AccuracySec=1min
+Persistent=true
+Unit=softmobile-openclaw-director.service
+
+[Install]
+WantedBy=timers.target

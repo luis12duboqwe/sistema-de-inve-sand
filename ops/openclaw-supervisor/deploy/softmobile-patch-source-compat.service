@@ -1,0 +1,21 @@
+[Unit]
+Description=SoftMobile frozen Ruby source compatibility gate (zero AI calls)
+ConditionPathExists=/opt/openclaw-lab/supervisor/patch_source_compat.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/patch_source_compat.py
+TimeoutStartSec=25
+MemoryMax=128M
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

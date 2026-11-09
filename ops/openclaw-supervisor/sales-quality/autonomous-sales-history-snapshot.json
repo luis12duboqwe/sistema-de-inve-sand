@@ -1,0 +1,37 @@
+[
+  {
+    "at": "2026-11-09T01:00:45.721038+00:00",
+    "status": "qa_passed_review_required",
+    "attempts": 1,
+    "resumed": true,
+    "challenge_source": "reviewed_rotating_local_bank",
+    "challenge_count": 6,
+    "candidate_sha256": "e2ed17f114832645896877e473d13dd438a0cfba1b9b00907b33543661d9fa19",
+    "public_messages_sent": 0,
+    "candidate_deployed": false
+  },
+  {
+    "at": "2026-11-09T01:34:24.948979+00:00",
+    "status": "qa_passed_review_required",
+    "attempts": 2,
+    "resumed": false,
+    "challenge_source": "reviewed_rotating_local_bank",
+    "challenge_count": 6,
+    "adversarial_passed": 11,
+    "candidate_sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
+    "public_messages_sent": 0,
+    "candidate_deployed": false
+  },
+  {
+    "at": "2026-11-09T01:38:35.150829+00:00",
+    "status": "qa_passed_review_required",
+    "attempts": 1,
+    "resumed": true,
+    "challenge_source": "reviewed_rotating_local_bank",
+    "challenge_count": 6,
+    "adversarial_passed": 11,
+    "candidate_sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
+    "public_messages_sent": 0,
+    "candidate_deployed": false
+  }
+]

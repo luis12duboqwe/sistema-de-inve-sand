@@ -1,0 +1,65 @@
+--- a/approved-sales-pilot.rb
++++ b/business-policy-sales-pilot.rb
+@@ -666,6 +666,62 @@
+ 
+       # SALES_ONLY_FOLLOWUPS_CANDIDATE_BEGIN
+       # REPLICA_SALES_GUARDS_BEGIN
++      # BUSINESS_PLAYBOOK_20261106_NO_RESERVATIONS_BEGIN
++      # No-contact requests outrank commercial follow-ups and reservations.
++      if t.match?(/\b(?:no me envien mas ofertas|ya no me envien mas ofertas|no me manden mas ofertas|no quiero ofertas|no quiero recibir (?:mas )?(?:mensajes|publicidad)|no me contacten|no me escriban|dejar de recibir mensajes|no quiero seguimiento)\b/)
++        return {reply:"Entendido. No te mandaré ofertas adicionales desde esta conversación. Registraremos tu solicitud de no contacto para impedir futuros seguimientos; no puedo confirmar aún que ya quedó registrada.",
++          note:"CONSENTIMIENTO: solicitar supresión de contacto en el sistema; no crear seguimiento automático.",
++          needs_human:true,intent: :cancel_interest,tag:'business_no_contact'}
++      end
++      # Customers' claims about deposits or bank approvals are not evidence.
++      if t.match?(/\b(?:confirmas|confirmame|confirmar|verifica|revisa)\b.{0,48}\b(?:pago|transferencia|deposito)\b|\b(?:ya llego el pago|ya entro el pago|recibieron mi pago|llego mi transferencia)\b/)
++        return {reply:"Todavía no tengo el pago confirmado. Primero hay que verificar el ingreso directamente en la cuenta oficial y relacionarlo con la compra; una captura no lo confirma.",
++          note:"PAGO: cotejo bancario requerido antes de cobro, guía o despacho.",
++          needs_human:true,intent: :payment_verification,tag:'business_payment_unverified'}
++      end
++      if t.match?(/\b(?:me aprobo|me aprobaron|me aprobaran|esta aprobado|me confirmas si (?:estoy )?aprobado)\b/) &&
++         t.match?(/\b(?:bac|banco|credito|financiamiento|extrafinanciamiento|banrural|promerica|ficohsa)\b/)
++        return {reply:"La aprobación del financiamiento todavía no está confirmada. Necesitamos verificar el resultado y las condiciones directamente con el banco antes de continuar.",
++          note:"FINANCIAMIENTO: no asumir aprobación ni interés final sin verificación.",
++          needs_human:true,intent: :finance,tag:'business_financing_unverified'}
++      end
++      # Discounts must preserve the documented gifts/margins approval gates.
++      if t.match?(/\b4(?: por ciento)?\b/) && t.match?(/\b(?:descuento|rebaja|rebajar|bajar|bajas|bajas el precio)\b/)
++        return {reply:"Un descuento del 4% requiere autorización previa del encargado y confirmación de las regalías incluidas. Por ahora no está aprobado; primero verificamos precio, existencia y margen.",
++          note:"DESCUENTO 4%: autorización humana, margen, precio y accesorios confirmados.",
++          needs_human:true,intent: :discount,tag:'business_discount_4_auth'}
++      end
++      if t.match?(/\b3(?: por ciento)?\b/) && t.match?(/\b(?:descuento|rebaja|rebajar|menos|sin accesorios)\b/)
++        return {reply:"Podemos revisar un descuento de hasta el 3% sin accesorios, sujeto a precio y existencia verificados. Si preferís las cuatro regalías, usamos el precio de lista o el descuento normal de hasta 2%.",
++          note:"DESCUENTO 3%: sin accesorios, calcular desde precio de lista confirmado.",
++          needs_human:true,intent: :discount,tag:'business_discount_3_no_gifts'}
++      end
++      if t.match?(/\b2(?: por ciento)?\b/) && t.match?(/\b(?:descuento|rebaja|rebajar|menos|bajar|haces|das|aplicas)\b/)
++        return {reply:"El descuento normal puede ser de hasta 2% y conserva las cuatro regalías: cobertor, vidrio templado, cargador y auriculares inalámbricos. Confirmamos primero el precio vigente y las existencias.",
++          note:"DESCUENTO 2%: conservar cuatro regalías, cotizar solo con precio válido.",
++          needs_human:true,intent: :discount,tag:'business_discount_2_gifts'}
++      end
++      if t.match?(/\bgarantia\b/) && t.match?(/\b(?:cuanto|cuantos|tiempo|dura|dias|meses|cubre)\b/)
++        return {reply:"La garantía estándar es de 30 días para equipos usados y 60 días para nuevos, con diagnóstico de 1 a 5 días hábiles. Antes de comprar confirmamos las condiciones aplicables a la unidad que elijás.",
++          note:"GARANTÍA: usar política comercial del 6-nov; no prometer reparación ni devolución sin evaluación.",
++          needs_human:false,intent: :warranty,tag:'business_standard_warranty'}
++      end
++      # Photos are not physical phone holds. A photography status request must
++      # address the photo workflow without claiming that media was delivered.
++      if t.match?(/\b(?:fotos|imagenes|fotografias)\b/) && t.match?(/\b(?:apartad|reservad|guardad|separad)\w*\b/)
++        return {reply:"Las fotos reales de esa unidad todavía no están confirmadas ni enviadas. Primero debemos verificar las imágenes correspondientes al modelo, capacidad y color de tu solicitud.",
++          note:"FOTOS: no confundir estado de material con apartado comercial; validar código y variante.",
++          needs_human:true,intent: :photos,tag:'business_photo_status_pending'}
++      end
++      # Formal SoftMobile policy: no holds, booking deposits or pre-reservations.
++      # A request to cancel an existing order is a separate order-status action.
++      if t.match?(/\b(?:apart(?:ad[oa]s?|ar|ame|amelo|armelo|armela|as|an|arlo|arla)?|reserv(?:a|as|ar|arlo|arla|arme|ame|amelo|armelo|ando|an|ad[oa]s?)?|guard(?:ar|ame|amelo|armelo|as|an|arlo|arla)|separ(?:ar|ame|amelo|armelo|as|an|arlo|arla)|anticipo(?:s)?)\b/) &&
++         !t.match?(/\b(?:cancelar (?:mi |el )?(?:pedido|envio)|anular (?:mi |el )?pedido|devolucion de anticipo)\b/)
++        return {reply:"En SoftMobile no hacemos reservas ni apartados, y no pedimos anticipos para guardar equipos. Cuando estés listo para comprar, confirmamos la existencia, precio y entrega de la unidad que buscás.",
++          note:"POLÍTICA COMERCIAL: no apartar ni solicitar anticipos; validar unidad, precio y stock al comprar.",
++          needs_human:false,intent: :reserve,tag:'business_no_reservations'}
++      end
++      # BUSINESS_PLAYBOOK_20261106_NO_RESERVATIONS_END
+       # Explicit no-contact requests override all sales prompts; registration is pending.
+       if t.match?(/\b(?:no me escriban(?: mas| de nuevo)?|no me manden mas ofertas|quiero dejar de recibir mensajes|no me contacten(?: mas)?|no deseo mas publicidad|no quiero recibir mas mensajes)\b/)
+         return {reply:"Entendido, no querés recibir más mensajes ni ofertas. No voy a seguir ofreciéndote equipos aquí. La solicitud de no contacto debe registrarse para detener futuros seguimientos; aún no puedo confirmar que ya quedó registrada.",

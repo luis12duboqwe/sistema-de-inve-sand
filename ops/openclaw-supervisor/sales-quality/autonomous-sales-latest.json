@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "at": "2026-11-09T02:36:43.753369+00:00",
+  "environment": "OFFLINE_AUTONOMOUS_SALES",
+  "scope": "sales_only",
+  "status": "qa_passed_review_required",
+  "source_pinned": true,
+  "baseline": {
+    "passed": 36,
+    "tested": 72
+  },
+  "reviewed_recipe_sha256": "b97c206cf54025271c70efe206da1ee245f87bbbdc750609c59be74942495c5d",
+  "winning_candidate": {
+    "sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
+    "candidate_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-55854e2aecb3a8f6.rb",
+    "patch_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-55854e2aecb3a8f6.patch",
+    "auto_deploy": false
+  },
+  "evaluations": [
+    {
+      "attempt": 1,
+      "candidate_sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
+      "status": "qa_passed_review_required",
+      "dialogue_passed": 72,
+      "dialogue_total": 72,
+      "holdout_passed": 18,
+      "holdout_total": 18,
+      "dialogue_by_family": {
+        "purchase": {
+          "tested": 12,
+          "passed": 12
+        },
+        "financing": {
+          "tested": 12,
+          "passed": 12
+        },
+        "negotiation": {
+          "tested": 12,
+          "passed": 12
+        },
+        "reservation": {
+          "tested": 12,
+          "passed": 12
+        },
+        "shipping": {
+          "tested": 12,
+          "passed": 12
+        },
+        "accessories": {
+          "tested": 12,
+          "passed": 12
+        }
+      },
+      "holdout_by_family": {
+        "negotiation": {
+          "tested": 6,
+          "passed": 6
+        },
+        "reservation": {
+          "tested": 6,
+          "passed": 6
+        },
+        "shipping": {
+          "tested": 6,
+          "passed": 6
+        }
+      },
+      "holdout_failed_ids": [],
+      "generated_challenges": {
+        "available": true,
+        "passed": 6,
+        "tested": 6,
+        "failed_ids": []
+      },
+      "adversarial_cases": {
+        "passed": 11,
+        "tested": 11,
+        "failed_ids": []
+      },
+      "legacy_checkout_passed": 72,
+      "unit_tests_passed": 68,
+      "reference_only_agent_firewall_verified": true
+    }
+  ],
+  "candidate_staged": true,
+  "candidate_integrated": false,
+  "candidate_deployed": false,
+  "deployment_authorized": false,
+  "manual_review_required": true,
+  "public_messages_sent": 0,
+  "ai_api_calls": 0,
+  "real_sales": 0,
+  "payments_initiated": 0,
+  "real_inventory_modified": false,
+  "real_customer_data_loaded": false,
+  "active_ruby_modified": false,
+  "independent_production_qa_converged": false,
+  "resumed_previous_candidate": true,
+  "auto_corrected_ever": true,
+  "ai_challenges_available": false,
+  "ai_challenge_count": 0,
+  "ai_challenge_qa_passed": false,
+  "challenge_source": "reviewed_rotating_local_bank",
+  "challenge_count": 6,
+  "challenge_qa_passed": true,
+  "source_sha256": "1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1",
+  "baseline_challenge": {
+    "available": true,
+    "passed": 2,
+    "tested": 6,
+    "failed_ids": [
+      "rotation-00",
+      "rotation-02",
+      "rotation-03",
+      "rotation-04"
+    ]
+  },
+  "completed_at": "2026-11-09T02:36:58.546325+00:00"
+}

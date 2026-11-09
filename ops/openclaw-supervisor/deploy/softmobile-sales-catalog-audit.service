@@ -1,0 +1,23 @@
+[Unit]
+Description=SoftMobile offline sales catalog metadata and margin anomaly counts (read only)
+After=postgresql.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/sales_catalog_audit.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/sales_catalog_audit.py
+TimeoutStartSec=40
+MemoryMax=128M
+CPUQuota=50%
+UMask=0077
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

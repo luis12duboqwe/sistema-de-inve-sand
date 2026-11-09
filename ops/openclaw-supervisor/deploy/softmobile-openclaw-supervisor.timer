@@ -1,0 +1,12 @@
+[Unit]
+Description=Update SoftMobile OpenClaw supervisor snapshot every 30 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=30min
+AccuracySec=2min
+Persistent=false
+Unit=softmobile-openclaw-supervisor.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,24 @@
+[Unit]
+Description=SoftMobile active Ruby policy-20261106 sales QA (networkless, no public actions)
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/active_sales_policy_qa.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/active_sales_policy_qa.py
+TimeoutStartSec=250
+MemoryMax=480M
+CPUQuota=70%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/softmobile-waha-test/approved-sales-pilot /opt/softmobile-waha-test/laboratorio-ia/quality
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

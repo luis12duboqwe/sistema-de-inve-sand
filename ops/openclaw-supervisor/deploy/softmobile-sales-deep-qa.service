@@ -1,0 +1,24 @@
+[Unit]
+Description=SoftMobile 10x15 full buyer dialogue QA (isolated; no public actions)
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/opt/softmobile-waha-test/laboratorio-ia/deep_sales_qa_runner.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/softmobile-waha-test/laboratorio-ia
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/softmobile-waha-test/laboratorio-ia/deep_sales_qa_runner.py
+TimeoutStartSec=160
+MemoryMax=320M
+CPUQuota=60%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/softmobile-waha-test/laboratorio-ia/quality/deep-sales-qa /opt/openclaw-lab/workspace/softmobile-supervisor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX

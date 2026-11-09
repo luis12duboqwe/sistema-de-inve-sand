@@ -1,0 +1,84 @@
+{
+  "at": "2026-11-09T00:02:46.193453+00:00",
+  "environment": "OFFLINE_RUBY_SELLER_QA_ONLY",
+  "source_sha256": "1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1",
+  "candidate": false,
+  "scenarios": 72,
+  "passed": 36,
+  "failed": 36,
+  "by_family": {
+    "purchase": {
+      "tested": 12,
+      "passed": 12
+    },
+    "financing": {
+      "tested": 12,
+      "passed": 12
+    },
+    "negotiation": {
+      "tested": 12,
+      "passed": 0
+    },
+    "reservation": {
+      "tested": 12,
+      "passed": 0
+    },
+    "shipping": {
+      "tested": 12,
+      "passed": 0
+    },
+    "accessories": {
+      "tested": 12,
+      "passed": 12
+    }
+  },
+  "issues_by_family": {
+    "negotiation": 12,
+    "reservation": 12,
+    "shipping": 12
+  },
+  "failed_ids": [
+    "sale-00-negotiation",
+    "sale-00-reservation",
+    "sale-00-shipping",
+    "sale-01-negotiation",
+    "sale-01-reservation",
+    "sale-01-shipping",
+    "sale-02-negotiation",
+    "sale-02-reservation",
+    "sale-02-shipping",
+    "sale-03-negotiation",
+    "sale-03-reservation",
+    "sale-03-shipping",
+    "sale-04-negotiation",
+    "sale-04-reservation",
+    "sale-04-shipping",
+    "sale-05-negotiation",
+    "sale-05-reservation",
+    "sale-05-shipping",
+    "sale-06-negotiation",
+    "sale-06-reservation",
+    "sale-06-shipping",
+    "sale-07-negotiation",
+    "sale-07-reservation",
+    "sale-07-shipping",
+    "sale-08-negotiation",
+    "sale-08-reservation",
+    "sale-08-shipping",
+    "sale-09-negotiation",
+    "sale-09-reservation",
+    "sale-09-shipping",
+    "sale-10-negotiation",
+    "sale-10-reservation",
+    "sale-10-shipping",
+    "sale-11-negotiation",
+    "sale-11-reservation",
+    "sale-11-shipping"
+  ],
+  "real_sales": 0,
+  "public_messages_sent": 0,
+  "api_calls": 0,
+  "inventory_modified": false,
+  "production_modified": false,
+  "auto_deploy_permitted": false
+}
