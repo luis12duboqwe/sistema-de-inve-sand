@@ -7,6 +7,7 @@ from pathlib import Path
 import build_sales_followup_candidate as builder
 import sales_conversation_quality as dialogue
 import sales_heldout_challenges as holdout
+import sales_adversarial_quality as adversarial_cases
 import conversion_training_lab as legacy
 import inventory_training_lab as ruby
 import sales_ai_challenges as adversarial
@@ -41,6 +42,7 @@ def stamp():return datetime.now(timezone.utc).isoformat()
 def initial():
  return {"schema_version":1,"at":stamp(),"environment":"OFFLINE_AUTONOMOUS_SALES",
   "scope":"sales_only","status":"blocked","source_pinned":False,"baseline":None,
+  "reviewed_recipe_sha256":sha(builder.ADDITIONS),
   "winning_candidate":None,"evaluations":[],"candidate_staged":False,
   "candidate_integrated":False,"candidate_deployed":False,
   "deployment_authorized":False,"manual_review_required":True,
@@ -61,7 +63,7 @@ def guard(original,candidate):
  if not candidate.startswith(a+anchor) or not candidate.endswith(b):
   raise ValueError("modified non-sales code")
  inserted=candidate[len(a+anchor):len(candidate)-len(b)]
- if not 100<len(inserted)<7500 or PROHIBITED.search(inserted):
+ if not 100<len(inserted)<12000 or PROHIBITED.search(inserted):
   raise ValueError("unsafe scope")
  if (inserted.count("SALES_ONLY_FOLLOWUPS_CANDIDATE_BEGIN")!=1 or
      inserted.count("SALES_ONLY_FOLLOWUPS_CANDIDATE_END")!=1):
@@ -134,6 +136,18 @@ def choose_reviewed_recipe(result,challenges,available):
     failures.add(family)
  ids=set((result.get("generated_challenges") or {}).get("failed_ids",[]))
  failures.update(row["family"] for row in challenges if row["id"] in ids)
+ edges=(result.get("adversarial_cases") or {}).get("failed_ids",[])
+ if isinstance(edges,list):
+  for item in edges:
+   if not isinstance(item,str) or not re.fullmatch(r"edges-\d{2}",item):
+    continue
+   index=int(item.split("-")[-1])
+   if index>=len(adversarial_cases.ROWS):
+    continue
+   topic=adversarial_cases.ROWS[index][0]
+   if topic.startswith("reserve_"):failures.add("reservation")
+   if topic.startswith("shipment_"):failures.add("shipping")
+   if topic=="discount":failures.add("negotiation")
  choices={"reservation":"reserve_synonyms",
           "shipping":"shipping_eta_synonyms",
           "negotiation":"negotiation_synonyms"}
@@ -162,8 +176,18 @@ def check_ruby(original,candidate,generated=None):
          "holdout_failed_ids":h["failed_ids"]}
  challenge,challenge_ok=check_generated(candidate,generated or [])
  result["generated_challenges"]=challenge
+ edge=adversarial_cases.run(source=candidate)
+ if (edge.get("environment")!="INDEPENDENT_FICTIONAL_SALES_EDGE_CASES" or
+     edge.get("source_sha256")!=sha(candidate) or
+     edge.get("scenarios")!=11 or edge.get("public_messages_sent")!=0 or
+     edge.get("api_calls")!=0 or edge.get("real_sales")!=0 or
+     edge.get("production_changed") is not False):
+  raise ValueError("invalid adversarial QA")
+ result["adversarial_cases"]={"passed":edge["passed"],
+       "tested":11,"failed_ids":edge["failed_ids"]}
  return result,(result["dialogue_passed"]==72 and
-                result["holdout_passed"]==18 and challenge_ok)
+                result["holdout_passed"]==18 and
+                result["adversarial_cases"]["passed"]==11 and challenge_ok)
 def legacy_regression(candidate):
  d,_=legacy.run(source=candidate,persist=False)
  if (d.get("scenarios")!=72 or d.get("passed")!=72 or
@@ -174,7 +198,8 @@ def legacy_regression(candidate):
  return 72
 def unit_regression():
  r=subprocess.run(["/usr/bin/python3","-m","unittest","-q",
-      "test_sales_conversation_quality","test_conversion_training_lab"],
+      "test_sales_conversation_quality","test_conversion_training_lab",
+      "test_sales_adversarial_quality"],
       cwd=ROOT,text=True,capture_output=True,check=False,timeout=170,
       env={"PATH":"/usr/local/bin:/usr/bin:/bin","HOME":"/tmp",
            "PYTHONDONTWRITEBYTECODE":"1"})
@@ -212,6 +237,7 @@ def previous_reviewed_candidate(original):
   old=json.loads(REPORT.read_text())
   if (old.get("status")!="qa_passed_review_required" or
       old.get("source_sha256")!=sha(original) or
+      old.get("reviewed_recipe_sha256")!=sha(builder.ADDITIONS) or
       old.get("candidate_deployed") is not False or
       old.get("public_messages_sent")!=0):
    return None
@@ -335,6 +361,9 @@ def run():
          "resumed":state.get("resumed_previous_candidate",False),
          "challenge_source":state.get("challenge_source"),
          "challenge_count":state.get("challenge_count",0),
+         "adversarial_passed":(
+           (state["evaluations"][-1].get("adversarial_cases") or {}).get("passed")
+           if state["evaluations"] else None),
          "candidate_sha256":(state.get("winning_candidate") or {}).get("sha256"),
          "public_messages_sent":0,"candidate_deployed":False}
   _atomic_json(OUT/"history.json",(history+[event])[-120:])
