@@ -1,7 +1,7 @@
 {
-  "at": "2026-11-08T23:57:59.636631+00:00",
+  "at": "2026-11-09T00:09:19.426297+00:00",
   "environment": "OFFLINE_RUBY_SELLER_QA_ONLY",
-  "source_sha256": "3260199d85c245fe8da7dc94d8fa2b62dfdd63c8650a6cac2541e159f734b231",
+  "source_sha256": "a3367e5ffce171db6a11433087691c78853881b021f87cecd47d2cfbfaba56e0",
   "candidate": true,
   "scenarios": 72,
   "passed": 72,
