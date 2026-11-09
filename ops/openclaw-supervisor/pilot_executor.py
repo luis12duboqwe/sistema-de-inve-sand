@@ -181,6 +181,7 @@ def safe_action(task,sup,cache):
         if (not isinstance(evidence,dict) or
             evidence.get("dialogues_passed")!=72 or
             evidence.get("rotating_passed")!=6 or
+            evidence.get("adversarial_passed")!=11 or
             type(evidence.get("unit_tests_passed")) is not int or
             evidence["unit_tests_passed"]<21 or
             evidence.get("candidate_deployed") is not False or
@@ -195,6 +196,7 @@ def safe_action(task,sup,cache):
             "source_sha256":evidence["source_sha256"],
             "verified_synthetic_reply_cases":72,
             "rotating_challenges_passed":6,
+            "adversarial_cases_passed":11,
             "unit_tests_passed":evidence["unit_tests_passed"],
             "code_deployed":False,"public_messages_sent":0,
             "review_required":True}
