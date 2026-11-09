@@ -78,6 +78,7 @@ class DirectorTests(unittest.TestCase):
               "source_sha256":"a"*64,
               "candidate_dialogues_passed":72,
               "candidate_rotating_passed":6,
+              "candidate_adversarial_passed":11,
               "candidate_unit_tests_passed":21}
         result=d.attach_autonomous_sales(out,demo)
         self.assertEqual(result["scope"],"sales_only")
