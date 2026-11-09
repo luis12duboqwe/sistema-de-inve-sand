@@ -76,3 +76,11 @@ Para Groq se simplificó el JSON Schema del proveedor, pero el validador local m
 La ejecución `sales_catalog_audit.py` resume solo números del ERP (fuente interna, no atribución al aliado): 189 productos activos, 54 con existencias positivas en sucursales activas, 53 con precio y combinación modelo/color/capacidad registrada y tres entradas con precio inferior a costo. Revisión automática cada cuatro horas; reporte `catalog-audit-aggregate-snapshot.json`, sin detalles de productos, códigos, precios individuales, cuentas o clientes.
 
 El agente **no puede** convertir este registro en una promesa de unidad o cotización real. Falta validar cuándo se actualizó el precio/stock y de qué aliado proviene; estas comprobaciones solo habilitan revisión de calidad de datos. Los nuevos controles de catalogación pasan 9 pruebas; el supervisor completo alcanza 207.
+
+
+## Cortafuegos del agente conversacional de ventas
+Además de la calidad del Ruby, se corrigió el desvío de datos de `sales_ai_agent.py`: la función `approved_reply` opera sobre `knowledge/catalogo.json`, que contiene precios históricos y reglas no necesariamente vigentes. La ruta `reference_only` puede usarlo para orientación interna de diálogo, **pero ninguna cifra, porcentaje, regalía, aprobación, garantía o mensaje enviado se considera verificado por ese origen**.
+
+`reference_commerce_safe` valida la salida incluso cuando proviene de una plantilla considerada aprobada; `safe_reference_sales_reply` ofrece respuestas comerciales naturales sin afirmaciones sin evidencia y conserva la variante seleccionada. **También actúa cuando la API falla.** `test_reference_commerce_firewall.py` usa el catálogo histórico y un proveedor LLM simulado para demostrar que una cotización antigua (por ejemplo L 16,700) ya no llega a la respuesta del agente en modo referencia. No toca `approved_commerce.py` ni el bot público.
+
+La batería focalizada superó **94/94** pruebas, incluidas 38 del agente y referencia. El autocorrector de cada seis horas ejecutó **68/68** pruebas de candidatura y OpenClaw **207/207**, con `reference_only_agent_firewall_verified=true`, tareas pendientes de QA y certificado **6/11**. No hubo contactos, cobros, órdenes, modificación de inventario ni despliegue.
