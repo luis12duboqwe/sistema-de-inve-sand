@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "at": "2026-11-09T01:38:16.637073+00:00",
+  "at": "2026-11-09T02:36:43.753369+00:00",
   "environment": "OFFLINE_AUTONOMOUS_SALES",
   "scope": "sales_only",
   "status": "qa_passed_review_required",
@@ -78,7 +78,8 @@
         "failed_ids": []
       },
       "legacy_checkout_passed": 72,
-      "unit_tests_passed": 30
+      "unit_tests_passed": 68,
+      "reference_only_agent_firewall_verified": true
     }
   ],
   "candidate_staged": true,
@@ -114,5 +115,5 @@
       "rotation-04"
     ]
   },
-  "completed_at": "2026-11-09T01:38:35.150829+00:00"
+  "completed_at": "2026-11-09T02:36:58.546325+00:00"
 }
