@@ -1,0 +1,25 @@
+[Unit]
+Description=SoftMobile Replica Skill isolated candidate re-QA and review (never deploy)
+After=docker.service softmobile-sales-autofix-lab.service
+Requires=docker.service
+ConditionPathExists=/opt/openclaw-lab/supervisor/replica_cycle.py
+ConditionPathExists=/opt/openclaw-lab/workspace/skills/replica-diff/parity.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/openclaw-lab/supervisor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/openclaw-lab/supervisor/replica_cycle.py
+TimeoutStartSec=240
+MemoryMax=384M
+CPUQuota=65%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/openclaw-lab/workspace/lab-runs/replica-skill
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
