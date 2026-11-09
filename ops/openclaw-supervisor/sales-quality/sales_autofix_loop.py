@@ -48,6 +48,7 @@ def initial():
   "payments_initiated":0,"real_inventory_modified":False,
   "real_customer_data_loaded":False,"active_ruby_modified":False,
   "independent_production_qa_converged":False,
+  "resumed_previous_candidate":False,"auto_corrected_ever":False,
   "ai_challenges_available":False,"ai_challenge_count":0,
   "ai_challenge_qa_passed":False,"challenge_source":"not_available",
   "challenge_count":0,"challenge_qa_passed":False}
@@ -203,6 +204,34 @@ def stage(original,candidate):
   raise ValueError("staged SHA mismatch")
  return {"sha256":digest,"candidate_file":str(p)+".rb",
          "patch_file":str(p)+".patch","auto_deploy":False}
+def previous_reviewed_candidate(original):
+ """Resume only our own SHA-checked prior review artifact, not production."""
+ if not REPORT.is_file():
+  return None
+ try:
+  old=json.loads(REPORT.read_text())
+  if (old.get("status")!="qa_passed_review_required" or
+      old.get("source_sha256")!=sha(original) or
+      old.get("candidate_deployed") is not False or
+      old.get("public_messages_sent")!=0):
+   return None
+  artifact=old.get("winning_candidate") or {}
+  candidate_path=Path(artifact["candidate_file"])
+  patch_path=Path(artifact["patch_file"])
+  if (candidate_path.is_symlink() or patch_path.is_symlink() or
+      candidate_path.parent!=OUT/"candidates" or
+      patch_path.parent!=OUT/"candidates" or
+      not candidate_path.is_file() or not patch_path.is_file() or
+      artifact.get("auto_deploy") is not False):
+   raise ValueError("previous artifact location untrusted")
+  candidate=candidate_path.read_text()
+  if sha(candidate)!=artifact["sha256"]:
+   raise ValueError("previous candidate SHA mismatch")
+  guard(original,candidate)
+  return candidate
+ except (OSError,TypeError,KeyError,ValueError,AttributeError) as exc:
+  raise ValueError("previous candidate not trusted") from exc
+
 def one_cycle():
  state=initial()
  original=SOURCE.read_text()
@@ -232,8 +261,13 @@ def one_cycle():
  if generated:
   original_challenge,_=check_generated(original,generated)
   state["baseline_challenge"]=original_challenge
- candidate=builder.make(original)
- remaining=list(RECIPES)
+ previous=previous_reviewed_candidate(original)
+ state["resumed_previous_candidate"]=previous is not None
+ candidate=previous if previous is not None else builder.make(original)
+ start=candidate.index("      # SALES_ONLY_FOLLOWUPS_CANDIDATE_BEGIN")
+ end=candidate.index("      # SALES_ONLY_FOLLOWUPS_CANDIDATE_END")
+ region=candidate[start:end]
+ remaining=[r for r in RECIPES if r[1] in region and r[2] not in region]
  for i in range(MAX_ITERATIONS):
   record={"attempt":i+1,"candidate_sha256":sha(candidate),
           "status":"rejected"}
@@ -282,7 +316,28 @@ def run():
   except (RuntimeError,OSError,ValueError,TypeError,KeyError,subprocess.TimeoutExpired):
    state["status"]="blocked_unexpected_source_or_runner"
   state["completed_at"]=stamp()
+  try:
+   previous=json.loads(REPORT.read_text())
+  except (OSError,ValueError):
+   previous={}
+  state["auto_corrected_ever"]=(
+    len(state["evaluations"])>1 or
+    (previous.get("auto_corrected_ever") is True) or
+    len(previous.get("evaluations") or [])>1)
   _atomic_json(REPORT,state)
+  try:
+   history=json.loads((OUT/"history.json").read_text())
+   if not isinstance(history,list):history=[]
+  except (OSError,ValueError):
+   history=[]
+  event={"at":state["completed_at"],"status":state["status"],
+         "attempts":len(state["evaluations"]),
+         "resumed":state.get("resumed_previous_candidate",False),
+         "challenge_source":state.get("challenge_source"),
+         "challenge_count":state.get("challenge_count",0),
+         "candidate_sha256":(state.get("winning_candidate") or {}).get("sha256"),
+         "public_messages_sent":0,"candidate_deployed":False}
+  _atomic_json(OUT/"history.json",(history+[event])[-120:])
   private_write(OUT/"latest.md",
    "# SoftMobile: búsqueda automática de mejora de ventas\n\n"+
    "Estado: "+state["status"]+"\n"+
