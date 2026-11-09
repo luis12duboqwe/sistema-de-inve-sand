@@ -58,3 +58,7 @@ Se ampliaron los casos fijos con **18 reexpresiones nuevas** de negociación, re
 **Está operativo el ciclo completo de corrección automática dentro de reglas revisadas y aisladas.** Aún **no** es un programador genérico de IA capaz de cambiar arbitrariamente cualquier archivo ni de fusionar o desplegar código. No hace pruebas con clientes reales y no confirma ventas ni retorno real. El generador viejo `softmobile-patch-proposer.timer` sigue **deshabilitado** (desalineado con el Ruby actual). Los cambios creados esperan revisión de seguridad independiente y aprobación del propietario.
 
 Las reparaciones están archivadas; WhatsApp, envíos reales, cobros, descuentos reales, campañas y despliegues permanecen fuera de alcance.
+
+
+### Estado persistente de automejora del vendedor
+Desde la segunda ejecución el agente conserva y revalida el mejor candidato SHA-pinneado en vez de reescribir el mismo parche cada seis horas. Los resultados pasan a un historial acotado de 120 ciclos sin datos de clientes. Verificación: ejecución reanudada con **1 intento**, 72/72+18/18+6/6+72/72 y 21 regresiones unitarias, 0 despliegues; `auto_corrected_ever=true`. El director verifica el SHA del artefacto, mantiene la tarea `ventas_autofix_review` pendiente de QA y conserva el indicador **5/10**. El proveedor externo Groq aún no consiguió generar un lote de pruebas válido; el banco local diario continúa funcionando sin él.
