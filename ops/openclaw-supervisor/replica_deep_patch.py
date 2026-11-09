@@ -12,7 +12,7 @@ from replica_cycle import write_atomic
 BASE=Path("/opt/openclaw-lab/workspace/lab-runs/replica-skill")
 PARENT=BASE/"candidates/review-367912aab2611f22.rb"
 PARENT_SHA="367912aab2611f22392cb842c5c0076cc601c7e1c0320300b7f352b9625c5b4b"
-LIVE=Path("/opt/softmobile-waha-test/sales-bot-v2.rb")
+LIVE=Path("/opt/softmobile-waha-test/frozen-sales-baseline/sales-bot-v2-1336f52fdf4d8e44.rb")
 LIVE_SHA="1336f52fdf4d8e447af1816f705fc24ecb4de78a84f50ebf88f368eaaa363bc1"
 ROOT=BASE/"candidates"
 MARK="      # REPLICA_SALES_GUARDS_END\n"
