@@ -62,3 +62,9 @@ No reiniciar WAHA, no habilitar servicio público, no enviar contactos, no alter
 - **Verificado:** servicio y cadena de OpenClaw sin errores, 56 tests del laboratorio y 195 del supervisor.
 - **Pendiente por evidencia:** validación real del generador Groq de preguntas. Se simplificó el esquema estricto manteniendo todas las restricciones de seguridad en el validador local, pero no hay ejecución válida del proveedor aún. Hasta entonces se usa el banco rotativo local. No gastar más API el mismo día.
 - **No ejecutar todavía:** despliegue, mensajes a clientes, WAHA, reparaciones, descuentos, pedidos o inventario real.
+
+
+### Auditoría de datos para cotizaciones — ejecución completa en modo seguro
+El auditor comercial de inventario quedó instalado, probado y calendarizado. Detectó 189 activos, 54 con stock en ubicaciones activas, 53 con campos mínimos completos, 135 sin stock y tres posibles anomalías donde precio es inferior a costo. Se conectó al director y cola `ventas_catalogo_calidad`, con estado `awaiting_human` y ningún cambio externo. El sistema de vendedores **no recibe permisos para citar automáticamente esos precios** hasta confirmar frescura de stock, precio, política de margen y relación con el inventario del aliado.
+
+Supervisión repetible validada: 207 tests, 11 tareas comerciales, 0 fallas, 0 mensajes públicos, auditor de catálogo activo cada cuatro horas. El bot público sigue en su fuente original y el candidato comercial se mantiene para QA aislada.
