@@ -46,3 +46,10 @@ No reiniciar WAHA, no habilitar servicio público, no enviar contactos, no alter
 - Se corrigieron reglas de negociación en lenguaje natural, reservas para días de la semana y plazos/costos de envío con destino previamente indicado.
 - Última candidata: **72/72 escenarios iniciales + 18/18 nuevos + 72/72 regresiones heredadas**, y **21 pruebas unitarias** aprobadas; no son ventas ni mensajes reales.
 - Pendiente: evaluación independiente fuera de los conjuntos conocidos, prueba de integración con IA real de manera aislada y revisión de código del PR; no autorizar despliegue ni WhatsApp.
+
+
+## Hito: ciclo autónomo comercial en el laboratorio (8 noviembre 2026)
+**Completado con pruebas:** `sales_autofix_loop.py` cada seis horas, que genera candidatas a partir de la versión Ruby fijada, selecciona correcciones permitidas por categoría de errores, repite hasta 4 intentos o bloquea en fallas, ejecuta QA 72+18+6, regresiones de checkout 72 y 21 tests, y guarda un parche/reporte privado. La primera ejecución de retroalimentación real mejoró 4/6 a 6/6 en el segundo intento sin intervención manual.
+**Conexión OpenClaw completada:** director, ejecutor, cola y certificador conocen `ventas_autofix_review`; 195/195 pruebas internas aprobadas; 5/10 condiciones del área sin WhatsApp.
+**En prueba, NO terminado:** generación Groq de seis preguntas adversariales nuevas, con cuota independiente de 1/día. El primer intento falló o no cumplió esquema y no se integró; reintentos del mismo día deshabilitados por presupuesto.
+**No autorizado:** aplicar los parches al vendedor activo, fusionar la rama, desplegar, habilitar clientes o WhatsApp. Antes de lanzamiento: revisión independiente del candidato y seguridad, pruebas con datos autorizados de inventario/precios y experiencia real del agente, sin operaciones externas hasta autorización.
