@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "at": "2026-11-09T01:00:29.402359+00:00",
+  "at": "2026-11-09T01:38:16.637073+00:00",
   "environment": "OFFLINE_AUTONOMOUS_SALES",
   "scope": "sales_only",
   "status": "qa_passed_review_required",
@@ -9,16 +9,17 @@
     "passed": 36,
     "tested": 72
   },
+  "reviewed_recipe_sha256": "b97c206cf54025271c70efe206da1ee245f87bbbdc750609c59be74942495c5d",
   "winning_candidate": {
-    "sha256": "e2ed17f114832645896877e473d13dd438a0cfba1b9b00907b33543661d9fa19",
-    "candidate_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-e2ed17f114832645.rb",
-    "patch_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-e2ed17f114832645.patch",
+    "sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
+    "candidate_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-55854e2aecb3a8f6.rb",
+    "patch_file": "/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales/candidates/candidate-55854e2aecb3a8f6.patch",
     "auto_deploy": false
   },
   "evaluations": [
     {
       "attempt": 1,
-      "candidate_sha256": "e2ed17f114832645896877e473d13dd438a0cfba1b9b00907b33543661d9fa19",
+      "candidate_sha256": "55854e2aecb3a8f6bc98a5ef472b551514f16572b6c29def38b20933ade9c9c2",
       "status": "qa_passed_review_required",
       "dialogue_passed": 72,
       "dialogue_total": 72,
@@ -71,8 +72,13 @@
         "tested": 6,
         "failed_ids": []
       },
+      "adversarial_cases": {
+        "passed": 11,
+        "tested": 11,
+        "failed_ids": []
+      },
       "legacy_checkout_passed": 72,
-      "unit_tests_passed": 21
+      "unit_tests_passed": 30
     }
   ],
   "candidate_staged": true,
@@ -108,5 +114,5 @@
       "rotation-04"
     ]
   },
-  "completed_at": "2026-11-09T01:00:45.721038+00:00"
+  "completed_at": "2026-11-09T01:38:35.150829+00:00"
 }
