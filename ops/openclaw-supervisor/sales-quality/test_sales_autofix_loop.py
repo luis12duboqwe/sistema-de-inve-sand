@@ -40,6 +40,23 @@ class AutoSalesLoopTests(unittest.TestCase):
     def test_recipe_anchor_drift_blocks(self):
         with self.assertRaises(ValueError):
             a.bounded_next(self.candidate,("not_exist","UNSEEN123","more"))
+    def test_choose_recipe_from_failed_reservation(self):
+        evidence={"generated_challenges":{"failed_ids":["rotation-02"]}}
+        fixtures=[{"id":"rotation-02","family":"reservation"}]
+        choice=a.choose_reviewed_recipe(evidence,fixtures,a.RECIPES)
+        self.assertEqual(choice[0],"reserve_synonyms")
+    def test_choose_recipe_from_shipping_only(self):
+        evidence={"generated_challenges":{"failed_ids":["rotation-05"]}}
+        fixtures=[{"id":"rotation-05","family":"shipping"}]
+        choice=a.choose_reviewed_recipe(evidence,fixtures,a.RECIPES)
+        self.assertEqual(choice[0],"shipping_eta_synonyms")
+    def test_choose_recipe_does_not_accept_model_code(self):
+        evidence={"generated_challenges":{"failed_ids":["rotation-05"]}}
+        fixtures=[{"id":"rotation-05","family":"shipping"}]
+        only=[r for r in a.RECIPES if r[0]=="negotiation_synonyms"]
+        self.assertEqual(a.choose_reviewed_recipe(evidence,fixtures,only)[0],
+                         "negotiation_synonyms")
+
     def test_no_client_actions_reported(self):
         r=a.initial()
         for k in ("candidate_deployed","candidate_integrated",
@@ -80,10 +97,10 @@ class AutoSalesLoopTests(unittest.TestCase):
               patch.object(a,"check_ruby",
                 return_value=({"dialogue_passed":1,"holdout_passed":0},False))):
             r=a.one_cycle()
-        self.assertEqual(len(r["evaluations"]),3)
+        self.assertEqual(len(r["evaluations"]),4)
         self.assertFalse(r["candidate_staged"])
         self.assertFalse(r["candidate_deployed"])
-        self.assertEqual(r["status"],"blocked")
+        self.assertEqual(r["status"],"no_more_safe_recipes")
     def test_drift_cannot_stage(self):
         with tempfile.TemporaryDirectory() as dirname:
             path=Path(dirname)/"sales-bot-v2.rb"
