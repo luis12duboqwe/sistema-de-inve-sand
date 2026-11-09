@@ -1,0 +1,43 @@
+{
+  "at": "2026-11-08T23:57:59.636631+00:00",
+  "environment": "OFFLINE_RUBY_SELLER_QA_ONLY",
+  "source_sha256": "3260199d85c245fe8da7dc94d8fa2b62dfdd63c8650a6cac2541e159f734b231",
+  "candidate": true,
+  "scenarios": 72,
+  "passed": 72,
+  "failed": 0,
+  "by_family": {
+    "purchase": {
+      "tested": 12,
+      "passed": 12
+    },
+    "financing": {
+      "tested": 12,
+      "passed": 12
+    },
+    "negotiation": {
+      "tested": 12,
+      "passed": 12
+    },
+    "reservation": {
+      "tested": 12,
+      "passed": 12
+    },
+    "shipping": {
+      "tested": 12,
+      "passed": 12
+    },
+    "accessories": {
+      "tested": 12,
+      "passed": 12
+    }
+  },
+  "issues_by_family": {},
+  "failed_ids": [],
+  "real_sales": 0,
+  "public_messages_sent": 0,
+  "api_calls": 0,
+  "inventory_modified": false,
+  "production_modified": false,
+  "auto_deploy_permitted": false
+}
