@@ -1,0 +1,23 @@
+[Unit]
+Description=SoftMobile bounded 1/day Groq-only fictional buyer challenge generation
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/softmobile/groq.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/softmobile-waha-test/laboratorio-ia
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SOFTMOBILE_AI_MODEL=openai/gpt-oss-20b
+ExecStart=/usr/bin/python3 /opt/softmobile-waha-test/laboratorio-ia/sales_ai_challenges.py
+TimeoutStartSec=65
+MemoryMax=192M
+CPUQuota=50%
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/softmobile-waha-test/laboratorio-ia/quality/autonomous-sales
