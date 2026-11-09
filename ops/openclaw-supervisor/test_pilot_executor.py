@@ -132,6 +132,25 @@ class PilotExecutorTests(unittest.TestCase):
         state,detail=p.safe_action(director["tasks"][1],sup,{})
         self.assertEqual(state,"blocked")
 
+    def test_autonomous_fix_review_never_deploys(self):
+        sup,director=data()
+        task={**director["tasks"][0],"id":"ventas_autofix_review",
+              "evidence":{"source_sha256":"a"*64,
+                          "candidate_sha256":"b"*64,
+                          "dialogues_passed":72,
+                          "rotating_passed":6,
+                          "unit_tests_passed":21,
+                          "candidate_deployed":False,
+                          "public_messages_sent":0,
+                          "requires_human_review":True}}
+        state,out=p.safe_action(task,sup,{})
+        self.assertEqual(state,"awaiting_qa")
+        self.assertFalse(out["code_deployed"])
+        self.assertTrue(out["review_required"])
+        task["evidence"]["candidate_deployed"]=True
+        with self.assertRaises(p.Reject):
+            p.safe_action(task,sup,{})
+
     def test_live_ruby_seller_quality_is_not_mock_checkout(self):
         sup,director=data()
         task={**director["tasks"][0],"id":"ventas_calidad_conversacional",
