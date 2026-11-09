@@ -132,6 +132,27 @@ class PilotExecutorTests(unittest.TestCase):
         state,detail=p.safe_action(director["tasks"][1],sup,{})
         self.assertEqual(state,"blocked")
 
+    def test_live_ruby_seller_quality_is_not_mock_checkout(self):
+        sup,director=data()
+        task={**director["tasks"][0],"id":"ventas_calidad_conversacional",
+              "evidence":{"scenarios":72,"passed":36,"failed":36,
+                          "synthetic_only":True,"verified_real_sales":0,
+                          "ruby_source_sha256":"a"*64}}
+        state,info=p.safe_action(task,sup,{})
+        self.assertEqual(state,"awaiting_qa")
+        self.assertEqual(info["real_sales_verified"],0)
+        self.assertEqual(info["failed"],36)
+        task["evidence"]["failed"]=0
+        with self.assertRaises(p.Reject):p.safe_action(task,sup,{})
+    def test_quality_clean_synthetic_only_review(self):
+        sup,director=data()
+        task={**director["tasks"][0],"id":"ventas_calidad_conversacional",
+              "evidence":{"scenarios":72,"passed":72,"failed":0,
+                          "synthetic_only":True,"verified_real_sales":0,
+                          "ruby_source_sha256":"a"*64}}
+        status,_=p.safe_action(task,sup,{})
+        self.assertEqual(status,"checked_needs_review")
+
     def test_safe_sales_simulation_result_internal(self):
         sup,director=data()
         t={**director["tasks"][0],"id":"ventas_simulaciones",
