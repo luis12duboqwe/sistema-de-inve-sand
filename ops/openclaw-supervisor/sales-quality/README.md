@@ -35,3 +35,16 @@ Unidad `softmobile-seller-conversation-quality.service` cada cuatro horas por su
 La certificación comercial declara `ruby_sales_conversation_quality_passed=false` y presenta **4/9 condiciones satisfechas**. Toda salida pública sigue prohibida.
 
 **Pendiente:** revisión de variantes adversariales y de la seguridad contra promesas, continuidad de cambios de modelo, aprobación de la candidata y pruebas en aislamiento con el agente IA. WhatsApp, desplegar el bot, clientes y pagos permanecen fuera del alcance.
+
+
+## Pruebas de generalización (8 nov 2026)
+Se creó `sales_heldout_challenges.py` como una segunda batería de **18 formulaciones distintas** que no pertenecían al conjunto fijo de 72. Las pruebas incluyen negociación coloquial («Si se puede, seguimos»), reservas en días de la semana («¿Me lo apartás para el lunes?») y envíos con una ciudad indicada en un mensaje anterior («¿En cuánto tiempo llega?»).
+
+- Ruby original: **6/18**.
+- Primera revisión del candidato: **8/18**. Esto reveló sobreajuste al conjunto de 72.
+- Candidato generalizado: **18/18**, conservando **72/72** en la evaluación inicial y **72/72** en las pruebas heredadas del checkout simulado.
+- **21 tests unitarios** de guardas comerciales aprobados. El parche final contiene 55 líneas, se aplica sin errores a la fuente fijada por SHA y produce exactamente los mismos bytes que el candidato.
+
+Este resultado no equivale a una prueba estadística completa ni a conversaciones reales. No se ha activado el bot, ni enviado mensajes, cobrado, reservado o alterado inventario. `SALES_CANDIDATE_QA.json` es la evidencia interna que consumen los especialistas de OpenClaw; el candidato conserva `deployment_authorized=false`.
+
+La versión real continúa **36/72 y 6/18** hasta que se autorice una sustitución después de QA independiente.
