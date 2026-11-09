@@ -51,6 +51,23 @@ ADDITIONS=r'''
           note:"COSTO DE ENVÍO: destino #{place}. Confirmar tarifa y stock; nunca confundir con precio del equipo.",
           needs_human:true,intent: :shipping,tag:'sales_only_shipping_cost'}
       end
+      # Avoid robotic staff references for basic catalog questions. No
+      # price or unit may be offered without an authorized stock/price source.
+      if device && ctx[:model] && ctx[:model][1] &&
+         [:price,:stock,:stock_price].include?(intent_type) &&
+         !t.match?(/\b(?:envio|enviar|enviarlo|enviarmelo|mandarlo|mi pedido|ya pague|mi compra|reembolso)\b/)
+        descriptor=[device,cap && "de #{cap}",col && "en #{col.downcase}"].compact.join(' ')
+        if intent_type==:price
+          response="Del #{descriptor}, todavía necesito confirmar el precio final de la unidad para cotizarte correctamente. No quiero darte un valor que después cambie."
+        elsif intent_type==:stock
+          response="Para el #{descriptor}, todavía necesito comprobar existencias reales y color antes de ofrecerte una unidad. Prefiero confirmártelo bien."
+        else
+          response="Para el #{descriptor}, necesito verificar precio y existencias de la misma unidad antes de cotizarte. Así evitamos darte información que no esté confirmada."
+        end
+        return {reply:response,
+          note:"VENTAS: sin datos autorizados de precio/stock reales. Verificar SKU exacto, color, precio y existencia antes de cotizar.",
+          needs_human:true,intent:intent_type,tag:'sales_only_stock_price_followup'}
+      end
       # SALES_ONLY_FOLLOWUPS_CANDIDATE_END
 '''
 def make(base:str):
